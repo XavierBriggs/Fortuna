@@ -1,0 +1,44 @@
+# Copy to config/fortuna.toml (gitignored). Secrets come from env, never this file.
+
+[gates.global]
+max_total_exposure_cents = 800_000   # 80% of a $10k account
+max_daily_loss_cents     = 50_000    # drawdown halt: realized + conservative-mark unrealized, day = 00:00 UTC
+
+[gates.per_strategy.mech_structural]
+max_exposure_cents = 200_000
+max_order_notional_cents = 10_000
+min_net_edge_bps = 100
+
+[gates.per_strategy.mech_extremes]
+max_exposure_cents = 150_000
+max_order_notional_cents = 5_000
+min_net_edge_bps = 150
+
+[gates.rate.kalshi]
+burst = 5
+sustained_per_min = 20
+
+[envelopes]                # spec 5.14: the ONLY capital allocation tier
+mech_structural_cents = 300_000
+mech_extremes_cents   = 200_000
+
+[sizing]
+kelly_fraction = 0.25
+
+[fees.kalshi]              # spec 5.2: fee schedules are data, verified per fill
+formula = "quadratic"      # fee = coeff * p * (1-p) * contracts
+taker_coeff = "0.07"
+maker_coeff = "0.0175"
+effective_date = "2026-01-01"
+
+[slack]                    # channel ids from env: FORTUNA_SLACK_*
+channels = ["trading", "alerts", "review", "digest", "ops"]
+
+[cognition]
+synthesis_model = "claude-fable-5"
+triage_model = "claude-haiku-4-5"
+daily_budget_cents = 1_500
+shadow_budget_cents = 500
+
+[deadman]
+ping_interval_secs = 60

@@ -1,0 +1,12 @@
+[package]
+name = "fortuna-invariants"
+version = "0.1.0"
+edition = "2021"
+
+# PROTECTED CRATE - see CLAUDE.md. Assertion logic in tests/ may be added to,
+# never weakened, renamed, or removed.
+
+[dependencies]
+
+[dev-dependencies]
+proptest = { workspace = true }

@@ -1,0 +1,89 @@
+# BUILD_PLAN.md — Phased Task List
+
+Rules: tasks in order within a phase; a phase closes only when its exit criteria are
+demonstrated (paste evidence in the completion note). Each task cites its spec section.
+Tick boxes with a one-line completion note and the commit hash.
+
+## Phase 0 — Verification spine and deterministic core (spec 5.1, Section 12)
+
+- [ ] T0.1 `fortuna-core`: `Clock` trait (real + sim), ULID ids, `Cents` newtype with
+      checked arithmetic, error types. (5.1, conventions)
+- [ ] T0.2 `fortuna-core`: single-threaded deterministic event bus (`BusEvent`),
+      replay recorder/player; same seed => byte-identical event stream test. (5.1)
+- [ ] T0.3 `fortuna-venues`: `Venue` trait, `FeeModel` (config-driven schedule
+      interpreter: quadratic/flat/tiered + effective_date versioning), sim venue with
+      seeded fault injection (delay/drop/dup/crash hooks, configurable book). (5.2)
+- [ ] T0.4 DST harness + `scripts/run-dst.sh` + CI wiring: randomized scenario runner,
+      seed minimizer note, regression corpus directory. (5.1, PROMPT doctrine)
+- [ ] T0.5 `fortuna-gates`: checks 1-10, TOML config, `GatedOrder` sealed constructor,
+      audit record per verdict; property + boundary tests; first invariant tests
+      implemented (I1, I3 subset). (5.3)
+- [ ] T0.6 `fortuna-exec`: intent journal state machine, deterministic client ids,
+      IntentGroup completion policy, execution policy (TTL, re-quote,
+      one-working-order rule), flatten planner; boot reconciliation; DST crash
+      scenarios. (5.4)
+- [ ] T0.7 `fortuna-state`: positions, account views (settled/committed/floating/total),
+      conservative marking, reservation ledger rebuilt-at-boot; drawdown halt flags
+      (I2). (5.14, 5.13)
+- [ ] T0.8 `fortuna-ledger`: Postgres schema + migrations for ALL Section 7 tables;
+      append-only audit writer (write failure => halt); sqlx setup. (5.5, 5.13, 7, I5)
+- [ ] T0.9 `fortuna-ops`: config loader, Slack client + channel routing, kill-switch
+      STANDALONE binary (no Postgres, own credentials, freeze-and-cancel), CLI
+      (halt/re-arm/kill/status), dead-man pinger. (8, I4)
+- [ ] T0.10 `mech_structural` strategy plugin + Strategy trait + per-strategy
+      comparator/sizing-lib split; runs in Sim. (6, 5.14)
+
+EXIT: mech_structural full loop in Sim with replay; DST corpus (all Phase-0-relevant
+doctrine scenarios) zero violations across >= 10,000 seeds; CI green; I1-I4 invariant
+tests implemented and green.
+
+## Phase 1 — Mechanical paper path (Section 11, 12)
+
+- [ ] T1.1 Kalshi adapter against `fixtures/kalshi/` (auth/signing, markets, book,
+      place/cancel, fills cursor, settlement notices); fee reconciliation per fill. (5.2)
+- [ ] T1.2 Paper engine: trade-through maker fills with haircut, taker crosses visible
+      depth; paper/live parity at the Strategy interface. (11)
+- [ ] T1.3 `mech_extremes` + model-veto scaffolding (veto reduce-only, counterfactual
+      scoring records; stub mind acceptable this phase). (6)
+- [ ] T1.4 Settlement lifecycle processors + watchdogs (overdue, dispute, divergence,
+      stranded-state) + discrepancy records. (5.13)
+- [ ] T1.5 Metrics (OpenTelemetry), minimal read-only dashboard, daily digest,
+      accounting export. (8)
+
+EXIT: both mechanical strategies in Paper against recorded data streams; settlement and
+discrepancy paths exercised in DST; dashboards and digest render from sim data.
+
+## Phase 2 — Belief pipeline (Section 12)
+
+- [ ] T2.1 Events + edges + snapshot scheduler (benchmark_at; T-24h/1h/5m + on-trade);
+      CLV scoring job with liquidity filter. (5.12, 5.5)
+- [ ] T2.2 Signals: `Source` trait, normalizer/envelope/dedup, source registry with
+      trust tiers, trigger engine (rules + debounce + per-event serialization). (5.11, 5.8)
+- [ ] T2.3 Belief ledger ops + freshness policy + scoring (Brier, calibration curves
+      per model/strategy/category). (5.5, 5.10)
+- [ ] T2.4 Context assembler with manifests + replayability (snapshotted computed
+      views); anonymization mode. (5.7)
+- [ ] T2.5 `Mind` trait: StubMind (deterministic, for DST) + AnthropicMind (structured
+      output via tool schema, cost tracking, budgets, schema-invalid handling). (5.9)
+- [ ] T2.6 Decision cycle + comparator + Kelly sizing with calibration haircut;
+      triage tier + triage scoring (declined-trigger shadow sampling). (5.8, 5.9, 5.14)
+- [ ] T2.7 Daily reconciliation loop (journal, exits evaluation), aeolus_eval ingestion
+      against the sample fixture. (5.8, 6)
+- [ ] T2.8 Calibration layer (Platt/isotonic, shrinkage prior, versioned params). (5.10)
+
+EXIT: full decision loop in Sim with StubMind under DST (including cognition failure
+scenarios); AnthropicMind exercised behind a feature flag with budget controls;
+aeolus_eval writes scored beliefs from fixture envelopes; I5-I7 invariant tests green.
+
+## Phase 3 — Closing the loop (Section 12)
+
+- [ ] T3.1 Weekly/monthly review jobs (calibration report, lesson promotion flow,
+      envelope allocation report). (5.8)
+- [ ] T3.2 Market-back discovery loop + edge confirmation cards; world-forward
+      watchlist loop with cost cap + unscoreable rule. (5.12)
+- [ ] T3.3 Shadow-mode model comparison harness (paired contexts, separate budget). (11)
+- [ ] T3.4 Polymarket US adapter (fixtures-gated; stub + GAPS entry if fixtures absent).
+- [ ] T3.5 `synth_events` strategy in Paper. (6)
+- [ ] T3.6 FINAL_REPORT.md + operator go-live runbook + full acceptance checklist run.
+
+EXIT: PROMPT.md acceptance checklist fully green or operator-blocked-only.

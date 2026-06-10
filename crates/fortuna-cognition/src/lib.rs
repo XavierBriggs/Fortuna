@@ -1,0 +1,12 @@
+//! fortuna-cognition: everything probabilistic. Spec 5.7-5.12. I6.
+//!
+//! Source trait + ingestion funnel (envelope, dedup, point-in-time, source
+//! registry trust tiers). Trigger engine (rules + cheap triage; triage is
+//! scored via declined-trigger shadow sampling; per-event serialization with
+//! debounce). Context assembler (budgeted, manifest-hashed, replayable;
+//! computed views snapshotted). Mind trait: StubMind (deterministic, DST) and
+//! AnthropicMind (structured output, budgets; schema-invalid => reject, log,
+//! retry once, skip). MindOutput is propose-only (I6): beliefs, proposals,
+//! journal drafts. Comparator + shared Kelly sizing lib (envelope reservation,
+//! calibration haircut). Calibration layer (Platt/isotonic, shrinkage prior).
+//! Loops: decision, daily reconciliation (00:00 UTC), weekly, monthly.
