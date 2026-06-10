@@ -3,6 +3,35 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T3.3 — shadow-mode model comparison
+
+- **The pairing key is the context manifest hash.** "Identical
+  AssembledContext to the incumbent" (Section 11) is provable: the
+  challenger receives the incumbent's exact AssembledContext and every
+  shadow belief carries context_manifest_hash + shadow:true + the
+  challenger's model_id in harness-stamped provenance. The comparison
+  joins on it; duplicate (category, hash) pairs deduplicate rather than
+  inflate the count.
+- **Budget is checked BEFORE sampling:** an unaffordable cycle must not
+  consume the day's sample quota. Challenger failures are counted on
+  the harness and return None — the live loop never sees a challenger
+  problem.
+- **"Brier/CLV >= incumbent" encoded as:** challenger mean Brier <=
+  incumbent mean Brier AND challenger mean CLV >= incumbent where BOTH
+  sides measured; CLV unmeasurable on both sides => Brier decides. Every
+  ACTIVE category must qualify with >= 30 paired resolutions. The
+  verdict is {PromoteRecommended, Hold} — recommendation-only (I7);
+  applying a swap is an operator config change recorded in audit.
+- **I7 stubs closed (zero ignored invariant tests):** the model-swap
+  clause pins evaluate_model_swap (no record / short record / worse
+  challenger => Hold). The stage-promotion clause pins
+  runner::promotion::effective_stage — everything starts at Sim;
+  promotion advances ONE contiguous step per HUMAN-actor record
+  ("system"/blank cannot promote); demotion steps apply for any actor
+  (automatic on breach); the declared stage is a cap. The composition
+  sources records from audit rows written by the operator CLI; records
+  are supplied time-ordered.
+
 ## T3.2 — discovery loops
 
 - **The normalization and watchlist contracts ride in the journal body

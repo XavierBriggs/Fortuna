@@ -27,6 +27,7 @@
 
 pub mod mech_extremes;
 pub mod mech_structural;
+pub mod promotion;
 mod runner;
 pub mod synthesis;
 

@@ -41,13 +41,6 @@ requires this file to contain ONLY operator-blocked items, each with exact unblo
   open item — it validates Aeolus's exporter, not FORTUNA's parser.)
 
 ## Open
-- **Two I7 invariant clauses staged as ignored stubs (Phase 2 EXIT,
-  2026-06-10).** i7_promotion_gates is implemented (stage-violation
-  refusal + ordered Stage ladder); the "promotion requires an operator
-  action record" clause is staged as an ignored stub owned by T3.1 and
-  "model swap requires a shadow comparison record" by T3.3 — their rails
-  (promotion records, shadow comparison harness) do not exist yet. The
-  acceptance checklist's zero-ignored-tests requirement closes both.
 - **Kalshi void representation in /portfolio/settlements is undocumented
   (T1.4, 2026-06-10).** `market_result` documents only yes/no/scalar; the
   adapter hard-errors on anything else so a void cannot pass silently.

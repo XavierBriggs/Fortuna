@@ -189,21 +189,94 @@ fn i7_promotion_gates() {
 }
 
 #[test]
-#[ignore = "implement per BUILD_PLAN (T3.1); see tests/README.md"]
 fn i7_stage_promotion_requires_operator_action_record() {
-    todo!(
-        "encode: a stage promotion takes effect only with an operator \
-         action record (actor, timestamp, prior stage, new stage) in the \
-         ledger; absent the record, the strategy runs at its prior stage"
-    );
+    use fortuna_runner::promotion::{effective_stage, PromotionRecord};
+
+    let record = |from: Stage, to: Stage, actor: &str| PromotionRecord {
+        strategy: "synth_events".to_string(),
+        from,
+        to,
+        actor: actor.to_string(),
+        at: "2026-06-10T00:00:00.000Z".to_string(),
+    };
+
+    // No records: the strategy runs at Sim no matter what it declares.
+    assert_eq!(effective_stage(Stage::Scaled, &[]), Stage::Sim);
+
+    // Each promotion step requires an OPERATOR record; the chain must be
+    // contiguous from Sim.
+    let to_paper = [record(Stage::Sim, Stage::Paper, "operator:xavier")];
+    assert_eq!(effective_stage(Stage::Scaled, &to_paper), Stage::Paper);
+
+    // A gap in the chain stops the walk (no skipping stages).
+    let skipping = [record(Stage::Paper, Stage::LiveMin, "operator:xavier")];
+    assert_eq!(effective_stage(Stage::Scaled, &skipping), Stage::Sim);
+
+    // "system" cannot promote — promotion is a HUMAN action.
+    let robot = [record(Stage::Sim, Stage::Paper, "system")];
+    assert_eq!(effective_stage(Stage::Scaled, &robot), Stage::Sim);
+    let blank = [record(Stage::Sim, Stage::Paper, "  ")];
+    assert_eq!(effective_stage(Stage::Scaled, &blank), Stage::Sim);
+
+    // The declared stage is a CAP: records cannot raise a strategy above
+    // what its code/config declares.
+    let full_chain = [
+        record(Stage::Sim, Stage::Paper, "operator:xavier"),
+        record(Stage::Paper, Stage::LiveMin, "operator:xavier"),
+        record(Stage::LiveMin, Stage::Scaled, "operator:xavier"),
+    ];
+    assert_eq!(effective_stage(Stage::Paper, &full_chain), Stage::Paper);
+    assert_eq!(effective_stage(Stage::Scaled, &full_chain), Stage::Scaled);
+
+    // Demotion is AUTOMATIC on breach (spec Section 11): a step DOWN
+    // applies regardless of actor — a compromised path may never
+    // promote, but the system may always retreat.
+    let demoted = [
+        record(Stage::Sim, Stage::Paper, "operator:xavier"),
+        record(Stage::Paper, Stage::Sim, "system"),
+    ];
+    assert_eq!(effective_stage(Stage::Scaled, &demoted), Stage::Sim);
 }
 
 #[test]
-#[ignore = "implement per BUILD_PLAN (T3.3); see tests/README.md"]
 fn i7_model_swap_requires_shadow_comparison_record() {
-    todo!(
-        "encode: a model swap into the live decision flow requires a \
-         shadow comparison record (>= 30 resolved paired beliefs per \
-         active category, Brier/CLV >= incumbent) per spec Section 11"
-    );
+    use fortuna_cognition::shadow::{
+        evaluate_model_swap, PairedScore, SwapThresholds, SwapVerdict,
+    };
+
+    let thresholds = SwapThresholds {
+        min_resolved_per_category: 30,
+    };
+    let active = vec!["weather".to_string()];
+    let pairs = |n: usize, challenger_brier: f64| -> Vec<PairedScore> {
+        (0..n)
+            .map(|i| PairedScore {
+                category: "weather".to_string(),
+                manifest_hash: format!("hash-{i}"),
+                incumbent_brier: 0.20,
+                challenger_brier,
+                incumbent_clv_bps: Some(50.0),
+                challenger_clv_bps: Some(55.0),
+            })
+            .collect()
+    };
+
+    // NO RECORD, NO PROMOTION — the empty record can never recommend.
+    let eval = evaluate_model_swap(&[], &active, &thresholds);
+    assert_eq!(eval.verdict, SwapVerdict::Hold);
+
+    // An insufficient record (29 < 30 paired resolutions) holds.
+    let eval = evaluate_model_swap(&pairs(29, 0.10), &active, &thresholds);
+    assert_eq!(eval.verdict, SwapVerdict::Hold);
+
+    // A worse challenger holds regardless of record size.
+    let eval = evaluate_model_swap(&pairs(100, 0.30), &active, &thresholds);
+    assert_eq!(eval.verdict, SwapVerdict::Hold);
+
+    // A qualifying record yields a RECOMMENDATION only: the verdict type
+    // is {PromoteRecommended, Hold} — there is no field, method, or
+    // variant that mutates the live model id. Applying a swap is an
+    // operator config change recorded in audit.
+    let eval = evaluate_model_swap(&pairs(40, 0.15), &active, &thresholds);
+    assert_eq!(eval.verdict, SwapVerdict::PromoteRecommended);
 }
