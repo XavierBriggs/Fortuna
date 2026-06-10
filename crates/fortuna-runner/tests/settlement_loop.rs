@@ -463,3 +463,96 @@ fn settlement_processing_is_byte_deterministic() {
     };
     assert_eq!(run(), run());
 }
+
+// ---- T3.6: divergence detector + orphan watchdog (spec 5.13) ----
+
+#[test]
+fn settlement_divergence_records_and_pnl_follows_venue_truth() {
+    let mut w = world(91);
+    // The composition wires the canonical resolution (events pipeline):
+    // canon says NO for KXS's mapped event.
+    w.runner
+        .set_canonical_resolution(mkt("KXS"), Side::No, "edge-kxs-evt");
+
+    // The venue settles YES anyway (two truths coexist deliberately).
+    fill_then_settle(&mut w, Side::Yes);
+
+    // PnL FOLLOWS VENUE TRUTH: we held YES, the venue paid.
+    let pos = w.runner.positions().position(&mkt("KXS")).unwrap();
+    assert_eq!(pos.realized_pnl, Cents::new(400));
+
+    // The divergence is RECORDED, never reconciled away: a discrepancy
+    // names both truths and the edge whose confidence takes the hit.
+    let rows = w.audit.rows_of_kind("discrepancy");
+    let div: Vec<&serde_json::Value> = rows
+        .iter()
+        .filter(|r| r["kind"] == "settlement_divergence")
+        .collect();
+    assert_eq!(div.len(), 1, "exactly one divergence record: {rows:?}");
+    assert_eq!(div[0]["detail"]["venue_outcome"], "yes");
+    assert_eq!(div[0]["detail"]["canonical_outcome"], "no");
+    assert_eq!(div[0]["detail"]["edge"], "edge-kxs-evt");
+    assert!(
+        div[0]["detail"]["edge_confidence_hit"].is_string(),
+        "the documented confidence hit rides in the record"
+    );
+
+    // Counted for ops.
+    assert!(w.runner.counters().discrepancies >= 1);
+}
+
+#[test]
+fn agreeing_settlement_records_no_divergence() {
+    let mut w = world(92);
+    w.runner
+        .set_canonical_resolution(mkt("KXS"), Side::Yes, "edge-kxs-evt");
+    fill_then_settle(&mut w, Side::Yes);
+    assert!(w
+        .audit
+        .rows_of_kind("discrepancy")
+        .iter()
+        .all(|r| r["kind"] != "settlement_divergence"));
+}
+
+#[test]
+fn orphaned_position_alerts_once_only_when_coverage_is_wired() {
+    // Coverage NOT wired: the watchdog stays silent (the composition has
+    // not provided the fresh-belief/mechanical-owner view yet).
+    let mut w = world(93);
+    let r = tick(&mut w);
+    assert!(r.fills_applied >= 1);
+    tick(&mut w);
+    assert!(w
+        .audit
+        .rows_of_kind("watchdog")
+        .iter()
+        .all(|r| r["kind"] != "orphaned_position"));
+
+    // Coverage wired and KXS is NOT covered: the held position is an
+    // orphan (no fresh belief, no mechanical owner) — alert ONCE.
+    w.runner
+        .set_position_coverage(std::collections::BTreeSet::new());
+    tick(&mut w);
+    tick(&mut w);
+    let orphans: Vec<serde_json::Value> = w
+        .audit
+        .rows_of_kind("watchdog")
+        .into_iter()
+        .filter(|r| r["kind"] == "orphaned_position")
+        .collect();
+    assert_eq!(orphans.len(), 1, "alert once, not every tick");
+    assert_eq!(orphans[0]["market"], "KXS");
+
+    // A COVERED position is never an orphan.
+    let mut w2 = world(94);
+    let r = tick(&mut w2);
+    assert!(r.fills_applied >= 1);
+    w2.runner
+        .set_position_coverage(std::collections::BTreeSet::from([mkt("KXS")]));
+    tick(&mut w2);
+    assert!(w2
+        .audit
+        .rows_of_kind("watchdog")
+        .iter()
+        .all(|r| r["kind"] != "orphaned_position"));
+}

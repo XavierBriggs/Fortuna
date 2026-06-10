@@ -18,7 +18,7 @@ use fortuna_core::book::FeeModel;
 use fortuna_core::bus::{EventBus, EventPayload, Recording};
 use fortuna_core::clock::{Clock, SimClock, UtcTimestamp};
 use fortuna_core::ids::{IdGen, IntentGroupId, IntentId};
-use fortuna_core::market::{ClientOrderId, Contracts, MarketId, StrategyId, VenueId};
+use fortuna_core::market::{ClientOrderId, Contracts, MarketId, Side, StrategyId, VenueId};
 use fortuna_core::money::Cents;
 use fortuna_exec::{
     decide_complete_or_unwind, CompleteOrUnwind, ExecError, ExecPolicy, GroupDecision,
@@ -124,6 +124,17 @@ pub struct SimRunner {
     overdue_alerted: std::collections::BTreeSet<MarketId>,
     dispute_frozen: std::collections::BTreeSet<MarketId>,
     mismatch_streak: BTreeMap<MarketId, u32>,
+    /// Canonical event resolutions per market, fed by the composition's
+    /// events pipeline. Settling against a disagreeing canonical truth
+    /// records a settlement_divergence (spec 5.13: two truths coexist;
+    /// PnL follows venue truth, divergence is recorded, never
+    /// reconciled away). Value: (canonical outcome, edge id).
+    canonical_resolutions: BTreeMap<MarketId, (Side, String)>,
+    /// Markets with a defined next processor (fresh open belief OR a
+    /// mechanical owner), fed by the composition. None = the coverage
+    /// view is not wired and the orphan watchdog stays silent.
+    position_coverage: Option<std::collections::BTreeSet<MarketId>>,
+    orphan_flagged: std::collections::BTreeSet<MarketId>,
     counters: RunCounters,
 }
 
@@ -254,8 +265,26 @@ impl SimRunner {
             overdue_alerted: std::collections::BTreeSet::new(),
             dispute_frozen: std::collections::BTreeSet::new(),
             mismatch_streak: BTreeMap::new(),
+            canonical_resolutions: BTreeMap::new(),
+            position_coverage: None,
+            orphan_flagged: std::collections::BTreeSet::new(),
             counters: RunCounters::default(),
         })
+    }
+
+    /// Composition feed (events pipeline): the canonical resolution for a
+    /// market's mapped event, with the edge id whose confidence takes the
+    /// documented hit on divergence (spec 5.13).
+    pub fn set_canonical_resolution(&mut self, market: MarketId, outcome: Side, edge: &str) {
+        self.canonical_resolutions
+            .insert(market, (outcome, edge.to_string()));
+    }
+
+    /// Composition feed (cognition + strategy registry): markets whose
+    /// open positions have a defined next processor — a fresh open belief
+    /// or a mechanical owner. Wiring this ENABLES the orphan watchdog.
+    pub fn set_position_coverage(&mut self, covered: std::collections::BTreeSet<MarketId>) {
+        self.position_coverage = Some(covered);
     }
 
     /// Read-only view of the settlement-entry chains (tests, dashboards).
@@ -1155,6 +1184,7 @@ impl SimRunner {
         notice: &SettlementNotice,
     ) -> Result<(), RunnerError> {
         self.score_vetoes_at_settlement(market, winner, false);
+        self.check_settlement_divergence(market, winner);
         let held = self
             .positions
             .position(market)
@@ -1248,6 +1278,9 @@ impl SimRunner {
         corrected_winner: fortuna_core::market::Side,
         notice: &SettlementNotice,
     ) -> Result<(), RunnerError> {
+        // A corrected outcome re-checks against canonical truth: the
+        // correction may introduce OR resolve a divergence.
+        self.check_settlement_divergence(market, corrected_winner);
         let Some(snap) = self.settled_snapshots.get(market).cloned() else {
             // A correction for a settlement we never applied to the books
             // (held nothing). Score-correct the vetoes and record it.
@@ -1353,6 +1386,40 @@ impl SimRunner {
     /// corrections; resolution is a matching entry, an adjustment with
     /// reason, or operator escalation — recorded by the ledger repos in
     /// the live composition).
+    /// The 5.13 divergence detector: venue outcome vs canonical event
+    /// criteria. PnL follows venue truth (the settlement applies
+    /// normally); the divergence is RECORDED with both truths and the
+    /// edge whose confidence takes the documented hit — the composition
+    /// applies that hit as a superseding edge insert and the belief
+    /// scores against canonical truth.
+    fn check_settlement_divergence(&mut self, market: &MarketId, venue_outcome: Side) {
+        let Some((canonical, edge)) = self.canonical_resolutions.get(market).cloned() else {
+            return;
+        };
+        if canonical == venue_outcome {
+            return;
+        }
+        let venue_str = match venue_outcome {
+            Side::Yes => "yes",
+            Side::No => "no",
+        };
+        let canon_str = match canonical {
+            Side::Yes => "yes",
+            Side::No => "no",
+        };
+        self.record_discrepancy(
+            "settlement_divergence",
+            serde_json::json!({
+                "market": market.as_str(),
+                "venue_outcome": venue_str,
+                "canonical_outcome": canon_str,
+                "edge": edge,
+                "edge_confidence_hit":
+                    "supersede the edge with reduced confidence; restrict to operator-confirmed use",
+            }),
+        );
+    }
+
     fn record_discrepancy(&mut self, kind: &str, detail: serde_json::Value) {
         self.counters.discrepancies += 1;
         self.audit(
@@ -1501,6 +1568,43 @@ impl SimRunner {
                         HaltScope::Global,
                         format!("books-vs-venue position mismatch on {market}"),
                     );
+                }
+            }
+        }
+
+        // Stranded-state orphan watchdog (spec 5.13): an open position
+        // with no fresh open belief and no mechanical owner is an orphan
+        // — alert once, forced exit evaluation is the operator/composition
+        // disposition. Runs only when the composition wired the coverage
+        // view; silence here would otherwise be indistinguishable from
+        // "everything covered".
+        if let Some(covered) = self.position_coverage.clone() {
+            let held_markets: Vec<MarketId> = self
+                .markets
+                .iter()
+                .filter(|m| {
+                    self.positions
+                        .position(m)
+                        .map(|p| p.yes.qty != 0 || p.no.qty != 0)
+                        .unwrap_or(false)
+                })
+                .cloned()
+                .collect();
+            for market in held_markets {
+                if !covered.contains(&market) && self.orphan_flagged.insert(market.clone()) {
+                    self.audit(
+                        "watchdog",
+                        Some(market.as_str()),
+                        serde_json::json!({
+                            "kind": "orphaned_position",
+                            "market": market.as_str(),
+                            "disposition": "forced exit evaluation (operator/composition)",
+                        }),
+                    );
+                    self.bus.publish_external(EventPayload::Raw {
+                        kind: "orphaned_position".into(),
+                        data: serde_json::json!({ "market": market.as_str() }),
+                    });
                 }
             }
         }

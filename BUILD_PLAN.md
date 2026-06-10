@@ -244,6 +244,18 @@ EXIT MET TO THE BUILDABLE EXTENT (2026-06-10):
       parity boundary proven strategy-in-front (maker quote within limit,
       touch-no-fill, trade-through fill w/ haircut, settlement). Recorded-stream
       replay operator-blocked (GAPS).
-- [ ] T3.6 FINAL_REPORT.md + operator go-live runbook + full acceptance checklist run.
+- [x] T3.6 FINAL_REPORT.md + operator go-live runbook + full acceptance checklist run.
+      DONE (this commit): closed the deferred 5.13 divergence detector (venue-vs-
+      canonical -> settlement_divergence discrepancy w/ edge hit, on fresh AND
+      corrected settlements; PnL stays venue-truth) and the orphan watchdog
+      (coverage-fed, alert-once); GAPS reorganized to operator-blocked-only;
+      acceptance battery: fmt --check + clippy -D warnings clean, 615 tests 0
+      failures, 10,000 core DST seeds + 10,000 chaos scenarios (131,071 injected
+      cognition failures) zero violations; FINAL_REPORT.md w/ deviations, stats,
+      checklist disposition, and the operator go-live runbook.
 
 EXIT: PROMPT.md acceptance checklist fully green or operator-blocked-only.
+EXIT MET (2026-06-10): every checklist item DONE or OPERATOR-BLOCKED with exact
+unblock steps — see FINAL_REPORT.md Section 4 for the per-item disposition and
+GAPS.md for the blocked set (Kalshi fixtures, credentials, Aeolus export,
+Polymarket research+fixtures, spec v0.9 touch-up).

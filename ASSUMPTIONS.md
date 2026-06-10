@@ -3,6 +3,39 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T3.6 — closing watchdogs + decision records (moved from GAPS)
+
+- **Divergence detector (spec 5.13) wiring:** the runner takes canonical
+  event resolutions as a composition feed (set_canonical_resolution per
+  market with the edge id). On settlement OR correction application, a
+  disagreeing canonical truth records a settlement_divergence discrepancy
+  carrying both truths and the edge; PnL follows venue truth unchanged.
+  The edge-confidence hit is applied by the COMPOSITION as a superseding
+  edge insert (the record names the required action) — the runner does
+  not write the ledger.
+- **Orphan watchdog (spec 5.13) wiring:** the composition feeds the
+  coverage view (markets with a fresh open belief or a mechanical owner)
+  via set_position_coverage; unwired coverage DISABLES the watchdog
+  (silence must mean "not wired", never "everything covered"). A held
+  position outside coverage alerts ONCE (audit watchdog row, kind
+  orphaned_position) with forced-exit evaluation as the disposition.
+- **Sub-cent price structures excluded** (decision record, T0.3/T1.1):
+  core money is integer cents; the Kalshi adapter filters
+  deci_cent/tapered_deci_cent structures and scalar markets from the
+  catalog. The same rule binds the future Polymarket adapter (0.0001
+  ticks). Revisit only if such markets matter commercially (would need a
+  price-tick type).
+- **Kalshi pair auto-netting not modeled** (decision record, T0.7/T1.2):
+  sim and paper hold YES+NO lots to settlement — value-identical to
+  netting, conservative on capital (no early $1/pair credit). Verify
+  exact venue netting against recorded fixtures; if confirmed, the early
+  credit is a paper capital-realism follow-up.
+- **Runner halt-poll documentation** (T0.10 note): in the Sim composition
+  gates are in-process (halts act immediately). The LIVE composition
+  polls persisted halt state; the go-live runbook (FINAL_REPORT.md) pins
+  the interval at <= 500ms with an alert on poll failure, matching the
+  runtime_state poller convention.
+
 ## T3.5 — synth_events in Paper
 
 - **synth_events IS a SynthesisStrategy instance** (the T2.6 cycle
