@@ -30,6 +30,24 @@ pub struct GatedOrder {
 }
 
 impl GatedOrder {
+    /// THE ONLY CONSTRUCTOR. pub(crate): callable solely from the gate
+    /// pipeline, after every check has passed. Widening this visibility or
+    /// adding any other construction path (including Deserialize) is an I1
+    /// violation.
+    pub(crate) fn assemble(candidate: &crate::pipeline::CandidateOrder) -> GatedOrder {
+        GatedOrder {
+            intent_id: candidate.intent_id,
+            strategy: candidate.strategy.clone(),
+            venue: candidate.venue.clone(),
+            market: candidate.market.clone(),
+            side: candidate.side,
+            action: candidate.action,
+            limit_price: candidate.limit_price,
+            qty: candidate.qty,
+            client_order_id: candidate.client_order_id.clone(),
+        }
+    }
+
     pub fn intent_id(&self) -> IntentId {
         self.intent_id
     }

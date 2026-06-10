@@ -3,6 +3,39 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T0.5 — gate pipeline
+
+- **A rate-limit breach halts the VENUE for both bucket kinds** (venue bucket
+  and per-market bucket). Spec 5.3's halt taxonomy (check 1) knows global/
+  strategy/venue scopes only; a market-scoped runaway is still a runaway on
+  that venue, so the venue halt is the conservative mapping. The reason
+  string names the breaching bucket.
+- **Orders rejected before check 7 consume no rate tokens.** The limits
+  protect venue API submissions; an order that never got that far is not a
+  submission. (Pinned by test.)
+- **Sells contribute zero worst-case exposure** in checks 2/3/9: venue
+  semantics are close-only (T0.3), so a sell can only reduce exposure.
+  Re-verified against fixtures in T1.1.
+- **Edge floor mechanics (check 6):** worst-case fee = max(maker, taker, 0)
+  at the limit price; pass iff net >= 0 AND floor(net x 10000 / notional) >=
+  min_net_edge_bps (spec's parenthetical defines reject when < threshold);
+  bps floor-division rounds against us; `fair_value` is in the candidate's
+  own side space, like its limit price.
+- **Check 9 with no event mapping** is config-driven (`require_event_mapping`,
+  default false until discovery exists in Phase 3): when off, the order
+  passes with an audit note that the cap could not bind; when on, reject.
+  Fail-closed-by-default would block ALL trading before Phase 3, which is
+  why the operator chooses.
+- **Price sanity reference** = book mid (or the single-sided touch), else
+  last trade; no reference at all -> reject. A book whose market differs from
+  the order's market -> reject (fail-closed against caller bugs).
+- **Hot reload preserves halts unconditionally** (a config push must never
+  re-arm anything) and reinitializes rate buckets at full burst (operator-
+  initiated; acceptable).
+- **I1/I3 invariant stubs implemented** per the protected README's sanctioned
+  path (the owning task removes #[ignore] and writes the real assertions;
+  nothing weakened, names preserved, compile-fail half added as doc-tests).
+
 ## T0.4 — DST harness
 
 - **Master entropy comes from `RealClock` unless `DST_MASTER_SEED` is set**,

@@ -22,6 +22,16 @@
     )
 )]
 
+mod config;
+mod halt;
 mod order;
+mod pipeline;
+mod rate;
 
+pub use config::{GateConfig, GateError, GlobalLimits, RateLimits, StrategyLimits};
+pub use halt::{HaltFlags, HaltScope};
 pub use order::GatedOrder;
+pub use pipeline::{
+    CandidateOrder, GateCheck, GateCheckRecord, GateInputs, GateOutcome, GatePipeline,
+    GateRejection, RestingOrderView, Verdict,
+};

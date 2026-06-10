@@ -3,6 +3,13 @@
 [gates.global]
 max_total_exposure_cents = 800_000   # 80% of a $10k account
 max_daily_loss_cents     = 50_000    # drawdown halt: realized + conservative-mark unrealized, day = 00:00 UTC
+min_order_contracts      = 1
+max_order_contracts      = 1_000
+price_band_cents         = 20        # check 4: |limit - reference| bound (yes-space)
+max_cross_cents          = 5         # check 4: max marketable crossing beyond the touch
+per_market_exposure_cents = 100_000  # check 3 (per-market arm)
+per_event_exposure_cents  = 150_000  # check 9 (same-event cap via edges)
+require_event_mapping     = false    # check 9: true once discovery maps events (Phase 3)
 
 [gates.per_strategy.mech_structural]
 max_exposure_cents = 200_000
@@ -14,9 +21,19 @@ max_exposure_cents = 150_000
 max_order_notional_cents = 5_000
 min_net_edge_bps = 150
 
+# I3 dual token buckets. Researched Kalshi limits (2026-06-09): Basic tier
+# ~10 write req/s with a 2s burst window; these defaults sit far below that.
 [gates.rate.kalshi]
 burst = 5
 sustained_per_min = 20
+market_burst = 3
+market_sustained_per_min = 10
+
+[gates.rate.sim]
+burst = 100
+sustained_per_min = 600
+market_burst = 50
+market_sustained_per_min = 300
 
 [envelopes]                # spec 5.14: the ONLY capital allocation tier
 mech_structural_cents = 300_000

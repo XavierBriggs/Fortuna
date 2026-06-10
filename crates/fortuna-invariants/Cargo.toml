@@ -7,6 +7,12 @@ edition = "2021"
 # never weakened, renamed, or removed.
 
 [dependencies]
+fortuna-core = { path = "../fortuna-core" }
+fortuna-gates = { path = "../fortuna-gates" }
+serde = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+fortuna-venues = { path = "../fortuna-venues" }
+futures = { workspace = true }
+toml = { workspace = true }

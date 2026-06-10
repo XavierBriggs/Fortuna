@@ -263,16 +263,24 @@ name = "fortuna-gates"
 version = "0.1.0"
 dependencies = [
  "fortuna-core",
+ "fortuna-venues",
  "proptest",
  "serde",
  "thiserror",
+ "toml",
 ]
 
 [[package]]
 name = "fortuna-invariants"
 version = "0.1.0"
 dependencies = [
+ "fortuna-core",
+ "fortuna-gates",
+ "fortuna-venues",
+ "futures",
  "proptest",
+ "serde",
+ "toml",
 ]
 
 [[package]]

@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 12a77b9a43faea3a0e22ffa071735a96659d7145a3168a1f58bffa01786f9a0b # shrinks to orders = [ArbOrder { side: false, action: false, price: 41, qty: 71, fair: 0, exposure: 47090 }]
