@@ -125,6 +125,9 @@ pub struct Proposal {
 pub struct CoreHandle<'a> {
     pub now: UtcTimestamp,
     pub books: &'a BTreeMap<MarketId, OrderBook>,
+    /// Venue catalog metadata (status, close time, volume) as of the last
+    /// sync — point-in-time data, same as books.
+    pub markets: &'a BTreeMap<MarketId, fortuna_venues::Market>,
     pub fee_model: &'a dyn FeeModel,
 }
 

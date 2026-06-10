@@ -26,12 +26,21 @@ requires this file to contain ONLY operator-blocked items, each with exact unblo
 - **Kalshi maker-fee x multiplier scaling is inferred** from live page math
   (strong numeric evidence, no explicit doc sentence). Verify against fee
   fields in recorded fixtures at T1.1.
-- **Kalshi pair auto-netting not modeled (T0.7, 2026-06-09).** The sim venue
-  holds YES and NO lots to settlement (value-identical to netting, capital-
-  inefficient: real Kalshi credits $1/pair immediately when both sides are
-  held, freeing balance early). Verify the exact netting behavior against
-  fixtures at T1.1 and model the early credit in the paper engine (T1.2) if
-  confirmed — it affects capital-efficiency realism, never PnL totals.
+- **Kalshi pair auto-netting not modeled (T0.7, 2026-06-09; reaffirmed at
+  T1.2).** Both the sim venue AND the paper engine hold YES and NO lots to
+  settlement (value-identical to netting, capital-inefficient: real Kalshi
+  credits $1/pair immediately when both sides are held, freeing balance
+  early). T1.2 shipped WITHOUT the early credit deliberately — conservative
+  on capital, identical on PnL. Verify the exact netting behavior against
+  fixtures at T1.1; if confirmed, add the early credit to paper as a
+  capital-realism follow-up.
+- **Paper engine awaits recorded Kalshi data streams (T1.2, 2026-06-10).**
+  `PaperVenue` consumes pushed canonical books + public trade prints
+  (yes-space). Phase 1 exit requires running against RECORDED streams: the
+  operator fixture capture must include websocket `orderbook_snapshot`/
+  `orderbook_delta` and public `trade` messages (channels documented in
+  docs/research/venue/kalshi-api-2026-06-10). Until then paper runs against
+  sim-generated feeds only.
 - **Polymarket per-market fee params should be read at runtime** (fd fields /
   feeSchedule on markets) rather than hard-coding category tables — T3.4
   design note from research; engine already takes schedules as data.

@@ -4,8 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+fortuna-core = { path = "../fortuna-core" }
+async-trait = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt"] }

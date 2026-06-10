@@ -105,6 +105,8 @@ fn runner_config(seed: u64) -> RunnerConfig {
             max_spread_cents: 20,
         },
         max_sets_per_proposal: 50,
+        veto_mind: None,
+        veto_strategies: Vec::new(),
     }
 }
 

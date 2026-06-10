@@ -3,6 +3,91 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T1.3 — model veto scaffolding (mech_extremes lands with the volume field)
+
+- **Reduce-only is enforced by TYPE, not policy.** `VetoVerdict` has no
+  grow variant; `KeepBps` is constructor-bounded to 1..=9999 (0 = say
+  Suppress; 10000 = say Allow; more would be growth) and serde round-trips
+  through the checked constructor, so an audit-log replay cannot smuggle an
+  out-of-range factor back in. Shrink application floors
+  (`floor(qty x keep / 10000)`), proptested never to exceed the input.
+- **The veto sits AFTER sizing, BEFORE the gates.** Spec Section 6 says the
+  veto can "suppress or shrink" the trade — it must see the sized candidate
+  to shrink it; I1 says the gates cannot be consulted by the model — so the
+  consult happens strictly upstream of `evaluate_gates` and a suppressed
+  candidate never reaches them (proven by the no-gate-rows test).
+- **An unanswered veto fails CLOSED, flagged, unscored.** Provider error =>
+  suppress (within the veto's reduce-only authority; risks zero capital),
+  audit row carries `veto_error: true`, and the suppression is NEVER
+  counterfactually scored — an outage is not model judgment and must not
+  contaminate the veto value-add measurement. Alerting on veto_error rates
+  belongs to T1.5 metrics.
+- **Multi-leg proposals from veto-enrolled strategies are suppressed
+  whole, loudly.** Partial-group vetoes would manufacture unhedged legs;
+  no spec'd strategy needs group vetoes (mech_extremes is single-leg), so
+  the semantics stay deliberately undefined rather than invented.
+- **Counterfactual scoring assumes a maker fill at the limit price**
+  (`fill_assumption: filled_at_limit`, recorded on every score row).
+  Whether the resting order would actually have filled is unknowable; the
+  assumption is optimistic FOR THE TRADE, i.e. the harshest framing for the
+  veto when the vetoed trade would have won. Hypothetical PnL is net of the
+  maker fee (maker-only doctrine); the scorer ERRORS if asked to score
+  more quantity than was vetoed (no fabricated records). Scoring fires in
+  `apply_settlement`, exactly once (drained), at the same 100c/contract
+  payout convention the position book uses.
+- **Every consultation is audited, Allow included** (`veto_decision` rows
+  with qty_before/qty_after and the assessment's `cost_cents` — model
+  spend is tracked from day zero; the stub costs 0).
+- **Markets settle whether we hold them or not**: the runner's settlement
+  path now checks for a tracked position before invoking the strict state
+  layer (which still errors on untracked settlement — that discipline is
+  unchanged), because a fully vetoed or never-traded market settling is
+  normal, not a discrepancy.
+- **`VetoMind` mirrors the spec 5.9 `Mind` shape** (`&self`, Send + Sync,
+  async, cost in the return) so the Phase 2 Anthropic-backed veto drops in
+  behind the same trait; the model id stays a plain `&str` until T2.5
+  introduces `ModelId`.
+
+## T1.2 — paper engine
+
+- **The doctrine predicate is yes-space strict inequality.** Spec 11 fixes the
+  rule (maker fills only on trade-through, never at touch) but not the math.
+  Prints arrive in YES-space (1..=99 integer cents); each resting order maps
+  to a yes-space bid or ask via its (side, action); a print fills a bid only
+  if `print < limit` and an ask only if `print > limit`. Equality is NEVER a
+  fill — `touch_prints_never_fill_resting_orders` enforces this and is the
+  one test in the crate that must never be weakened (project skill: "a fill
+  at touch must FAIL the suite").
+- **Haircut budget is per-print, floor-rounded, shared FIFO.** Spec 11 says
+  "configurable quantity haircut" without mechanics. Implemented as
+  `budget = floor(print_qty x pct / 100)` shared across ALL our resting
+  orders on that market in placement order (time priority). Floor rounds
+  against us (a 1-lot print at 50% fills nothing); sharing one budget
+  prevents the same print from double-filling stacked orders — both choices
+  cap paper optimism.
+- **Taker phase crosses DISPLAYED depth only, at displayed prices.** No mid
+  fills, no hidden liquidity, no price improvement. Each consumed level
+  mutates the local book copy so one order cannot eat the same level twice;
+  the next `apply_book` from the feed replaces the book wholesale (the
+  canonical feed wins — paper fills claim no market impact beyond the
+  snapshot they consumed). Unfilled remainder rests at limit.
+- **Resting buys reserve worst-case cost** (notional + max(maker fee, taker
+  fee, 0)), recomputed on every partial fill for the remainder; sells
+  reserve zero (close-only, no cash at risk). Mirrors the sim venue and
+  fortuna-state reservation semantics so paper/live parity holds at the
+  Strategy interface.
+- **Settlement mirrors the sim venue:** winner-side longs pay
+  `payout_per_contract` each, the market's resting orders cancel with
+  reservation release, the position entry and book are dropped, the market
+  goes `Settled`, double-settlement errors. Public-trade prints with
+  out-of-range price/qty are ERRORS, not silent skips (a corrupt feed must
+  surface, spec 5.13 discrepancy discipline).
+- **Paper/live parity is structural:** `PaperVenue` implements the same
+  `Venue` trait the sim and Kalshi adapters implement, so the runner
+  composition is byte-identical across stages; only fill semantics differ.
+  Verified by the parity test driving the same gated orders through sim and
+  paper.
+
 ## T0.7 — state crate
 
 - **THE PAIR-VALUE RULE (correction found in hostile review):** YES and NO

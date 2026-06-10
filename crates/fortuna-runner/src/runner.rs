@@ -11,6 +11,9 @@
 //! drawdown breach => global halt (I2); both clear only via operator re-arm.
 
 use crate::{AuditSink, CoreHandle, Proposal, RunnerError, Stage, Strategy};
+use fortuna_cognition::veto::{
+    counterfactual_pnl, FillAssumption, VetoCandidate, VetoMind, VetoVerdict,
+};
 use fortuna_core::book::FeeModel;
 use fortuna_core::bus::{EventBus, EventPayload, Recording};
 use fortuna_core::clock::{Clock, SimClock, UtcTimestamp};
@@ -45,6 +48,13 @@ pub struct RunnerConfig {
     pub mark_policy: MarkPolicy,
     /// Max sets per arb proposal (belt to the gates' braces).
     pub max_sets_per_proposal: i64,
+    /// The reduce-only model veto (spec Section 6). Strategies listed in
+    /// `veto_strategies` have every sized candidate assessed BEFORE the
+    /// gates; listing a strategy without providing a mind is a
+    /// construction error (the spec ships mech_extremes WITH its veto,
+    /// silently skipping it would be a lie).
+    pub veto_mind: Option<Arc<dyn VetoMind>>,
+    pub veto_strategies: Vec<StrategyId>,
 }
 
 #[derive(Debug, Default)]
@@ -90,6 +100,18 @@ pub struct SimRunner {
     max_sets_per_proposal: i64,
     /// Set when the audit sink dies: hard stop beyond the gate halt.
     audit_dead: bool,
+    veto_mind: Option<Arc<dyn VetoMind>>,
+    veto_strategies: std::collections::BTreeSet<StrategyId>,
+    /// Vetoed-away quantity awaiting its market's settlement for
+    /// counterfactual scoring (spec Section 6: veto value-add is measured,
+    /// not believed). Provider-error suppressions are NOT tracked here.
+    open_vetoes: Vec<OpenVeto>,
+    market_meta: BTreeMap<MarketId, Market>,
+}
+
+struct OpenVeto {
+    candidate: VetoCandidate,
+    removed: Contracts,
 }
 
 impl SimRunner {
@@ -108,6 +130,21 @@ impl SimRunner {
                 });
             }
         }
+        // A veto-enrolled strategy with no mind configured must not boot:
+        // the veto is part of the strategy's spec'd shape (Section 6), and
+        // skipping it silently would un-measure the thing being measured.
+        if !config.veto_strategies.is_empty() && config.veto_mind.is_none() {
+            return Err(RunnerError::Config {
+                reason: format!(
+                    "strategies {:?} are veto-enrolled but no veto mind is configured",
+                    config
+                        .veto_strategies
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect::<Vec<_>>()
+                ),
+            });
+        }
         let clock = Arc::new(SimClock::new(start));
         let venue = SimVenue::new(
             VenueId::new("sim").map_err(|e| RunnerError::Config {
@@ -119,9 +156,11 @@ impl SimRunner {
             config.starting_cash,
         );
         let mut market_ids = Vec::new();
+        let mut market_meta = BTreeMap::new();
         for m in &config.markets {
             venue.add_market(m.clone());
             market_ids.push(m.id.clone());
+            market_meta.insert(m.id.clone(), m.clone());
         }
         let manager = futures::executor::block_on(OrderManager::recover(
             MemoryJournal::default(),
@@ -150,6 +189,10 @@ impl SimRunner {
             max_sets_per_proposal: config.max_sets_per_proposal,
             clock,
             audit_dead: false,
+            veto_mind: config.veto_mind,
+            veto_strategies: config.veto_strategies.into_iter().collect(),
+            open_vetoes: Vec::new(),
+            market_meta,
         })
     }
 
@@ -233,6 +276,7 @@ impl SimRunner {
             let core = CoreHandle {
                 now: self.clock.now(),
                 books: &self.books,
+                markets: &self.market_meta,
                 fee_model: &self.fee_model,
             };
             for strategy in &mut self.strategies {
@@ -312,7 +356,7 @@ impl SimRunner {
             .reservations
             .headroom(strategy_id.as_str())
             .unwrap_or(Cents::ZERO);
-        let sets = affordable_sets(headroom, cost_per_set, self.max_sets_per_proposal);
+        let mut sets = affordable_sets(headroom, cost_per_set, self.max_sets_per_proposal);
         if sets == 0 {
             self.audit(
                 "gate_decision",
@@ -324,6 +368,16 @@ impl SimRunner {
                 }),
             );
             return Ok(());
+        }
+
+        // Model veto (spec Section 6): reduce-only, audited, and strictly
+        // BEFORE the gates — the gates never consult the model (I1); the
+        // model never sees the gates. Only enrolled strategies pay it.
+        if self.veto_strategies.contains(&strategy_id) {
+            sets = self.consult_veto(&strategy_id, &proposal, sets).await?;
+            if sets == 0 {
+                return Ok(());
+            }
         }
 
         let group = if proposal.legs.len() > 1 {
@@ -430,6 +484,127 @@ impl SimRunner {
         }
         let _ = proposal.urgency; // v0: arbs go taker via crossing limits
         Ok(())
+    }
+
+    /// Assess one sized proposal with the veto mind. Returns the kept
+    /// quantity (0 = suppressed). Reduce-only is structural: the verdict
+    /// type cannot express growth, and this method only ever returns
+    /// `min(kept, sets)` quantities derived from `KeepBps::apply`.
+    ///
+    /// Failure semantics (ASSUMPTIONS, T1.3): an unanswered veto fails
+    /// CLOSED (suppress — within the veto's reduce-only authority, risking
+    /// zero capital) but is flagged `veto_error` and NEVER counterfactually
+    /// scored: a provider outage is not model judgment. Multi-leg
+    /// proposals from veto-enrolled strategies are suppressed whole —
+    /// partial-group vetoes would manufacture unhedged legs, and no
+    /// spec'd strategy needs group vetoes this phase.
+    async fn consult_veto(
+        &mut self,
+        strategy_id: &StrategyId,
+        proposal: &Proposal,
+        sets: i64,
+    ) -> Result<i64, RunnerError> {
+        let Some(mind) = self.veto_mind.clone() else {
+            // Construction guard makes this unreachable; fail closed anyway.
+            return Ok(0);
+        };
+        if proposal.legs.len() != 1 {
+            self.audit(
+                "veto_decision",
+                None,
+                serde_json::json!({
+                    "strategy": strategy_id.to_string(),
+                    "veto_unsupported_multileg": true,
+                    "legs": proposal.legs.len(),
+                    "qty_before": sets,
+                    "qty_after": 0,
+                    "veto_error": false,
+                }),
+            );
+            self.bus.publish_external(EventPayload::Raw {
+                kind: "veto_decision".into(),
+                data: serde_json::json!({
+                    "strategy": strategy_id.to_string(),
+                    "suppressed_multileg": proposal.legs.len(),
+                }),
+            });
+            return Ok(0);
+        }
+        let leg = &proposal.legs[0];
+        let book = self.books.get(&leg.market);
+        let candidate = VetoCandidate {
+            strategy: strategy_id.clone(),
+            market: leg.market.clone(),
+            side: leg.side,
+            action: leg.action,
+            limit_price: leg.limit_price,
+            fair_value: leg.fair_value,
+            qty: Contracts::new(sets),
+            yes_bid: book.and_then(|b| b.yes_bids.first()).map(|l| l.price),
+            yes_ask: book.and_then(|b| b.yes_asks.first()).map(|l| l.price),
+            category: self
+                .market_meta
+                .get(&leg.market)
+                .map(|m| m.category.clone()),
+            thesis: proposal.thesis.clone(),
+            as_of: self.clock.now(),
+        };
+        match mind.assess(&candidate).await {
+            Ok(assessment) => {
+                let kept = match &assessment.verdict {
+                    VetoVerdict::Allow => sets,
+                    VetoVerdict::Shrink { keep, .. } => keep.apply(Contracts::new(sets)).raw(),
+                    VetoVerdict::Suppress { .. } => 0,
+                };
+                self.audit(
+                    "veto_decision",
+                    None,
+                    serde_json::json!({
+                        "candidate": serde_json::to_value(&candidate).unwrap_or_default(),
+                        "assessment": serde_json::to_value(&assessment).unwrap_or_default(),
+                        "qty_before": sets,
+                        "qty_after": kept,
+                        "veto_error": false,
+                    }),
+                );
+                if kept < sets {
+                    self.bus.publish_external(EventPayload::Raw {
+                        kind: "veto_decision".into(),
+                        data: serde_json::json!({
+                            "market": leg.market.to_string(),
+                            "qty_before": sets,
+                            "qty_after": kept,
+                        }),
+                    });
+                    self.open_vetoes.push(OpenVeto {
+                        candidate,
+                        removed: Contracts::new(sets - kept),
+                    });
+                }
+                Ok(kept)
+            }
+            Err(e) => {
+                self.audit(
+                    "veto_decision",
+                    None,
+                    serde_json::json!({
+                        "candidate": serde_json::to_value(&candidate).unwrap_or_default(),
+                        "error": e.to_string(),
+                        "qty_before": sets,
+                        "qty_after": 0,
+                        "veto_error": true,
+                    }),
+                );
+                self.bus.publish_external(EventPayload::Raw {
+                    kind: "veto_decision".into(),
+                    data: serde_json::json!({
+                        "market": leg.market.to_string(),
+                        "veto_error": e.to_string(),
+                    }),
+                });
+                Ok(0)
+            }
+        }
     }
 
     fn evaluate_gates(&mut self, candidate: &CandidateOrder) -> fortuna_gates::GateOutcome {
@@ -720,9 +895,50 @@ impl SimRunner {
         winner: fortuna_core::market::Side,
         payout: Cents,
     ) -> Result<(), RunnerError> {
-        let owed = self
-            .positions
-            .apply_settlement(market, winner, Cents::new(100))?;
+        // Counterfactually score vetoed-away quantity FIRST (spec Section
+        // 6): a fully suppressed trade left no position behind, but the
+        // settlement outcome is observable either way and the veto's
+        // value-add must be measured. Exactly-once: scored entries drain.
+        let drained = std::mem::take(&mut self.open_vetoes);
+        let (due, keep): (Vec<OpenVeto>, Vec<OpenVeto>) = drained
+            .into_iter()
+            .partition(|v| &v.candidate.market == market);
+        self.open_vetoes = keep;
+        for v in due {
+            let payload = match counterfactual_pnl(
+                &v.candidate,
+                v.removed,
+                winner,
+                Cents::new(100),
+                &self.fee_model,
+                FillAssumption::FilledAtLimit,
+            ) {
+                Ok(pnl) => serde_json::json!({
+                    "candidate": serde_json::to_value(&v.candidate).unwrap_or_default(),
+                    "removed": v.removed.raw(),
+                    "winner": format!("{winner:?}"),
+                    "hypothetical_pnl_cents": pnl.raw(),
+                    "fill_assumption": serde_json::to_value(FillAssumption::FilledAtLimit)
+                        .unwrap_or_default(),
+                }),
+                Err(e) => serde_json::json!({
+                    "candidate": serde_json::to_value(&v.candidate).unwrap_or_default(),
+                    "removed": v.removed.raw(),
+                    "winner": format!("{winner:?}"),
+                    "score_error": e.to_string(),
+                }),
+            };
+            self.audit("veto_counterfactual", Some(market.as_str()), payload);
+        }
+        // Markets settle whether we hold them or not; the strict state
+        // layer (untracked-market settlement is an error there) is only
+        // consulted when a position actually exists.
+        let owed = if self.positions.position(market).is_some() {
+            self.positions
+                .apply_settlement(market, winner, Cents::new(100))?
+        } else {
+            Cents::ZERO
+        };
         self.bus.publish_external(EventPayload::Settled {
             venue: self.venue.id(),
             market: market.clone(),

@@ -10,3 +10,20 @@
 //! journal drafts. Comparator + shared Kelly sizing lib (envelope reservation,
 //! calibration haircut). Calibration layer (Platt/isotonic, shrinkage prior).
 //! Loops: decision, daily reconciliation (00:00 UTC), weekly, monthly.
+//!
+//! Phase 1 (T1.3) ships the `veto` module only: the reduce-only model veto
+//! for mech_extremes with a deterministic stub mind. The rest lands in
+//! Phase 2.
+
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented
+    )
+)]
+
+pub mod veto;

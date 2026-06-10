@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 fortuna-core = { path = "../fortuna-core" }
+fortuna-cognition = { path = "../fortuna-cognition" }
 fortuna-gates = { path = "../fortuna-gates" }
 fortuna-exec = { path = "../fortuna-exec" }
 fortuna-state = { path = "../fortuna-state" }
