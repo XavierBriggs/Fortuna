@@ -297,14 +297,14 @@ fn run_world(seed: u64, verbose: bool) -> Result<String, String> {
         markets.push(id);
     }
 
-    let manager = OrderManager::recover(
+    let manager = futures::executor::block_on(OrderManager::recover(
         MemoryJournal::default(),
         clock.clone(),
         ExecPolicy {
             default_ttl_ms: 120_000,
             ..ExecPolicy::default()
         },
-    )
+    ))
     .map_err(|e| format!("manager init: {e}"))?;
 
     let mut w = World {
@@ -735,7 +735,7 @@ fn poll_and_ingest(w: &mut World) -> Result<String, String> {
     let manager = w.manager.as_mut().ok_or("manager missing")?;
     for f in &page.fills {
         w.seen.insert(f.fill_id.clone(), f.clone());
-        match manager.ingest_fill(f) {
+        match futures::executor::block_on(manager.ingest_fill(f)) {
             Ok(_) => {}
             Err(e) => return Err(format!("ingest_fill: {e}")),
         }
@@ -753,14 +753,14 @@ fn poll_and_ingest(w: &mut World) -> Result<String, String> {
 fn crash_and_recover(w: &mut World) -> Result<String, String> {
     let manager = w.manager.take().ok_or("manager missing")?;
     let journal = manager.into_journal();
-    let mut rebuilt = OrderManager::recover(
+    let mut rebuilt = futures::executor::block_on(OrderManager::recover(
         journal,
         w.clock.clone(),
         ExecPolicy {
             default_ttl_ms: 120_000,
             ..ExecPolicy::default()
         },
-    )
+    ))
     .map_err(|e| format!("recover: {e}"))?;
     let mut last_err = String::new();
     for _ in 0..10 {
@@ -840,7 +840,7 @@ fn created_only_crash(
     match w.pipeline.evaluate(&candidate, &inputs).gated {
         Err(rej) => Ok(format!("created-crash gate-reject {:?}", rej.check)),
         Ok(order) => {
-            manager.journal_created_for_test(&order);
+            futures::executor::block_on(manager.journal_created_for_test(&order));
             let line = crash_and_recover(w)?;
             Ok(format!("created-then-{line}"))
         }

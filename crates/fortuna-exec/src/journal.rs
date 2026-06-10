@@ -96,6 +96,20 @@ pub enum IntentEvent {
 }
 
 impl IntentEvent {
+    /// The event's own timestamp (every variant carries one).
+    pub fn at(&self) -> UtcTimestamp {
+        match self {
+            IntentEvent::Created { at, .. }
+            | IntentEvent::SubmitAttempted { at }
+            | IntentEvent::Acked { at, .. }
+            | IntentEvent::Rejected { at, .. }
+            | IntentEvent::FillApplied { at, .. }
+            | IntentEvent::CancelRequested { at }
+            | IntentEvent::Cancelled { at, .. }
+            | IntentEvent::BootClosed { at, .. } => *at,
+        }
+    }
+
     pub fn kind(&self) -> &'static str {
         match self {
             IntentEvent::Created { .. } => "created",
@@ -118,20 +132,17 @@ pub struct JournalRow {
 }
 
 /// Append-only persistence for intent events plus the venue fill cursor.
-pub trait IntentJournal {
-    fn append(&mut self, intent: IntentId, event: IntentEvent) -> Result<(), ExecError>;
-    fn rows(&self) -> &[JournalRow];
-    fn cursor(&self) -> fortuna_venues::Cursor;
-    fn set_cursor(&mut self, cursor: fortuna_venues::Cursor) -> Result<(), ExecError>;
-
-    /// Event kinds for one intent, in order (test/audit convenience).
-    fn event_kinds_for(&self, intent: IntentId) -> Vec<&'static str> {
-        self.rows()
-            .iter()
-            .filter(|r| r.intent == intent)
-            .map(|r| r.event.kind())
-            .collect()
-    }
+/// Async so the Postgres impl (fortuna-ledger) is first-class; the in-memory
+/// impl completes immediately. Durability ordering is the caller's contract:
+/// `append` returns only after the row is durable (spec 5.4: persisted
+/// BEFORE any network call).
+#[async_trait::async_trait]
+pub trait IntentJournal: Send {
+    async fn append(&mut self, intent: IntentId, event: IntentEvent) -> Result<(), ExecError>;
+    /// Load the full journal (recovery fold input).
+    async fn load_all(&self) -> Result<Vec<JournalRow>, ExecError>;
+    async fn cursor(&self) -> Result<fortuna_venues::Cursor, ExecError>;
+    async fn set_cursor(&mut self, cursor: fortuna_venues::Cursor) -> Result<(), ExecError>;
 }
 
 /// Deterministic in-memory journal. "Durability" in DST = the value
@@ -142,24 +153,37 @@ pub struct MemoryJournal {
     cursor: Option<fortuna_venues::Cursor>,
 }
 
+impl MemoryJournal {
+    /// Event kinds for one intent, in order (test/audit convenience).
+    pub fn event_kinds_for(&self, intent: IntentId) -> Vec<&'static str> {
+        self.rows
+            .iter()
+            .filter(|r| r.intent == intent)
+            .map(|r| r.event.kind())
+            .collect()
+    }
+}
+
+#[async_trait::async_trait]
 impl IntentJournal for MemoryJournal {
-    fn append(&mut self, intent: IntentId, event: IntentEvent) -> Result<(), ExecError> {
+    async fn append(&mut self, intent: IntentId, event: IntentEvent) -> Result<(), ExecError> {
         let seq = self.rows.len() as u64;
         self.rows.push(JournalRow { seq, intent, event });
         Ok(())
     }
 
-    fn rows(&self) -> &[JournalRow] {
-        &self.rows
+    async fn load_all(&self) -> Result<Vec<JournalRow>, ExecError> {
+        Ok(self.rows.clone())
     }
 
-    fn cursor(&self) -> fortuna_venues::Cursor {
-        self.cursor
+    async fn cursor(&self) -> Result<fortuna_venues::Cursor, ExecError> {
+        Ok(self
+            .cursor
             .clone()
-            .unwrap_or_else(fortuna_venues::Cursor::start)
+            .unwrap_or_else(fortuna_venues::Cursor::start))
     }
 
-    fn set_cursor(&mut self, cursor: fortuna_venues::Cursor) -> Result<(), ExecError> {
+    async fn set_cursor(&mut self, cursor: fortuna_venues::Cursor) -> Result<(), ExecError> {
         self.cursor = Some(cursor);
         Ok(())
     }

@@ -188,7 +188,7 @@ impl<J: IntentJournal> OrderManager<J> {
     /// Build by folding the journal: THE crash-recovery path, also used for
     /// a fresh (empty) journal. A journal that does not fold cleanly is
     /// corrupt and refuses to load (fail-closed).
-    pub fn recover(
+    pub async fn recover(
         journal: J,
         clock: Arc<dyn Clock>,
         policy: ExecPolicy,
@@ -196,7 +196,7 @@ impl<J: IntentJournal> OrderManager<J> {
         let mut intents = BTreeMap::new();
         let mut by_coid = BTreeMap::new();
         let mut fills_seen = BTreeSet::new();
-        for row in journal.rows() {
+        for row in &journal.load_all().await? {
             Self::fold(&mut intents, &mut by_coid, &mut fills_seen, row)?;
         }
         Ok(OrderManager {
@@ -314,7 +314,8 @@ impl<J: IntentJournal> OrderManager<J> {
                     group,
                     at: self.clock.now(),
                 },
-            )?;
+            )
+            .await?;
         }
 
         self.append(
@@ -322,7 +323,8 @@ impl<J: IntentJournal> OrderManager<J> {
             IntentEvent::SubmitAttempted {
                 at: self.clock.now(),
             },
-        )?;
+        )
+        .await?;
 
         match venue.place(order).await {
             Ok(venue_order_id) => {
@@ -332,7 +334,8 @@ impl<J: IntentJournal> OrderManager<J> {
                         venue_order_id: venue_order_id.clone(),
                         at: self.clock.now(),
                     },
-                )?;
+                )
+                .await?;
                 Ok(SubmitOutcome::Acked { venue_order_id })
             }
             Err(VenueError::AlreadyExists { existing }) => {
@@ -343,7 +346,8 @@ impl<J: IntentJournal> OrderManager<J> {
                         venue_order_id: existing.clone(),
                         at: self.clock.now(),
                     },
-                )?;
+                )
+                .await?;
                 Ok(SubmitOutcome::Acked {
                     venue_order_id: existing,
                 })
@@ -355,7 +359,8 @@ impl<J: IntentJournal> OrderManager<J> {
                         reason: reason.clone(),
                         at: self.clock.now(),
                     },
-                )?;
+                )
+                .await?;
                 Ok(SubmitOutcome::Rejected { reason })
             }
             Err(VenueError::NotFound { what }) => {
@@ -365,7 +370,8 @@ impl<J: IntentJournal> OrderManager<J> {
                         reason: format!("venue: not found: {what}"),
                         at: self.clock.now(),
                     },
-                )?;
+                )
+                .await?;
                 Ok(SubmitOutcome::Rejected {
                     reason: format!("not found: {what}"),
                 })
@@ -381,7 +387,7 @@ impl<J: IntentJournal> OrderManager<J> {
     }
 
     /// Ingest one fill (at-least-once delivery; dedup by fill id).
-    pub fn ingest_fill(&mut self, fill: &Fill) -> Result<FillApplication, ExecError> {
+    pub async fn ingest_fill(&mut self, fill: &Fill) -> Result<FillApplication, ExecError> {
         let Some(&intent) = self.by_coid.get(fill.client_order_id.as_str()) else {
             return Err(ExecError::OrphanFill {
                 fill_id: fill.fill_id.clone(),
@@ -432,7 +438,8 @@ impl<J: IntentJournal> OrderManager<J> {
                 late_after_cancel,
                 at: self.clock.now(),
             },
-        )?;
+        )
+        .await?;
         Ok(FillApplication {
             intent,
             applied: true,
@@ -464,7 +471,8 @@ impl<J: IntentJournal> OrderManager<J> {
             IntentEvent::CancelRequested {
                 at: self.clock.now(),
             },
-        )?;
+        )
+        .await?;
         match venue.cancel(&venue_order_id).await {
             Ok(()) => {
                 self.append(
@@ -473,7 +481,8 @@ impl<J: IntentJournal> OrderManager<J> {
                         reason: "cancelled at venue".into(),
                         at: self.clock.now(),
                     },
-                )?;
+                )
+                .await?;
                 Ok(CancelOutcome::Cancelled)
             }
             Err(VenueError::NotFound { .. }) => {
@@ -485,7 +494,8 @@ impl<J: IntentJournal> OrderManager<J> {
                         reason: "venue no longer knows the order".into(),
                         at: self.clock.now(),
                     },
-                )?;
+                )
+                .await?;
                 Ok(CancelOutcome::AlreadyGone)
             }
             Err(VenueError::Timeout { .. }) | Err(VenueError::Outage { .. }) => {
@@ -536,7 +546,7 @@ impl<J: IntentJournal> OrderManager<J> {
         let mut report = BootReport::default();
 
         // 1. Drain fills from the journal's cursor (dedup absorbs replays).
-        let mut cursor = self.journal.cursor();
+        let mut cursor = self.journal.cursor().await?;
         let mut stable = 0;
         for _ in 0..10_000 {
             let page = match venue.fills_since(cursor.clone()).await {
@@ -545,7 +555,7 @@ impl<J: IntentJournal> OrderManager<J> {
                 Err(e) => return Err(e.into()),
             };
             for fill in &page.fills {
-                match self.ingest_fill(fill) {
+                match self.ingest_fill(fill).await {
                     Ok(app) if app.applied => report.fills_applied += 1,
                     Ok(_) => {}
                     Err(ExecError::OrphanFill { fill_id, .. }) => {
@@ -574,7 +584,7 @@ impl<J: IntentJournal> OrderManager<J> {
                 stable = 0;
             }
         }
-        self.journal.set_cursor(cursor)?;
+        self.journal.set_cursor(cursor).await?;
 
         // 2. Match venue open orders against the journal (retry transient
         // venue errors: boot must not die to a blip).
@@ -612,7 +622,8 @@ impl<J: IntentJournal> OrderManager<J> {
                                     venue_order_id: o.venue_order_id.clone(),
                                     at: self.clock.now(),
                                 },
-                            )?;
+                            )
+                            .await?;
                             report.adopted.push(intent);
                         }
                         Some(IntentStatus::Cancelled)
@@ -647,7 +658,8 @@ impl<J: IntentJournal> OrderManager<J> {
                     reason: "no venue evidence after crash; strategy re-proposes".into(),
                     at: self.clock.now(),
                 },
-            )?;
+            )
+            .await?;
             report.closed_unsubmitted.push(*intent);
         }
 
@@ -671,7 +683,8 @@ impl<J: IntentJournal> OrderManager<J> {
                     reason: "missing at venue at boot".into(),
                     at: self.clock.now(),
                 },
-            )?;
+            )
+            .await?;
             report.missing_at_venue.push(intent);
         }
 
@@ -681,25 +694,27 @@ impl<J: IntentJournal> OrderManager<J> {
     /// Test/DST scaffold: journal a Created row WITHOUT submitting, modeling
     /// a crash between intent persistence and submission (spec 5.4 scenario).
     #[doc(hidden)]
-    pub fn journal_created_for_test(&mut self, order: &fortuna_gates::GatedOrder) {
+    pub async fn journal_created_for_test(&mut self, order: &fortuna_gates::GatedOrder) {
         let snapshot = OrderSnapshot::from(order);
         let intent = snapshot.intent_id;
-        let _ = self.append(
-            intent,
-            IntentEvent::Created {
-                order: snapshot,
-                group: None,
-                at: self.clock.now(),
-            },
-        );
+        let _ = self
+            .append(
+                intent,
+                IntentEvent::Created {
+                    order: snapshot,
+                    group: None,
+                    at: self.clock.now(),
+                },
+            )
+            .await;
     }
 
-    /// Journal + fold one event, keeping derived state exact.
-    fn append(&mut self, intent: IntentId, event: IntentEvent) -> Result<(), ExecError> {
-        // Validate by folding into a scratch copy first: an illegal
-        // transition must not be journaled.
+    /// Journal + fold one event, keeping derived state exact. The fold
+    /// validates BEFORE the journal write: an illegal transition is never
+    /// journaled.
+    async fn append(&mut self, intent: IntentId, event: IntentEvent) -> Result<(), ExecError> {
         let row = JournalRow {
-            seq: self.journal.rows().len() as u64,
+            seq: 0, // local fold doesn't depend on seq; storage assigns its own
             intent,
             event,
         };
@@ -709,7 +724,7 @@ impl<J: IntentJournal> OrderManager<J> {
             &mut self.fills_seen,
             &row,
         )?;
-        self.journal.append(intent, row.event)?;
+        self.journal.append(intent, row.event).await?;
         Ok(())
     }
 

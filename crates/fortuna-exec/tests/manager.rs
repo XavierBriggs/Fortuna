@@ -12,7 +12,7 @@ use fortuna_core::ids::{IdGen, IntentId};
 use fortuna_core::market::{Action, ClientOrderId, Contracts, MarketId, Side, StrategyId, VenueId};
 use fortuna_core::money::Cents;
 use fortuna_exec::{
-    ExecError, ExecPolicy, IntentJournal, IntentStatus, MemoryJournal, OrderManager, SubmitOutcome,
+    ExecError, ExecPolicy, IntentStatus, MemoryJournal, OrderManager, SubmitOutcome,
 };
 use fortuna_gates::{CandidateOrder, GateConfig, GateInputs, GatePipeline};
 use fortuna_venues::fees::{FeeSchedule, ScheduleFeeModel};
@@ -147,7 +147,12 @@ fn candidate(seed: u64, market: &str, price: i64, qty: i64) -> CandidateOrder {
 }
 
 fn manager(clock: Arc<SimClock>) -> OrderManager<MemoryJournal> {
-    OrderManager::recover(MemoryJournal::default(), clock, ExecPolicy::default()).unwrap()
+    futures::executor::block_on(OrderManager::recover(
+        MemoryJournal::default(),
+        clock,
+        ExecPolicy::default(),
+    ))
+    .unwrap()
 }
 
 // ---- submission ----
@@ -217,7 +222,12 @@ fn crash_resubmission_resolves_via_venue_already_exists() {
 
     // CRASH and rebuild: status folds back to Submitted, no venue id known.
     let journal = m.into_journal();
-    let mut m2 = OrderManager::recover(journal, clock.clone(), ExecPolicy::default()).unwrap();
+    let mut m2 = futures::executor::block_on(OrderManager::recover(
+        journal,
+        clock.clone(),
+        ExecPolicy::default(),
+    ))
+    .unwrap();
     assert_eq!(m2.intent(intent).unwrap().status, IntentStatus::Submitted);
 
     // Resubmit the re-gated identical intent: AlreadyExists -> Acked.
@@ -306,13 +316,13 @@ fn fills_apply_exactly_once_and_advance_partial_to_filled() {
     assert_eq!(page.fills.len(), 1);
     let fill = &page.fills[0];
 
-    let applied = m.ingest_fill(fill).unwrap();
+    let applied = futures::executor::block_on(m.ingest_fill(fill)).unwrap();
     assert!(applied.applied);
     assert_eq!(m.intent(intent).unwrap().status, IntentStatus::Filled);
     assert_eq!(m.intent(intent).unwrap().cum_filled.raw(), 5);
 
     // The same fill again (at-least-once delivery): ignored, state unchanged.
-    let applied = m.ingest_fill(fill).unwrap();
+    let applied = futures::executor::block_on(m.ingest_fill(fill)).unwrap();
     assert!(!applied.applied);
     assert_eq!(m.intent(intent).unwrap().cum_filled.raw(), 5);
 }
@@ -336,12 +346,12 @@ fn partial_fill_then_remainder() {
 
     let page = futures::executor::block_on(venue.fills_since(Cursor::start())).unwrap();
     assert_eq!(page.fills.len(), 2);
-    m.ingest_fill(&page.fills[0]).unwrap();
+    futures::executor::block_on(m.ingest_fill(&page.fills[0])).unwrap();
     assert_eq!(
         m.intent(intent).unwrap().status,
         IntentStatus::PartiallyFilled
     );
-    m.ingest_fill(&page.fills[1]).unwrap();
+    futures::executor::block_on(m.ingest_fill(&page.fills[1])).unwrap();
     assert_eq!(m.intent(intent).unwrap().status, IntentStatus::Filled);
 }
 
@@ -367,7 +377,7 @@ fn fill_after_local_cancel_is_applied_and_audited() {
     // The late fill arrives: position truth wins; it is applied and the
     // journal carries the late-fill audit note.
     let page = futures::executor::block_on(venue.fills_since(Cursor::start())).unwrap();
-    let applied = m.ingest_fill(&page.fills[0]).unwrap();
+    let applied = futures::executor::block_on(m.ingest_fill(&page.fills[0])).unwrap();
     assert!(applied.applied);
     assert!(applied.late_after_cancel);
     assert_eq!(m.intent(intent).unwrap().cum_filled.raw(), 5);
@@ -383,11 +393,11 @@ fn overfill_is_an_error_not_a_silent_cap() {
     futures::executor::block_on(m.submit(order, &venue)).unwrap();
     let page = futures::executor::block_on(venue.fills_since(Cursor::start())).unwrap();
     let mut forged = page.fills[0].clone();
-    m.ingest_fill(&page.fills[0]).unwrap();
+    futures::executor::block_on(m.ingest_fill(&page.fills[0])).unwrap();
     // A second, different fill id pushing cum beyond qty: discrepancy.
     forged.fill_id = "forged-overfill".into();
     assert!(matches!(
-        m.ingest_fill(&forged),
+        futures::executor::block_on(m.ingest_fill(&forged)),
         Err(ExecError::Overfill { .. })
     ));
 }
@@ -411,7 +421,7 @@ fn orphan_fill_with_unknown_client_order_id_is_an_error() {
         .unwrap();
     let page = futures::executor::block_on(venue.fills_since(Cursor::start())).unwrap();
     assert!(matches!(
-        m.ingest_fill(&page.fills[0]),
+        futures::executor::block_on(m.ingest_fill(&page.fills[0])),
         Err(ExecError::OrphanFill { .. })
     ));
 }
@@ -450,14 +460,14 @@ fn cancel_unknown_intent_is_an_error() {
 fn ttl_sweep_cancels_only_expired_working_orders() {
     let clock = Arc::new(SimClock::new(t0()));
     let venue = venue_with(FaultConfig::none(1), clock.clone());
-    let mut m = OrderManager::recover(
+    let mut m = futures::executor::block_on(OrderManager::recover(
         MemoryJournal::default(),
         clock.clone(),
         ExecPolicy {
             default_ttl_ms: 10_000,
             ..ExecPolicy::default()
         },
-    )
+    ))
     .unwrap();
 
     let o1 = gate(candidate(13, "M1", 40, 5), &clock);
@@ -504,7 +514,12 @@ fn boot_adopts_timeout_orphaned_acks_and_closes_unsubmitted() {
 
     // CRASH: rebuild the manager from the surviving journal.
     let journal = m.into_journal();
-    let mut m2 = OrderManager::recover(journal, clock.clone(), ExecPolicy::default()).unwrap();
+    let mut m2 = futures::executor::block_on(OrderManager::recover(
+        journal,
+        clock.clone(),
+        ExecPolicy::default(),
+    ))
+    .unwrap();
     assert_eq!(m2.intent(intent).unwrap().status, IntentStatus::Submitted);
 
     let report = futures::executor::block_on(m2.boot_reconcile(&venue)).unwrap();
@@ -542,11 +557,16 @@ fn boot_closes_created_but_never_submitted_intents() {
     // Crash between persistence and submission: journal Created only.
     let order = gate(candidate(16, "M1", 40, 5), &clock);
     let intent = order.intent_id();
-    m.journal_created_for_test(&order);
+    futures::executor::block_on(m.journal_created_for_test(&order));
     drop(order);
 
     let journal = m.into_journal();
-    let mut m2 = OrderManager::recover(journal, clock.clone(), ExecPolicy::default()).unwrap();
+    let mut m2 = futures::executor::block_on(OrderManager::recover(
+        journal,
+        clock.clone(),
+        ExecPolicy::default(),
+    ))
+    .unwrap();
     let report = futures::executor::block_on(m2.boot_reconcile(&venue)).unwrap();
     assert_eq!(report.closed_unsubmitted, vec![intent]);
     assert_eq!(m2.intent(intent).unwrap().status, IntentStatus::BootClosed);
@@ -572,7 +592,12 @@ fn boot_resolves_submitted_intent_that_never_reached_the_venue() {
     // Recovery against a now-healthy venue: not at venue, no fills -> closed.
     let healthy = venue_with(FaultConfig::none(2), clock.clone());
     let journal = m.into_journal();
-    let mut m2 = OrderManager::recover(journal, clock.clone(), ExecPolicy::default()).unwrap();
+    let mut m2 = futures::executor::block_on(OrderManager::recover(
+        journal,
+        clock.clone(),
+        ExecPolicy::default(),
+    ))
+    .unwrap();
     let report = futures::executor::block_on(m2.boot_reconcile(&healthy)).unwrap();
     assert_eq!(report.closed_unsubmitted, vec![intent]);
     assert_eq!(m2.intent(intent).unwrap().status, IntentStatus::BootClosed);
@@ -593,7 +618,12 @@ fn boot_applies_fills_that_happened_while_dead() {
         .unwrap();
 
     let journal = m.into_journal();
-    let mut m2 = OrderManager::recover(journal, clock.clone(), ExecPolicy::default()).unwrap();
+    let mut m2 = futures::executor::block_on(OrderManager::recover(
+        journal,
+        clock.clone(),
+        ExecPolicy::default(),
+    ))
+    .unwrap();
     let report = futures::executor::block_on(m2.boot_reconcile(&venue)).unwrap();
     assert_eq!(report.fills_applied, 1);
     assert_eq!(m2.intent(intent).unwrap().status, IntentStatus::Filled);
@@ -610,8 +640,18 @@ fn recovery_rebuild_is_idempotent() {
         let _ = futures::executor::block_on(m.submit(order, &venue));
     }
     let journal = m.into_journal();
-    let m1 = OrderManager::recover(journal.clone(), clock.clone(), ExecPolicy::default()).unwrap();
-    let m2 = OrderManager::recover(journal, clock.clone(), ExecPolicy::default()).unwrap();
+    let m1 = futures::executor::block_on(OrderManager::recover(
+        journal.clone(),
+        clock.clone(),
+        ExecPolicy::default(),
+    ))
+    .unwrap();
+    let m2 = futures::executor::block_on(OrderManager::recover(
+        journal,
+        clock.clone(),
+        ExecPolicy::default(),
+    ))
+    .unwrap();
     assert_eq!(format!("{:?}", m1.intents()), format!("{:?}", m2.intents()));
 }
 
@@ -637,7 +677,12 @@ fn fill_after_boot_close_is_applied_and_flagged() {
     // Boot against a healthy venue closes it (no evidence).
     let healthy = venue_with(FaultConfig::none(2), clock.clone());
     let journal = m.into_journal();
-    let mut m2 = OrderManager::recover(journal, clock.clone(), ExecPolicy::default()).unwrap();
+    let mut m2 = futures::executor::block_on(OrderManager::recover(
+        journal,
+        clock.clone(),
+        ExecPolicy::default(),
+    ))
+    .unwrap();
     futures::executor::block_on(m2.boot_reconcile(&healthy)).unwrap();
     assert_eq!(m2.intent(intent).unwrap().status, IntentStatus::BootClosed);
 
@@ -654,7 +699,7 @@ fn fill_after_boot_close_is_applied_and_flagged() {
         })
         .unwrap();
     let page = futures::executor::block_on(healthy.fills_since(Cursor::start())).unwrap();
-    let app = m2.ingest_fill(&page.fills[0]).unwrap();
+    let app = futures::executor::block_on(m2.ingest_fill(&page.fills[0])).unwrap();
     assert!(app.applied);
     assert!(app.late_after_cancel);
     assert_eq!(m2.intent(intent).unwrap().status, IntentStatus::BootClosed);

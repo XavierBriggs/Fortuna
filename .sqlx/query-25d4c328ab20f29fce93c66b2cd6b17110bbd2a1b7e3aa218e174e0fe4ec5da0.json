@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO exec_cursors (venue, cursor, updated_at)\n               VALUES ($1, $2, $3)\n               ON CONFLICT (venue) DO UPDATE\n               SET cursor = EXCLUDED.cursor, updated_at = EXCLUDED.updated_at",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "25d4c328ab20f29fce93c66b2cd6b17110bbd2a1b7e3aa218e174e0fe4ec5da0"
+}
