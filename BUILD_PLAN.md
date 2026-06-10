@@ -26,9 +26,13 @@ Tick boxes with a one-line completion note and the commit hash.
       DONE 3cdceaa: 2000 seeds/2.6s zero violations; 5 invariants incl. run-twice
       byte-determinism; teeth proven via planted fee bug (caught) + 2 real harness
       bugs found+fixed on first runs; replay.sh --seed works; corpus README + minimizer note.
-- [ ] T0.5 `fortuna-gates`: checks 1-10, TOML config, `GatedOrder` sealed constructor,
+- [x] T0.5 `fortuna-gates`: checks 1-10, TOML config, `GatedOrder` sealed constructor,
       audit record per verdict; property + boundary tests; first invariant tests
       implemented (I1, I3 subset). (5.3)
+      DONE f463de2: 36 boundary tests (pass/reject/exact-cap per check) + 3 property
+      suites + I1 (runtime + 2 compile-fail doctests) + I3 (rate halt survives time,
+      re-arm only; dup coids exactly-once) green; fail-closed on unknown strategy/venue/
+      reference; hot-reload preserves halts.
 - [ ] T0.6 `fortuna-exec`: intent journal state machine, deterministic client ids,
       IntentGroup completion policy, execution policy (TTL, re-quote,
       one-working-order rule), flatten planner; boot reconciliation; DST crash
