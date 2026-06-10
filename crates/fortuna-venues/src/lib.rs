@@ -24,6 +24,7 @@
 
 pub mod fees;
 pub mod kalshi;
+pub mod polymarket;
 pub mod sim;
 mod types;
 
@@ -66,6 +67,11 @@ pub enum VenueError {
     /// Malformed request or data; no effect.
     #[error("invalid: {reason}")]
     Invalid { reason: String },
+    /// The adapter is a fixtures-gated stub: no operator-recorded
+    /// fixtures exist and venue behavior is never invented, so every
+    /// operation refuses (T3.4 discipline; GAPS has the unblock).
+    #[error("venue {venue} is fixture-gated: no recorded fixtures, no invented behavior")]
+    FixtureGated { venue: String },
     #[error(transparent)]
     Fee(#[from] fortuna_core::book::FeeError),
     #[error(transparent)]

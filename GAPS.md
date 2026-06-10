@@ -40,6 +40,22 @@ requires this file to contain ONLY operator-blocked items, each with exact unblo
   fortuna-ledger tests. The OPERATOR-RECORDED real export remains the
   open item — it validates Aeolus's exporter, not FORTUNA's parser.)
 
+## Operator-blocked (added during build)
+- **Polymarket US adapter is a fixtures-gated STUB (T3.4, 2026-06-10).**
+  `fortuna_venues::polymarket::PolymarketUsStub` fills the trait slot;
+  every operation (and its fee model) refuses with
+  `VenueError::FixtureGated` — no market data, no orders, no invented
+  fees. Building the real adapter requires, in order: (1) a venue
+  research loop under docs/research/venue/polymarket-us-<date>/ (API
+  auth model, CLOB endpoints, fee schedule, settlement/void
+  representation, US-entity specifics — grounded in current docs, not
+  training memory), then (2) operator-recorded fixtures under
+  fixtures/polymarket/ covering the same checklist shape as Kalshi's
+  (catalog, books, order lifecycle incl. duplicate/timeout semantics,
+  fills paging, settlements incl. voids). Unblock: operator authorizes
+  the research loop + records demo fixtures; the adapter then builds
+  against recordings only, like kalshi/.
+
 ## Open
 - **Kalshi void representation in /portfolio/settlements is undocumented
   (T1.4, 2026-06-10).** `market_result` documents only yes/no/scalar; the

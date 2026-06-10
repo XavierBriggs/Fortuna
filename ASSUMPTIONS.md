@@ -3,6 +3,18 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T3.4 — polymarket US slot
+
+- **The stub refuses rather than minimally simulates.** A stub that
+  returned empty catalogs or zero fees would flow silently through the
+  composition (a fabricated zero fee inflates every edge through gate
+  check 6). `VenueError::FixtureGated` is a dedicated variant so the
+  composition and ops can distinguish "venue gated by policy" from any
+  runtime failure. The fee model refuses computation for the same
+  reason. No research loop was run: the stub makes ZERO claims about
+  Polymarket behavior, and GAPS sequences research BEFORE fixtures
+  before any implementation.
+
 ## T3.3 — shadow-mode model comparison
 
 - **The pairing key is the context manifest hash.** "Identical
