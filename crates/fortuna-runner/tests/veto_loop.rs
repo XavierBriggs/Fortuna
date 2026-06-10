@@ -219,6 +219,7 @@ impl Strategy for TestFade {
                 None
             },
             urgency: Urgency::Passive,
+            manifest_hash: None,
             thesis: "test fade".into(),
         }])
     }

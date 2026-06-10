@@ -202,6 +202,7 @@ impl Strategy for TestBuyer {
             }],
             group_policy: None,
             urgency: Urgency::Taker,
+            manifest_hash: None,
             thesis: "test buyer".into(),
         }])
     }
@@ -557,4 +558,46 @@ fn orphaned_position_alerts_once_only_when_coverage_is_wired() {
         .rows_of_kind("watchdog")
         .iter()
         .all(|r| r["kind"] != "orphaned_position"));
+}
+
+// ---- E5: venue outage must not starve venue-independent watchdogs ----
+
+#[test]
+fn venue_independent_watchdogs_run_through_a_venue_outage() {
+    // A dark venue rightly stalls the venue-DEPENDENT checks (posted->
+    // confirmed, books-vs-venue mismatch) and any NEW catalog knowledge
+    // (a dispute flag the venue never delivered cannot be acted on).
+    // But overdue (clock + last-known meta) and the orphan scan (local
+    // books + composition coverage) need no venue call — an outage must
+    // not starve them.
+    let mut w = world(95);
+    let r = tick(&mut w);
+    assert!(r.fills_applied >= 1);
+
+    // The venue goes dark for the rest of the scenario.
+    w.runner
+        .venue()
+        .set_outage_until(t0().checked_add_millis(86_400_000).unwrap());
+    w.runner
+        .set_position_coverage(std::collections::BTreeSet::new());
+
+    // Overdue: close (1h) + lag (1h) + grace (1h) passed during the
+    // outage — the alert must fire anyway.
+    w.runner.clock.advance_millis(4 * 3_600_000).unwrap();
+    tick(&mut w);
+    assert!(
+        w.audit
+            .rows_of_kind("watchdog")
+            .iter()
+            .any(|r| r["kind"] == "settlement_overdue"),
+        "overdue watchdog starved by the outage"
+    );
+    // The orphan scan ran dark too.
+    assert!(
+        w.audit
+            .rows_of_kind("watchdog")
+            .iter()
+            .any(|r| r["kind"] == "orphaned_position"),
+        "orphan watchdog starved by the outage"
+    );
 }

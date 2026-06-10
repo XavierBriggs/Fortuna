@@ -171,7 +171,9 @@ async fn anthropic_request_shape_follows_the_documented_wire_format() {
         config(),
         transport,
         CostBudget::new(1_000, 100_000),
-        std::sync::Arc::new(fortuna_core::clock::SimClock::new(t("2026-06-11T12:00:00.000Z"))),
+        std::sync::Arc::new(fortuna_core::clock::SimClock::new(t(
+            "2026-06-11T12:00:00.000Z",
+        ))),
     );
     let now = t("2026-06-11T12:00:00.000Z");
     mind.decide_with_budget(&ctx(), &mut bud, now)
@@ -216,7 +218,9 @@ async fn anthropic_parses_output_and_tracks_cost_from_usage() {
         config(),
         transport,
         CostBudget::new(1_000, 100_000),
-        std::sync::Arc::new(fortuna_core::clock::SimClock::new(t("2026-06-11T12:00:00.000Z"))),
+        std::sync::Arc::new(fortuna_core::clock::SimClock::new(t(
+            "2026-06-11T12:00:00.000Z",
+        ))),
     );
     let now = t("2026-06-11T12:00:00.000Z");
     let out = mind
@@ -249,7 +253,9 @@ async fn schema_invalid_output_is_rejected_never_repaired() {
         config(),
         transport,
         CostBudget::new(1_000, 100_000),
-        std::sync::Arc::new(fortuna_core::clock::SimClock::new(t("2026-06-11T12:00:00.000Z"))),
+        std::sync::Arc::new(fortuna_core::clock::SimClock::new(t(
+            "2026-06-11T12:00:00.000Z",
+        ))),
     );
     let now = t("2026-06-11T12:00:00.000Z");
     let err = mind
@@ -269,7 +275,9 @@ async fn schema_invalid_output_is_rejected_never_repaired() {
         config(),
         transport,
         CostBudget::new(1_000, 100_000),
-        std::sync::Arc::new(fortuna_core::clock::SimClock::new(t("2026-06-11T12:00:00.000Z"))),
+        std::sync::Arc::new(fortuna_core::clock::SimClock::new(t(
+            "2026-06-11T12:00:00.000Z",
+        ))),
     );
     let err = mind
         .decide_with_budget(&ctx(), &mut bud, now)
@@ -292,7 +300,9 @@ async fn refusal_and_api_errors_surface_loudly() {
         config(),
         transport,
         CostBudget::new(1_000, 100_000),
-        std::sync::Arc::new(fortuna_core::clock::SimClock::new(t("2026-06-11T12:00:00.000Z"))),
+        std::sync::Arc::new(fortuna_core::clock::SimClock::new(t(
+            "2026-06-11T12:00:00.000Z",
+        ))),
     );
     let now = t("2026-06-11T12:00:00.000Z");
     assert!(matches!(
@@ -308,7 +318,9 @@ async fn refusal_and_api_errors_surface_loudly() {
         config(),
         transport,
         CostBudget::new(1_000, 100_000),
-        std::sync::Arc::new(fortuna_core::clock::SimClock::new(t("2026-06-11T12:00:00.000Z"))),
+        std::sync::Arc::new(fortuna_core::clock::SimClock::new(t(
+            "2026-06-11T12:00:00.000Z",
+        ))),
     );
     assert!(matches!(
         mind.decide_with_budget(&ctx(), &mut bud, now).await,
@@ -328,7 +340,9 @@ async fn budgets_check_before_calling_and_roll_at_utc_midnight() {
         config(),
         transport,
         CostBudget::new(1_000, 100_000),
-        std::sync::Arc::new(fortuna_core::clock::SimClock::new(t("2026-06-11T12:00:00.000Z"))),
+        std::sync::Arc::new(fortuna_core::clock::SimClock::new(t(
+            "2026-06-11T12:00:00.000Z",
+        ))),
     );
     let now = t("2026-06-11T12:00:00.000Z");
     let err = mind

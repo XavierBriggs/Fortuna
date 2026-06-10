@@ -270,6 +270,10 @@ pub struct CycleOutcome {
     pub shadow: bool,
     pub beliefs: Vec<BeliefDraft>,
     pub candidates: Vec<EdgeCandidate>,
+    /// Model-emitted ProposalDrafts the cycle DISCARDED (the comparator
+    /// derives candidates from beliefs; model proposals are never
+    /// forwarded here). Counted so the discard is visible, not silent.
+    pub discarded_model_proposals: usize,
     pub manifest_hash: String,
     pub cost_cents: i64,
 }
@@ -334,6 +338,7 @@ impl DecisionCycle {
                         shadow: false,
                         beliefs: Vec::new(),
                         candidates: Vec::new(),
+                        discarded_model_proposals: 0,
                         manifest_hash: String::new(),
                         cost_cents: 0,
                     });
@@ -387,6 +392,7 @@ impl DecisionCycle {
             shadow,
             beliefs: output.beliefs,
             candidates,
+            discarded_model_proposals: output.proposals.len(),
             manifest_hash: ctx.manifest_hash,
             cost_cents: output.cost_cents,
         })

@@ -3,6 +3,32 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## E5 — verification-gate minor sweep
+
+- **Remaining f64 touchpoints, recorded:** cycle.rs fair-value floor
+  ((p * 100).floor() — conservative direction: an edge is never rounded
+  into existence) and review.rs fee/PnL ratio (recommendation-only
+  output; never money movement). Both are probability/ratio space, not
+  money; the money paths are integer (Cents, i128-widened Kelly budget).
+- **run-dst.sh now fails CLOSED:** a DST harness that fails to BUILD
+  fails the battery (the T0.4-era "passing vacuously" escape existed for
+  the pre-harness epoch and is gone).
+- **Watchdog partition:** venue-DEPENDENT checks (posted->confirmed,
+  books-vs-venue mismatch) skip during an outage and resume next poll
+  (streaks neither advance nor clear on darkness); venue-INDEPENDENT
+  checks (overdue, dispute-on-last-known-meta, orphan scan) run through
+  outages. A dispute flag the venue never delivered is not actionable —
+  that is data absence, not starvation.
+- **Discards are visible:** model-emitted ProposalDrafts the cycle
+  discards are counted (per-strategy metric -> RunCounters -> metrics
+  export) and every proposal audits a "proposal" row carrying the
+  decision cycle's context-manifest hash (mechanical scans: None) —
+  decision replayability (spec 5.7) reaches the audit log in Sim.
+- **Regression corpus remains empty** — no randomized run has produced
+  a red seed to minimize (the settlement-DST shakeout caught a HARNESS
+  arm bug pre-commit, fixed in place; engine seeds only go to the
+  corpus). The vacuity stays disclosed until the first red seed lands.
+
 ## E1/E5a — calibration + Kelly wiring (verification-gate fixes)
 
 - **The calibration layer now BINDS in the decision cycle.** Each mind

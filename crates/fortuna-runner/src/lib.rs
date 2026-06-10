@@ -101,6 +101,9 @@ pub struct StrategyMetrics {
     pub shadow_cycles: u64,
     /// Belief drafts produced by the mind across all cycles.
     pub beliefs_drafted: u64,
+    /// Model-emitted ProposalDrafts the cycle discarded (the harness
+    /// derives its own candidates; the discard is counted, never silent).
+    pub model_proposals_discarded: u64,
 }
 
 /// Execution style request (never size — spec 5.9).
@@ -135,6 +138,10 @@ pub struct Proposal {
     pub group_policy: Option<GroupPolicy>,
     pub urgency: Urgency,
     pub thesis: String,
+    /// The context-manifest hash of the decision cycle that produced
+    /// this proposal (synthesis only; mechanical scans carry None). The
+    /// runner audits it so any decision is replayable (spec 5.7).
+    pub manifest_hash: Option<String>,
 }
 
 /// Read-only views a strategy may consult while handling an event.

@@ -222,6 +222,7 @@ impl Strategy for MechExtremes {
             }],
             group_policy: None,
             urgency: Urgency::Passive,
+            manifest_hash: None,
             thesis: format!(
                 "favorite-longshot fade: {side:?} favorite at {limit} (extreme >= {}c), \
                  volume {} <= {} contracts, premium {}c",

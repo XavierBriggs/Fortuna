@@ -177,6 +177,7 @@ impl Strategy for SynthesisStrategy {
             self.metrics.shadow_cycles += 1;
         }
         self.metrics.beliefs_drafted += outcome.beliefs.len() as u64;
+        self.metrics.model_proposals_discarded += outcome.discarded_model_proposals as u64;
 
         let mut proposals = Vec::with_capacity(outcome.candidates.len());
         for candidate in outcome.candidates {
@@ -198,6 +199,7 @@ impl Strategy for SynthesisStrategy {
                 }],
                 group_policy: None,
                 urgency: Urgency::Passive,
+                manifest_hash: Some(outcome.manifest_hash.clone()),
                 thesis: format!(
                     "synthesis: belief {} fair {}c vs {}c (edge {}c)",
                     candidate.belief_id,

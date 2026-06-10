@@ -511,3 +511,86 @@ fn anthropic_mind_trades_the_composed_loop_through_dyn_mind() {
     assert!(report.fills_applied >= 1, "and the loop fills");
     assert!(r.positions().position(&mkt("KX-A")).unwrap().yes.qty > 0);
 }
+
+// ---- E5: model proposals are counted when discarded; proposals audit
+// ---- their manifest hash (decision provenance in the Sim loop)
+
+#[test]
+fn discarded_model_proposals_are_counted_and_proposals_audit_their_manifest() {
+    // The mind emits a belief AND a proposal. The cycle path derives its
+    // own candidates from beliefs; the model's proposal is DISCARDED —
+    // and that discard must be visible, not silent.
+    let output: MindOutput = serde_json::from_value(serde_json::json!({
+        "beliefs": [{
+            "event_id": "evt-1",
+            "p": 0.70,
+            "p_raw": 0.70,
+            "horizon": "2026-06-20T18:00:00.000Z",
+            "evidence": [{"source": "synth", "ref": "sig-1"}]
+        }],
+        "proposals": [{
+            "market": "KX-A",
+            "side": "yes",
+            "max_price_cents": 99,
+            "thesis": "the model tries to direct execution",
+            "belief_ref": "evt-1",
+            "urgency": "taker"
+        }],
+        "journal": null
+    }))
+    .unwrap();
+    let mind: Arc<dyn Mind> = Arc::new(StubMind::scripted(vec![output]));
+    let strategy = SynthesisStrategy::new(synthesis_config(), mind);
+
+    #[derive(Clone, Default)]
+    struct SharedSink(std::sync::Arc<std::sync::Mutex<fortuna_runner::MemoryAuditSink>>);
+    impl fortuna_runner::AuditSink for SharedSink {
+        fn append(
+            &mut self,
+            kind: &str,
+            ref_id: Option<&str>,
+            payload: serde_json::Value,
+        ) -> Result<(), fortuna_runner::RunnerError> {
+            self.0
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .append(kind, ref_id, payload)
+        }
+    }
+    let sink = SharedSink::default();
+
+    let mut r = SimRunner::new(
+        runner_config(41),
+        vec![Box::new(strategy)],
+        Box::new(sink.clone()),
+        t0(),
+    )
+    .unwrap();
+    r.set_calibration_quality("synth_sim", 1.0);
+    set_book(&r, 58, 60);
+
+    futures::executor::block_on(r.tick()).unwrap();
+
+    // The discard is COUNTED for ops.
+    assert_eq!(r.counters().model_proposals_discarded, 1);
+
+    // The harness proposal carries the cycle's manifest hash, and the
+    // runner audits it: any later decision question can replay the exact
+    // context.
+    let rows = sink.0.lock().unwrap_or_else(|e| e.into_inner());
+    let proposal_rows: Vec<&(String, Option<String>, serde_json::Value)> = rows
+        .records
+        .iter()
+        .filter(|(k, _, _)| k == "proposal")
+        .collect();
+    assert_eq!(proposal_rows.len(), 1, "one audited proposal row");
+    let payload = &proposal_rows[0].2;
+    assert_eq!(payload["strategy"], "synth_sim");
+    assert!(
+        payload["manifest_hash"]
+            .as_str()
+            .map(|h| !h.is_empty())
+            .unwrap_or(false),
+        "the manifest hash rides into the audit: {payload}"
+    );
+}

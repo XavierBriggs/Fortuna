@@ -169,6 +169,7 @@ pub struct RunCounters {
     pub cognition_failures: u64,
     pub shadow_cycles: u64,
     pub beliefs_drafted: u64,
+    pub model_proposals_discarded: u64,
 }
 
 /// One exported metric sample (plain data: the ops layer maps these into
@@ -479,6 +480,20 @@ impl SimRunner {
         if proposal.legs.is_empty() {
             return Ok(());
         }
+        // Decision provenance (spec 5.7): every proposal audits with the
+        // context-manifest hash of the cycle that produced it (synthesis)
+        // so the decision is replayable; mechanical scans audit None.
+        self.audit(
+            "proposal",
+            None,
+            serde_json::json!({
+                "strategy": strategy_id.to_string(),
+                "legs": proposal.legs.len(),
+                "urgency": format!("{:?}", proposal.urgency),
+                "thesis": proposal.thesis,
+                "manifest_hash": proposal.manifest_hash,
+            }),
+        );
         // Sizing (the harness's job): all-in cost per 1-contract set, then
         // envelope headroom / caps decide the count.
         let mut cost_per_set = Cents::ZERO;
@@ -1507,38 +1522,48 @@ impl SimRunner {
     /// stranded state is surfaced and dispositioned, never discovered by
     /// accident.
     async fn run_watchdogs(&mut self) -> Result<(), RunnerError> {
-        let venue_positions = match self.venue.positions().await {
-            Ok(p) => p,
-            Err(_) => return Ok(()), // outage: watch again next tick
-        };
-        let mut venue_by_market: BTreeMap<MarketId, (i64, i64)> = BTreeMap::new();
-        for vp in &venue_positions {
-            venue_by_market.insert(vp.market.clone(), (vp.yes, vp.no));
-        }
+        // PARTITIONED (E5): the venue-DEPENDENT checks (posted->confirmed,
+        // books-vs-venue mismatch) skip during an outage and watch again
+        // next tick; the venue-INDEPENDENT checks (overdue via clock +
+        // last-known meta, dispute freeze on last-known meta, the orphan
+        // scan over local books) run regardless — a dark venue must not
+        // starve them.
+        let venue_by_market: Option<BTreeMap<MarketId, (i64, i64)>> =
+            match self.venue.positions().await {
+                Ok(positions) => Some(
+                    positions
+                        .iter()
+                        .map(|vp| (vp.market.clone(), (vp.yes, vp.no)))
+                        .collect(),
+                ),
+                Err(_) => None, // outage: venue-dependent checks wait
+            };
 
-        // Confirm step: a Posted entry confirms when the venue shows no
-        // residual position for the market (its truth incorporated ours).
-        let posted: Vec<MarketId> = self
-            .settlements
-            .markets()
-            .filter(|m| {
-                self.settlements.head(m).map(|h| h.status) == Some(SettlementStatus::Posted)
-            })
-            .cloned()
-            .collect();
-        for market in posted {
-            let residual = venue_by_market
-                .get(&market)
-                .map(|(y, n)| *y != 0 || *n != 0)
-                .unwrap_or(false);
-            if !residual {
-                let id = self.ids.next(self.clock.now())?.to_string();
-                self.settlements.advance(
-                    id,
-                    &market,
-                    SettlementStatus::Confirmed,
-                    self.clock.now(),
-                )?;
+        // Confirm step (venue-dependent): a Posted entry confirms when the
+        // venue shows no residual position for the market.
+        if let Some(venue_by_market) = &venue_by_market {
+            let posted: Vec<MarketId> = self
+                .settlements
+                .markets()
+                .filter(|m| {
+                    self.settlements.head(m).map(|h| h.status) == Some(SettlementStatus::Posted)
+                })
+                .cloned()
+                .collect();
+            for market in posted {
+                let residual = venue_by_market
+                    .get(&market)
+                    .map(|(y, n)| *y != 0 || *n != 0)
+                    .unwrap_or(false);
+                if !residual {
+                    let id = self.ids.next(self.clock.now())?.to_string();
+                    self.settlements.advance(
+                        id,
+                        &market,
+                        SettlementStatus::Confirmed,
+                        self.clock.now(),
+                    )?;
+                }
             }
         }
 
@@ -1596,46 +1621,49 @@ impl SimRunner {
             }
         }
 
-        // Books-vs-venue position mismatch: transient drift is explained
-        // by in-flight fills; PERSISTENT drift is a discrepancy and a
-        // GLOBAL HALT (containment: per-strategy attribution is not
-        // possible from venue positions alone).
-        let mut all_markets: std::collections::BTreeSet<MarketId> =
-            venue_by_market.keys().cloned().collect();
-        for p in self.positions.positions() {
-            all_markets.insert(p.market.clone());
-        }
-        for market in all_markets {
-            let (vy, vn) = venue_by_market.get(&market).copied().unwrap_or((0, 0));
-            let (by, bn) = self
-                .positions
-                .position(&market)
-                .map(|p| (p.yes.qty, p.no.qty))
-                .unwrap_or((0, 0));
-            if (vy, vn) == (by, bn) {
-                self.mismatch_streak.remove(&market);
-                continue;
+        // Books-vs-venue position mismatch (venue-dependent): transient
+        // drift is explained by in-flight fills; PERSISTENT drift is a
+        // discrepancy and a GLOBAL HALT. During an outage the streak
+        // neither advances nor clears — drift detection resumes on the
+        // next successful poll.
+        if let Some(venue_by_market) = &venue_by_market {
+            let mut all_markets: std::collections::BTreeSet<MarketId> =
+                venue_by_market.keys().cloned().collect();
+            for p in self.positions.positions() {
+                all_markets.insert(p.market.clone());
             }
-            let streak = {
-                let e = self.mismatch_streak.entry(market.clone()).or_insert(0);
-                *e += 1;
-                *e
-            };
-            if streak == MISMATCH_STREAK_LIMIT {
-                self.record_discrepancy(
-                    "position_mismatch",
-                    serde_json::json!({
-                        "market": market.to_string(),
-                        "venue": { "yes": vy, "no": vn },
-                        "books": { "yes": by, "no": bn },
-                        "consecutive_ticks": streak,
-                    }),
-                );
-                if self.gates.halts().global_halted().is_none() {
-                    self.gates.set_halt(
-                        HaltScope::Global,
-                        format!("books-vs-venue position mismatch on {market}"),
+            for market in all_markets {
+                let (vy, vn) = venue_by_market.get(&market).copied().unwrap_or((0, 0));
+                let (by, bn) = self
+                    .positions
+                    .position(&market)
+                    .map(|p| (p.yes.qty, p.no.qty))
+                    .unwrap_or((0, 0));
+                if (vy, vn) == (by, bn) {
+                    self.mismatch_streak.remove(&market);
+                    continue;
+                }
+                let streak = {
+                    let e = self.mismatch_streak.entry(market.clone()).or_insert(0);
+                    *e += 1;
+                    *e
+                };
+                if streak == MISMATCH_STREAK_LIMIT {
+                    self.record_discrepancy(
+                        "position_mismatch",
+                        serde_json::json!({
+                            "market": market.to_string(),
+                            "venue": { "yes": vy, "no": vn },
+                            "books": { "yes": by, "no": bn },
+                            "consecutive_ticks": streak,
+                        }),
                     );
+                    if self.gates.halts().global_halted().is_none() {
+                        self.gates.set_halt(
+                            HaltScope::Global,
+                            format!("books-vs-venue position mismatch on {market}"),
+                        );
+                    }
                 }
             }
         }
@@ -1738,6 +1766,11 @@ impl SimRunner {
                 "fortuna_beliefs_drafted_total",
                 "Belief drafts produced by minds",
                 c.beliefs_drafted,
+            ),
+            (
+                "fortuna_model_proposals_discarded_total",
+                "Model ProposalDrafts discarded by the cycle",
+                c.model_proposals_discarded,
             ),
         ] {
             samples.push(MetricSample {
@@ -1868,6 +1901,7 @@ impl SimRunner {
             counters.cognition_failures += m.cognition_failures;
             counters.shadow_cycles += m.shadow_cycles;
             counters.beliefs_drafted += m.beliefs_drafted;
+            counters.model_proposals_discarded += m.model_proposals_discarded;
         }
         counters
     }

@@ -139,6 +139,7 @@ impl MechStructural {
                     min_completion_edge_bps: self.config.min_completion_edge_bps,
                 }),
                 urgency: Urgency::Taker, // arbs decay; cross the spread
+                manifest_hash: None,
                 thesis: format!(
                     "bracket yes-sum arb: cost {total_cost}c + fees {total_fees}c \
                      locks {edge}c/set"

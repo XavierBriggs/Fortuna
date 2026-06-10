@@ -192,6 +192,7 @@ impl Strategy for DstBuyer {
             }],
             group_policy: None,
             urgency: Urgency::Taker,
+            manifest_hash: None,
             thesis: "dst buyer".into(),
         }])
     }
@@ -269,7 +270,9 @@ fn run_scenario(seed: u64) -> Result<ScenarioResult, String> {
 
     // Audit death plants a fuse early enough to fire mid-run.
     let audit = match arm {
-        Arm::AuditDeath => SharedAuditSink::with_fail_after(Some(3 + (rng.next_u64() % 5) as usize)),
+        Arm::AuditDeath => {
+            SharedAuditSink::with_fail_after(Some(3 + (rng.next_u64() % 5) as usize))
+        }
         _ => SharedAuditSink::default(),
     };
     let mut runner = SimRunner::new(
