@@ -32,9 +32,9 @@ use fortuna_core::money::{Cents, MoneyError};
 use fortuna_gates::GatedOrder;
 use thiserror::Error;
 
+pub use fortuna_core::book::{FeeError, FeeModel, FillRole, OrderBook, PriceLevel};
 pub use types::{
-    Cursor, Fill, FillPage, Market, MarketFilter, MarketStatus, OrderBook, PriceLevel,
-    SettlementMeta, VenuePosition,
+    Cursor, Fill, FillPage, Market, MarketFilter, MarketStatus, SettlementMeta, VenuePosition,
 };
 
 /// Venue adapter errors.
@@ -62,12 +62,8 @@ pub enum VenueError {
     /// Malformed request or data; no effect.
     #[error("invalid: {reason}")]
     Invalid { reason: String },
-    /// Fee schedule config is malformed (fails at construction).
-    #[error("fee config error: {reason}")]
-    FeeConfig { reason: String },
-    /// No fee schedule is effective at the requested time.
-    #[error("no fee schedule effective at {at}")]
-    NoEffectiveSchedule { at: String },
+    #[error(transparent)]
+    Fee(#[from] fortuna_core::book::FeeError),
     #[error(transparent)]
     Money(#[from] MoneyError),
 }
@@ -91,5 +87,5 @@ pub trait Venue: Send + Sync {
     /// Fills at or after `cursor`. Delivery is at-least-once: pages may
     /// re-deliver; consumers dedup on `fill_id`.
     async fn fills_since(&self, cursor: Cursor) -> Result<FillPage, VenueError>;
-    fn fee_model(&self) -> &dyn fees::FeeModel;
+    fn fee_model(&self) -> &dyn fortuna_core::book::FeeModel;
 }

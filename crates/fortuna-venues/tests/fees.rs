@@ -9,8 +9,7 @@
 use fortuna_core::clock::UtcTimestamp;
 use fortuna_core::market::Contracts;
 use fortuna_core::money::Cents;
-use fortuna_venues::fees::{FeeModel, FeeSchedule, FillRole, ScheduleFeeModel};
-use fortuna_venues::VenueError;
+use fortuna_venues::fees::{FeeError, FeeModel, FeeSchedule, FillRole, ScheduleFeeModel};
 
 fn at(s: &str) -> UtcTimestamp {
     UtcTimestamp::parse_iso8601(s).unwrap()
@@ -266,7 +265,7 @@ fn tiered_requires_an_unbounded_final_tier() {
             bps = 50
         "#,
     )]);
-    assert!(matches!(result, Err(VenueError::FeeConfig { .. })));
+    assert!(matches!(result, Err(FeeError::Config { .. })));
 }
 
 // ---- category multipliers ----
@@ -352,7 +351,7 @@ fn versioning_picks_the_latest_schedule_at_or_before_the_trade_time() {
             None,
             at("2025-12-31T23:59:59.999Z")
         ),
-        Err(VenueError::NoEffectiveSchedule { .. })
+        Err(FeeError::NoEffectiveSchedule { .. })
     ));
 }
 
@@ -483,7 +482,7 @@ fn taker_rebates_are_rejected_at_construction() {
             taker_coeff = "-0.05"
         "#,
     )]);
-    assert!(matches!(result, Err(VenueError::FeeConfig { .. })));
+    assert!(matches!(result, Err(FeeError::Config { .. })));
 }
 
 // ---- input validation ----
@@ -500,7 +499,7 @@ fn prices_outside_0_to_100_cents_are_invalid() {
                 None,
                 at(T)
             ),
-            Err(VenueError::Invalid { .. })
+            Err(FeeError::Invalid { .. })
         ));
     }
 }
@@ -516,7 +515,7 @@ fn negative_quantity_is_invalid_zero_quantity_is_free() {
             None,
             at(T)
         ),
-        Err(VenueError::Invalid { .. })
+        Err(FeeError::Invalid { .. })
     ));
     assert_eq!(
         m.fee(
@@ -540,7 +539,7 @@ fn malformed_coefficients_fail_at_construction_not_at_fee_time() {
             taker_coeff = "not-a-number"
         "#,
     )]);
-    assert!(matches!(result, Err(VenueError::FeeConfig { .. })));
+    assert!(matches!(result, Err(FeeError::Config { .. })));
     // Negative coefficients are config errors too (fees are never rebates here).
     let result = ScheduleFeeModel::new(vec![schedule(
         r#"
@@ -549,7 +548,7 @@ fn malformed_coefficients_fail_at_construction_not_at_fee_time() {
             taker_coeff = "-0.07"
         "#,
     )]);
-    assert!(matches!(result, Err(VenueError::FeeConfig { .. })));
+    assert!(matches!(result, Err(FeeError::Config { .. })));
 }
 
 // ---- properties ----

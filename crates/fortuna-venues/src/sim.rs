@@ -17,12 +17,12 @@
 //!   and consume randomness only when the corresponding rate is non-zero.
 //!   Same seed + same fault config + same call sequence => identical behavior.
 
-use crate::fees::{FeeModel, FillRole, ScheduleFeeModel};
+use crate::fees::ScheduleFeeModel;
 use crate::{
-    Cursor, Fill, FillPage, Market, MarketFilter, MarketStatus, OrderBook, PriceLevel, VenueError,
-    VenuePosition,
+    Cursor, Fill, FillPage, Market, MarketFilter, MarketStatus, VenueError, VenuePosition,
 };
 use async_trait::async_trait;
+use fortuna_core::book::{FeeModel, FillRole, OrderBook, PriceLevel};
 use fortuna_core::clock::{Clock, UtcTimestamp};
 use fortuna_core::ids::SplitMix64;
 use fortuna_core::market::{
@@ -254,7 +254,9 @@ impl SimVenue {
             yes_bids,
             yes_asks,
         };
-        book.validate()?;
+        book.validate().map_err(|e| VenueError::Invalid {
+            reason: e.to_string(),
+        })?;
         st.books
             .insert(market.clone(), (book.yes_bids, book.yes_asks));
         Ok(())

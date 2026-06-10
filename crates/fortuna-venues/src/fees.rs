@@ -18,28 +18,7 @@ use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
-use crate::VenueError;
-
-/// Was the fill resting (maker) or aggressing (taker)?
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FillRole {
-    Maker,
-    Taker,
-}
-
-/// The fee interface venues expose (spec 5.2 `Venue::fee_model`).
-pub trait FeeModel: Send + Sync {
-    /// Modeled fee for a fill. `price` is the per-contract price in cents on
-    /// a $1-payout binary contract; `category` selects multipliers.
-    fn fee(
-        &self,
-        role: FillRole,
-        price: Cents,
-        qty: Contracts,
-        category: Option<&str>,
-        at: UtcTimestamp,
-    ) -> Result<Cents, VenueError>;
-}
+pub use fortuna_core::book::{FeeError, FeeModel, FillRole};
 
 /// One raw schedule as it appears in config (TOML). Validated and compiled
 /// by `ScheduleFeeModel::new`; malformed schedules fail at construction,
@@ -117,7 +96,7 @@ pub struct ScheduleFeeModel {
 }
 
 impl ScheduleFeeModel {
-    pub fn new(raw: Vec<FeeSchedule>) -> Result<Self, VenueError> {
+    pub fn new(raw: Vec<FeeSchedule>) -> Result<Self, FeeError> {
         let mut schedules = raw
             .into_iter()
             .map(compile)
@@ -126,12 +105,12 @@ impl ScheduleFeeModel {
         Ok(ScheduleFeeModel { schedules })
     }
 
-    fn effective_at(&self, at: UtcTimestamp) -> Result<&Compiled, VenueError> {
+    fn effective_at(&self, at: UtcTimestamp) -> Result<&Compiled, FeeError> {
         self.schedules
             .iter()
             .rev()
             .find(|s| s.effective_at <= at)
-            .ok_or_else(|| VenueError::NoEffectiveSchedule {
+            .ok_or_else(|| FeeError::NoEffectiveSchedule {
                 at: at.to_iso8601(),
             })
     }
@@ -145,14 +124,14 @@ impl FeeModel for ScheduleFeeModel {
         qty: Contracts,
         category: Option<&str>,
         at: UtcTimestamp,
-    ) -> Result<Cents, VenueError> {
+    ) -> Result<Cents, FeeError> {
         if !(0..=100).contains(&price.raw()) {
-            return Err(VenueError::Invalid {
+            return Err(FeeError::Invalid {
                 reason: format!("price {} outside [0, 100] cents", price),
             });
         }
         if qty.raw() < 0 {
-            return Err(VenueError::Invalid {
+            return Err(FeeError::Invalid {
                 reason: format!("negative quantity {qty}"),
             });
         }
@@ -180,7 +159,7 @@ impl FeeModel for ScheduleFeeModel {
             }
             Rate::FlatBps(bps) => bps_fee(*bps, price, qty)?,
             Rate::Tiered(tiers) => {
-                let n = notional(price, qty).map_err(VenueError::Money)?;
+                let n = notional(price, qty)?;
                 let bps = tiers
                     .iter()
                     .find(|(bound, _)| bound.is_none_or(|b| n.raw() <= b))
@@ -201,30 +180,30 @@ impl FeeModel for ScheduleFeeModel {
         match schedule.rounding {
             // Against us in both directions: fees round up, rebate
             // magnitudes round down (ceil does both).
-            RoundingMode::Up => Cents::from_dollars_ceil(adjusted).map_err(VenueError::Money),
+            RoundingMode::Up => Cents::from_dollars_ceil(adjusted).map_err(FeeError::Money),
             // Only for venues that document banker's rounding.
             RoundingMode::HalfEven => {
-                Cents::from_dollars_half_even(adjusted).map_err(VenueError::Money)
+                Cents::from_dollars_half_even(adjusted).map_err(FeeError::Money)
             }
         }
     }
 }
 
-fn bps_fee(bps: Decimal, price: Cents, qty: Contracts) -> Result<Decimal, VenueError> {
-    let n = notional(price, qty).map_err(VenueError::Money)?;
+fn bps_fee(bps: Decimal, price: Cents, qty: Contracts) -> Result<Decimal, FeeError> {
+    let n = notional(price, qty)?;
     n.to_dollars()
         .checked_mul(bps)
         .and_then(|x| x.checked_div(Decimal::from(10_000u32)))
         .ok_or_else(|| overflow("bps fee"))
 }
 
-fn overflow(what: &str) -> VenueError {
-    VenueError::FeeConfig {
+fn overflow(what: &str) -> FeeError {
+    FeeError::Config {
         reason: format!("decimal overflow computing {what}"),
     }
 }
 
-fn compile(raw: FeeSchedule) -> Result<Compiled, VenueError> {
+fn compile(raw: FeeSchedule) -> Result<Compiled, FeeError> {
     let effective_at = parse_effective_date(&raw.effective_date)?;
     let (taker, maker) = match raw.formula {
         FormulaKind::Quadratic => (
@@ -275,9 +254,9 @@ fn compile(raw: FeeSchedule) -> Result<Compiled, VenueError> {
     })
 }
 
-fn compile_tiers(tiers: &[Tier]) -> Result<Rate, VenueError> {
+fn compile_tiers(tiers: &[Tier]) -> Result<Rate, FeeError> {
     if tiers.is_empty() {
-        return Err(VenueError::FeeConfig {
+        return Err(FeeError::Config {
             reason: "tiered formula requires at least one tier".into(),
         });
     }
@@ -288,12 +267,12 @@ fn compile_tiers(tiers: &[Tier]) -> Result<Rate, VenueError> {
         match tier.up_to_notional_cents {
             Some(bound) => {
                 if is_last {
-                    return Err(VenueError::FeeConfig {
+                    return Err(FeeError::Config {
                         reason: "final tier must be unbounded (no up_to_notional_cents)".into(),
                     });
                 }
                 if bound <= 0 || prev_bound.is_some_and(|p| bound <= p) {
-                    return Err(VenueError::FeeConfig {
+                    return Err(FeeError::Config {
                         reason: format!(
                             "tier bounds must be positive and strictly increasing (tier {i})"
                         ),
@@ -303,7 +282,7 @@ fn compile_tiers(tiers: &[Tier]) -> Result<Rate, VenueError> {
             }
             None => {
                 if !is_last {
-                    return Err(VenueError::FeeConfig {
+                    return Err(FeeError::Config {
                         reason: format!("only the final tier may be unbounded (tier {i})"),
                     });
                 }
@@ -314,16 +293,16 @@ fn compile_tiers(tiers: &[Tier]) -> Result<Rate, VenueError> {
     Ok(Rate::Tiered(compiled))
 }
 
-fn parse_decimal(raw: &str) -> Result<Decimal, VenueError> {
-    Decimal::from_str(raw).map_err(|e| VenueError::FeeConfig {
+fn parse_decimal(raw: &str) -> Result<Decimal, FeeError> {
+    Decimal::from_str(raw).map_err(|e| FeeError::Config {
         reason: format!("cannot parse coefficient {raw:?}: {e}"),
     })
 }
 
-fn parse_coeff_non_negative(raw: &str) -> Result<Decimal, VenueError> {
+fn parse_coeff_non_negative(raw: &str) -> Result<Decimal, FeeError> {
     let d = parse_decimal(raw)?;
     if d < Decimal::ZERO {
-        return Err(VenueError::FeeConfig {
+        return Err(FeeError::Config {
             reason: format!(
                 "coefficient {raw:?} is negative; only maker coefficients may be rebates"
             ),
@@ -332,10 +311,10 @@ fn parse_coeff_non_negative(raw: &str) -> Result<Decimal, VenueError> {
     Ok(d)
 }
 
-fn parse_effective_date(raw: &str) -> Result<UtcTimestamp, VenueError> {
+fn parse_effective_date(raw: &str) -> Result<UtcTimestamp, FeeError> {
     UtcTimestamp::parse_iso8601(raw)
         .or_else(|_| UtcTimestamp::parse_iso8601(&format!("{raw}T00:00:00.000Z")))
-        .map_err(|e| VenueError::FeeConfig {
+        .map_err(|e| FeeError::Config {
             reason: format!("cannot parse effective_date {raw:?}: {e}"),
         })
 }

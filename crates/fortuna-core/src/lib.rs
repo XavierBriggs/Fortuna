@@ -16,6 +16,7 @@
     )
 )]
 
+pub mod book;
 pub mod bus;
 pub mod clock;
 pub mod ids;
