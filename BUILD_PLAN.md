@@ -212,8 +212,13 @@ EXIT MET TO THE BUILDABLE EXTENT (2026-06-10):
 
 ## Phase 3 — Closing the loop (Section 12)
 
-- [ ] T3.1 Weekly/monthly review jobs (calibration report, lesson promotion flow,
+- [x] T3.1 Weekly/monthly review jobs (calibration report, lesson promotion flow,
       envelope allocation report). (5.8)
+      DONE d205787: deterministic-core weekly review (versioned refits at n>=50,
+      Section 11 GO/NO-GO recommendations w/ reasons, I7-clean) + strict-JSON lesson
+      candidates from the journal body; monthly review (conservative allocation
+      recommendations, cost audit, lesson decay, operator checklist); LessonsRepo
+      superseding-insert chains + journal range + resolved_stats queries.
 - [ ] T3.2 Market-back discovery loop + edge confirmation cards; world-forward
       watchlist loop with cost cap + unscoreable rule. (5.12)
 - [ ] T3.3 Shadow-mode model comparison harness (paired contexts, separate budget). (11)
