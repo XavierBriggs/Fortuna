@@ -1,0 +1,16 @@
+[package]
+name = "fortuna-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "fortuna"
+path = "src/main.rs"
+
+[dependencies]
+fortuna-core = { path = "../fortuna-core" }
+fortuna-gates = { path = "../fortuna-gates" }
+fortuna-ledger = { path = "../fortuna-ledger" }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }

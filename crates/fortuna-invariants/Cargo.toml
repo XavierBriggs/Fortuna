@@ -16,6 +16,7 @@ proptest = { workspace = true }
 fortuna-venues = { path = "../fortuna-venues" }
 fortuna-state = { path = "../fortuna-state" }
 fortuna-ledger = { path = "../fortuna-ledger" }
+fortuna-killswitch = { path = "../fortuna-killswitch" }
 futures = { workspace = true }
 toml = { workspace = true }
 sqlx = { workspace = true }

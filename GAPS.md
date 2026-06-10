@@ -35,6 +35,20 @@ requires this file to contain ONLY operator-blocked items, each with exact unblo
 - **Polymarket per-market fee params should be read at runtime** (fd fields /
   feeSchedule on markets) rather than hard-coding category tables — T3.4
   design note from research; engine already takes schedules as data.
+- **Slack interactivity listener (Socket Mode) deferred (T0.9, 2026-06-10).**
+  Send-side (router, Block Kit approval builder) is built; the wss listener
+  for button presses + slash-command kill requests lands with the review
+  flows it serves (T2/T3 edge confirmations, promotions). Research doc has
+  the full contract ready (apps.connections.open, envelope ack, user-id
+  allow-listing).
+- **Kill-switch live venue plug pending T1.1.** The binary + freeze logic +
+  self-test are complete and I4-proven against the sim venue; `freeze
+  --venue kalshi` exits loudly until the fixture-built Kalshi adapter
+  exists. Unblock: T1.1 (operator fixtures) then wire the adapter with its
+  OWN credential set (FORTUNA_KILLSWITCH_* env).
+- **Runner halt-poll interval (T0.10).** Operator halts via CLI act on the
+  running system within the poll interval; document the chosen interval in
+  the runner and alert on poll failures.
 
 ## Disputed invariant tests
 (none)

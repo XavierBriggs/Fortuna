@@ -1,0 +1,20 @@
+[package]
+name = "fortuna-killswitch"
+version = "0.1.0"
+edition = "2021"
+
+# I4 STRUCTURAL INDEPENDENCE: this crate must NEVER depend on
+# fortuna-ledger, sqlx, Postgres, the cognition runtime, or the event loop.
+# It must function when nothing else is alive. The i4 invariant test
+# asserts this dependency boundary mechanically.
+
+[dependencies]
+fortuna-core = { path = "../fortuna-core" }
+fortuna-venues = { path = "../fortuna-venues" }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+futures = { workspace = true }
+
+[dev-dependencies]

@@ -53,6 +53,41 @@ conservative option, and the spec section it interprets.
   depth, the gates' halt flag (human re-arm only) is the real lock (I2
   invariant test implemented at this task).
 
+## T0.9 — ops, kill switch, CLI
+
+- **Kill-switch independence is STRUCTURAL:** it lives in its own crate
+  (fortuna-killswitch, deviating from the skill's "binary inside
+  fortuna-ops") whose dependency graph cannot contain Postgres/ledger/
+  cognition — and the i4 invariant test asserts that graph mechanically
+  from cargo metadata, so a future dependency addition fails CI. Its state
+  is a flat fsync'd JSONL journal (spec Principle 9 exception).
+- **The kill switch never constructs orders.** Emergency "flatten" =
+  freeze-and-cancel + journal/report open positions for the operator.
+  Placing requires a GatedOrder (I1); the emergency path's job is stopping
+  the bleeding (resting risk) and surfacing state, not trading. Operator
+  exits happen via venue UI or CLI-confirmed flows.
+- **The operator CLI is its own crate (fortuna-cli, binary `fortuna`)**
+  because halt/re-arm persistence needs the ledger while ops/killswitch
+  stay lighter. halt/rearm write durable halt_events + an audit row with
+  the OPERATOR ATTRIBUTED (--operator required); the runner restores flags
+  at boot and observes operator events via a halt-poll (T0.10). `fortuna
+  kill` execs the standalone binary and never touches the database.
+- **Slack (per docs/research/ops/slack-api-2026-06-09):** Socket Mode is
+  the chosen interactivity path (no public URL on ITHACA); Phase 0 ships
+  send-side only (router + Block Kit approval-message builder); the
+  interactivity LISTENER lands with the review flows (Phase 2/3, GAPS).
+  The transport surfaces 429/Retry-After as typed errors and never sleeps
+  internally (no hidden waits in deterministic paths); the runner owns
+  retry/backoff policy. chat.postMessage has no idempotency key (research):
+  a send timeout may double-post — the audit row is the dedup record.
+  Slack can REQUEST halts; re-arm verbs do not exist over Slack (I2).
+- **Secret hygiene:** secret-holding types (Secrets, SlackRouter,
+  DeadmanPinger) implement no Debug or redact it; reqwest errors are
+  URL-stripped before surfacing; secrets only from env.
+- **Dead-man pinger** provides due/record/ping pieces; the LOOP and the
+  failure-escalation wiring live in the runner (spec: the system cannot
+  report its own death — missed pings alert via the monitor's own channel).
+
 ## T0.8 — ledger schema (decisions made at migration design time)
 
 - **Timestamps are TEXT ISO8601** (fixed-ms, the in-process wire form), per
