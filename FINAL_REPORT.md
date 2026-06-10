@@ -1,15 +1,23 @@
 # FORTUNA — Final Report
 
-Build completed 2026-06-10 against docs/spec.md v0.8. This report covers what was
-built, every deviation from spec with rationale, verification statistics, and the
-operator's go-live runbook. The honesty ledgers are GAPS.md (operator-blocked
-items only, each with exact unblock steps) and ASSUMPTIONS.md (every decision
-made where the spec is silent).
+Build completed 2026-06-10 against docs/spec.md v0.8 — and then RE-VERIFIED.
+The first completion claim (7bbc3ef) was BLOCKED by the independent
+verification gate (docs/reviews/system-0-3-final-2026-06-10.md): four Major
+engineering items were open and unledgered (Kelly/calibration sizing unwired,
+AnthropicMind not behind the Mind trait, a vacuous per-cycle budget, and
+discrepancy/watchdog paths absent from the seeded DST). The fix batch
+(1d1c033..1e3e5e7) closed all five E-items and the re-run gate is an ACCEPT
+(docs/reviews/system-0-4-egate-2026-06-10.md) with every close criterion
+graded on executed evidence. This report reflects the post-ACCEPT state. The
+honesty ledgers are GAPS.md (operator items + the gate record) and
+ASSUMPTIONS.md (every decision where the spec is silent, including the
+corrected-not-erased false claims the first gate caught).
 
 ## 1. What was built
 
-Thirteen crates, ~40,700 lines of Rust, 58 commits, every BUILD_PLAN task ticked
-with its commit hash.
+Thirteen crates, ~41,500 lines of Rust, 64 commits, every BUILD_PLAN task
+ticked with its commit hash (and corrected in place where the verification
+gate falsified a claim).
 
 **The deterministic core (Phase 0).** Integer-cents money (`Cents` newtype,
 checked arithmetic, fee rounding always against us), injected `Clock`, ULID ids,
@@ -59,8 +67,13 @@ roll). I6 is enforced three ways: deny-unknown-fields across the whole mind
 output surface (smuggled sizing/order fields reject the WHOLE output), a
 field-set pin in the invariant tests, and a dependency-direction assertion
 (fortuna-cognition cannot name venue/exec/state/runner types). Comparator
-(Direct + Negation only, two-sided, floor-fair), Kelly haircut by calibration
-quality (fail-closed), declined-trigger shadow sampling, daily reconciliation
+(Direct + Negation only, two-sided, floor-fair) consuming CALIBRATED beliefs:
+the calibration layer binds in the cycle (fitted method at n >= 50, shrinkage
+toward the Direct-edge market prior below; an unwired scope prices no edge),
+and synthesis sizing is min(haircut-Kelly, affordability) with fraction =
+config kelly_fraction x composition-fed calibration quality, failing closed
+to zero — wired at E1 after the first gate caught the unwired claim.
+Declined-trigger shadow sampling, daily reconciliation
 (journal-or-error, structurally zero orders), aeolus_eval ingestion
 (zero-capital by type), calibration layer (deterministic Platt + isotonic PAV,
 shrinkage-toward-market below n=50, extremization, versioned params).
@@ -135,18 +148,25 @@ Everything below is also recorded in ASSUMPTIONS.md (decisions) or GAPS.md
 
 ## 3. Verification statistics
 
-- **Workspace test suite:** 615 tests, 0 failures (`cargo test --workspace`,
-  final acceptance run 2026-06-10). `cargo fmt --check` clean;
+- **Workspace test suite:** 630 tests, 0 failures (`cargo test --workspace`,
+  post-E-batch acceptance run 2026-06-10). `cargo fmt --check` clean;
   `cargo clippy --workspace --all-targets -- -D warnings` clean.
-- **Invariant tests:** 13 tests across the i1-i7 files, 0 ignored, all green.
-- **DST (final acceptance run):** core harness 10,000 random seeds, zero
-  invariant violations (master seed 1781116180331). Composed decision-loop
-  chaos battery 10,000 scenarios, each replayed byte-identically: 33,444
-  orders, 51,284 proposals, 131,071 injected cognition failures, 116,735
-  beliefs — zero violations (master seed 1781116572856). Regression corpus:
-  0 seeds — no randomized run ever produced a failure to minimize; the corpus
-  discipline (commit every red seed, never delete) is in place at
-  crates/fortuna-core/dst-corpus/README.md.
+- **Invariant tests:** 13 tests across the i1-i7 files, 0 ignored, all green
+  (independently re-executed by the E-gate; i4 spawns the real kill-switch
+  binary).
+- **DST (post-E-batch acceptance run): THREE 10,000-seed stages.** Core
+  harness: zero violations. Decision-loop chaos (synthesis + chaos mind +
+  seeded calibration worlds): 27,068 orders, 41,191 proposals, 133,204
+  injected cognition failures, 118,132 beliefs — zero violations, per-seed
+  byte-identical replays. Settlement/watchdog chaos (E4; ten arms): every
+  arm hit ~1,000 times; 1,994 discrepancies, 3,066 watchdog rows, 1,971
+  halts — mismatch arms prove discrepancy + GLOBAL halt + zero post-halt
+  orders; audit-death arms prove no-audit-no-trading; all replays
+  byte-identical. run-dst.sh runs all three stages and FAILS CLOSED on a
+  harness build failure. Regression corpus: 0 seeds — no randomized run has
+  produced an engine failure to minimize (the E4 shakeout caught a HARNESS
+  arm bug pre-commit, fixed in place); the corpus discipline is in place at
+  crates/fortuna-core/dst-corpus/README.md and the vacuity stays disclosed.
 - **Doctrine scenario coverage:** every scenario in the PROMPT verification
   doctrine maps to a covering arm or test: crash between persistence and
   submission / submission and ack, duplicate fills, fill-after-cancel, partial

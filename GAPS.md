@@ -3,16 +3,15 @@
 Open items the implementation defers, lacks, or needs from the operator. Acceptance
 requires this file to contain ONLY operator-blocked items, each with exact unblock steps.
 
-Status (post-verification, 2026-06-10): the T3.6 claim that "every remaining
-item is OPERATOR-BLOCKED" was FALSIFIED by the full-build verification gate
-(docs/reviews/system-0-3-final-2026-06-10.md, verdict BLOCK). Four Major
-engineering items were open and unledgered at 7bbc3ef; they are now ledgered
-below (section "Unresolved engineering items"). The build is production-ready
-only after E1-E4 land, the full gate re-runs clean, and the operator actions
-in "Path to production" complete. Engineering items genuinely closed during
-Phase 3: divergence detector + orphan watchdog (T3.6), I7 invariant stubs
-(T3.3); decision records moved to ASSUMPTIONS.md (sub-cent exclusion, pair
-auto-netting, halt-poll documentation).
+Status (post-E-batch, 2026-06-10): the T3.6 completion claim was FALSIFIED
+by the full-build gate (docs/reviews/system-0-3-final-2026-06-10.md, BLOCK:
+four unledgered Majors). The fix batch (commits 1d1c033..1e3e5e7) closed
+E1-E5 and the RE-RUN GATE is an ACCEPT
+(docs/reviews/system-0-4-egate-2026-06-10.md): every E-item graded CLOSED
+with executed evidence, regression battery clean (630 tests, three-stage
+10,000-seed DST), no new Majors. Every remaining item below is an OPERATOR
+action. One Minor stays disclosed: the regression-seed corpus is empty (no
+randomized run has produced a red seed; discipline in place).
 
 Verification record: five verdicts in docs/reviews/ (phase-1, phase-2,
 system-0-1-2, phase-3, system-0-3-final, all 2026-06-10). The phase-3 gate
@@ -22,76 +21,20 @@ was adjudicated with executed evidence (zero Kelly call sites, no
 hits in seeded DST — all confirmed at 7bbc3ef). The system gate's stricter
 reading governs.
 
-## Unresolved ENGINEERING items (must close before any go-live; none are operator-blocked)
+## Engineering items E1-E5: CLOSED (gate-verified)
 
-- **E1. Haircut-Kelly + calibrated-p sizing is unwired (Major; anti-conservative).**
-  Spec 5.8 ("Calibration layer adjusts p") and spec line 240 (fractional
-  Kelly, default 0.25, haircut by category calibration quality). Current
-  state at 7bbc3ef: the ONLY sizing path for model-originated proposals is
-  `affordable_sets(headroom, cost_per_set, max_sets_per_proposal)` at
-  crates/fortuna-runner/src/runner.rs:478 — full envelope headroom up to
-  caps. `kelly_binary` / `kelly_contracts` / `haircut_kelly_fraction`
-  (sizing lib, T0.10/T2.6) and the T2.8 calibration layer have ZERO src
-  call sites. Fix spec: in the synthesis sizing path, (1) fetch latest
-  CalibrationParams for the (model, strategy, category) scope and apply to
-  raw p; (2) haircut fraction = base 0.25 x calibration quality; (3)
-  contracts = min(kelly_contracts(calibrated edge, envelope bankroll,
-  haircut fraction), affordable_sets(...)). Fail CLOSED: missing or
-  degenerate calibration params => quality floor => minimal/zero size,
-  never full headroom. Prerequisite: fix E5a (fortuna-state sizing.rs:68
-  f64 cents) FIRST — wiring E1 makes that dead code live. Also correct the false
-  docs: cycle.rs:8-11 header, the ASSUMPTIONS.md sizing claim, BUILD_PLAN
-  T2.6/T2.8 DONE notes. Close criterion: composed-loop test asserting
-  sized contracts < affordable when Kelly binds + a DST arm; gate re-run.
-
-- **E2. AnthropicMind is not behind the `Mind` trait (Major).** Spec 5.9
-  ("both behind `Mind`"). Current: `impl Mind for StubMind` only
-  (mind.rs:173); AnthropicMind has only an inherent impl and zero
-  construction sites outside tests — unexercisable even with a key.
-  Fix spec: `impl Mind for AnthropicMind<T>`; composition path that
-  constructs it when ANTHROPIC_API_KEY is present (the env-key gate stays
-  the feature flag) and StubMind otherwise; provenance stamping and budget
-  checks at the trait boundary. Close criterion: composition test driving
-  a mock-transport AnthropicMind through `dyn Mind` end to end.
-
-- **E3. Per-cycle cost budget never binds (Major).** Spec 5.9 budget
-  controls. Current: mind.rs:221-238 `check()` errors only when
-  `per_cycle_cap_cents <= 0`; per-cycle spend is never tracked, so any
-  positive cap is vacuous. Fix spec: track per-cycle spend (reset at cycle
-  start, accumulate post-call cost), breach => degrade per spec (skip
-  consult, mechanical path continues, audit row). Close criterion: test
-  where a positive per-cycle cap rejects the call that would exceed it.
-
-- **E4. Discrepancy/watchdog paths + ~8 doctrine scenarios absent from the
-  seeded DST corpus (Major).** Phase 1 EXIT ("discrepancy paths exercised
-  in DST"); PROMPT.md:103-104 ("every scenario in the doctrine list
-  present"). Current: zero discrepancy/watchdog hits in
-  crates/fortuna-core/tests/dst.rs and crates/fortuna-runner/tests/
-  synthesis_dst.rs; coverage lives only in settlement_loop.rs composed
-  tests, which scripts/run-dst.sh never executes. Fix spec: add seeded
-  scenario arms for position-mismatch (3-tick => discrepancy + GLOBAL
-  halt), overdue settlement, dispute freeze; map the remaining doctrine
-  scenarios into the generator; commit any red seed to dst-corpus/.
-  Close criterion: 10,000-seed run clean WITH the new arms active.
-
-- **E5. Minors (sweep before the gate re-run):**
-  - (a) crates/fortuna-state/src/sizing.rs:68 computes the Kelly cents
-    budget in f64 (`headroom.raw() as f64 * f`) — convert to checked
-    integer/Decimal BEFORE E1 wires it live; (b) cycle.rs:117 f64 floor
-    (conservative) and review.rs:278 f64 ratio (recommendation-only) —
-    convert or record in ASSUMPTIONS.md.
-  - scripts/run-dst.sh:13-19 fails OPEN ("passing vacuously", exit 0) if
-    the dst target fails to BUILD; the harness exists now — a build
-    failure must exit non-zero.
-  - run_watchdogs early-returns on venue outage (runner.rs:1375-1378),
-    starving venue-independent checks (overdue/dispute) — partition them.
-  - DecisionCycle discards model ProposalDrafts uncounted and writes no
-    model_call audit row in the Sim loop; SynthesisStrategy drops
-    manifest_hash — make exclusions counted + audited.
-  - Regression corpus is empty ("regression seeds committed" passes only
-    vacuously) — commit the first red seed; until one exists the vacuity
-    stays disclosed here and in FINAL_REPORT.md.
-  - Remove 4 tracked .DS_Store files; add to .gitignore.
+Ledgered open at 7bbc3ef; closed by 1d1c033 (E1+E5a: calibration layer
+binds in the cycle, haircut-Kelly sizing = min(kelly, affordable) with
+composition-fed quality failing closed to zero, integer-money Kelly
+budget), E2 commit (AnthropicMind behind `dyn Mind` with owned budget +
+env-gated factory), 5954999 (E3: per-cycle cap binds via begin_cycle
+tracking; config surface added), ca38028 (E4: 10-arm settlement/watchdog
+seeded DST as run-dst.sh stage 4, fail-closed script), 1e3e5e7 (E5:
+watchdog outage partition, counted discards + audited proposal manifest
+hashes, hygiene). Each close criterion was graded CLOSED with executed
+evidence by the independent gate: docs/reviews/system-0-4-egate-2026-06-10.md
+(verdict ACCEPT). False documentation was corrected with the correction
+visible (ASSUMPTIONS.md, BUILD_PLAN.md T2.6 note), never erased.
 
 ## Operator adjudication queue (operator actions; no code changes)
 
@@ -107,16 +50,17 @@ reading governs.
   `git log -p -- crates/fortuna-invariants/` (or the diffs quoted in the
   verdict files) and records the waive decision in this file under
   "Disputed invariant tests" or in the ops log; that converts the
-  rule-based BLOCKs.
+  rule-based BLOCKs. Batch (4), added by the E-batch: one fixture line in
+  i7_promotion_gates.rs (`kelly_fraction: 0.25,` in its runner_config —
+  a compile fix for the new required RunnerConfig field), confirmed
+  assertion-clean via full patch by the E-gate verdict.
 
 ## Path to production (ordered; after this list only operator actions remain)
 
-1. ENGINEERING: land E1-E4 + E5 sweep (E5a strictly before E1). One task
-   per session, verifier-gated per the house rules.
-2. ENGINEERING: re-run the full-build gate (fortuna-review phase-gate mode
-   at the new head); production work proceeds only on ACCEPT or
-   ACCEPT-WITH-GAPS where every remaining gap is in this file's
-   operator-blocked sections.
+1. DONE (1d1c033..1e3e5e7): E1-E4 + E5 sweep landed, E5a before E1.
+2. DONE (docs/reviews/system-0-4-egate-2026-06-10.md): full gate re-run
+   at 1e3e5e7 — ACCEPT; all remaining gaps are in this file's operator
+   sections.
 3. OPERATOR: adjudicate the protected-crate waives (queue above).
 4. OPERATOR: provision credentials (.env per README) — ANTHROPIC_API_KEY
    first, then the one-haiku-smoke-call under a tight CostBudget; Slack
