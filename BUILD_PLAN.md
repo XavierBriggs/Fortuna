@@ -238,7 +238,12 @@ EXIT MET TO THE BUILDABLE EXTENT (2026-06-10):
       DONE 31926b9: fixtures absent -> PolymarketUsStub behind the Venue trait;
       every operation + fee model refuses (VenueError::FixtureGated); GAPS entry
       sequences research loop -> operator fixtures -> recordings-only adapter.
-- [ ] T3.5 `synth_events` strategy in Paper. (6)
+- [x] T3.5 `synth_events` strategy in Paper. (6)
+      DONE 0ab04d9: named SynthesisStrategy config (confirmed edges only, Paper
+      stage cap; effective stage via I7 promotion records, starts Sim); paper
+      parity boundary proven strategy-in-front (maker quote within limit,
+      touch-no-fill, trade-through fill w/ haircut, settlement). Recorded-stream
+      replay operator-blocked (GAPS).
 - [ ] T3.6 FINAL_REPORT.md + operator go-live runbook + full acceptance checklist run.
 
 EXIT: PROMPT.md acceptance checklist fully green or operator-blocked-only.
