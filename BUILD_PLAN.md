@@ -21,8 +21,11 @@ Tick boxes with a one-line completion note and the commit hash.
       vectors, 26 sim venue incl. all fault arms + determinism, 6 vocab); fee facts
       grounded in docs/research/venue/ (Kalshi 0.07/0.0175 confirmed vs official PDF);
       spec 5.2 fee drift recorded in GAPS; sealed GatedOrder shell shipped (zero ctors).
-- [ ] T0.4 DST harness + `scripts/run-dst.sh` + CI wiring: randomized scenario runner,
+- [x] T0.4 DST harness + `scripts/run-dst.sh` + CI wiring: randomized scenario runner,
       seed minimizer note, regression corpus directory. (5.1, PROMPT doctrine)
+      DONE 3cdceaa: 2000 seeds/2.6s zero violations; 5 invariants incl. run-twice
+      byte-determinism; teeth proven via planted fee bug (caught) + 2 real harness
+      bugs found+fixed on first runs; replay.sh --seed works; corpus README + minimizer note.
 - [ ] T0.5 `fortuna-gates`: checks 1-10, TOML config, `GatedOrder` sealed constructor,
       audit record per verdict; property + boundary tests; first invariant tests
       implemented (I1, I3 subset). (5.3)
