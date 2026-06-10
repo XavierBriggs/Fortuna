@@ -502,6 +502,7 @@ dependencies = [
  "fortuna-core",
  "futures",
  "proptest",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2",

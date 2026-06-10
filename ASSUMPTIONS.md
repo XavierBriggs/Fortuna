@@ -3,6 +3,41 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T2.5 — Mind trait, StubMind, AnthropicMind
+
+- **AnthropicMind speaks raw HTTP behind a `MindTransport` trait.** There
+  is no official Rust SDK (per the claude-api reference consulted at this
+  task); the wire format follows the documented /v1/messages contract
+  (x-api-key from env, anthropic-version 2023-06-01, adaptive thinking,
+  NO sampling params — removed on current models). The transport does
+  NOT retry; the decision cycle (T2.6) owns retry policy.
+- **The "feature flag" for live exercise is the env key**: the reqwest
+  transport constructs ONLY from a non-empty ANTHROPIC_API_KEY and fails
+  loudly otherwise — degradation to mechanical-only is explicit, never
+  accidental. Live exercise is operator-blocked (GAPS).
+- **Model tiering per spec 5.9 as CONFIG defaults:** synthesis =
+  claude-fable-5, triage = claude-haiku-4-5. Token PRICES are config too
+  (cents per MTok; they change) — documented defaults from the reference:
+  Fable 5 $10/$50, Haiku $1/$5 per MTok. Cost = ceil(tokens x price /
+  1M), recorded against the budget WHETHER OR NOT the output parses
+  (tokens were spent either way).
+- **Structured output via output_config.format json_schema**; numeric
+  range constraints are unsupported at the schema layer, so probability
+  (0,1) and price [1,99] domains re-validate in code post-parse. ANY
+  validation failure rejects the WHOLE output — never repaired (5.9).
+  A refusal stop_reason surfaces as MindError::Refused, not retried.
+- **Provenance is HARNESS-stamped, never model-emitted:** the model
+  cannot know its own prompt hash, so the schema excludes provenance and
+  AnthropicMind stamps {model_id, context_manifest_hash, cost_cents}
+  post-validation. BeliefDraft.provenance is serde-default for exactly
+  this flow.
+- **Budgets check BEFORE the call** (a breach never spends another cent
+  finding out); per-day rolls at 00:00 UTC; per-cycle <= 0 refuses
+  outright. The mechanical-only degradation + alert lives in the decision
+  cycle (T2.6).
+- **StubMind:** scripted outputs in order; an exhausted script yields the
+  EMPTY decision (deterministic null), never an error.
+
 ## T2.4 — context assembler
 
 - **The budget unit is CHARACTERS, not tokens.** Tokenizers are

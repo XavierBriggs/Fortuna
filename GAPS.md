@@ -17,6 +17,11 @@ requires this file to contain ONLY operator-blocked items, each with exact unblo
   Unblock: operator records demo-env fixtures per
   crates/fortuna-venues/tests/kalshi_doc_samples/README.md.
 - Venue + Anthropic + Slack credentials (env vars). Unblock: operator provisions .env per README.
+  (T2.5 note: AnthropicMind is BUILT and mock-tested; the Phase 2 exit's
+  "AnthropicMind exercised behind a feature flag" needs ANTHROPIC_API_KEY —
+  the env-key gate IS the flag; one live smoke call against
+  claude-haiku-4-5 with a tight CostBudget is the recommended first
+  exercise.)
 - Aeolus sample envelope fixture for aeolus_eval (T2.7). Unblock: operator exports one Aeolus run.
 
 ## Open

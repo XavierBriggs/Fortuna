@@ -56,6 +56,10 @@ pub struct BeliefDraft {
     pub p_raw: f64,
     pub horizon: UtcTimestamp,
     pub evidence: serde_json::Value,
+    /// Stamped by the HARNESS after the model call ({model_id,
+    /// context_manifest_hash, cost_cents, ...}) — the model cannot know
+    /// its own prompt hash, so this is never part of the model's schema.
+    #[serde(default)]
     pub provenance: serde_json::Value,
 }
 

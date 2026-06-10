@@ -29,5 +29,6 @@
 pub mod beliefs;
 pub mod context;
 pub mod events;
+pub mod mind;
 pub mod signals;
 pub mod veto;
