@@ -147,6 +147,7 @@ fn synthesis_config() -> SynthesisConfig {
         },
         triage: TriageDecision::AlwaysAccept,
         shadow_quota: 1,
+        stage: fortuna_runner::Stage::Sim,
     }
 }
 

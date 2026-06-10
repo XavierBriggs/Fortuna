@@ -653,6 +653,7 @@ dependencies = [
  "fortuna-exec",
  "fortuna-gates",
  "fortuna-ops",
+ "fortuna-paper",
  "fortuna-state",
  "fortuna-venues",
  "futures",

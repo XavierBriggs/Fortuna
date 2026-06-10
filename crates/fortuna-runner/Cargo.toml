@@ -17,6 +17,7 @@ async-trait = { workspace = true }
 futures = { workspace = true }
 
 [dev-dependencies]
+fortuna-paper = { path = "../fortuna-paper" }
 fortuna-ops = { path = "../fortuna-ops" }
 reqwest = { workspace = true }
 tokio = { workspace = true }

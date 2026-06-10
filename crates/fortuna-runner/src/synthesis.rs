@@ -43,6 +43,10 @@ pub struct SynthesisConfig {
     pub triage: TriageDecision,
     /// Declined-trigger shadow runs per UTC day (T2.6 sampler).
     pub shadow_quota: u32,
+    /// The stage this instance runs at. The composition derives it via
+    /// `promotion::effective_stage(declared_cap, operator_records)` —
+    /// a strategy never promotes itself (I7).
+    pub stage: Stage,
 }
 
 /// `DecisionCycle` adapted to the Strategy plugin interface.
@@ -52,6 +56,7 @@ pub struct SynthesisStrategy {
     cycle: DecisionCycle,
     mind: Arc<dyn Mind>,
     metrics: StrategyMetrics,
+    stage: Stage,
 }
 
 impl SynthesisStrategy {
@@ -66,6 +71,7 @@ impl SynthesisStrategy {
             edges: config.edges,
             mind,
             metrics: StrategyMetrics::default(),
+            stage: config.stage,
         }
     }
 
@@ -99,7 +105,7 @@ impl Strategy for SynthesisStrategy {
         StrategyKind::Synthesis
     }
     fn stage(&self) -> Stage {
-        Stage::Sim
+        self.stage
     }
 
     async fn on_event(

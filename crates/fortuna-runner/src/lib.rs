@@ -29,6 +29,7 @@ pub mod mech_extremes;
 pub mod mech_structural;
 pub mod promotion;
 mod runner;
+pub mod synth_events;
 pub mod synthesis;
 
 pub use runner::{MetricSample, RunCounters, RunnerConfig, RunnerReport, SimRunner, TickReport};

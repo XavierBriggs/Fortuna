@@ -248,6 +248,7 @@ fn run_scenario(seed: u64) -> Result<ScenarioResult, String> {
             },
             triage,
             shadow_quota,
+            stage: fortuna_runner::Stage::Sim,
         },
         mind,
     );

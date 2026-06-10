@@ -3,6 +3,27 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T3.5 — synth_events in Paper
+
+- **synth_events IS a SynthesisStrategy instance** (the T2.6 cycle
+  behind the Strategy trait), not a new mechanism: confirmed-edges-only
+  comparator (a wrong equivalence converts conviction into an unhedged
+  position), 5c edge floor, shadow quota 3/day. Market selection
+  (low-attention, weak-consensus) is the T3.2 discovery loop's job —
+  the strategy trades whatever confirmed edges the composition hands it.
+- **"Paper-only initially" = a declared stage CAP** (Stage::Paper in
+  the factory). SynthesisConfig gained a `stage` field set by the
+  composition from promotion::effective_stage(cap, operator_records):
+  with no records synth_events runs at Sim TODAY; one operator record
+  raises it to Paper and never higher than the cap.
+- **The paper-boundary test quotes maker INSIDE the proposal's limit**
+  (limit 62 from the comparator, quoted at 59): sizing, timing, and
+  price-within-limit belong to the harness (I6) — the strategy's limit
+  is the max acceptable price, not an instruction to cross. The honest
+  fill rules then bind: a print AT 59 never fills; a print THROUGH
+  fills with the 50% haircut. Recorded-stream replay stays
+  operator-blocked on Kalshi fixtures (GAPS).
+
 ## T3.4 — polymarket US slot
 
 - **The stub refuses rather than minimally simulates.** A stub that
