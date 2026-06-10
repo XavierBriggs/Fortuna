@@ -3,6 +3,36 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T2.6 — decision cycle, comparator, haircut, triage
+
+- **The comparator handles Direct and Negation edges ONLY.**
+  Bracket-component and conditional-on mappings carry composite
+  semantics a v1 comparator must not guess at — skipped, never
+  mispriced. Fair values floor to integer cents (an edge is never
+  rounded into existence); candidates are two-sided (low p buys NO via
+  no_ask = 100 - yes_bid) and capped at the displayed ask.
+- **Stale beliefs never reach the comparator** (the T2.3 freshness
+  verdict is an input); edge-tier policy is enforced per candidate
+  (Confirmed demanded where configured).
+- **The haircut fails closed:** quality clamps to [0,1]; NaN/non-finite
+  => fraction 0 (an unmeasured calibration earns no size). The base
+  fraction (0.25 default) and the quality value are inputs; T2.8
+  computes quality from the calibration record.
+- **Shadow sampling is FIRST-K per UTC day** (deterministic and
+  replayable; a random sample needs a seed and buys nothing at these
+  volumes). Shadow runs produce beliefs that are scored normally and
+  NEVER produce trade candidates; a quota-exhausted decline makes no
+  mind call and costs nothing.
+- **Triage v1 is a rule stub** (AlwaysAccept/AlwaysDecline) behind the
+  verdict shape the cheap-model tier will use; the Mind-backed triage
+  wires in the live composition (same scoring contract). Per-event
+  serialization + debounce stay in the T2.2 TriggerEngine; the cycle
+  owns what happens after Fire.
+- **The Sim composition of the full loop (StubMind under DST incl.
+  cognition-failure scenarios) is Phase 2 EXIT work** after T2.8 puts
+  calibration in the path — the cycle machinery is complete and tested
+  here.
+
 ## T2.5 — Mind trait, StubMind, AnthropicMind
 
 - **AnthropicMind speaks raw HTTP behind a `MindTransport` trait.** There
