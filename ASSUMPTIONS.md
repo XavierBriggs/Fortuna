@@ -3,6 +3,23 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T2.7 — daily reconciliation + aeolus_eval
+
+- **"No orders are placed from this loop" is STRUCTURAL:** the
+  ReconciliationOutcome has no field that can carry a trade; proposals
+  the mind emits anyway are COUNTED (discarded_proposals, audited) and
+  dropped. A reconciliation that produces no journal is an ERROR — the
+  journal is its one job; tomorrow's plan rides inside it.
+- **The aeolus envelope contract is FORTUNA's interface definition**
+  (strict serde, deny_unknown_fields): Aeolus's exporter is written TO
+  it; the operator fixture validates conformance (GAPS has the exact
+  unblock). Zero capital is structural: map_aeolus_envelope returns
+  BeliefDrafts only — no proposal type exists in the path. Event ids
+  namespace as `aeolus:{event_hint}`; p_raw preserves the raw forecast;
+  provenance marks model_id="aeolus". Empty brackets = broken export =
+  error, never a silent no-op.
+- **One journal per UTC day** (DB unique index; second insert refuses).
+
 ## T2.6 — decision cycle, comparator, haircut, triage
 
 - **The comparator handles Direct and Negation edges ONLY.**

@@ -22,7 +22,18 @@ requires this file to contain ONLY operator-blocked items, each with exact unblo
   the env-key gate IS the flag; one live smoke call against
   claude-haiku-4-5 with a tight CostBudget is the recommended first
   exercise.)
-- Aeolus sample envelope fixture for aeolus_eval (T2.7). Unblock: operator exports one Aeolus run.
+- **Aeolus sample envelope fixture for aeolus_eval (T2.7).** The
+  ingestion CONTRACT is built and tested against synthetic
+  contract-conformant samples (AeolusEnvelope: station, target_date,
+  run_at, brackets[{event_hint, p}]; strict deny-unknown-fields). A
+  read-only export from the Aeolus box was attempted and DENIED by the
+  permission classifier (prod read without explicit approval — correct
+  call). Unblock: operator runs ONE read-only command and commits the
+  output as fixtures/aeolus/sample-envelope.json, e.g.:
+  `ssh Aeolus 'sqlite3 -json /home/ec2-user/aeolus/artifacts/live/aeolus.db
+  "SELECT ... one run ..."'` shaped to the contract (or adds an export
+  endpoint to aeolus-runner). The fixture then validates the exporter
+  conforms; any mismatch is a contract negotiation, not a silent adapt.
 
 ## Open
 - **Kalshi void representation in /portfolio/settlements is undocumented

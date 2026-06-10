@@ -999,3 +999,58 @@ impl BeliefsRepo {
         Ok(())
     }
 }
+
+/// One journal row (episodic memory, spec 5.6; written by the daily
+/// reconciliation loop, spec 5.8).
+#[derive(Debug, Clone)]
+pub struct JournalRow {
+    pub journal_id: String,
+    pub day: String,
+    pub body: serde_json::Value,
+}
+
+/// Journal entries: INSERT-only (table trigger refuses mutation), one
+/// per UTC day (unique index).
+pub struct JournalRepo {
+    pool: PgPool,
+}
+
+impl JournalRepo {
+    pub fn new(pool: PgPool) -> JournalRepo {
+        JournalRepo { pool }
+    }
+
+    pub async fn insert(
+        &self,
+        journal_id: &str,
+        day: &str,
+        body: &serde_json::Value,
+        created_at: &str,
+    ) -> Result<(), LedgerError> {
+        sqlx::query!(
+            r#"INSERT INTO journal (journal_id, day, body, created_at)
+               VALUES ($1,$2,$3,$4)"#,
+            journal_id,
+            day,
+            body,
+            created_at
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_day(&self, day: &str) -> Result<Option<JournalRow>, LedgerError> {
+        let row = sqlx::query!(
+            r#"SELECT journal_id, day, body FROM journal WHERE day = $1"#,
+            day
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| JournalRow {
+            journal_id: r.journal_id,
+            day: r.day,
+            body: r.body,
+        }))
+    }
+}

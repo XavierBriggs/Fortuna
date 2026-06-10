@@ -31,5 +31,6 @@ pub mod context;
 pub mod cycle;
 pub mod events;
 pub mod mind;
+pub mod reconciliation;
 pub mod signals;
 pub mod veto;

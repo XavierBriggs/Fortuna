@@ -821,3 +821,34 @@ async fn beliefs_abandon_on_event_death_excludes_from_calibration(pool: PgPool) 
     let samples = repo.resolved_samples("weather").await.unwrap();
     assert!(samples.is_empty());
 }
+
+// ---- journal repo (T2.7, spec 5.6/5.8) ----
+
+#[sqlx::test(migrations = "./migrations")]
+async fn journal_one_entry_per_day_append_only(pool: PgPool) {
+    let repo = fortuna_ledger::JournalRepo::new(pool);
+    repo.insert(
+        "j-1",
+        "2026-06-11",
+        &serde_json::json!({"body": "3 fills; tomorrow watch KXHIGHNY", "manifest_hash": "abc"}),
+        "2026-06-12T00:00:05.000Z",
+    )
+    .await
+    .unwrap();
+
+    // One journal per day (the unique index): a second insert refuses.
+    assert!(repo
+        .insert(
+            "j-2",
+            "2026-06-11",
+            &serde_json::json!({"body": "dup"}),
+            "2026-06-12T00:00:06.000Z",
+        )
+        .await
+        .is_err());
+
+    let row = repo.get_day("2026-06-11").await.unwrap().unwrap();
+    assert_eq!(row.journal_id, "j-1");
+    assert!(row.body["body"].as_str().unwrap().contains("KXHIGHNY"));
+    assert!(repo.get_day("2026-06-10").await.unwrap().is_none());
+}
