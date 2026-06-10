@@ -16,12 +16,7 @@
     )
 )]
 
+pub mod bus;
 pub mod clock;
 pub mod ids;
 pub mod money;
-
-pub mod bus {
-    //! `BusEvent` (bus message; distinct from canonical events, spec 5.12),
-    //! deterministic single-threaded dispatch, replay recorder/player.
-    //! Implemented in T0.2.
-}
