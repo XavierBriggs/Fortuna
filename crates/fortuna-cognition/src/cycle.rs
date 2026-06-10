@@ -343,6 +343,10 @@ impl DecisionCycle {
         };
 
         let ctx = assemble_context(context_items, now, "decision", &self.assembler)?;
+        // One cycle, one per-cycle budget allowance (spec 5.9): every
+        // call this cycle makes (including any retry the composition
+        // adds) shares it.
+        mind.begin_cycle();
         let mut output = mind.decide(&ctx).await?;
 
         // THE CALIBRATION LAYER (spec 5.8 "Calibration layer adjusts p",

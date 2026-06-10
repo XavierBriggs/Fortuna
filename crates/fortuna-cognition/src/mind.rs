@@ -153,6 +153,11 @@ impl MindOutput {
 pub trait Mind: Send + Sync {
     fn id(&self) -> &str;
     async fn decide(&self, ctx: &AssembledContext) -> Result<MindOutput, MindError>;
+    /// Cycle boundary, called by the CYCLE OWNER (decision cycle, veto
+    /// loop) before its first call: resets any per-cycle budget so the
+    /// cap spans all calls of one cycle (a retry shares the allowance).
+    /// Free-running minds (stub) need no notion of a cycle.
+    fn begin_cycle(&self) {}
 }
 
 /// Deterministic scripted mind (DST and Phase 2 exit). Outputs replay in
@@ -194,6 +199,7 @@ pub struct CostBudget {
     per_cycle_cap_cents: i64,
     per_day_cap_cents: i64,
     spent_today_cents: i64,
+    spent_this_cycle_cents: i64,
     day_epoch: i64,
 }
 
@@ -205,8 +211,15 @@ impl CostBudget {
             per_cycle_cap_cents,
             per_day_cap_cents,
             spent_today_cents: 0,
+            spent_this_cycle_cents: 0,
             day_epoch: -1,
         }
+    }
+
+    /// Start a new decision cycle: the per-cycle allowance resets; the
+    /// day total carries.
+    pub fn begin_cycle(&mut self) {
+        self.spent_this_cycle_cents = 0;
     }
 
     fn roll(&mut self, now: UtcTimestamp) {
@@ -217,13 +230,17 @@ impl CostBudget {
         }
     }
 
-    /// Refuses when the cycle cap is zero/spent or the day cap is reached.
+    /// Refuses when THIS CYCLE's spend has reached the per-cycle cap
+    /// (a positive cap binds: the call that would exceed it is refused)
+    /// or the day cap is reached. A non-positive cycle cap is degenerate
+    /// and refuses everything.
     pub fn check(&mut self, now: UtcTimestamp) -> Result<(), MindError> {
         self.roll(now);
-        if self.per_cycle_cap_cents <= 0 {
+        if self.per_cycle_cap_cents <= 0 || self.spent_this_cycle_cents >= self.per_cycle_cap_cents
+        {
             return Err(MindError::BudgetExhausted {
                 scope: "per_cycle",
-                spent_cents: 0,
+                spent_cents: self.spent_this_cycle_cents,
                 cap_cents: self.per_cycle_cap_cents,
             });
         }
@@ -240,10 +257,15 @@ impl CostBudget {
     pub fn record_spend(&mut self, cents: i64, now: UtcTimestamp) {
         self.roll(now);
         self.spent_today_cents += cents.max(0);
+        self.spent_this_cycle_cents += cents.max(0);
     }
 
     pub fn spent_today_cents(&self) -> i64 {
         self.spent_today_cents
+    }
+
+    pub fn spent_this_cycle_cents(&self) -> i64 {
+        self.spent_this_cycle_cents
     }
 }
 
@@ -554,6 +576,13 @@ impl<T: MindTransport> AnthropicMind<T> {
 impl<T: MindTransport> Mind for AnthropicMind<T> {
     fn id(&self) -> &str {
         &self.config.model
+    }
+
+    fn begin_cycle(&self) {
+        self.budget
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .begin_cycle();
     }
 
     /// The spec 5.9 trait boundary: budget checked BEFORE the call,

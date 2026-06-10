@@ -38,6 +38,7 @@ channels = ["trading", "alerts", "review", "digest", "ops"]
 synthesis_model = "claude-fable-5"
 triage_model = "claude-haiku-4-5"
 daily_budget_cents = 1500
+per_cycle_budget_cents = 50
 shadow_budget_cents = 500
 
 [deadman]
@@ -96,6 +97,7 @@ fn example_config_file_parses_and_validates() {
     assert_eq!(cfg.cognition.synthesis_model, "claude-fable-5");
     assert_eq!(cfg.cognition.triage_model, "claude-haiku-4-5");
     assert_eq!(cfg.cognition.daily_budget_cents, 1_500);
+    assert_eq!(cfg.cognition.per_cycle_budget_cents, 50);
     assert_eq!(cfg.cognition.shadow_budget_cents, 500);
 
     assert_eq!(cfg.deadman.ping_interval_secs, 60);
@@ -199,7 +201,8 @@ fn empty_slack_channel_list_is_rejected() {
 #[test]
 fn negative_cognition_budget_is_rejected() {
     let err = config_err(&mutated(
-        "daily_budget_cents = 1500",
+        "daily_budget_cents = 1500
+per_cycle_budget_cents = 50",
         "daily_budget_cents = -1",
     ));
     assert!(matches!(err, OpsError::Config { .. }), "got {err:?}");

@@ -74,6 +74,10 @@ channels = ["trading", "alerts", "review", "digest", "ops"]
 synthesis_model = "claude-fable-5"
 triage_model = "claude-haiku-4-5"
 daily_budget_cents = 1_500
+# Hard per-decision-cycle ceiling (spec 5.9): every call one cycle makes
+# (including a retry) shares this allowance; breach degrades to
+# mechanical-only.
+per_cycle_budget_cents = 50
 shadow_budget_cents = 500
 
 [deadman]

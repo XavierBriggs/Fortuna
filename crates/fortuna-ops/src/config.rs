@@ -92,6 +92,9 @@ pub struct CognitionConfig {
     pub synthesis_model: String,
     pub triage_model: String,
     pub daily_budget_cents: i64,
+    /// Hard per-decision-cycle ceiling (spec 5.9; feeds CostBudget's
+    /// per-cycle cap). Zero/negative refuses every call — fail closed.
+    pub per_cycle_budget_cents: i64,
     pub shadow_budget_cents: i64,
 }
 
@@ -177,7 +180,10 @@ impl FortunaConfig {
         if self.cognition.synthesis_model.is_empty() || self.cognition.triage_model.is_empty() {
             return err("cognition model names must be non-empty".to_string());
         }
-        if self.cognition.daily_budget_cents < 0 || self.cognition.shadow_budget_cents < 0 {
+        if self.cognition.daily_budget_cents < 0
+            || self.cognition.shadow_budget_cents < 0
+            || self.cognition.per_cycle_budget_cents < 0
+        {
             return err("cognition budgets must be non-negative cents".to_string());
         }
 

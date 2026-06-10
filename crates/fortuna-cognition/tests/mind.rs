@@ -423,3 +423,83 @@ async fn mind_from_env_gates_on_the_key() {
     assert_eq!(mind.id(), "claude-fable-5");
     std::env::remove_var(ENV_ANTHROPIC_API_KEY);
 }
+
+// ---- E3: the per-cycle cap actually BINDS ----
+
+#[test]
+fn per_cycle_cap_rejects_the_call_after_the_cycle_spends_it() {
+    let now = t("2026-06-11T12:00:00.000Z");
+    let mut budget = CostBudget::new(100, 10_000);
+
+    budget.begin_cycle();
+    budget.check(now).unwrap();
+    budget.record_spend(60, now);
+    budget.check(now).unwrap(); // 60 < 100: another call may go
+    budget.record_spend(40, now); // cycle now AT the cap
+
+    let err = budget.check(now).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            MindError::BudgetExhausted {
+                scope: "per_cycle",
+                spent_cents: 100,
+                cap_cents: 100,
+            }
+        ),
+        "{err}"
+    );
+
+    // A NEW cycle resets the cycle allowance; the day total carries.
+    budget.begin_cycle();
+    budget.check(now).unwrap();
+    assert_eq!(budget.spent_today_cents(), 100);
+
+    // The day cap still binds across cycles.
+    budget.record_spend(9_900, now);
+    budget.begin_cycle();
+    let err = budget.check(now).unwrap_err();
+    assert!(matches!(
+        err,
+        MindError::BudgetExhausted {
+            scope: "per_day",
+            ..
+        }
+    ));
+}
+
+#[tokio::test]
+async fn anthropic_mind_enforces_the_cycle_cap_at_the_trait_boundary() {
+    use fortuna_cognition::mind::Mind;
+    use fortuna_core::clock::SimClock;
+    use std::sync::Arc;
+
+    // Each scripted call costs 2c; per-cycle cap 2c, day cap generous.
+    let transport = MockTransport::new(vec![
+        (200, api_response(&valid_output_json(), 1_000, 200)),
+        (200, api_response(&valid_output_json(), 1_000, 200)),
+    ]);
+    let clock = Arc::new(SimClock::new(t("2026-06-11T12:00:00.000Z")));
+    let mind = AnthropicMind::new(config(), transport, CostBudget::new(2, 1_000), clock);
+    let dyn_mind: &dyn Mind = &mind;
+
+    // Cycle 1: one call fits; a SECOND call in the SAME cycle refuses
+    // (retry-once shares the cycle allowance, spec 5.9).
+    dyn_mind.begin_cycle();
+    dyn_mind.decide(&ctx()).await.unwrap();
+    let err = dyn_mind.decide(&ctx()).await.unwrap_err();
+    assert!(
+        matches!(
+            err,
+            MindError::BudgetExhausted {
+                scope: "per_cycle",
+                ..
+            }
+        ),
+        "{err}"
+    );
+
+    // Cycle 2: the allowance resets; the next call goes through.
+    dyn_mind.begin_cycle();
+    dyn_mind.decide(&ctx()).await.unwrap();
+}
