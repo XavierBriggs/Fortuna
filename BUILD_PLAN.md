@@ -101,8 +101,15 @@ postgres service committed). Invariants: I1, I2, I3, I4 implemented and green
       net, filled-at-limit recorded); mech_extremes maker-only fade w/ provable
       sub-$100k bound (contracts x $1), fail-closed catalog guards; 39 new tests;
       DST 2000 clean.
-- [ ] T1.4 Settlement lifecycle processors + watchdogs (overdue, dispute, divergence,
+- [x] T1.4 Settlement lifecycle processors + watchdogs (overdue, dispute, divergence,
       stranded-state) + discrepancy records. (5.13)
+      DONE a0aa419: Venue::settlements_since notice stream (sim/paper/kalshi);
+      SettlementLedger superseding-insert chains + exact position reversal w/ veto
+      re-scoring; runner processor (dedup/correction/void) + watchdogs (overdue,
+      dispute freeze w/ new Disputed status, 3-tick position-mismatch -> discrepancy +
+      GLOBAL halt); Settlements/Discrepancies Pg repos; DST void+reversal arms; 25 new
+      tests, DST 3000 clean. Divergence detector deferred to T2.1 (needs events/edges,
+      GAPS).
 - [ ] T1.5 Metrics (OpenTelemetry), minimal read-only dashboard, daily digest,
       accounting export. (8)
 
