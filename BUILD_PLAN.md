@@ -157,8 +157,13 @@ EXIT MET TO THE BUILDABLE EXTENT (2026-06-10, commit bee37a6):
       transactional supersession; score-once repo enforcement (abandoned never scores,
       superseded does); abandonment excluded from calibration; freshness w/ tightened
       pre-benchmark window + signal-postdates rule; resolved-only calibration buckets.
-- [ ] T2.4 Context assembler with manifests + replayability (snapshotted computed
+- [x] T2.4 Context assembler with manifests + replayability (snapshotted computed
       views); anonymization mode. (5.7)
+      DONE 69a37a2: priority-order char-budgeted packing (greedy, whole items only);
+      manifest hash for provenance (byte-identical on same inputs); strict
+      point-in-time + counted exclusions; fail-closed item hash verification;
+      anonymization w/ stable pseudonyms (manifest keeps real ids); <context-item>
+      data delimiting.
 - [ ] T2.5 `Mind` trait: StubMind (deterministic, for DST) + AnthropicMind (structured
       output via tool schema, cost tracking, budgets, schema-invalid handling). (5.9)
 - [ ] T2.6 Decision cycle + comparator + Kelly sizing with calibration haircut;
