@@ -60,12 +60,23 @@ Tick boxes with a one-line completion note and the commit hash.
       invariant + binary self-test with no DB + monthly drill script); ops 44 tests
       (config/secrets-redaction/slack-per-research/deadman); CLI halt/rearm/kill/status
       smoke-tested live (operator-attributed, durable halt_events); I4 implemented.
-- [ ] T0.10 `mech_structural` strategy plugin + Strategy trait + per-strategy
+- [x] T0.10 `mech_structural` strategy plugin + Strategy trait + per-strategy
       comparator/sizing-lib split; runs in Sim. (6, 5.14)
+      DONE 77c4c65: Strategy trait + I7 stage guard; sizing lib (Kelly boundary-tested);
+      mech_structural bracket arb captured end-to-end NET OF FEES through settlement;
+      7 composed-loop tests incl. byte-identical same-seed recordings, halt-mid-group,
+      audit-failure-halts.
 
 EXIT: mech_structural full loop in Sim with replay; DST corpus (all Phase-0-relevant
 doctrine scenarios) zero violations across >= 10,000 seeds; CI green; I1-I4 invariant
 tests implemented and green.
+EXIT MET (2026-06-10, commit 77c4c65): full loop + replay = fortuna-runner tests
+(arb end-to-end; same seed => byte-identical recordings). DST: "[dst] OK: 0 corpus +
+10000 random seeds, zero invariant violations" (6m13s, gates->manager->venue world
+with crash/boot actions). Local CI battery: cargo fmt --check clean, clippy
+--workspace -D warnings clean, 341 workspace tests 0 failures (CI workflow incl.
+postgres service committed). Invariants: I1, I2, I3, I4 implemented and green
+(plus I5 ahead of schedule); I6/I7 staged for their owning Phase 2/3 tasks.
 
 ## Phase 1 — Mechanical paper path (Section 11, 12)
 
