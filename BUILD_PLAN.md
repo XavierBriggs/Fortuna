@@ -41,9 +41,12 @@ Tick boxes with a one-line completion note and the commit hash.
       after cancel/boot-close, boot adopt/orphan/close paths); DST world now drives
       gates->manager->venue with crash+boot actions + I-journal invariants; 4000
       seeds x 5 masters zero violations.
-- [ ] T0.7 `fortuna-state`: positions, account views (settled/committed/floating/total),
+- [x] T0.7 `fortuna-state`: positions, account views (settled/committed/floating/total),
       conservative marking, reservation ledger rebuilt-at-boot; drawdown halt flags
       (I2). (5.14, 5.13)
+      DONE 11e8313: 64 state tests + I2 invariant (lifecycle + randomized equity-path
+      property) green; hostile review caught + fixed the net-YES pair-value bug across
+      venue/DST/state (per-side lots; pair settles at \$1); conservation proptested.
 - [ ] T0.8 `fortuna-ledger`: Postgres schema + migrations for ALL Section 7 tables;
       append-only audit writer (write failure => halt); sqlx setup. (5.5, 5.13, 7, I5)
 - [ ] T0.9 `fortuna-ops`: config loader, Slack client + channel routing, kill-switch
