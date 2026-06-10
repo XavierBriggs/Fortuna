@@ -1,0 +1,106 @@
+digraph FORTUNA {
+  rankdir=TB;
+  fontname="Helvetica";
+  labelloc="t";
+  label="FORTUNA — system & data flow (verified at 7bbc3ef, 2026-06-10)";
+  fontsize=18;
+  node [fontname="Helvetica", fontsize=11, shape=box, style="rounded,filled", fillcolor=white, color="#444444"];
+  edge [fontname="Helvetica", fontsize=9, color="#555555"];
+
+  // ---------- External world ----------
+  subgraph cluster_ext {
+    label="EXTERNAL WORLD (untrusted)"; style=dashed; color="#888888"; fontsize=13;
+    mkt     [label="Venue market data\nbooks · trades · settlements"];
+    sig     [label="Signal sources\nnews/feeds — DATA, never instructions"];
+    aeolus  [label="Aeolus envelopes\n(forecast exports)"];
+    anthropic [label="Anthropic API"];
+  }
+
+  operator [label="OPERATOR (human, out-of-band)\nre-arms · promotions · credentials · waives", fillcolor="#fff3cd", penwidth=1.5];
+
+  // ---------- Cognition plane ----------
+  subgraph cluster_cog {
+    label="COGNITION PLANE — fortuna-cognition  (PROPOSE-ONLY · I6 · f64 probabilities allowed)";
+    style=filled; fillcolor="#eef4fb"; color="#3b6ea5"; fontsize=13;
+    funnel  [label="Ingestion funnel\nSource trait → normalize → dedup\nsource registry (trust tiers, fail-closed)"];
+    trigger [label="Trigger engine\nrules + debounce\none cycle per event"];
+    ctx     [label="Context assembler\nbudgeted packing · manifest hash\npoint-in-time · anonymization"];
+    mind    [label="Mind trait\nStubMind | AnthropicMind\ncost budgets · schema-validated output"];
+    cycle   [label="Decision cycle\ntwo-sided comparator · triage\nshadow sampling"];
+    beliefs [label="Belief ledger\nsupersession · freshness policy"];
+    calib   [label="Calibration layer\nPlatt / isotonic · shrinkage\nquality score"];
+    scoring [label="Scoring\nBrier · CLV vs benchmark snapshots\ncounterfactual veto scoring"];
+  }
+
+  // ---------- Deterministic harness ----------
+  subgraph cluster_harness {
+    label="DETERMINISTIC HARNESS  (single-threaded core · injected Clock · integer Cents)";
+    style=filled; fillcolor="#eefbef"; color="#2e7d32"; fontsize=13;
+    strategy [label="Strategy trait\nmech_structural | mech_extremes | synth_events\nSynthesisStrategy (model adapter)"];
+    sizing   [label="Sizing — HARNESS-OWNED\nKelly × calibration haircut (E1: wiring open)\nenvelope reservations"];
+    gates    [label="UNIVERSAL GATE PIPELINE — I1\nchecks 1-10 · fail-closed\nrate buckets (I3) · drawdown (I2)", fillcolor="#dcedc8", penwidth=2.2];
+    gated    [label="GatedOrder — SEALED TYPE\nsole constructor inside fortuna-gates", shape=note, fillcolor="#f1f8e9"];
+    exec     [label="Execution\nintent journal · order manager\nIntentGroups · flatten planner"];
+    venue    [label="Venue trait\nSim | Paper | Kalshi | Polymarket(stub)\nfee models · fixtures-gated"];
+    state    [label="State\npositions · marks · accounts\nDrawdownMonitor"];
+    settle   [label="Settlement processors + watchdogs\noverdue · dispute · divergence\nposition-mismatch → discrepancy"];
+  }
+
+  pg [label="POSTGRES LEDGER — fortuna-ledger\nAPPEND-ONLY audit (I5) · beliefs · events/edges · intents\nsettlements · snapshots · calibration params", shape=cylinder, fillcolor="#f3e5f5", penwidth=1.5];
+
+  // ---------- Ops / safety ----------
+  subgraph cluster_ops {
+    label="OPS / SAFETY"; style=filled; fillcolor="#fdf1f1"; color="#b71c1c"; fontsize=13;
+    halt  [label="HALT FLAGS\nbreach = halt, never throttle\nhuman re-arm ONLY (I2)", fillcolor="#ffcdd2"];
+    kill  [label="KILL SWITCH — I4\nstandalone binary\nNO Postgres · NO cognition · NO event loop\nfreeze + cancel direct at venue", fillcolor="#ffcdd2", penwidth=2.2];
+    promo [label="PROMOTION GATES — I7\nshadow model comparison\nSim → Paper → Live, operator-only"];
+    obs   [label="Observability\nmetrics · read-only dashboard\ndigest · Slack · dead-man ping"];
+  }
+
+  // ---------- Ingestion / cognition flow ----------
+  sig -> funnel;
+  funnel -> trigger -> ctx -> mind -> cycle;
+  anthropic -> mind [dir=both, label="HTTPS, env-key gated", style=dashed];
+  aeolus -> beliefs [label="aeolus_eval → zero-capital drafts"];
+  beliefs -> ctx [style=dashed];
+  cycle -> beliefs;
+  mkt -> scoring [label="benchmark snapshots\n(T-24h/1h/5m)", style=dashed];
+
+  // ---------- The single trust crossing ----------
+  cycle -> strategy [label="UNSIZED candidates only\n(the I6 boundary)", penwidth=2.5, color="#3b6ea5", fontcolor="#3b6ea5"];
+
+  // ---------- Order path ----------
+  mkt -> venue;
+  strategy -> sizing -> gates;
+  gates -> gated [penwidth=2];
+  gated -> exec [penwidth=2];
+  exec -> venue [label="place / cancel", penwidth=2];
+  venue -> exec [label="acks · fills"];
+  venue -> settle [label="settlement notices"];
+  exec -> state;
+  settle -> state [label="reversals"];
+  state -> gates [style=dashed, label="exposure · drawdown"];
+
+  // ---------- Learning loop ----------
+  settle -> scoring [label="outcomes", color="#3b6ea5"];
+  scoring -> calib [color="#3b6ea5"];
+  calib -> sizing [label="quality → haircut", style=dashed, color="#3b6ea5", fontcolor="#3b6ea5"];
+
+  // ---------- Safety paths ----------
+  gates -> halt [color="#b71c1c", label="breach", fontcolor="#b71c1c"];
+  settle -> halt [color="#b71c1c", label="discrepancy → GLOBAL halt", fontcolor="#b71c1c"];
+  halt -> gates [color="#b71c1c", style=dashed, label="blocks ALL orders"];
+  operator -> halt [label="re-arm"];
+  operator -> kill;
+  kill -> venue [color="#b71c1c", penwidth=2.5, label="freeze + cancel\n(bypasses everything)", fontcolor="#b71c1c"];
+  operator -> promo;
+  promo -> strategy [style=dashed, label="stage: Sim/Paper/Live"];
+
+  // ---------- Persistence ----------
+  mind -> pg [label="audit every consult", style=dotted];
+  gates -> pg [style=dotted];
+  exec -> pg [style=dotted];
+  settle -> pg [style=dotted];
+  beliefs -> pg [style=dotted];
+  pg -> obs [style=dashed];
+}

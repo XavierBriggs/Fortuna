@@ -167,7 +167,12 @@ async fn stub_mind_is_deterministic_and_propose_only() {
 async fn anthropic_request_shape_follows_the_documented_wire_format() {
     let transport = MockTransport::new(vec![(200, api_response(&valid_output_json(), 1000, 200))]);
     let mut bud = budget();
-    let mind = AnthropicMind::new(config(), transport);
+    let mind = AnthropicMind::new(
+        config(),
+        transport,
+        CostBudget::new(1_000, 100_000),
+        std::sync::Arc::new(fortuna_core::clock::SimClock::new(t("2026-06-11T12:00:00.000Z"))),
+    );
     let now = t("2026-06-11T12:00:00.000Z");
     mind.decide_with_budget(&ctx(), &mut bud, now)
         .await
@@ -207,7 +212,12 @@ async fn anthropic_parses_output_and_tracks_cost_from_usage() {
         api_response(&valid_output_json(), 100_000, 10_000),
     )]);
     let mut bud = budget();
-    let mind = AnthropicMind::new(config(), transport);
+    let mind = AnthropicMind::new(
+        config(),
+        transport,
+        CostBudget::new(1_000, 100_000),
+        std::sync::Arc::new(fortuna_core::clock::SimClock::new(t("2026-06-11T12:00:00.000Z"))),
+    );
     let now = t("2026-06-11T12:00:00.000Z");
     let out = mind
         .decide_with_budget(&ctx(), &mut bud, now)
@@ -235,7 +245,12 @@ async fn schema_invalid_output_is_rejected_never_repaired() {
     bad["beliefs"][0]["p"] = json!(1.3);
     let transport = MockTransport::new(vec![(200, api_response(&bad, 100, 10))]);
     let mut bud = budget();
-    let mind = AnthropicMind::new(config(), transport);
+    let mind = AnthropicMind::new(
+        config(),
+        transport,
+        CostBudget::new(1_000, 100_000),
+        std::sync::Arc::new(fortuna_core::clock::SimClock::new(t("2026-06-11T12:00:00.000Z"))),
+    );
     let now = t("2026-06-11T12:00:00.000Z");
     let err = mind
         .decide_with_budget(&ctx(), &mut bud, now)
@@ -250,7 +265,12 @@ async fn schema_invalid_output_is_rejected_never_repaired() {
         "usage": {"input_tokens": 10, "output_tokens": 5}
     });
     let transport = MockTransport::new(vec![(200, garbled)]);
-    let mind = AnthropicMind::new(config(), transport);
+    let mind = AnthropicMind::new(
+        config(),
+        transport,
+        CostBudget::new(1_000, 100_000),
+        std::sync::Arc::new(fortuna_core::clock::SimClock::new(t("2026-06-11T12:00:00.000Z"))),
+    );
     let err = mind
         .decide_with_budget(&ctx(), &mut bud, now)
         .await
@@ -268,7 +288,12 @@ async fn refusal_and_api_errors_surface_loudly() {
     });
     let transport = MockTransport::new(vec![(200, refusal)]);
     let mut bud = budget();
-    let mind = AnthropicMind::new(config(), transport);
+    let mind = AnthropicMind::new(
+        config(),
+        transport,
+        CostBudget::new(1_000, 100_000),
+        std::sync::Arc::new(fortuna_core::clock::SimClock::new(t("2026-06-11T12:00:00.000Z"))),
+    );
     let now = t("2026-06-11T12:00:00.000Z");
     assert!(matches!(
         mind.decide_with_budget(&ctx(), &mut bud, now).await,
@@ -279,7 +304,12 @@ async fn refusal_and_api_errors_surface_loudly() {
         429,
         json!({"type": "error", "error": {"type": "rate_limit_error", "message": "slow down"}}),
     )]);
-    let mind = AnthropicMind::new(config(), transport);
+    let mind = AnthropicMind::new(
+        config(),
+        transport,
+        CostBudget::new(1_000, 100_000),
+        std::sync::Arc::new(fortuna_core::clock::SimClock::new(t("2026-06-11T12:00:00.000Z"))),
+    );
     assert!(matches!(
         mind.decide_with_budget(&ctx(), &mut bud, now).await,
         Err(MindError::Provider { .. })
@@ -294,7 +324,12 @@ async fn budgets_check_before_calling_and_roll_at_utc_midnight() {
     // call (the transport must never be hit).
     let transport = MockTransport::new(vec![]);
     let mut bud = CostBudget::new(0, 5_000); // zero per-cycle budget
-    let mind = AnthropicMind::new(config(), transport);
+    let mind = AnthropicMind::new(
+        config(),
+        transport,
+        CostBudget::new(1_000, 100_000),
+        std::sync::Arc::new(fortuna_core::clock::SimClock::new(t("2026-06-11T12:00:00.000Z"))),
+    );
     let now = t("2026-06-11T12:00:00.000Z");
     let err = mind
         .decide_with_budget(&ctx(), &mut bud, now)
@@ -319,4 +354,72 @@ async fn budgets_check_before_calling_and_roll_at_utc_midnight() {
     // New UTC day: the counter rolls.
     assert!(bud.check(t("2026-06-12T00:00:01.000Z")).is_ok());
     assert_eq!(bud.spent_today_cents(), 0);
+}
+
+// ---- E2: AnthropicMind behind the Mind trait + env-gated factory ----
+
+#[tokio::test]
+async fn anthropic_mind_decides_through_the_dyn_mind_trait() {
+    use fortuna_cognition::mind::Mind;
+    use fortuna_core::clock::SimClock;
+    use std::sync::Arc;
+
+    // Two healthy responses scripted; the OWNED day budget covers only
+    // the first call's cost (1000 in + 200 out at Fable prices = 2c).
+    let transport = MockTransport::new(vec![
+        (200, api_response(&valid_output_json(), 1_000, 200)),
+        (200, api_response(&valid_output_json(), 1_000, 200)),
+    ]);
+    let clock = Arc::new(SimClock::new(t("2026-06-11T12:00:00.000Z")));
+    let mind = AnthropicMind::new(config(), transport, CostBudget::new(100, 2), clock);
+
+    // Upcast: the composition only ever sees `dyn Mind` (spec 5.9
+    // "both behind Mind").
+    let dyn_mind: &dyn Mind = &mind;
+    assert_eq!(dyn_mind.id(), "claude-fable-5");
+
+    let output = dyn_mind.decide(&ctx()).await.unwrap();
+    assert_eq!(output.beliefs.len(), 1);
+    // Harness-stamped provenance rides through the trait boundary.
+    assert_eq!(output.beliefs[0].provenance["model_id"], "claude-fable-5");
+    assert!(output.cost_cents > 0);
+
+    // The trait boundary enforces the owned budget: the day cap is
+    // spent, so the second decision refuses BEFORE any transport call.
+    let err = dyn_mind.decide(&ctx()).await.unwrap_err();
+    assert!(matches!(err, MindError::BudgetExhausted { .. }), "{err}");
+}
+
+#[tokio::test]
+async fn mind_from_env_gates_on_the_key() {
+    use fortuna_cognition::mind::{mind_from_env, ENV_ANTHROPIC_API_KEY};
+    use fortuna_core::clock::SimClock;
+    use std::sync::Arc;
+
+    let clock = Arc::new(SimClock::new(t("2026-06-11T12:00:00.000Z")));
+
+    // No key: the factory yields the STUB (empty decisions — zero
+    // beliefs, zero proposals — never a live-provider surprise).
+    std::env::remove_var(ENV_ANTHROPIC_API_KEY);
+    let mind = mind_from_env(
+        config(),
+        CostBudget::new(100, 1_000),
+        clock.clone(),
+        std::time::Duration::from_secs(30),
+    );
+    assert_eq!(mind.id(), "stub-mind");
+    let output = mind.decide(&ctx()).await.unwrap();
+    assert!(output.beliefs.is_empty() && output.proposals.is_empty());
+
+    // Key present: the factory yields the Claude-backed mind (the
+    // env-key gate IS the feature flag).
+    std::env::set_var(ENV_ANTHROPIC_API_KEY, "sk-test-not-real");
+    let mind = mind_from_env(
+        config(),
+        CostBudget::new(100, 1_000),
+        clock,
+        std::time::Duration::from_secs(30),
+    );
+    assert_eq!(mind.id(), "claude-fable-5");
+    std::env::remove_var(ENV_ANTHROPIC_API_KEY);
 }

@@ -22,7 +22,7 @@
 use crate::beliefs::BeliefDraft;
 use crate::context::AssembledContext;
 use async_trait::async_trait;
-use fortuna_core::clock::UtcTimestamp;
+use fortuna_core::clock::{Clock, UtcTimestamp};
 use fortuna_core::market::Side;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -347,15 +347,30 @@ pub struct AnthropicMindConfig {
     pub system_charter: String,
 }
 
-/// The Claude-backed mind.
+/// The Claude-backed mind. Owns its cost budget and clock so it can sit
+/// behind `dyn Mind` (spec 5.9: StubMind AND AnthropicMind both behind
+/// the trait): every `decide` checks the budget BEFORE the call and
+/// records the spend after, at the trait boundary.
 pub struct AnthropicMind<T: MindTransport> {
     config: AnthropicMindConfig,
     transport: T,
+    budget: Mutex<CostBudget>,
+    clock: std::sync::Arc<dyn Clock>,
 }
 
 impl<T: MindTransport> AnthropicMind<T> {
-    pub fn new(config: AnthropicMindConfig, transport: T) -> AnthropicMind<T> {
-        AnthropicMind { config, transport }
+    pub fn new(
+        config: AnthropicMindConfig,
+        transport: T,
+        budget: CostBudget,
+        clock: std::sync::Arc<dyn Clock>,
+    ) -> AnthropicMind<T> {
+        AnthropicMind {
+            config,
+            transport,
+            budget: Mutex::new(budget),
+            clock,
+        }
     }
 
     pub fn transport(&self) -> &T {
@@ -423,7 +438,10 @@ impl<T: MindTransport> AnthropicMind<T> {
     }
 
     /// One decision: budget check FIRST, then the call, then validation
-    /// and cost accounting. `now` comes from the injected clock.
+    /// and cost accounting. `now` comes from the injected clock. The
+    /// trait-level `decide` wraps this over the OWNED budget and clock;
+    /// this explicit form exists for compositions that share one budget
+    /// across minds and for budget-mechanics tests.
     pub async fn decide_with_budget(
         &self,
         ctx: &AssembledContext,
@@ -431,7 +449,16 @@ impl<T: MindTransport> AnthropicMind<T> {
         now: UtcTimestamp,
     ) -> Result<MindOutput, MindError> {
         budget.check(now)?;
+        let (result, cost_cents) = self.call_priced(ctx).await;
+        budget.record_spend(cost_cents, now);
+        result
+    }
 
+    /// The transport call + validation, returning the cost SEPARATELY so
+    /// callers can record spend even when the output is rejected (tokens
+    /// were consumed whether or not the output parses). Transport-level
+    /// failures cost zero (no usage was returned).
+    async fn call_priced(&self, ctx: &AssembledContext) -> (Result<MindOutput, MindError>, i64) {
         let body = json!({
             "model": self.config.model,
             "max_tokens": self.config.max_tokens,
@@ -441,15 +468,21 @@ impl<T: MindTransport> AnthropicMind<T> {
             "messages": [{"role": "user", "content": ctx.rendered}],
         });
 
-        let (status, resp) = self.transport.post_messages(body).await?;
+        let (status, resp) = match self.transport.post_messages(body).await {
+            Ok(pair) => pair,
+            Err(e) => return (Err(e), 0),
+        };
         if !(200..300).contains(&status) {
             let reason = resp["error"]["message"]
                 .as_str()
                 .unwrap_or("unknown error")
                 .to_string();
-            return Err(MindError::Provider {
-                reason: format!("HTTP {status}: {reason}"),
-            });
+            return (
+                Err(MindError::Provider {
+                    reason: format!("HTTP {status}: {reason}"),
+                }),
+                0,
+            );
         }
 
         // Cost first: tokens were spent whether or not the output parses.
@@ -462,34 +495,47 @@ impl<T: MindTransport> AnthropicMind<T> {
             output_tokens * self.config.output_price_cents_per_mtok,
             1_000_000,
         );
-        budget.record_spend(cost_cents, now);
 
         if resp["stop_reason"] == "refusal" {
-            return Err(MindError::Refused {
-                explanation: resp["stop_details"]["explanation"]
-                    .as_str()
-                    .unwrap_or("no explanation")
-                    .to_string(),
-            });
+            return (
+                Err(MindError::Refused {
+                    explanation: resp["stop_details"]["explanation"]
+                        .as_str()
+                        .unwrap_or("no explanation")
+                        .to_string(),
+                }),
+                cost_cents,
+            );
         }
 
-        let text = resp["content"]
-            .as_array()
-            .and_then(|blocks| {
-                blocks
-                    .iter()
-                    .find(|b| b["type"] == "text")
-                    .and_then(|b| b["text"].as_str())
-            })
-            .ok_or_else(|| MindError::SchemaInvalid {
-                reason: "response carries no text block".to_string(),
-            })?;
+        let Some(text) = resp["content"].as_array().and_then(|blocks| {
+            blocks
+                .iter()
+                .find(|b| b["type"] == "text")
+                .and_then(|b| b["text"].as_str())
+        }) else {
+            return (
+                Err(MindError::SchemaInvalid {
+                    reason: "response carries no text block".to_string(),
+                }),
+                cost_cents,
+            );
+        };
 
-        let mut output: MindOutput =
-            serde_json::from_str(text).map_err(|e| MindError::SchemaInvalid {
-                reason: format!("output is not valid MindOutput JSON: {e}"),
-            })?;
-        output.validate()?;
+        let mut output: MindOutput = match serde_json::from_str(text) {
+            Ok(output) => output,
+            Err(e) => {
+                return (
+                    Err(MindError::SchemaInvalid {
+                        reason: format!("output is not valid MindOutput JSON: {e}"),
+                    }),
+                    cost_cents,
+                )
+            }
+        };
+        if let Err(e) = output.validate() {
+            return (Err(e), cost_cents);
+        }
         output.cost_cents = cost_cents;
         // Provenance is HARNESS knowledge (spec 5.5): stamp it here —
         // the model never writes its own provenance.
@@ -500,7 +546,48 @@ impl<T: MindTransport> AnthropicMind<T> {
                 "cost_cents": cost_cents,
             });
         }
-        Ok(output)
+        (Ok(output), cost_cents)
+    }
+}
+
+#[async_trait]
+impl<T: MindTransport> Mind for AnthropicMind<T> {
+    fn id(&self) -> &str {
+        &self.config.model
+    }
+
+    /// The spec 5.9 trait boundary: budget checked BEFORE the call,
+    /// spend recorded after — against the mind's OWNED budget. The lock
+    /// is never held across the transport await.
+    async fn decide(&self, ctx: &AssembledContext) -> Result<MindOutput, MindError> {
+        let now = self.clock.now();
+        {
+            let mut budget = self.budget.lock().unwrap_or_else(|e| e.into_inner());
+            budget.check(now)?;
+        }
+        let (result, cost_cents) = self.call_priced(ctx).await;
+        {
+            let mut budget = self.budget.lock().unwrap_or_else(|e| e.into_inner());
+            budget.record_spend(cost_cents, now);
+        }
+        result
+    }
+}
+
+/// The composition's mind factory (spec 5.9 / GAPS: the env-key gate IS
+/// the feature flag). ANTHROPIC_API_KEY present => the Claude-backed
+/// mind over the reqwest transport; absent => the STUB, whose empty
+/// decisions hold zero beliefs and zero proposals — a keyless
+/// composition can never trade on a live provider by accident.
+pub fn mind_from_env(
+    config: AnthropicMindConfig,
+    budget: CostBudget,
+    clock: std::sync::Arc<dyn Clock>,
+    timeout: std::time::Duration,
+) -> Box<dyn Mind> {
+    match ReqwestMindTransport::from_env(timeout) {
+        Ok(transport) => Box::new(AnthropicMind::new(config, transport, budget, clock)),
+        Err(_) => Box::new(StubMind::scripted(Vec::new())),
     }
 }
 
