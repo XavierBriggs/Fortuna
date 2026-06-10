@@ -29,7 +29,7 @@ pub mod mech_extremes;
 pub mod mech_structural;
 mod runner;
 
-pub use runner::{RunnerConfig, RunnerReport, SimRunner, TickReport};
+pub use runner::{MetricSample, RunCounters, RunnerConfig, RunnerReport, SimRunner, TickReport};
 
 use async_trait::async_trait;
 use fortuna_core::book::{FeeModel, OrderBook};

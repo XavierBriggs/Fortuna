@@ -3,8 +3,9 @@
 //! routing, and the dead-man pinger pieces.
 //!
 //! NOT in this crate slice: the operator CLI and the standalone kill switch
-//! (owned elsewhere; `fortuna-killswitch` is its own crate per I4), metrics,
-//! dashboards, and the accounting export (later tasks). Re-arm and
+//! (owned elsewhere; `fortuna-killswitch` is its own crate per I4).
+//! T1.5 adds: metrics registry + exposition renderer, the read-only
+//! dashboard server, the daily digest composer, and the accounting export. Re-arm and
 //! kill-reversal are deliberately NOT exposed over Slack (spec Section 8:
 //! CLI-only; a compromised Slack token must not be able to un-halt a halted
 //! system). This crate only ever SENDS to Slack — it has no inbound
@@ -22,7 +23,11 @@
 )]
 
 mod config;
+pub mod dashboard;
 mod deadman;
+pub mod digest;
+pub mod export;
+pub mod metrics;
 mod slack;
 
 pub use config::{
@@ -50,6 +55,9 @@ pub enum OpsError {
     /// `name` is the environment-variable name, never the value.
     #[error("missing required secret: {name}")]
     MissingSecret { name: String },
+    /// The accounting export refused or failed (write-once discipline).
+    #[error("accounting export: {reason}")]
+    Export { reason: String },
     /// Slack replied (typically HTTP 200) with `{"ok": false, "error": code}`
     /// — per the research doc, "check `ok`, not the status code".
     #[error("slack api error: {code}")]

@@ -63,13 +63,17 @@ requires this file to contain ONLY operator-blocked items, each with exact unblo
   on capital, identical on PnL. Verify the exact netting behavior against
   fixtures at T1.1; if confirmed, add the early credit to paper as a
   capital-realism follow-up.
-- **Paper engine awaits recorded Kalshi data streams (T1.2, 2026-06-10).**
-  `PaperVenue` consumes pushed canonical books + public trade prints
-  (yes-space). Phase 1 exit requires running against RECORDED streams: the
-  operator fixture capture must include websocket `orderbook_snapshot`/
-  `orderbook_delta` and public `trade` messages (channels documented in
-  docs/research/venue/kalshi-api-2026-06-10). Until then paper runs against
-  sim-generated feeds only.
+- **Paper engine awaits recorded Kalshi data streams (T1.2, 2026-06-10;
+  reaffirmed at Phase 1 exit).** `PaperVenue` consumes pushed canonical
+  books + public trade prints (yes-space). The Phase 1 exit line "both
+  mechanical strategies in Paper against recorded data streams" is met to
+  the buildable extent (both strategies run the composed loop in Sim;
+  paper parity is proven at the gated-order boundary) and OPERATOR-BLOCKED
+  beyond it: the fixture capture must include websocket
+  `orderbook_snapshot`/`orderbook_delta` and public `trade` messages.
+  First task once fixtures exist: the venue-generic runner composition
+  (SimRunner is sim-typed via its inspect/settle test hooks) replaying
+  recorded streams into PaperVenue under both strategies.
 - **Polymarket per-market fee params should be read at runtime** (fd fields /
   feeSchedule on markets) rather than hard-coding category tables — T3.4
   design note from research; engine already takes schedules as data.

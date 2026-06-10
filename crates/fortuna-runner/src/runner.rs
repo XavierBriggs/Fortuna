@@ -124,11 +124,36 @@ pub struct SimRunner {
     overdue_alerted: std::collections::BTreeSet<MarketId>,
     dispute_frozen: std::collections::BTreeSet<MarketId>,
     mismatch_streak: BTreeMap<MarketId, u32>,
+    counters: RunCounters,
 }
 
 struct OpenVeto {
     candidate: VetoCandidate,
     removed: Contracts,
+}
+
+/// Cumulative run counters feeding the Section 8 metrics export.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct RunCounters {
+    pub ticks: u64,
+    pub fills_applied: u64,
+    pub orders_submitted: u64,
+    pub gate_rejections: u64,
+    pub veto_decisions: u64,
+    pub veto_suppressed: u64,
+    pub discrepancies: u64,
+    pub settlement_notices: u64,
+}
+
+/// One exported metric sample (plain data: the ops layer maps these into
+/// its registry; the runner stays free of telemetry dependencies).
+#[derive(Debug, Clone)]
+pub struct MetricSample {
+    pub name: &'static str,
+    pub help: &'static str,
+    pub counter: bool,
+    pub labels: Vec<(String, String)>,
+    pub value: i64,
 }
 
 /// Settlement-overdue grace beyond close_at + expected_lag_hours
@@ -225,6 +250,7 @@ impl SimRunner {
             overdue_alerted: std::collections::BTreeSet::new(),
             dispute_frozen: std::collections::BTreeSet::new(),
             mismatch_streak: BTreeMap::new(),
+            counters: RunCounters::default(),
         })
     }
 
@@ -277,6 +303,7 @@ impl SimRunner {
     /// One deterministic cycle.
     pub async fn tick(&mut self) -> Result<TickReport, RunnerError> {
         let mut report = TickReport::default();
+        self.counters.ticks += 1;
 
         // 0. Catalog refresh: venue lifecycle statuses are watchdog inputs
         // (dispute freezes, overdue clocks) and gate book fetches below.
@@ -471,6 +498,7 @@ impl SimRunner {
             match outcome.gated {
                 Err(rejection) => {
                     report.gate_rejections += 1;
+                    self.counters.gate_rejections += 1;
                     self.bus.publish_external(EventPayload::Raw {
                         kind: "gate_reject".into(),
                         data: serde_json::json!({
@@ -503,6 +531,7 @@ impl SimRunner {
                     match submit {
                         Ok(SubmitOutcome::Acked { .. }) => {
                             report.orders_submitted += 1;
+                            self.counters.orders_submitted += 1;
                             group_legs.push(intent);
                         }
                         Ok(SubmitOutcome::Rejected { reason }) => {
@@ -567,7 +596,9 @@ impl SimRunner {
             // Construction guard makes this unreachable; fail closed anyway.
             return Ok(0);
         };
+        self.counters.veto_decisions += 1;
         if proposal.legs.len() != 1 {
+            self.counters.veto_suppressed += 1;
             self.audit(
                 "veto_decision",
                 None,
@@ -615,6 +646,9 @@ impl SimRunner {
                     VetoVerdict::Shrink { keep, .. } => keep.apply(Contracts::new(sets)).raw(),
                     VetoVerdict::Suppress { .. } => 0,
                 };
+                if kept == 0 {
+                    self.counters.veto_suppressed += 1;
+                }
                 self.audit(
                     "veto_decision",
                     None,
@@ -643,6 +677,7 @@ impl SimRunner {
                 Ok(kept)
             }
             Err(e) => {
+                self.counters.veto_suppressed += 1;
                 self.audit(
                     "veto_decision",
                     None,
@@ -745,6 +780,7 @@ impl SimRunner {
                 if app.applied {
                     self.positions.apply_fill(fill)?;
                     report.fills_applied += 1;
+                    self.counters.fills_applied += 1;
                     self.bus.publish_external(EventPayload::FillSeen {
                         venue: self.venue.id(),
                         fill: fill.clone(),
@@ -1042,6 +1078,7 @@ impl SimRunner {
                 if !self.seen_notices.insert(notice.notice_id.clone()) {
                     continue; // at-least-once dedup
                 }
+                self.counters.settlement_notices += 1;
                 self.apply_notice(notice).await?;
             }
             self.settle_cursor = page.next_cursor;
@@ -1313,6 +1350,7 @@ impl SimRunner {
     /// reason, or operator escalation — recorded by the ledger repos in
     /// the live composition).
     fn record_discrepancy(&mut self, kind: &str, detail: serde_json::Value) {
+        self.counters.discrepancies += 1;
         self.audit(
             "discrepancy",
             None,
@@ -1463,6 +1501,177 @@ impl SimRunner {
             }
         }
         Ok(())
+    }
+
+    /// Section 8 metrics as plain samples (the ops layer maps them into
+    /// its registry; the runner carries no telemetry dependency). Market
+    /// PnL/fees attribute to the strategy that traded the market (exact
+    /// under the one-working-order discipline; a market touched by
+    /// multiple strategies labels "shared" rather than guessing).
+    pub fn metrics_export(&self) -> Vec<MetricSample> {
+        let mut samples = Vec::new();
+        let c = self.counters;
+        for (name, help, value) in [
+            ("fortuna_ticks_total", "Loop heartbeats", c.ticks),
+            (
+                "fortuna_fills_applied_total",
+                "Fills applied to the books",
+                c.fills_applied,
+            ),
+            (
+                "fortuna_orders_submitted_total",
+                "Orders acked by the venue",
+                c.orders_submitted,
+            ),
+            (
+                "fortuna_gate_rejections_total",
+                "Gate pipeline rejections",
+                c.gate_rejections,
+            ),
+            (
+                "fortuna_veto_decisions_total",
+                "Model veto consultations",
+                c.veto_decisions,
+            ),
+            (
+                "fortuna_veto_suppressed_total",
+                "Veto suppressions (incl. errors)",
+                c.veto_suppressed,
+            ),
+            (
+                "fortuna_discrepancies_total",
+                "Books-vs-venue discrepancy records",
+                c.discrepancies,
+            ),
+            (
+                "fortuna_settlement_notices_total",
+                "Venue settlement notices processed",
+                c.settlement_notices,
+            ),
+        ] {
+            samples.push(MetricSample {
+                name,
+                help,
+                counter: true,
+                labels: Vec::new(),
+                value: value as i64,
+            });
+        }
+        // Strategy attribution: market -> strategy from the intent set.
+        let mut market_strategy: BTreeMap<MarketId, String> = BTreeMap::new();
+        for (_, rec) in self.manager.intents() {
+            let m = rec.order.market.clone();
+            let strat = rec.order.strategy.to_string();
+            match market_strategy.get(&m) {
+                Some(existing) if existing != &strat => {
+                    market_strategy.insert(m, "shared".to_string());
+                }
+                None => {
+                    market_strategy.insert(m, strat);
+                }
+                _ => {}
+            }
+        }
+        let mut pnl_by: BTreeMap<String, i64> = BTreeMap::new();
+        let mut fees_by: BTreeMap<String, i64> = BTreeMap::new();
+        for p in self.positions.positions() {
+            let owner = market_strategy
+                .get(&p.market)
+                .cloned()
+                .unwrap_or_else(|| "unattributed".to_string());
+            *pnl_by.entry(owner.clone()).or_insert(0) += p.realized_pnl.raw();
+            *fees_by.entry(owner).or_insert(0) += p.fees_paid.raw();
+        }
+        for (owner, v) in &pnl_by {
+            samples.push(MetricSample {
+                name: "fortuna_realized_pnl_cents",
+                help: "Realized PnL by strategy attribution",
+                counter: false,
+                labels: vec![("strategy".to_string(), owner.clone())],
+                value: *v,
+            });
+        }
+        for (owner, v) in &fees_by {
+            samples.push(MetricSample {
+                name: "fortuna_fees_paid_cents",
+                help: "Fees paid by strategy attribution",
+                counter: false,
+                labels: vec![("strategy".to_string(), owner.clone())],
+                value: *v,
+            });
+        }
+        for name in &self.envelope_names {
+            samples.push(MetricSample {
+                name: "fortuna_reserved_exposure_cents",
+                help: "Active envelope reservations (worst case)",
+                counter: false,
+                labels: vec![("strategy".to_string(), name.clone())],
+                value: self.reservations.active_total(name).raw(),
+            });
+        }
+        samples.push(MetricSample {
+            name: "fortuna_capital_in_limbo_cents",
+            help: "Settlement value announced but not venue-confirmed",
+            counter: false,
+            labels: Vec::new(),
+            value: self
+                .settlements
+                .capital_in_limbo()
+                .map(|c| c.raw())
+                .unwrap_or(-1),
+        });
+        samples.push(MetricSample {
+            name: "fortuna_settlements_overdue",
+            help: "Markets past close + lag + grace without settlement",
+            counter: false,
+            labels: Vec::new(),
+            value: self.overdue_alerted.len() as i64,
+        });
+        samples.push(MetricSample {
+            name: "fortuna_halt_active",
+            help: "1 when a global halt is set (operator re-arm required)",
+            counter: false,
+            labels: Vec::new(),
+            value: i64::from(self.gates.halts().global_halted().is_some()),
+        });
+        samples
+    }
+
+    /// Read-only board data for the dashboard (positions + ops boards).
+    pub fn boards_json(&self) -> serde_json::Value {
+        let positions: Vec<serde_json::Value> = self
+            .positions
+            .positions()
+            .map(|p| {
+                serde_json::json!({
+                    "market": p.market.to_string(),
+                    "yes": p.yes.qty,
+                    "no": p.no.qty,
+                    "realized_pnl_cents": p.realized_pnl.raw(),
+                    "fees_cents": p.fees_paid.raw(),
+                    "lifecycle": format!("{:?}", p.lifecycle),
+                })
+            })
+            .collect();
+        let c = self.counters;
+        serde_json::json!({
+            "positions": positions,
+            "ops": {
+                "ticks": c.ticks,
+                "halt_active": self.gates.halts().global_halted().is_some(),
+                "discrepancies": c.discrepancies,
+                "settlements_overdue": self.overdue_alerted.len(),
+                "capital_in_limbo_cents": self
+                    .settlements
+                    .capital_in_limbo()
+                    .map(|x| x.raw())
+                    .unwrap_or(-1),
+            },
+        })
+    }
+
+    pub fn counters(&self) -> RunCounters {
+        self.counters
     }
 
     /// Apply a venue settlement to local books (sim convenience mirroring

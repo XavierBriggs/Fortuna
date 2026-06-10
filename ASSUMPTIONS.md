@@ -3,6 +3,43 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T1.5 — metrics, dashboard, digest, accounting export
+
+- **"OpenTelemetry" is implemented as the discipline, not the SDK** (this
+  is the one place spec Section 8 names a technology whose Rust exporters
+  are not yet stable). Research (docs/research/ops/otel-rust-2026-06-10,
+  OTel Rust 0.32.0 of 2026-05-09): Metrics API/SDK Stable but the
+  Prometheus exporter is Beta and OTLP RC — and stale "discontinued"
+  claims about the prometheus crate still circulate, a trap the research
+  doc pins. Chosen: a deterministic in-process `MetricsRegistry`
+  (BTreeMap-ordered, clock-free, integer-valued — cents/counts/flags
+  only, no f64) rendered as Prometheus TEXT EXPOSITION 0.0.4 (stable
+  since 2014) at GET /metrics. Spec metric NAMES are kept so adopting
+  opentelemetry-otlp later is a transport swap at the exporter edge only.
+- **The runner exports plain `MetricSample` data; ops maps it into the
+  registry.** The deterministic core carries no telemetry dependency.
+  Strategy attribution of PnL/fees: a market's realized numbers attribute
+  to the strategy that traded it via the intent set (exact under the
+  one-working-order discipline); a market touched by two strategies
+  labels `shared` rather than guessing.
+- **Phase 2 metric names (CLV, Brier, calibration, model cost, triage)
+  are NOT emitted yet** — emitting a constant for an unmeasured quantity
+  would be a lie; each lands with its producing subsystem.
+- **Dashboard:** read-only by construction (only GET routes exist);
+  binds the caller-supplied listener — the composition root binds
+  loopback/tailnet only (spec: Tailscale-only is operator network
+  config). The Instrument shell is a single dependency-free HTML page
+  polling /api/boards.
+- **Digest is a pure function** of explicit `DigestInputs`; the honesty
+  numbers (halts, open discrepancies, overdue settlements, capital in
+  limbo, veto suppressions) always render. Sending goes through the
+  audited Slack router (T0.9); scheduling (06:00 UTC morning digest)
+  belongs to the live composition binary.
+- **Accounting export files are write-once** (`create_new`), named by UTC
+  date, checked-both-before-writing-either; corrections are NEW files,
+  never overwrites (spec: "immutable ledger file"). venue_class column
+  carries the tax class (event_contract | crypto | equity).
+
 ## T1.4 — settlement lifecycle, watchdogs, discrepancies
 
 - **The notice stream is THE settlement input.** `Venue::settlements_since
