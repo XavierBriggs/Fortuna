@@ -171,8 +171,12 @@ EXIT MET TO THE BUILDABLE EXTENT (2026-06-10, commit bee37a6):
       schema-invalid rejected never repaired; harness-stamped provenance; pre-call
       budget checks w/ 00:00 UTC day roll; cost from usage x configured prices; env-key
       gate = the live feature flag (operator-blocked). 6 new tests.
-- [ ] T2.6 Decision cycle + comparator + Kelly sizing with calibration haircut;
+- [x] T2.6 Decision cycle + comparator + Kelly sizing with calibration haircut;
       triage tier + triage scoring (declined-trigger shadow sampling). (5.8, 5.9, 5.14)
+      DONE ea65ff2: two-sided comparator (Direct+Negation only; floor fair
+      values; stale/tier/floor exclusions); fail-closed haircut; first-K-per-day
+      deterministic shadow sampling (scored, never traded); DecisionCycle w/ manifest
+      provenance + cost. Sim/DST composition -> Phase 2 exit.
 - [ ] T2.7 Daily reconciliation loop (journal, exits evaluation), aeolus_eval ingestion
       against the sample fixture. (5.8, 6)
 - [ ] T2.8 Calibration layer (Platt/isotonic, shrinkage prior, versioned params). (5.10)
