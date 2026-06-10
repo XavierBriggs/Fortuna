@@ -151,8 +151,12 @@ EXIT MET TO THE BUILDABLE EXTENT (2026-06-10, commit bee37a6):
       (source, hash) w/ boot rebuild; fail-closed registry allowlist (tier 0..=10);
       trigger engine w/ one-cycle-per-event serialization + debounce + REPORTED
       coalesced counts; Signals/SourceRegistry Pg repos; 11 new tests.
-- [ ] T2.3 Belief ledger ops + freshness policy + scoring (Brier, calibration curves
+- [x] T2.3 Belief ledger ops + freshness policy + scoring (Brier, calibration curves
       per model/strategy/category). (5.5, 5.10)
+      DONE 8921071: strict (0,1) probability validation (certainty = schema-invalid);
+      transactional supersession; score-once repo enforcement (abandoned never scores,
+      superseded does); abandonment excluded from calibration; freshness w/ tightened
+      pre-benchmark window + signal-postdates rule; resolved-only calibration buckets.
 - [ ] T2.4 Context assembler with manifests + replayability (snapshotted computed
       views); anonymization mode. (5.7)
 - [ ] T2.5 `Mind` trait: StubMind (deterministic, for DST) + AnthropicMind (structured
