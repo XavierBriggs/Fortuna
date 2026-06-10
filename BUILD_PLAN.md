@@ -80,10 +80,18 @@ postgres service committed). Invariants: I1, I2, I3, I4 implemented and green
 
 ## Phase 1 — Mechanical paper path (Section 11, 12)
 
-- [ ] T1.1 Kalshi adapter against `fixtures/kalshi/` (auth/signing, markets, book,
+- [x] T1.1 Kalshi adapter against `fixtures/kalshi/` (auth/signing, markets, book,
       place/cancel, fills cursor, settlement notices); fee reconciliation per fill. (5.2)
-- [ ] T1.2 Paper engine: trade-through maker fills with haircut, taker crosses visible
+      DONE 4310081 (buildable portion; delegated agent, independently verified): RSA-PSS
+      signing + V2 DTOs + transport + adapter w/ reconcile-after-cancel + per-fill fee
+      reconciliation; 76 new tests vs doc-derived samples; SIM-ONLY until operator
+      fixtures confirm the 27-item checklist (GAPS operator-blocked entry).
+- [x] T1.2 Paper engine: trade-through maker fills with haircut, taker crosses visible
       depth; paper/live parity at the Strategy interface. (11)
+      DONE 0eb87f7: strict trade-through maker fills (touch NEVER fills — doctrine
+      test), floor-rounded shared-FIFO haircut budget, taker crosses displayed depth
+      only, sim/paper parity test at the gated-order boundary; 10 tests; recorded-
+      stream runs blocked on fixture capture (GAPS).
 - [ ] T1.3 `mech_extremes` + model-veto scaffolding (veto reduce-only, counterfactual
       scoring records; stub mind acceptable this phase). (6)
 - [ ] T1.4 Settlement lifecycle processors + watchdogs (overdue, dispute, divergence,
