@@ -448,3 +448,179 @@ async fn discrepancies_open_and_resolve_append_only(pool: PgPool) {
         .await
         .is_err());
 }
+
+// ---- events + edges + price snapshots repos (T2.1, spec 5.12 + 5.5) ----
+
+#[sqlx::test(migrations = "./migrations")]
+async fn events_create_transition_and_dead_states_persist(pool: PgPool) {
+    let repo = fortuna_ledger::EventsRepo::new(pool);
+    repo.create(
+        "evt-1",
+        "Team A beats Team B",
+        "official final score",
+        "league.example",
+        Some("2026-06-21T00:00:00.000Z"),
+        "2026-06-20T18:00:00.000Z",
+        "sports",
+        "2026-06-10T12:00:00.000Z",
+    )
+    .await
+    .unwrap();
+
+    repo.set_status("evt-1", "active").await.unwrap();
+    repo.set_status("evt-1", "resolution_pending")
+        .await
+        .unwrap();
+    let row = repo.get("evt-1").await.unwrap();
+    assert_eq!(row.status, "resolution_pending");
+    assert!(!row.unscoreable);
+
+    // Unknown status refused by the schema CHECK.
+    assert!(repo.set_status("evt-1", "vibing").await.is_err());
+
+    repo.mark_dead("evt-1", "source_lost").await.unwrap();
+    let row = repo.get("evt-1").await.unwrap();
+    assert_eq!(row.status, "dead");
+    assert_eq!(row.dead_reason.as_deref(), Some("source_lost"));
+
+    repo.mark_unscoreable("evt-1").await.unwrap();
+    assert!(repo.get("evt-1").await.unwrap().unscoreable);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn edges_propose_confirm_by_superseding_row(pool: PgPool) {
+    let events = fortuna_ledger::EventsRepo::new(pool.clone());
+    events
+        .create(
+            "evt-1",
+            "s",
+            "c",
+            "src",
+            None,
+            "2026-06-20T18:00:00.000Z",
+            "sports",
+            "2026-06-10T12:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    let repo = fortuna_ledger::EdgesRepo::new(pool);
+
+    repo.insert_edge(
+        "edge-1",
+        "KXTEAM-A",
+        "kalshi",
+        "evt-1",
+        "direct",
+        0.9,
+        "model:stub",
+        None,
+        None,
+        "2026-06-10T12:01:00.000Z",
+    )
+    .await
+    .unwrap();
+
+    // Confirmation INSERTS a superseding row (append-only discipline).
+    repo.insert_edge(
+        "edge-2",
+        "KXTEAM-A",
+        "kalshi",
+        "evt-1",
+        "direct",
+        0.9,
+        "model:stub",
+        Some("operator:xavier"),
+        Some("edge-1"),
+        "2026-06-10T13:00:00.000Z",
+    )
+    .await
+    .unwrap();
+
+    // current_edges resolves heads: superseded rows drop out.
+    let heads = repo.current_edges_for_event("evt-1").await.unwrap();
+    assert_eq!(heads.len(), 1);
+    assert_eq!(heads[0].edge_id, "edge-2");
+    assert_eq!(heads[0].confirmed_by.as_deref(), Some("operator:xavier"));
+    assert_eq!(heads[0].supersedes.as_deref(), Some("edge-1"));
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn snapshots_insert_and_latest_liquid_pre_benchmark_query(pool: PgPool) {
+    let events = fortuna_ledger::EventsRepo::new(pool.clone());
+    events
+        .create(
+            "evt-1",
+            "s",
+            "c",
+            "src",
+            None,
+            "2026-06-20T18:00:00.000Z",
+            "sports",
+            "2026-06-10T12:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    let repo = fortuna_ledger::SnapshotsRepo::new(pool);
+
+    // Older liquid, newer ILLIQUID, post-benchmark liquid.
+    repo.insert(
+        "snap-1",
+        "KXTEAM-A",
+        "kalshi",
+        Some("evt-1"),
+        "t24h",
+        Some(40),
+        Some(43),
+        Some(50),
+        Some(50),
+        true,
+        "2026-06-19T18:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    repo.insert(
+        "snap-2",
+        "KXTEAM-A",
+        "kalshi",
+        Some("evt-1"),
+        "t1h",
+        Some(60),
+        Some(95),
+        Some(50),
+        Some(50),
+        false,
+        "2026-06-20T17:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    repo.insert(
+        "snap-3",
+        "KXTEAM-A",
+        "kalshi",
+        Some("evt-1"),
+        "other",
+        Some(70),
+        Some(72),
+        Some(50),
+        Some(50),
+        true,
+        "2026-06-20T19:00:00.000Z",
+    )
+    .await
+    .unwrap();
+
+    let best = repo
+        .latest_liquid_before("KXTEAM-A", "evt-1", "2026-06-20T18:00:00.000Z")
+        .await
+        .unwrap()
+        .expect("the t24h snapshot qualifies");
+    assert_eq!(best.snapshot_id, "snap-1");
+    assert_eq!(best.best_bid_cents, Some(40));
+
+    // Nothing qualifies before a too-early cutoff.
+    assert!(repo
+        .latest_liquid_before("KXTEAM-A", "evt-1", "2026-06-19T00:00:00.000Z")
+        .await
+        .unwrap()
+        .is_none());
+}

@@ -3,6 +3,38 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T2.1 — events, edges, snapshots, CLV
+
+- **Event lifecycle legality lives in cognition; the repo persists.** The
+  events table's status is mutable row state (per the T0.8 schema; the
+  5.13 lifecycle is enforced by `CanonicalEvent::transition` legal-or-
+  error steps before any repo write). Dead reasons are the closed
+  vocabulary (voided|source_lost|mutated); ResolvedFinal and Dead are
+  terminal.
+- **Edge confirmation is a SUPERSEDING INSERT**, never an update: tier =
+  Confirmed iff `confirmed_by` is set; `EdgeTier::satisfies` is the
+  structural gate (multi-leg/cross-venue strategies demand Confirmed —
+  a wrong equivalence edge converts an arb into an unhedged position).
+- **Deterministic edge checks:** resolution-source mismatch scores a HARD
+  0.0 (different oracles can disagree forever — the UMA-style failure
+  mode); horizon mismatch beyond tolerance scores 0.5 (reviewable);
+  missing data counts as mismatch, never a pass. Spec 5.12 names the two
+  checks; the 0/0.5/1.0 scale is the conservative interpretation.
+- **Snapshot scheduler is pure dueness logic:** a scheduled kind
+  (T-24h/T-1h/T-5m) fires once its window opens and never at/after
+  benchmark_at (post-event oracle-drift exclusion); dedup by
+  (event, market, kind). On-trade snapshots are unscheduled — that hook
+  lands in the decision cycle (T2.6).
+- **CLV math is integer-exact:** own-side mid kept as bid+ask (x2 space),
+  bps = (mid - entry)/entry x 10_000 with integer division; NO entries
+  mirror to 200 - yes_mid_x2. The liquidity filter requires BOTH touches,
+  min size on both, spread cap, and crossing sanity — anything else
+  yields None ("no CLV rather than fake CLV"). The job that walks
+  resolved BELIEFS and writes their clv_bps lands with the belief ledger
+  ops (T2.3); the machinery (clv_bps + latest_liquid_before) is complete.
+- **Discovery loops (market-back, world-forward) are T3.2** per
+  BUILD_PLAN; T2.1 ships the tables' ops they will write through.
+
 ## T1.5 — metrics, dashboard, digest, accounting export
 
 - **"OpenTelemetry" is implemented as the discipline, not the SDK** (this

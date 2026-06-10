@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE events SET status = 'dead', dead_reason = $2 WHERE event_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "af7def8e6858b98d3ebd230d22243a6c66e99338423c837029fb2ee6eb6bf3d3"
+}

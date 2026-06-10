@@ -414,3 +414,293 @@ impl DiscrepanciesRepo {
         Ok(row.n)
     }
 }
+
+/// One persisted canonical event row (spec 5.12).
+#[derive(Debug, Clone)]
+pub struct EventRow {
+    pub event_id: String,
+    pub statement: String,
+    pub resolution_source: String,
+    pub benchmark_at: String,
+    pub category: String,
+    pub status: String,
+    pub dead_reason: Option<String>,
+    pub unscoreable: bool,
+}
+
+/// Canonical events: lifecycle status is mutable state on the row (the
+/// 5.13 legality rules live in fortuna-cognition; the repo persists).
+pub struct EventsRepo {
+    pool: PgPool,
+}
+
+impl EventsRepo {
+    pub fn new(pool: PgPool) -> EventsRepo {
+        EventsRepo { pool }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create(
+        &self,
+        event_id: &str,
+        statement: &str,
+        resolution_criteria: &str,
+        resolution_source: &str,
+        horizon: Option<&str>,
+        benchmark_at: &str,
+        category: &str,
+        created_at: &str,
+    ) -> Result<(), LedgerError> {
+        sqlx::query!(
+            r#"INSERT INTO events
+               (event_id, statement, resolution_criteria, resolution_source,
+                horizon, benchmark_at, category, created_at)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8)"#,
+            event_id,
+            statement,
+            resolution_criteria,
+            resolution_source,
+            horizon,
+            benchmark_at,
+            category,
+            created_at
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get(&self, event_id: &str) -> Result<EventRow, LedgerError> {
+        let r = sqlx::query!(
+            r#"SELECT event_id, statement, resolution_source, benchmark_at,
+                      category, status, dead_reason, unscoreable
+               FROM events WHERE event_id = $1"#,
+            event_id
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(EventRow {
+            event_id: r.event_id,
+            statement: r.statement,
+            resolution_source: r.resolution_source,
+            benchmark_at: r.benchmark_at,
+            category: r.category,
+            status: r.status,
+            dead_reason: r.dead_reason,
+            unscoreable: r.unscoreable,
+        })
+    }
+
+    pub async fn set_status(&self, event_id: &str, status: &str) -> Result<(), LedgerError> {
+        sqlx::query!(
+            r#"UPDATE events SET status = $2 WHERE event_id = $1"#,
+            event_id,
+            status
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn mark_dead(&self, event_id: &str, reason: &str) -> Result<(), LedgerError> {
+        sqlx::query!(
+            r#"UPDATE events SET status = 'dead', dead_reason = $2 WHERE event_id = $1"#,
+            event_id,
+            reason
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn mark_unscoreable(&self, event_id: &str) -> Result<(), LedgerError> {
+        sqlx::query!(
+            r#"UPDATE events SET unscoreable = TRUE WHERE event_id = $1"#,
+            event_id
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+}
+
+/// One persisted market-event edge row (spec 5.12; superseding inserts).
+#[derive(Debug, Clone)]
+pub struct EdgeRow {
+    pub edge_id: String,
+    pub market_id: String,
+    pub venue: String,
+    pub event_id: String,
+    pub mapping_type: String,
+    pub confidence: f64,
+    pub proposed_by: String,
+    pub confirmed_by: Option<String>,
+    pub supersedes: Option<String>,
+}
+
+pub struct EdgesRepo {
+    pool: PgPool,
+}
+
+impl EdgesRepo {
+    pub fn new(pool: PgPool) -> EdgesRepo {
+        EdgesRepo { pool }
+    }
+
+    /// INSERT one edge row. Confirmation and confidence corrections are
+    /// NEW rows with `supersedes` set (append-only discipline).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn insert_edge(
+        &self,
+        edge_id: &str,
+        market_id: &str,
+        venue: &str,
+        event_id: &str,
+        mapping_type: &str,
+        confidence: f64,
+        proposed_by: &str,
+        confirmed_by: Option<&str>,
+        supersedes: Option<&str>,
+        created_at: &str,
+    ) -> Result<(), LedgerError> {
+        sqlx::query!(
+            r#"INSERT INTO market_event_edges
+               (edge_id, market_id, venue, event_id, mapping_type, confidence,
+                proposed_by, confirmed_by, supersedes, created_at)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)"#,
+            edge_id,
+            market_id,
+            venue,
+            event_id,
+            mapping_type,
+            confidence,
+            proposed_by,
+            confirmed_by,
+            supersedes,
+            created_at
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Current (non-superseded) edges for an event.
+    pub async fn current_edges_for_event(
+        &self,
+        event_id: &str,
+    ) -> Result<Vec<EdgeRow>, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT edge_id, market_id, venue, event_id, mapping_type,
+                      confidence, proposed_by, confirmed_by, supersedes
+               FROM market_event_edges e
+               WHERE event_id = $1
+                 AND NOT EXISTS (
+                     SELECT 1 FROM market_event_edges n
+                     WHERE n.supersedes = e.edge_id
+                 )
+               ORDER BY created_at, edge_id"#,
+            event_id
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| EdgeRow {
+                edge_id: r.edge_id,
+                market_id: r.market_id,
+                venue: r.venue,
+                event_id: r.event_id,
+                mapping_type: r.mapping_type,
+                confidence: r.confidence,
+                proposed_by: r.proposed_by,
+                confirmed_by: r.confirmed_by,
+                supersedes: r.supersedes,
+            })
+            .collect())
+    }
+}
+
+/// One persisted CLV price snapshot row (spec 5.5; append-only table).
+#[derive(Debug, Clone)]
+pub struct SnapshotRow {
+    pub snapshot_id: String,
+    pub best_bid_cents: Option<i64>,
+    pub best_ask_cents: Option<i64>,
+    pub at: String,
+}
+
+pub struct SnapshotsRepo {
+    pool: PgPool,
+}
+
+impl SnapshotsRepo {
+    pub fn new(pool: PgPool) -> SnapshotsRepo {
+        SnapshotsRepo { pool }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn insert(
+        &self,
+        snapshot_id: &str,
+        market_id: &str,
+        venue: &str,
+        event_id: Option<&str>,
+        kind: &str,
+        best_bid_cents: Option<i64>,
+        best_ask_cents: Option<i64>,
+        bid_qty: Option<i64>,
+        ask_qty: Option<i64>,
+        liquidity_ok: bool,
+        at: &str,
+    ) -> Result<(), LedgerError> {
+        sqlx::query!(
+            r#"INSERT INTO price_snapshots
+               (snapshot_id, market_id, venue, event_id, kind, best_bid_cents,
+                best_ask_cents, bid_qty, ask_qty, liquidity_ok, at)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)"#,
+            snapshot_id,
+            market_id,
+            venue,
+            event_id,
+            kind,
+            best_bid_cents,
+            best_ask_cents,
+            bid_qty,
+            ask_qty,
+            liquidity_ok,
+            at
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// The CLV benchmark input: the LATEST snapshot strictly before the
+    /// cutoff with liquidity_ok (spec 5.5: no liquid snapshot, no CLV).
+    /// ISO8601 strings with fixed millisecond precision sort lexically.
+    pub async fn latest_liquid_before(
+        &self,
+        market_id: &str,
+        event_id: &str,
+        cutoff_iso: &str,
+    ) -> Result<Option<SnapshotRow>, LedgerError> {
+        let row = sqlx::query!(
+            r#"SELECT snapshot_id, best_bid_cents, best_ask_cents, at
+               FROM price_snapshots
+               WHERE market_id = $1 AND event_id = $2
+                 AND liquidity_ok AND at < $3
+               ORDER BY at DESC LIMIT 1"#,
+            market_id,
+            event_id,
+            cutoff_iso
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| SnapshotRow {
+            snapshot_id: r.snapshot_id,
+            best_bid_cents: r.best_bid_cents,
+            best_ask_cents: r.best_ask_cents,
+            at: r.at,
+        }))
+    }
+}

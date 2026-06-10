@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT event_id, statement, resolution_source, benchmark_at,\n                      category, status, dead_reason, unscoreable\n               FROM events WHERE event_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "statement",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "resolution_source",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "benchmark_at",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "category",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "dead_reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "unscoreable",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "2363b247dd0a900f224bdbd649345aeb99c233ec58b9c4cb81d5616fd54d7126"
+}
