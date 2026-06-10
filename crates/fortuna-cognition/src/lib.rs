@@ -27,6 +27,7 @@
 )]
 
 pub mod beliefs;
+pub mod calibration;
 pub mod context;
 pub mod cycle;
 pub mod events;

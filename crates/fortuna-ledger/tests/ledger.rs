@@ -852,3 +852,110 @@ async fn journal_one_entry_per_day_append_only(pool: PgPool) {
     assert!(row.body["body"].as_str().unwrap().contains("KXHIGHNY"));
     assert!(repo.get_day("2026-06-10").await.unwrap().is_none());
 }
+
+// ---- calibration params repo (T2.8, spec 5.10) ----
+
+#[sqlx::test(migrations = "./migrations")]
+async fn calibration_params_are_versioned_append_only_config(pool: PgPool) {
+    let repo = fortuna_ledger::CalibrationParamsRepo::new(pool);
+    let scope = ("claude-fable-5", "synthesis", "weather");
+
+    // Version 1 lands.
+    repo.insert(
+        "cp-1",
+        scope.0,
+        scope.1,
+        scope.2,
+        "platt",
+        &serde_json::json!({"version": 1, "method": {"Platt": {"a": 0.39, "b": 0.0}},
+                            "extremization_k": 1.0, "fitted_on_n": 80}),
+        1,
+        "2026-06-11T00:00:00.000Z",
+        "2026-06-11T00:00:00.000Z",
+    )
+    .await
+    .unwrap();
+
+    // A parameter UPDATE is a new VERSION row, never a mutation.
+    repo.insert(
+        "cp-2",
+        scope.0,
+        scope.1,
+        scope.2,
+        "platt",
+        &serde_json::json!({"version": 2, "method": {"Platt": {"a": 0.46, "b": 0.02}},
+                            "extremization_k": 1.0, "fitted_on_n": 140}),
+        2,
+        "2026-06-18T00:00:00.000Z",
+        "2026-06-18T00:00:00.000Z",
+    )
+    .await
+    .unwrap();
+
+    let latest = repo
+        .latest(scope.0, scope.1, scope.2, "platt")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(latest.param_id, "cp-2");
+    assert_eq!(latest.version, 2);
+    assert!((latest.params["method"]["Platt"]["a"].as_f64().unwrap() - 0.46).abs() < 1e-12);
+
+    // Re-issuing an existing (scope, version) is refused (UNIQUE).
+    assert!(repo
+        .insert(
+            "cp-3",
+            scope.0,
+            scope.1,
+            scope.2,
+            "platt",
+            &serde_json::json!({}),
+            2,
+            "2026-06-19T00:00:00.000Z",
+            "2026-06-19T00:00:00.000Z",
+        )
+        .await
+        .is_err());
+
+    // Unknown kinds are refused by the schema CHECK.
+    assert!(repo
+        .insert(
+            "cp-4",
+            scope.0,
+            scope.1,
+            scope.2,
+            "voodoo",
+            &serde_json::json!({}),
+            1,
+            "2026-06-19T00:00:00.000Z",
+            "2026-06-19T00:00:00.000Z",
+        )
+        .await
+        .is_err());
+
+    // Scopes are independent; an unseen scope has no params.
+    repo.insert(
+        "cp-5",
+        scope.0,
+        scope.1,
+        "sports",
+        "isotonic",
+        &serde_json::json!({"steps": []}),
+        1,
+        "2026-06-19T00:00:00.000Z",
+        "2026-06-19T00:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    let weather = repo
+        .latest(scope.0, scope.1, "weather", "platt")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(weather.version, 2, "other scopes do not bleed in");
+    assert!(repo
+        .latest("other-model", scope.1, scope.2, "platt")
+        .await
+        .unwrap()
+        .is_none());
+}

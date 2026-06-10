@@ -3,6 +3,41 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T2.8 — calibration layer
+
+- **Shrinkage weight is linear, w = min(n/50, 1):** spec 5.10 names the
+  N >= 50 threshold but not the ramp shape; linear-in-n is the simplest
+  deterministic ramp with no extra parameters to version. At n=0 the
+  output IS the market prior; with NO market prior available the claim
+  shrinks toward 0.5 (max uncertainty) — conservative, never a crash.
+- **Below the threshold the fitted method AND extremization are
+  ignored** (not blended): a fit on under-50 samples proves nothing,
+  and extremizing an unproven claim amplifies it — both anti-
+  conservative. Above threshold: method first, then extremization.
+- **Platt fit refuses degenerate records** (empty, all-one-outcome,
+  singular Hessian from no-spread or separation-saturated data) rather
+  than silently returning identity — an unfittable record must surface
+  to the weekly audit, not pass as "calibrated". Newton from fixed
+  init (a=1, b=0), fixed iteration bound: bit-deterministic, so the
+  same forward record always yields the same versioned parameters.
+- **Isotonic apply is a step function** (value of the largest fitted
+  threshold at or below the input), not interpolated: interpolation
+  invents probabilities between observed points; steps only ever
+  output pooled observed frequencies.
+- **calibration_quality = min(n/50, 1) x max(0, 1 - 2*gap)** where gap
+  is the n-weighted mean |claimed - observed| over reliability-curve
+  buckets. The 2x slope zeroes quality at a 50-point average gap
+  (claiming certainty on coin flips); the n-ramp keeps small samples
+  from buying size through luck. Feeds the T2.6 haircut directly.
+- **Calibrated outputs clamp strictly inside (0,1)** (eps 1e-9): a
+  calibrated certainty would lie and break log-loss scoring.
+- **Repo storage:** one row per (model, strategy, category, kind,
+  version); kind = the method tag ('platt'/'isotonic'; the schema also
+  admits 'shrinkage'/'extremization' rows for future split storage).
+  The whole CalibrationParams JSON goes in `params`; `latest()` =
+  highest version for the scope. Updates are new versions (UNIQUE +
+  T0.8 append-only trigger refuse anything else).
+
 ## T2.7 — daily reconciliation + aeolus_eval
 
 - **"No orders are placed from this loop" is STRUCTURAL:** the

@@ -1054,3 +1054,103 @@ impl JournalRepo {
         }))
     }
 }
+
+// ------------------------------------------------------------------------
+// calibration params (T2.8, spec 5.10)
+// ------------------------------------------------------------------------
+
+/// One versioned calibration parameter set for a (model, strategy,
+/// category, kind) scope.
+#[derive(Debug, Clone)]
+pub struct CalibrationParamsRow {
+    pub param_id: String,
+    pub model_id: String,
+    pub strategy: String,
+    pub category: String,
+    pub kind: String,
+    pub params: serde_json::Value,
+    pub version: i32,
+    pub effective_at: String,
+}
+
+/// Versioned calibration parameters (spec 5.10: "deterministic code with
+/// versioned parameters; parameter updates are config changes recorded
+/// in audit"). INSERT-only: an update is a NEW version row; the UNIQUE
+/// (model, strategy, category, kind, version) key refuses re-issues and
+/// the T0.8 trigger refuses mutation.
+pub struct CalibrationParamsRepo {
+    pool: PgPool,
+}
+
+impl CalibrationParamsRepo {
+    pub fn new(pool: PgPool) -> CalibrationParamsRepo {
+        CalibrationParamsRepo { pool }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn insert(
+        &self,
+        param_id: &str,
+        model_id: &str,
+        strategy: &str,
+        category: &str,
+        kind: &str,
+        params: &serde_json::Value,
+        version: i32,
+        effective_at: &str,
+        created_at: &str,
+    ) -> Result<(), LedgerError> {
+        sqlx::query!(
+            r#"INSERT INTO calibration_params
+               (param_id, model_id, strategy, category, kind, params,
+                version, effective_at, created_at)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)"#,
+            param_id,
+            model_id,
+            strategy,
+            category,
+            kind,
+            params,
+            version,
+            effective_at,
+            created_at
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// The highest-version parameter set for the scope, if any.
+    pub async fn latest(
+        &self,
+        model_id: &str,
+        strategy: &str,
+        category: &str,
+        kind: &str,
+    ) -> Result<Option<CalibrationParamsRow>, LedgerError> {
+        let row = sqlx::query!(
+            r#"SELECT param_id, model_id, strategy, category, kind,
+                      params, version, effective_at
+               FROM calibration_params
+               WHERE model_id = $1 AND strategy = $2 AND category = $3
+                 AND kind = $4
+               ORDER BY version DESC LIMIT 1"#,
+            model_id,
+            strategy,
+            category,
+            kind
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| CalibrationParamsRow {
+            param_id: r.param_id,
+            model_id: r.model_id,
+            strategy: r.strategy,
+            category: r.category,
+            kind: r.kind,
+            params: r.params,
+            version: r.version,
+            effective_at: r.effective_at,
+        }))
+    }
+}
