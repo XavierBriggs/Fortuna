@@ -164,8 +164,13 @@ EXIT MET TO THE BUILDABLE EXTENT (2026-06-10, commit bee37a6):
       point-in-time + counted exclusions; fail-closed item hash verification;
       anonymization w/ stable pseudonyms (manifest keeps real ids); <context-item>
       data delimiting.
-- [ ] T2.5 `Mind` trait: StubMind (deterministic, for DST) + AnthropicMind (structured
+- [x] T2.5 `Mind` trait: StubMind (deterministic, for DST) + AnthropicMind (structured
       output via tool schema, cost tracking, budgets, schema-invalid handling). (5.9)
+      DONE 684964f: propose-only MindOutput (I6); raw-HTTP transport trait (no Rust
+      SDK; documented wire shape, adaptive thinking, json_schema structured output);
+      schema-invalid rejected never repaired; harness-stamped provenance; pre-call
+      budget checks w/ 00:00 UTC day roll; cost from usage x configured prices; env-key
+      gate = the live feature flag (operator-blocked). 6 new tests.
 - [ ] T2.6 Decision cycle + comparator + Kelly sizing with calibration haircut;
       triage tier + triage scoring (declined-trigger shadow sampling). (5.8, 5.9, 5.14)
 - [ ] T2.7 Daily reconciliation loop (journal, exits evaluation), aeolus_eval ingestion
