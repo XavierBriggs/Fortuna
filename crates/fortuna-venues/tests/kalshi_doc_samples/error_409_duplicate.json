@@ -1,0 +1,6 @@
+{
+  "code": "PLACEHOLDER_DUPLICATE_CODE_FIXTURE_NEEDED",
+  "message": "Order with this client_order_id already exists",
+  "details": "Exact 409 code string is UNDOCUMENTED (checklist item 7); the adapter must not branch on it",
+  "service": "orders"
+}

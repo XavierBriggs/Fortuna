@@ -4,7 +4,18 @@ Open items the implementation defers, lacks, or needs from the operator. Accepta
 requires this file to contain ONLY operator-blocked items, each with exact unblock steps.
 
 ## Operator-blocked (initial)
-- Kalshi API fixtures not yet captured (see fixtures/kalshi/README.md). Unblock: operator records fixtures.
+- **Kalshi fixture recording + adapter clearance (T1.1, 2026-06-10).** The
+  adapter is BUILT and tested against doc-derived samples (122 venues
+  tests), but it is cleared for Sim development ONLY. Paper/live clearance
+  requires operator-recorded fixtures under fixtures/kalshi/ confirming
+  the 27-item checklist in docs/research/venue/kalshi-api-2026-06-10/
+  research.md (highest-stakes items: 409-duplicate body shape, error code
+  catalog, cancel-reconcile race, fills cursor terminal semantics,
+  timestamp skew tolerance, fee_multiplier maker scaling). The fixture
+  capture must ALSO include websocket orderbook_snapshot/orderbook_delta
+  and public trade messages for the paper engine (T1.2 dependency).
+  Unblock: operator records demo-env fixtures per
+  crates/fortuna-venues/tests/kalshi_doc_samples/README.md.
 - Venue + Anthropic + Slack credentials (env vars). Unblock: operator provisions .env per README.
 - Aeolus sample envelope fixture for aeolus_eval (T2.7). Unblock: operator exports one Aeolus run.
 
@@ -50,11 +61,13 @@ requires this file to contain ONLY operator-blocked items, each with exact unblo
   flows it serves (T2/T3 edge confirmations, promotions). Research doc has
   the full contract ready (apps.connections.open, envelope ack, user-id
   allow-listing).
-- **Kill-switch live venue plug pending T1.1.** The binary + freeze logic +
-  self-test are complete and I4-proven against the sim venue; `freeze
-  --venue kalshi` exits loudly until the fixture-built Kalshi adapter
-  exists. Unblock: T1.1 (operator fixtures) then wire the adapter with its
-  OWN credential set (FORTUNA_KILLSWITCH_* env).
+- **Kill-switch live venue plug pending fixture clearance.** The binary +
+  freeze logic + self-test are complete and I4-proven against the sim
+  venue; the Kalshi adapter now EXISTS (T1.1) but `freeze --venue kalshi`
+  stays unwired until the adapter passes fixture confirmation — the kill
+  switch must not take its first real cancel path through unverified
+  venue code. Unblock: operator fixtures, then wire KalshiVenue into the
+  killswitch with its OWN credential set (FORTUNA_KILLSWITCH_* env).
 - **Runner halt-poll interval (T0.10).** Operator halts via CLI act on the
   running system within the poll interval; document the chosen interval in
   the runner and alert on poll failures.

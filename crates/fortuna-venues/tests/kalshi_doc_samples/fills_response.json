@@ -1,0 +1,41 @@
+{
+  "fills": [
+    {
+      "fill_id": "d91bc706-ee49-470d-82d8-11418bda6fed",
+      "trade_id": "d91bc706-ee49-470d-82d8-11418bda6fed",
+      "order_id": "ee587a1c-8b87-4dcf-b721-9f6f790619fa",
+      "ticker": "HIGHNY-24JAN01-T60",
+      "market_ticker": "HIGHNY-24JAN01-T60",
+      "side": "yes",
+      "action": "buy",
+      "outcome_side": "yes",
+      "book_side": "bid",
+      "count_fp": "10.00",
+      "yes_price_dollars": "0.5600",
+      "no_price_dollars": "0.4400",
+      "is_taker": true,
+      "fee_cost": "0.1800",
+      "created_time": "2024-01-01T12:00:00Z",
+      "ts": 1704110400
+    },
+    {
+      "fill_id": "11111111-2222-4333-8444-555555555555",
+      "trade_id": "11111111-2222-4333-8444-555555555555",
+      "order_id": "ee587a1c-8b87-4dcf-b721-9f6f790619fa",
+      "ticker": "HIGHNY-24JAN01-T60",
+      "market_ticker": "HIGHNY-24JAN01-T60",
+      "side": "no",
+      "action": "buy",
+      "outcome_side": "no",
+      "book_side": "ask",
+      "count_fp": "5.00",
+      "yes_price_dollars": "0.5600",
+      "no_price_dollars": "0.4400",
+      "is_taker": false,
+      "fee_cost": "0.0000",
+      "created_time": "2024-01-01T12:05:00Z",
+      "ts": 1704110700
+    }
+  ],
+  "cursor": ""
+}

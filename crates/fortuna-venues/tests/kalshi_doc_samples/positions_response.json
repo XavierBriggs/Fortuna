@@ -1,0 +1,35 @@
+{
+  "cursor": "",
+  "market_positions": [
+    {
+      "ticker": "HIGHNY-24JAN01-T60",
+      "total_traded_dollars": "5.6000",
+      "position_fp": "10.00",
+      "market_exposure_dollars": "5.6000",
+      "realized_pnl_dollars": "0.0000",
+      "resting_orders_count": 0,
+      "fees_paid_dollars": "0.1800",
+      "last_updated_ts": "2024-01-01T12:00:00Z"
+    },
+    {
+      "ticker": "HIGHNY-24JAN02-T55",
+      "total_traded_dollars": "1.2000",
+      "position_fp": "-4.00",
+      "market_exposure_dollars": "1.2000",
+      "realized_pnl_dollars": "0.0000",
+      "resting_orders_count": 0,
+      "fees_paid_dollars": "0.0200",
+      "last_updated_ts": "2024-01-01T12:05:00Z"
+    }
+  ],
+  "event_positions": [
+    {
+      "event_ticker": "HIGHNY-24JAN01",
+      "total_cost_dollars": "5.6000",
+      "total_cost_shares_fp": "10.00",
+      "event_exposure_dollars": "5.6000",
+      "realized_pnl_dollars": "0.0000",
+      "fees_paid_dollars": "0.1800"
+    }
+  ]
+}

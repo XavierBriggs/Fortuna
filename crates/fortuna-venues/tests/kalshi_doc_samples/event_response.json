@@ -1,0 +1,12 @@
+{
+  "event": {
+    "event_ticker": "HIGHNY-24JAN01",
+    "series_ticker": "KXHIGHNY",
+    "sub_title": "Jan 1, 2024",
+    "title": "Highest temperature in NYC on Jan 1, 2024",
+    "collateral_return_type": "binary",
+    "mutually_exclusive": true,
+    "available_on_brokers": false
+  },
+  "markets": []
+}

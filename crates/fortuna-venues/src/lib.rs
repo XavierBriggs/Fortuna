@@ -23,6 +23,7 @@
 )]
 
 pub mod fees;
+pub mod kalshi;
 pub mod sim;
 mod types;
 

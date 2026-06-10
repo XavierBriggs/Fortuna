@@ -1,0 +1,15 @@
+{
+  "series": {
+    "ticker": "KXINXY",
+    "frequency": "yearly",
+    "title": "S&P 500 yearly range",
+    "category": "Financials",
+    "tags": ["Indices"],
+    "settlement_sources": [{ "name": "S&P Dow Jones Indices", "url": "https://www.spglobal.com" }],
+    "contract_url": "https://kalshi.com/contracts/KXINXY",
+    "contract_terms_url": "https://kalshi.com/terms/KXINXY",
+    "fee_type": "quadratic_with_maker_fees",
+    "fee_multiplier": 0.5,
+    "additional_prohibitions": []
+  }
+}

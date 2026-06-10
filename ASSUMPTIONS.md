@@ -48,6 +48,56 @@ conservative option, and the spec section it interprets.
   behind the same trait; the model id stays a plain `&str` until T2.5
   introduces `ModelId`.
 
+## T1.1 — Kalshi adapter (doc-derived; fixture confirmation pending, see GAPS)
+
+All venue behavior is grounded in docs/research/venue/kalshi-api-2026-06-10
+(OpenAPI v3.21.0 + doc pages archived under raw/); doc samples in
+crates/fortuna-venues/tests/kalshi_doc_samples/ are NOT recordings.
+
+- **V2 create defaults:** `time_in_force=good_till_canceled`,
+  `self_trade_prevention_type=taker_at_cross`, `post_only=false`,
+  `subaccount=0`, `exchange_index=0`. GatedOrder carries no TIF/STP — the
+  exec policy owns timing (I6); values match the doc example.
+- **Side/Action mapping (load-bearing):** V2 quotes the YES leg only —
+  (Yes,Buy)→bid@p, (Yes,Sell)→ask@p, (No,Buy)→ask@100−p,
+  (No,Sell)→bid@100−p. Inbound reads `outcome_side`/`book_side` only
+  (legacy fields are past their deprecation window); Kalshi's model
+  collapses buy-yes/sell-no, so inbound canonicalizes to Buy-of-outcome-
+  side (venue-truthful under signed net positions); a disagreeing pair
+  (e.g. yes/ask) is a hard error.
+- **`markets()` is scoped to configured `series_tickers`** (Market has no
+  series field; per-series listing is the documented join); empty config
+  => empty catalog. `Market.category` = `Series.category`;
+  `SettlementMeta{oracle_type:"kalshi_rulebook", resolution_source: joined
+  settlement_sources (fallback "kalshi"), expected_lag_hours:
+  ceil(settlement_timer_seconds/3600)}`.
+- **Status maps:** initialized→Listed, inactive→Halted, active→Trading,
+  closed→Expired, determined/disputed/amended→Determined,
+  finalized→Settled, UNKNOWN→Halted (conservative: not tradeable).
+- **`balance()` uses the integer-cent `balance` field** (documented
+  truncating => never overstates cash), not `balance_dollars`.
+- **Integer-cent core enforced at the boundary:** scalar `market_type` and
+  non-`linear_cent` price structures are filtered out of the catalog;
+  fractional `count_fp`/`position_fp` anywhere is a hard error.
+- **Fees parse with ceil (against us);** reconciliation `matches` iff
+  0 <= modeled−charged <= 1c (documented per-order rounding rebate;
+  any overcharge flags). `fee_multiplier` (JSON double) → Decimal via
+  shortest-repr string (observed 0/0.5/1 exact); maker scaling m×0.0175
+  is the fees-research inference — reconciliation surfaces divergence.
+- **`Fill.at` fallback chain** `created_time` → `ts` → injected clock
+  (both venue fields optional in the spec).
+- **Transport:** cursors/series tickers appended without percent-encoding
+  (URL-safe charset assumed); any 2xx on create decodes as success;
+  timeouts surface as may-have-executed (resolved by coid via
+  AlreadyExists on resubmit); NO retries in the transport (the manager
+  owns retry semantics). 429→RateLimited, network→Outage.
+- **Cancel reconcile:** the V2 DELETE response body is IGNORED entirely
+  (documented wrong-order bug); state confirmed via GET:
+  canceled→Ok, executed→Rejected, resting/unknown→Timeout.
+- **Fills paging:** terminal page keeps `next_cursor` at the polled cursor
+  (at-least-once; dedup on fill_id). A coid-resolution failure fails the
+  whole page (safe under re-poll) rather than inventing a client id.
+
 ## T1.2 — paper engine
 
 - **The doctrine predicate is yes-space strict inequality.** Spec 11 fixes the

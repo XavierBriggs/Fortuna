@@ -1,0 +1,14 @@
+{
+  "ticker": "HIGHNY-24JAN01-T60",
+  "client_order_id": "8c35ecb3-328f-4f52-8c7c-0f4b9862f8d1",
+  "side": "bid",
+  "count": "10.00",
+  "price": "0.5600",
+  "time_in_force": "good_till_canceled",
+  "self_trade_prevention_type": "taker_at_cross",
+  "post_only": false,
+  "cancel_order_on_pause": false,
+  "reduce_only": false,
+  "subaccount": 0,
+  "exchange_index": 0
+}

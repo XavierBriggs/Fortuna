@@ -1,0 +1,6 @@
+{
+  "code": "insufficient_balance_PLACEHOLDER_FIXTURE_NEEDED",
+  "message": "PLACEHOLDER: the docs publish the ErrorResponse SHAPE but not the code catalog",
+  "details": "checklist items 3 and 8 in docs/research/venue/kalshi-api-2026-06-10/research.md",
+  "service": "orders"
+}
