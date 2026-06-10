@@ -337,3 +337,114 @@ async fn reservations_fold_to_active_set(pool: PgPool) {
     assert_eq!(active.len(), 1);
     assert_eq!(active[0], (i2, "s1".to_string(), Cents::new(300)));
 }
+
+// ---- settlements + discrepancies repos (T1.4, spec 5.13) ----
+
+#[sqlx::test(migrations = "./migrations")]
+async fn settlement_chain_persists_as_superseding_rows(pool: PgPool) {
+    let repo = fortuna_ledger::SettlementsRepo::new(pool);
+    repo.insert_entry(
+        "e-1",
+        "KXS",
+        "sim",
+        1_000,
+        "pending",
+        None,
+        &serde_json::json!({"winner": "Yes"}),
+        "2026-06-10T13:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    repo.insert_entry(
+        "e-2",
+        "KXS",
+        "sim",
+        1_000,
+        "posted",
+        Some("e-1"),
+        &serde_json::json!({"winner": "Yes"}),
+        "2026-06-10T13:00:01.000Z",
+    )
+    .await
+    .unwrap();
+    repo.insert_entry(
+        "e-3",
+        "KXS",
+        "sim",
+        1_000,
+        "confirmed",
+        Some("e-2"),
+        &serde_json::json!({"winner": "Yes"}),
+        "2026-06-10T13:00:02.000Z",
+    )
+    .await
+    .unwrap();
+
+    let chain = repo.chain("KXS").await.unwrap();
+    assert_eq!(chain.len(), 3);
+    assert_eq!(chain[0].status, "pending");
+    assert_eq!(chain[2].status, "confirmed");
+    assert_eq!(chain[2].supersedes.as_deref(), Some("e-2"));
+
+    // Duplicate entry ids are refused (append-only, exactly-once rows).
+    assert!(repo
+        .insert_entry(
+            "e-3",
+            "KXS",
+            "sim",
+            1_000,
+            "confirmed",
+            Some("e-2"),
+            &serde_json::json!({}),
+            "2026-06-10T13:00:03.000Z",
+        )
+        .await
+        .is_err());
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn discrepancies_open_and_resolve_append_only(pool: PgPool) {
+    let repo = fortuna_ledger::DiscrepanciesRepo::new(pool);
+    repo.open(
+        "d-1",
+        "position_mismatch",
+        &serde_json::json!({"market": "KXS"}),
+        "2026-06-10T13:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    assert_eq!(repo.open_count().await.unwrap(), 1);
+
+    repo.resolve(
+        "r-1",
+        "d-1",
+        "adjustment",
+        "books corrected after missed fill",
+        Some("fill-99"),
+        "2026-06-10T14:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    assert_eq!(repo.open_count().await.unwrap(), 0);
+
+    // Unknown disposition is refused by the schema CHECK.
+    repo.open(
+        "d-2",
+        "balance_drift",
+        &serde_json::json!({}),
+        "2026-06-10T15:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    assert!(repo
+        .resolve(
+            "r-2",
+            "d-2",
+            "wished_away",
+            "no",
+            None,
+            "2026-06-10T15:01:00.000Z"
+        )
+        .await
+        .is_err());
+}

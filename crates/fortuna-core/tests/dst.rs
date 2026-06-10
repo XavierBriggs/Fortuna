@@ -245,6 +245,9 @@ struct World {
     cursor: fortuna_venues::Cursor,
     payouts: Cents,
     settled: BTreeSet<MarketId>,
+    voided: BTreeSet<MarketId>,
+    /// winner + amount the venue paid per settled market (reversal math).
+    settle_record: BTreeMap<MarketId, (Side, Cents)>,
     markets: Vec<MarketId>,
     coid_seq: u64,
 }
@@ -319,6 +322,8 @@ fn run_world(seed: u64, verbose: bool) -> Result<String, String> {
         cursor: fortuna_venues::Cursor::start(),
         payouts: Cents::ZERO,
         settled: BTreeSet::new(),
+        voided: BTreeSet::new(),
+        settle_record: BTreeMap::new(),
         markets,
         coid_seq: 0,
     };
@@ -427,9 +432,52 @@ fn run_world(seed: u64, verbose: bool) -> Result<String, String> {
                 w.venue.set_outage_until(until);
                 log(format!("{step} outage until {until}"), &mut trace);
             }
-            // settle (1%)
+            // settle | void | reverse (1%; spec 5.13 lifecycle paths)
             _ => {
-                if !w.settled.contains(&market) {
+                if w.settled.contains(&market) {
+                    // Venue correction on a settled market: flip the winner.
+                    let (old_winner, old_paid) = w.settle_record[&market];
+                    let corrected = match old_winner {
+                        Side::Yes => Side::No,
+                        Side::No => Side::Yes,
+                    };
+                    match w.venue.reverse_settlement(&market, corrected) {
+                        Ok(()) => {
+                            let repay = w
+                                .venue
+                                .settled_paid(&market)
+                                .ok_or("reversal lost its paid record")?;
+                            w.payouts = w
+                                .payouts
+                                .checked_sub(old_paid)
+                                .and_then(|x| x.checked_add(repay))
+                                .map_err(|e| e.to_string())?;
+                            w.settle_record.insert(market.clone(), (corrected, repay));
+                            log(
+                                format!(
+                                    "{step} reverse {market} -> {corrected:?} claw {old_paid} repay {repay}"
+                                ),
+                                &mut trace,
+                            );
+                        }
+                        Err(e) => log(format!("{step} reverse -> {e:?}"), &mut trace),
+                    }
+                } else if w.voided.contains(&market) {
+                    // Terminal; nothing to do.
+                } else if rng.next_u64().is_multiple_of(4) {
+                    // Void: refund = the venue's tracked cost basis.
+                    match w.venue.void_market(&market) {
+                        Ok(refund) => {
+                            w.voided.insert(market.clone());
+                            w.payouts = w.payouts.checked_add(refund).map_err(|e| e.to_string())?;
+                            log(
+                                format!("{step} void {market} -> refund {refund}"),
+                                &mut trace,
+                            );
+                        }
+                        Err(e) => log(format!("{step} void -> {e:?}"), &mut trace),
+                    }
+                } else {
                     let winner = if rng.next_u64().is_multiple_of(2) {
                         Side::Yes
                     } else {
@@ -438,6 +486,7 @@ fn run_world(seed: u64, verbose: bool) -> Result<String, String> {
                     match w.venue.settle_market(&market, winner) {
                         Ok(p) => {
                             w.settled.insert(market.clone());
+                            w.settle_record.insert(market.clone(), (winner, p));
                             w.payouts = w.payouts.checked_add(p).map_err(|e| e.to_string())?;
                             log(
                                 format!("{step} settle {market} {winner:?} -> {p}"),
@@ -593,7 +642,9 @@ fn run_world(seed: u64, verbose: bool) -> Result<String, String> {
             (Side::No, Action::Sell) => e.1 -= f.qty.raw(),
         }
     }
-    derived.retain(|m, (y, n)| (*y != 0 || *n != 0) && !w.settled.contains(m));
+    derived.retain(|m, (y, n)| {
+        (*y != 0 || *n != 0) && !w.settled.contains(m) && !w.voided.contains(m)
+    });
     let venue_positions: BTreeMap<MarketId, (i64, i64)> = {
         let mut result = None;
         for _ in 0..100 {

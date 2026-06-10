@@ -20,6 +20,23 @@ requires this file to contain ONLY operator-blocked items, each with exact unblo
 - Aeolus sample envelope fixture for aeolus_eval (T2.7). Unblock: operator exports one Aeolus run.
 
 ## Open
+- **Kalshi void representation in /portfolio/settlements is undocumented
+  (T1.4, 2026-06-10).** `market_result` documents only yes/no/scalar; the
+  adapter hard-errors on anything else so a void cannot pass silently.
+  Fixture capture must include a voided market's settlement record (added
+  to the fixture-confirmation needs). Until then sim/paper exercise the
+  void path; live Kalshi voids would surface as loud Invalid errors.
+- **Divergence detector (venue outcome vs canonical event criteria)
+  deferred to T2.1 (T1.4, 2026-06-10).** The 5.13 divergence watchdog
+  needs canonical events + market_event_edges, which are Phase 2 (T2.1).
+  Built now: settlement_payout_mismatch + position_mismatch + overdue +
+  dispute + stranded paths, and the discrepancies repo the detector will
+  write to. The edge-confidence haircut lands with the edges.
+- **Belief-staleness watchdog deferred to T2.3** (needs the belief ledger;
+  spec 5.13 stranded-state list). Open-position orphan detection beyond
+  venue-settled/overdue (no fresh belief + no mechanical owner) follows
+  the belief freshness policy.
+
 - **Sub-cent price structures excluded (T0.3, 2026-06-09; Kalshi filter
   SHIPPED at T1.1).** Core money is integer cents by convention. The Kalshi
   adapter now filters `deci_cent`/`tapered_deci_cent` structures and scalar

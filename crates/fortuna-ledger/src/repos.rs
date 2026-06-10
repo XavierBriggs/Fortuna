@@ -260,3 +260,157 @@ impl ReservationsRepo {
         Ok(out)
     }
 }
+
+/// One persisted settlement-entry row (spec 5.13; mirrors the in-memory
+/// `fortuna_state::SettlementEntry` chain shape).
+#[derive(Debug, Clone)]
+pub struct SettlementEntryRow {
+    pub settlement_id: String,
+    pub market_id: String,
+    pub venue: String,
+    pub amount_cents: i64,
+    pub status: String,
+    pub supersedes: Option<String>,
+    pub detail: serde_json::Value,
+    pub at: String,
+}
+
+/// Settlement entries: INSERT-only superseding rows (the table's triggers
+/// refuse UPDATE/DELETE; status transitions are NEW rows).
+pub struct SettlementsRepo {
+    pool: PgPool,
+}
+
+impl SettlementsRepo {
+    pub fn new(pool: PgPool) -> SettlementsRepo {
+        SettlementsRepo { pool }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn insert_entry(
+        &self,
+        settlement_id: &str,
+        market_id: &str,
+        venue: &str,
+        amount_cents: i64,
+        status: &str,
+        supersedes: Option<&str>,
+        detail: &serde_json::Value,
+        at: &str,
+    ) -> Result<(), LedgerError> {
+        sqlx::query!(
+            r#"INSERT INTO settlement_entries
+               (settlement_id, market_id, venue, amount_cents, status,
+                supersedes, detail, at)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8)"#,
+            settlement_id,
+            market_id,
+            venue,
+            amount_cents,
+            status,
+            supersedes,
+            detail,
+            at
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Full chain for a market, oldest first.
+    pub async fn chain(&self, market_id: &str) -> Result<Vec<SettlementEntryRow>, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT settlement_id, market_id, venue, amount_cents, status,
+                      supersedes, detail, at
+               FROM settlement_entries WHERE market_id = $1 ORDER BY at, settlement_id"#,
+            market_id
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| SettlementEntryRow {
+                settlement_id: r.settlement_id,
+                market_id: r.market_id,
+                venue: r.venue,
+                amount_cents: r.amount_cents,
+                status: r.status,
+                supersedes: r.supersedes,
+                detail: r.detail,
+                at: r.at,
+            })
+            .collect())
+    }
+}
+
+/// Discrepancies (spec 5.13: no silent corrections): open records are
+/// resolved ONLY by separate resolution rows (matching entry, adjustment
+/// with reason, or operator escalation).
+pub struct DiscrepanciesRepo {
+    pool: PgPool,
+}
+
+impl DiscrepanciesRepo {
+    pub fn new(pool: PgPool) -> DiscrepanciesRepo {
+        DiscrepanciesRepo { pool }
+    }
+
+    pub async fn open(
+        &self,
+        discrepancy_id: &str,
+        kind: &str,
+        detail: &serde_json::Value,
+        opened_at: &str,
+    ) -> Result<(), LedgerError> {
+        sqlx::query!(
+            r#"INSERT INTO discrepancies (discrepancy_id, kind, detail, opened_at)
+               VALUES ($1,$2,$3,$4)"#,
+            discrepancy_id,
+            kind,
+            detail,
+            opened_at
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn resolve(
+        &self,
+        resolution_id: &str,
+        discrepancy_id: &str,
+        disposition: &str,
+        reason: &str,
+        ref_id: Option<&str>,
+        at: &str,
+    ) -> Result<(), LedgerError> {
+        sqlx::query!(
+            r#"INSERT INTO discrepancy_resolutions
+               (resolution_id, discrepancy_id, disposition, reason, ref_id, at)
+               VALUES ($1,$2,$3,$4,$5,$6)"#,
+            resolution_id,
+            discrepancy_id,
+            disposition,
+            reason,
+            ref_id,
+            at
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Discrepancies with no resolution row (the aging metric input).
+    pub async fn open_count(&self) -> Result<i64, LedgerError> {
+        let row = sqlx::query!(
+            r#"SELECT COUNT(*) as "n!" FROM discrepancies d
+               WHERE NOT EXISTS (
+                   SELECT 1 FROM discrepancy_resolutions r
+                   WHERE r.discrepancy_id = d.discrepancy_id
+               )"#
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.n)
+    }
+}

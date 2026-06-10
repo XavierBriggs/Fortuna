@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT intent_id, strategy, kind, amount_cents\n               FROM reservation_events ORDER BY seq",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "intent_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "strategy",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "amount_cents",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "97b076504d87a07b4d22163eccd8f117f3c7cef5f617c73ad02798dbe41b3627"
+}

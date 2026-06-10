@@ -40,8 +40,8 @@ use fortuna_core::money::Cents;
 use fortuna_gates::GatedOrder;
 use fortuna_venues::fees::ScheduleFeeModel;
 use fortuna_venues::{
-    Cursor, Fill, FillPage, Market, MarketFilter, MarketStatus, OpenOrder, Venue, VenueError,
-    VenuePosition,
+    Cursor, Fill, FillPage, Market, MarketFilter, MarketStatus, OpenOrder, SettlementNotice,
+    SettlementOutcome, SettlementPage, Venue, VenueError, VenuePosition,
 };
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -81,6 +81,7 @@ struct Pos {
 
 struct State {
     markets: BTreeMap<MarketId, Market>,
+    settlement_notices: Vec<SettlementNotice>,
     books: BTreeMap<MarketId, (Vec<PriceLevel>, Vec<PriceLevel>)>,
     resting: Vec<RestingOrder>,
     fills: Vec<Fill>,
@@ -123,6 +124,7 @@ impl PaperVenue {
             config,
             state: Mutex::new(State {
                 markets: BTreeMap::new(),
+                settlement_notices: Vec::new(),
                 books: BTreeMap::new(),
                 resting: Vec::new(),
                 fills: Vec::new(),
@@ -278,6 +280,15 @@ impl PaperVenue {
             m.status = MarketStatus::Settled;
         }
         st.books.remove(market);
+        let seq = st.settlement_notices.len();
+        let notice = SettlementNotice {
+            notice_id: format!("stl-{market}-{seq}"),
+            market: market.clone(),
+            outcome: SettlementOutcome::Winner(winner),
+            at: self.clock.now(),
+            detail: serde_json::json!({ "paid_cents": payout.raw() }),
+        };
+        st.settlement_notices.push(notice);
         Ok(payout)
     }
 
@@ -727,6 +738,22 @@ impl Venue for PaperVenue {
         Ok(FillPage {
             fills,
             next_cursor: Cursor(st.fills.len().to_string()),
+        })
+    }
+
+    async fn settlements_since(&self, cursor: Cursor) -> Result<SettlementPage, VenueError> {
+        let st = self.lock();
+        let start: usize = if cursor.0.is_empty() {
+            0
+        } else {
+            cursor.0.parse().map_err(|_| VenueError::Invalid {
+                reason: format!("bad settlement cursor {:?}", cursor.0),
+            })?
+        };
+        let notices = st.settlement_notices.get(start..).unwrap_or(&[]).to_vec();
+        Ok(SettlementPage {
+            notices,
+            next_cursor: Cursor(st.settlement_notices.len().to_string()),
         })
     }
 

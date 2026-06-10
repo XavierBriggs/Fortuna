@@ -36,7 +36,10 @@ use thiserror::Error;
 pub use fortuna_core::book::{
     Cursor, FeeError, FeeModel, Fill, FillPage, FillRole, OrderBook, PriceLevel,
 };
-pub use types::{Market, MarketFilter, MarketStatus, OpenOrder, SettlementMeta, VenuePosition};
+pub use types::{
+    Market, MarketFilter, MarketStatus, OpenOrder, SettlementMeta, SettlementNotice,
+    SettlementOutcome, SettlementPage, VenuePosition,
+};
 
 /// Venue adapter errors.
 #[derive(Debug, Error)]
@@ -91,5 +94,10 @@ pub trait Venue: Send + Sync {
     /// Fills at or after `cursor`. Delivery is at-least-once: pages may
     /// re-deliver; consumers dedup on `fill_id`.
     async fn fills_since(&self, cursor: Cursor) -> Result<FillPage, VenueError>;
+    /// Settlement notices at or after `cursor` (spec 5.13: settlement is
+    /// asynchronous and adversarial; FORTUNA never assumes it, only
+    /// reconciles this stream). At-least-once; dedup on `notice_id`.
+    /// Corrections arrive as NEW notices for the same market, never edits.
+    async fn settlements_since(&self, cursor: Cursor) -> Result<SettlementPage, VenueError>;
     fn fee_model(&self) -> &dyn fortuna_core::book::FeeModel;
 }

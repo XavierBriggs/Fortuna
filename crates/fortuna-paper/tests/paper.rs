@@ -388,3 +388,23 @@ fn paper_live_parity_through_the_order_manager() {
     let report = futures::executor::block_on(m.boot_reconcile(&v)).unwrap();
     assert!(report.orphans_cancelled.is_empty());
 }
+
+// ---- settlement notices (T1.4) ----
+
+#[test]
+fn settle_emits_a_winner_notice_on_the_stream() {
+    use fortuna_venues::{Cursor, SettlementOutcome};
+    let (_clock, v) = paper(50);
+    v.add_market(test_market("KXPAP"));
+    v.settle_market(&mkt("KXPAP"), Side::Yes).unwrap();
+
+    let page = futures::executor::block_on(v.settlements_since(Cursor::start())).unwrap();
+    assert_eq!(page.notices.len(), 1);
+    assert_eq!(page.notices[0].market, mkt("KXPAP"));
+    assert_eq!(
+        page.notices[0].outcome,
+        SettlementOutcome::Winner(Side::Yes)
+    );
+    let after = futures::executor::block_on(v.settlements_since(page.next_cursor)).unwrap();
+    assert!(after.notices.is_empty());
+}

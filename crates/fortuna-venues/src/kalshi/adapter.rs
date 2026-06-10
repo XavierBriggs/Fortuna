@@ -31,13 +31,13 @@ use crate::kalshi::client::KalshiTransport;
 use crate::kalshi::dto::{
     self, error_reason, from_direction, to_book_side, CreateOrderV2Request, CreateOrderV2Response,
     GetBalanceResponse, GetEventResponse, GetFillsResponse, GetMarketResponse, GetMarketsResponse,
-    GetOrderResponse, GetOrderbookResponse, GetOrdersResponse, GetPositionsResponse, KalshiFeeType,
-    KalshiMarket, KalshiMarketStatus, KalshiOrderStatus, KalshiSeries, KalshiStp,
-    KalshiTimeInForce,
+    GetOrderResponse, GetOrderbookResponse, GetOrdersResponse, GetPositionsResponse,
+    GetSettlementsResponse, KalshiFeeType, KalshiMarket, KalshiMarketStatus, KalshiOrderStatus,
+    KalshiSeries, KalshiStp, KalshiTimeInForce,
 };
 use crate::{
-    Cursor, Fill, FillPage, Market, MarketFilter, MarketStatus, OpenOrder, SettlementMeta, Venue,
-    VenueError, VenuePosition,
+    Cursor, Fill, FillPage, Market, MarketFilter, MarketStatus, OpenOrder, SettlementMeta,
+    SettlementNotice, SettlementOutcome, SettlementPage, Venue, VenueError, VenuePosition,
 };
 use async_trait::async_trait;
 use fortuna_core::book::{FeeModel, FillRole, OrderBook, PriceLevel};
@@ -732,6 +732,68 @@ impl Venue for KalshiVenue {
         Ok(FillPage { fills, next_cursor })
     }
 
+    /// GET /portfolio/settlements (research §S24): the member's
+    /// settlement history, cursor-paged. `market_result` documents only
+    /// `yes`/`no`/`scalar`: scalar settlements are SKIPPED (the catalog
+    /// filter means we can never hold one), and any OTHER value — voids
+    /// included, whose representation in this endpoint is UNDOCUMENTED —
+    /// is a hard error so a real void cannot slip through silently
+    /// (fixture-confirmation item; see GAPS).
+    async fn settlements_since(&self, cursor: Cursor) -> Result<SettlementPage, VenueError> {
+        let mut query = format!("limit={PAGE_LIMIT}");
+        if !cursor.0.is_empty() {
+            query.push_str(&format!("&cursor={}", cursor.0));
+        }
+        let resp: GetSettlementsResponse = self
+            .get_json(
+                "/portfolio/settlements",
+                Some(&query),
+                "GET /portfolio/settlements",
+            )
+            .await?;
+        let mut notices = Vec::with_capacity(resp.settlements.len());
+        for st in &resp.settlements {
+            let outcome = match st.market_result.as_str() {
+                "yes" => SettlementOutcome::Winner(fortuna_core::market::Side::Yes),
+                "no" => SettlementOutcome::Winner(fortuna_core::market::Side::No),
+                // We can never hold a scalar position (catalog filter);
+                // their settlements are venue history noise for us.
+                "scalar" => continue,
+                other => {
+                    return Err(VenueError::Invalid {
+                        reason: format!(
+                            "settlement for {} has undocumented market_result {other:?}                              (void representation is a fixture-confirmation item)",
+                            st.ticker
+                        ),
+                    })
+                }
+            };
+            let at =
+                UtcTimestamp::parse_iso8601(&st.settled_time).map_err(|e| VenueError::Invalid {
+                    reason: format!("settlement {} settled_time: {e}", st.ticker),
+                })?;
+            notices.push(SettlementNotice {
+                // Kalshi settlements carry no id; ticker+settled_time is
+                // stable across re-polls (dedup key).
+                notice_id: format!("kalshi-stl-{}-{}", st.ticker, st.settled_time),
+                market: MarketId::new(st.ticker.clone()).map_err(|e| VenueError::Invalid {
+                    reason: format!("venue returned an empty settlement ticker: {e}"),
+                })?,
+                outcome,
+                at,
+                detail: serde_json::to_value(st).unwrap_or_default(),
+            });
+        }
+        let next_cursor = match resp.cursor {
+            Some(c) if !c.is_empty() => Cursor(c),
+            _ => cursor,
+        };
+        Ok(SettlementPage {
+            notices,
+            next_cursor,
+        })
+    }
+
     fn fee_model(&self) -> &dyn FeeModel {
         &self.fees
     }
@@ -790,11 +852,11 @@ fn map_market_status(status: KalshiMarketStatus) -> MarketStatus {
         KalshiMarketStatus::Inactive => MarketStatus::Halted,
         KalshiMarketStatus::Active => MarketStatus::Trading,
         KalshiMarketStatus::Closed => MarketStatus::Expired,
-        // Post-determination states that are not yet settled — including
-        // disputes and amended determinations — read as Determined.
-        KalshiMarketStatus::Determined
-        | KalshiMarketStatus::Disputed
-        | KalshiMarketStatus::Amended => MarketStatus::Determined,
+        // Post-determination states that are not yet settled. A dispute
+        // is surfaced DISTINCTLY (spec 5.13 dispute watchdog freezes the
+        // position); an amended determination reads as Determined.
+        KalshiMarketStatus::Determined | KalshiMarketStatus::Amended => MarketStatus::Determined,
+        KalshiMarketStatus::Disputed => MarketStatus::Disputed,
         KalshiMarketStatus::Finalized => MarketStatus::Settled,
         KalshiMarketStatus::Unknown => MarketStatus::Halted,
     }
@@ -810,7 +872,7 @@ fn status_query_value(status: MarketStatus) -> Option<&'static str> {
         MarketStatus::Halted => Some("paused"),
         MarketStatus::Expired => Some("closed"),
         MarketStatus::Settled => Some("settled"),
-        MarketStatus::Determined | MarketStatus::Voided => None,
+        MarketStatus::Determined | MarketStatus::Disputed | MarketStatus::Voided => None,
     }
 }
 
@@ -1003,7 +1065,7 @@ mod tests {
         );
         assert_eq!(
             map_market_status(KalshiMarketStatus::Disputed),
-            MarketStatus::Determined
+            MarketStatus::Disputed
         );
         assert_eq!(
             map_market_status(KalshiMarketStatus::Amended),

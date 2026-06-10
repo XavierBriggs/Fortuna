@@ -3,6 +3,66 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T1.4 — settlement lifecycle, watchdogs, discrepancies
+
+- **The notice stream is THE settlement input.** `Venue::settlements_since
+  (cursor)` (new trait method) delivers authoritative venue settlement
+  records at-least-once; the runner's processor dedups on notice_id and
+  reconciles — it never assumes settlement from its own actions (spec
+  5.13). Corrections arrive as NEW notices for the same market.
+- **Entry chains are superseding inserts.** pending -> posted ->
+  confirmed | reversed; every transition is a NEW entry (the Pg
+  settlement_entries table refuses UPDATE; the in-memory
+  `SettlementLedger` mirrors that shape). Illegal transitions error.
+  A duplicate pending over an unfinished chain is refused; only a
+  Reversed head accepts a fresh pending (the corrected re-settlement).
+- **Confirmation = venue positions show no residual** for the market
+  (its truth incorporated ours). Balance-delta attribution was rejected
+  as racy (trading flows interleave); balance drift belongs to a separate
+  global watchdog (T1.5 metrics).
+- **Reversal restores exact pre-settlement lots.** The runner snapshots
+  lots+realized BEFORE applying any settlement; a venue correction
+  reverses the books to the cent (clawback = payout the reversed
+  settlement credited), re-scores VETO counterfactuals against the
+  corrected outcome (correction-flagged rows; the originals stand,
+  append-only), then re-settles through the same fresh path. A reversed
+  position re-enters ResolutionPending, never tradable Open.
+- **Voids abandon veto counterfactuals** (scored neither right nor wrong
+  — the world broke the question, mirroring the spec's belief
+  disposition); position refund = exact cost basis, realized PnL
+  untouched, fees stay sunk.
+- **Kalshi settlements mapping:** market_result yes/no map; `scalar`
+  settlements are SKIPPED (the catalog filter means we can never hold
+  one); any OTHER value — including whatever voids turn out to look like,
+  which is UNDOCUMENTED — is a hard error so a real void cannot pass
+  silently (fixture-confirmation item in GAPS). notice_id =
+  ticker+settled_time (no venue id exists; stable across re-polls).
+- **Watchdog constants pinned in code this phase** (config at T1.5 with
+  alert routing): settlement-overdue grace = 1h past close_at +
+  expected_lag_hours, alerts ONCE per market; books-vs-venue position
+  mismatch must persist 3 consecutive ticks (in-flight fills explain
+  transient drift) and then writes a discrepancy AND a GLOBAL halt
+  (containment: per-strategy attribution is impossible from venue
+  positions alone; spec 5.4's freeze-the-strategy needs attribution we
+  get in the live composition).
+- **Dispute freeze:** the venue catalog is refreshed every tick (statuses
+  are watchdog inputs); a Disputed market's held position moves to
+  lifecycle Disputed once (out of bankroll, IN exposure at worst case per
+  spec 5.13). `MarketStatus::Disputed` is a new variant; the Kalshi map
+  now sends `disputed` there (was Determined at T1.1 — refined, the T1.1
+  ASSUMPTION line is superseded by this one).
+- **Settlement-payout reconciliation:** when a notice carries the venue's
+  paid amount, it is compared against our computed payout; mismatch
+  writes a `settlement_payout_mismatch` discrepancy, never absorbed.
+- **`runner.apply_settlement` remains as a sim-test convenience** routed
+  through the same veto-scoring helper; the processor path is the
+  production path. Tests that pre-date the processor still use it; both
+  paths share scoring exactly-once semantics.
+- **DST now exercises void and reversal arms** (1% settle action split:
+  re-settle correction on settled markets, 25% void on live ones);
+  I-money extends through refunds and claw/repay; I-position excludes
+  voided markets like settled ones.
+
 ## T1.3 — mech_extremes
 
 - **"Sub-$100k volume" is enforced via a provable upper bound, not an

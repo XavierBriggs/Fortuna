@@ -29,7 +29,10 @@ mod repos;
 
 pub use audit::{AuditRow, AuditWriter};
 pub use intent_journal::PgIntentJournal;
-pub use repos::{halt_scope_string, parse_halt_scope, FillsRepo, HaltsRepo, ReservationsRepo};
+pub use repos::{
+    halt_scope_string, parse_halt_scope, DiscrepanciesRepo, FillsRepo, HaltsRepo, ReservationsRepo,
+    SettlementEntryRow, SettlementsRepo,
+};
 
 pub use sqlx::PgPool;
 use thiserror::Error;

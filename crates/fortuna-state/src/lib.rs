@@ -30,6 +30,7 @@ mod drawdown;
 mod marks;
 mod positions;
 mod reservations;
+mod settlement;
 mod sizing;
 
 pub use accounts::{build_account_view, AccountView, PositionValuation};
@@ -37,6 +38,7 @@ pub use drawdown::{DrawdownMonitor, DrawdownVerdict};
 pub use marks::{mark_lots, Mark, MarkPolicy};
 pub use positions::{Lot, Position, PositionBook, PositionLifecycle};
 pub use reservations::ReservationLedger;
+pub use settlement::{SettlementEntry, SettlementLedger, SettlementSnapshot, SettlementStatus};
 pub use sizing::{affordable_sets, kelly_binary, kelly_contracts};
 
 use fortuna_core::ids::IntentId;
@@ -76,6 +78,17 @@ pub enum StateError {
     /// envelope cannot reserve.
     #[error("unknown strategy {strategy:?}: no envelope configured (fail-closed)")]
     UnknownStrategy { strategy: String },
+    /// The settlement-entry chain refused a transition (illegal step,
+    /// duplicate pending, or reversal of a non-posted head). Spec 5.13:
+    /// illegal transitions error, never coerce.
+    #[error("settlement chain on {market}: {reason}")]
+    SettlementChain { market: MarketId, reason: String },
+    /// A position-level settlement reversal was structurally impossible.
+    #[error("illegal settlement reversal on {market}: {reason}")]
+    IllegalReversal {
+        market: MarketId,
+        reason: &'static str,
+    },
     /// The reservation would push the strategy past its envelope.
     #[error(
         "reservation of {requested} for strategy {strategy:?} exceeds envelope \

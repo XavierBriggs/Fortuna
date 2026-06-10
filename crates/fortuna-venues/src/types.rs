@@ -1,5 +1,6 @@
 //! Market-data structures shared by all venue adapters. Spec 5.2, 5.13.
 
+use fortuna_core::book::Cursor;
 use fortuna_core::clock::UtcTimestamp;
 use fortuna_core::market::{
     Action, ClientOrderId, Contracts, MarketId, Side, VenueId, VenueOrderId,
@@ -16,6 +17,9 @@ pub enum MarketStatus {
     Halted,
     Expired,
     Determined,
+    /// Venue dispute window is open (spec 5.13: the event excursed to
+    /// disputed). Positions freeze; exposure stays at worst case.
+    Disputed,
     Settled,
     Voided,
 }
@@ -48,6 +52,38 @@ pub struct Market {
     /// volume-capped strategies must SKIP, never assume small.
     #[serde(default)]
     pub volume_contracts: Option<i64>,
+}
+
+/// How a market resolved, as the VENUE reports it (venue truth governs
+/// money, spec 5.13).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SettlementOutcome {
+    Winner(Side),
+    Voided,
+}
+
+/// One authoritative settlement record from the venue's settlement
+/// history. A venue CORRECTION arrives as a NEW notice for the same
+/// market (never an edit); the processor reconciles. `detail` carries the
+/// venue's raw record (revenue, counts) for audit and fee/payout
+/// reconciliation — data, never instructions.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SettlementNotice {
+    pub notice_id: String,
+    pub market: MarketId,
+    pub outcome: SettlementOutcome,
+    pub at: UtcTimestamp,
+    pub detail: serde_json::Value,
+}
+
+/// One page of settlement notices plus the cursor to poll from next.
+/// Same at-least-once semantics as `FillPage`: re-polling an old cursor
+/// may re-deliver; consumers dedup on `notice_id`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SettlementPage {
+    pub notices: Vec<SettlementNotice>,
+    pub next_cursor: Cursor,
 }
 
 /// Catalog filter for `Venue::markets`.

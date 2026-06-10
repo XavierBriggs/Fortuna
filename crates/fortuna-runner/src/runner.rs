@@ -27,11 +27,13 @@ use fortuna_exec::{
 use fortuna_gates::{CandidateOrder, GateConfig, GateInputs, GatePipeline, HaltScope};
 use fortuna_state::{
     affordable_sets, mark_lots, DrawdownMonitor, DrawdownVerdict, MarkPolicy, PositionBook,
-    ReservationLedger,
+    PositionLifecycle, ReservationLedger, SettlementLedger, SettlementSnapshot, SettlementStatus,
 };
 use fortuna_venues::fees::ScheduleFeeModel;
 use fortuna_venues::sim::{FaultConfig, SimVenue};
-use fortuna_venues::{Cursor, Market, Venue};
+use fortuna_venues::{
+    Cursor, Market, MarketFilter, MarketStatus, SettlementNotice, SettlementOutcome, Venue,
+};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -107,12 +109,34 @@ pub struct SimRunner {
     /// not believed). Provider-error suppressions are NOT tracked here.
     open_vetoes: Vec<OpenVeto>,
     market_meta: BTreeMap<MarketId, Market>,
+    /// Settlement-entry chains (spec 5.13: pending -> posted -> confirmed
+    /// | reversed, all superseding inserts).
+    settlements: SettlementLedger,
+    settle_cursor: Cursor,
+    seen_notices: std::collections::BTreeSet<String>,
+    /// Pre-settlement lot snapshots, kept so a venue CORRECTION can
+    /// reverse the books exactly (spec 5.13 reversal path).
+    settled_snapshots: BTreeMap<MarketId, SettlementSnapshot>,
+    /// Vetoes already counterfactually scored, retained so a venue
+    /// correction can RE-score them against the corrected outcome.
+    scored_vetoes: BTreeMap<MarketId, Vec<OpenVeto>>,
+    /// Watchdog debounce + streak state.
+    overdue_alerted: std::collections::BTreeSet<MarketId>,
+    dispute_frozen: std::collections::BTreeSet<MarketId>,
+    mismatch_streak: BTreeMap<MarketId, u32>,
 }
 
 struct OpenVeto {
     candidate: VetoCandidate,
     removed: Contracts,
 }
+
+/// Settlement-overdue grace beyond close_at + expected_lag_hours
+/// (ASSUMPTIONS T1.4; becomes config at T1.5 alongside its alert routing).
+const OVERDUE_GRACE_MS: i64 = 3_600_000;
+/// Books-vs-venue mismatch must persist this many consecutive ticks before
+/// it is a discrepancy (in-flight fills explain transient drift).
+const MISMATCH_STREAK_LIMIT: u32 = 3;
 
 impl SimRunner {
     pub fn new(
@@ -193,7 +217,20 @@ impl SimRunner {
             veto_strategies: config.veto_strategies.into_iter().collect(),
             open_vetoes: Vec::new(),
             market_meta,
+            settlements: SettlementLedger::new(),
+            settle_cursor: Cursor::start(),
+            seen_notices: std::collections::BTreeSet::new(),
+            settled_snapshots: BTreeMap::new(),
+            scored_vetoes: BTreeMap::new(),
+            overdue_alerted: std::collections::BTreeSet::new(),
+            dispute_frozen: std::collections::BTreeSet::new(),
+            mismatch_streak: BTreeMap::new(),
         })
+    }
+
+    /// Read-only view of the settlement-entry chains (tests, dashboards).
+    pub fn settlements(&self) -> &SettlementLedger {
+        &self.settlements
     }
 
     pub fn venue(&self) -> &SimVenue {
@@ -241,8 +278,25 @@ impl SimRunner {
     pub async fn tick(&mut self) -> Result<TickReport, RunnerError> {
         let mut report = TickReport::default();
 
-        // 1. Venue data enters the bus (point-in-time record).
+        // 0. Catalog refresh: venue lifecycle statuses are watchdog inputs
+        // (dispute freezes, overdue clocks) and gate book fetches below.
+        // An outage here keeps the last-known catalog (point-in-time data).
+        if let Ok(markets) = self.venue.markets(MarketFilter::default()).await {
+            for m in markets {
+                self.market_meta.insert(m.id.clone(), m);
+            }
+        }
+
+        // 1. Venue data enters the bus (point-in-time record). Terminal
+        // markets (settled/voided) have no book; skip, don't spam errors.
         for market in self.markets.clone() {
+            let terminal = matches!(
+                self.market_meta.get(&market).map(|m| m.status),
+                Some(MarketStatus::Settled) | Some(MarketStatus::Voided)
+            );
+            if terminal {
+                continue;
+            }
             match self.venue.book(&market).await {
                 Ok(book) => {
                     self.books.insert(market.clone(), book.clone());
@@ -296,6 +350,11 @@ impl SimRunner {
 
         // 4. Fills -> positions/reservations -> bus.
         self.drain_fills(&mut report).await?;
+
+        // 4b. Settlement notices -> entry chains -> books (spec 5.13:
+        // reconcile, never assume), then the lifecycle watchdogs.
+        self.process_settlements().await?;
+        self.run_watchdogs().await?;
 
         // 5. Drawdown (conservative marks) -> halt on breach (I2).
         self.check_drawdown().await?;
@@ -887,24 +946,27 @@ impl SimRunner {
         })
     }
 
-    /// Apply a venue settlement to local books (sim convenience mirroring
-    /// what the settlement processors automate at T1.4).
-    pub fn apply_settlement(
+    /// Counterfactually score (or RE-score, on a venue correction) the
+    /// vetoed-away quantity for one market against its settlement outcome.
+    /// Drained entries move to `scored_vetoes` so a correction can re-emit
+    /// corrected rows (append-only: the new row supersedes by reference).
+    fn score_vetoes_at_settlement(
         &mut self,
         market: &MarketId,
         winner: fortuna_core::market::Side,
-        payout: Cents,
-    ) -> Result<(), RunnerError> {
-        // Counterfactually score vetoed-away quantity FIRST (spec Section
-        // 6): a fully suppressed trade left no position behind, but the
-        // settlement outcome is observable either way and the veto's
-        // value-add must be measured. Exactly-once: scored entries drain.
-        let drained = std::mem::take(&mut self.open_vetoes);
-        let (due, keep): (Vec<OpenVeto>, Vec<OpenVeto>) = drained
-            .into_iter()
-            .partition(|v| &v.candidate.market == market);
-        self.open_vetoes = keep;
-        for v in due {
+        correction: bool,
+    ) {
+        let mut due: Vec<OpenVeto> = if correction {
+            self.scored_vetoes.remove(market).unwrap_or_default()
+        } else {
+            let drained = std::mem::take(&mut self.open_vetoes);
+            let (due, keep): (Vec<OpenVeto>, Vec<OpenVeto>) = drained
+                .into_iter()
+                .partition(|v| &v.candidate.market == market);
+            self.open_vetoes = keep;
+            due
+        };
+        for v in &due {
             let payload = match counterfactual_pnl(
                 &v.candidate,
                 v.removed,
@@ -920,16 +982,502 @@ impl SimRunner {
                     "hypothetical_pnl_cents": pnl.raw(),
                     "fill_assumption": serde_json::to_value(FillAssumption::FilledAtLimit)
                         .unwrap_or_default(),
+                    "correction": correction,
                 }),
                 Err(e) => serde_json::json!({
                     "candidate": serde_json::to_value(&v.candidate).unwrap_or_default(),
                     "removed": v.removed.raw(),
                     "winner": format!("{winner:?}"),
                     "score_error": e.to_string(),
+                    "correction": correction,
                 }),
             };
             self.audit("veto_counterfactual", Some(market.as_str()), payload);
         }
+        if !due.is_empty() {
+            self.scored_vetoes
+                .entry(market.clone())
+                .or_default()
+                .append(&mut due);
+        }
+    }
+
+    /// Vetoes on a VOIDED market are abandoned, scored neither right nor
+    /// wrong (spec 5.13 belief-disposition discipline applied to the veto
+    /// program: a voided market is the world breaking the question).
+    fn abandon_vetoes_on_void(&mut self, market: &MarketId) {
+        let drained = std::mem::take(&mut self.open_vetoes);
+        let (due, keep): (Vec<OpenVeto>, Vec<OpenVeto>) = drained
+            .into_iter()
+            .partition(|v| &v.candidate.market == market);
+        self.open_vetoes = keep;
+        for v in &due {
+            self.audit(
+                "veto_abandoned",
+                Some(market.as_str()),
+                serde_json::json!({
+                    "candidate": serde_json::to_value(&v.candidate).unwrap_or_default(),
+                    "removed": v.removed.raw(),
+                    "reason": "market voided",
+                }),
+            );
+        }
+    }
+
+    /// Poll the venue's settlement-notice stream and reconcile every NEW
+    /// notice into the entry chains and the position book (spec 5.13).
+    async fn process_settlements(&mut self) -> Result<(), RunnerError> {
+        for _ in 0..100 {
+            let page = match self
+                .venue
+                .settlements_since(self.settle_cursor.clone())
+                .await
+            {
+                Ok(p) => p,
+                Err(fortuna_venues::VenueError::Outage { .. }) => break, // next tick
+                Err(e) => return Err(e.into()),
+            };
+            let advanced = page.next_cursor != self.settle_cursor;
+            for notice in &page.notices {
+                if !self.seen_notices.insert(notice.notice_id.clone()) {
+                    continue; // at-least-once dedup
+                }
+                self.apply_notice(notice).await?;
+            }
+            self.settle_cursor = page.next_cursor;
+            if !advanced && page.notices.is_empty() {
+                break;
+            }
+        }
+        self.bus.run_until_idle()?;
+        self.seen_events = self.bus.recording().events().len();
+        Ok(())
+    }
+
+    /// One notice into the books: fresh settlement, duplicate, correction,
+    /// or void. Every branch audits; illegal chain transitions surface as
+    /// errors (never coerced).
+    async fn apply_notice(&mut self, notice: &SettlementNotice) -> Result<(), RunnerError> {
+        let market = &notice.market;
+        self.bus.publish_external(EventPayload::Raw {
+            kind: "settlement_notice".into(),
+            data: serde_json::json!({
+                "notice_id": notice.notice_id,
+                "market": market.to_string(),
+                "outcome": serde_json::to_value(notice.outcome).unwrap_or_default(),
+            }),
+        });
+        let head_status = self.settlements.head(market).map(|h| h.status);
+        match notice.outcome {
+            SettlementOutcome::Winner(winner) => {
+                let already_applied = matches!(
+                    head_status,
+                    Some(SettlementStatus::Pending)
+                        | Some(SettlementStatus::Posted)
+                        | Some(SettlementStatus::Confirmed)
+                );
+                if already_applied {
+                    let prior_winner = self
+                        .settled_snapshots
+                        .get(market)
+                        .map(|_| ())
+                        .and_then(|_| {
+                            self.settlements
+                                .chain(market)
+                                .iter()
+                                .rev()
+                                .find_map(|e| e.detail.get("winner").cloned())
+                        })
+                        .and_then(|w| w.as_str().map(String::from));
+                    let same = prior_winner.as_deref() == Some(&format!("{winner:?}"));
+                    if same {
+                        self.audit(
+                            "settlement_duplicate",
+                            Some(market.as_str()),
+                            serde_json::json!({ "notice_id": notice.notice_id }),
+                        );
+                        return Ok(());
+                    }
+                    // CORRECTION: reverse the books exactly, then re-settle.
+                    return self.apply_correction(market, winner, notice).await;
+                }
+                self.apply_fresh_settlement(market, winner, notice).await
+            }
+            SettlementOutcome::Voided => self.apply_void(market, notice).await,
+        }
+    }
+
+    async fn apply_fresh_settlement(
+        &mut self,
+        market: &MarketId,
+        winner: fortuna_core::market::Side,
+        notice: &SettlementNotice,
+    ) -> Result<(), RunnerError> {
+        self.score_vetoes_at_settlement(market, winner, false);
+        let held = self
+            .positions
+            .position(market)
+            .map(|p| p.yes.qty != 0 || p.no.qty != 0)
+            .unwrap_or(false);
+        if !held {
+            self.audit(
+                "settlement",
+                Some(market.as_str()),
+                serde_json::json!({
+                    "winner": format!("{winner:?}"),
+                    "owed": 0,
+                    "held": false,
+                    "notice_id": notice.notice_id,
+                }),
+            );
+            return Ok(());
+        }
+        let snap = self.positions.settlement_snapshot(market)?;
+        let expected = {
+            let winning = match winner {
+                fortuna_core::market::Side::Yes => snap.yes.qty,
+                fortuna_core::market::Side::No => snap.no.qty,
+            };
+            Cents::new(100).checked_mul(winning.max(0))?
+        };
+        let pending_id = self.ids.next(self.clock.now())?.to_string();
+        self.settlements.record_pending(
+            pending_id,
+            market.clone(),
+            self.venue.id(),
+            expected,
+            serde_json::json!({
+                "winner": format!("{winner:?}"),
+                "notice_id": notice.notice_id,
+                "venue_detail": notice.detail,
+            }),
+            self.clock.now(),
+        )?;
+        let owed = self
+            .positions
+            .apply_settlement(market, winner, Cents::new(100))?;
+        self.settled_snapshots.insert(market.clone(), snap);
+        let posted_id = self.ids.next(self.clock.now())?.to_string();
+        self.settlements.advance(
+            posted_id,
+            market,
+            SettlementStatus::Posted,
+            self.clock.now(),
+        )?;
+        // Reconcile the venue-reported amount against our computation
+        // (a mismatch is a discrepancy, never silently absorbed).
+        if let Some(venue_paid) = notice
+            .detail
+            .get("paid_cents")
+            .and_then(serde_json::Value::as_i64)
+        {
+            if venue_paid != owed.raw() {
+                self.record_discrepancy(
+                    "settlement_payout_mismatch",
+                    serde_json::json!({
+                        "market": market.to_string(),
+                        "venue_paid_cents": venue_paid,
+                        "computed_cents": owed.raw(),
+                        "notice_id": notice.notice_id,
+                    }),
+                );
+            }
+        }
+        self.bus.publish_external(EventPayload::Settled {
+            venue: self.venue.id(),
+            market: market.clone(),
+            payout_cents: owed.raw(),
+        });
+        self.audit(
+            "settlement",
+            Some(market.as_str()),
+            serde_json::json!({
+                "winner": format!("{winner:?}"),
+                "owed": owed.raw(),
+                "held": true,
+                "notice_id": notice.notice_id,
+            }),
+        );
+        Ok(())
+    }
+
+    async fn apply_correction(
+        &mut self,
+        market: &MarketId,
+        corrected_winner: fortuna_core::market::Side,
+        notice: &SettlementNotice,
+    ) -> Result<(), RunnerError> {
+        let Some(snap) = self.settled_snapshots.get(market).cloned() else {
+            // A correction for a settlement we never applied to the books
+            // (held nothing). Score-correct the vetoes and record it.
+            self.score_vetoes_at_settlement(market, corrected_winner, true);
+            self.audit(
+                "settlement_reversal",
+                Some(market.as_str()),
+                serde_json::json!({
+                    "corrected_winner": format!("{corrected_winner:?}"),
+                    "held": false,
+                    "notice_id": notice.notice_id,
+                }),
+            );
+            return Ok(());
+        };
+        let reverse_id = self.ids.next(self.clock.now())?.to_string();
+        self.settlements.reverse(
+            reverse_id,
+            market,
+            serde_json::json!({
+                "corrected_winner": format!("{corrected_winner:?}"),
+                "notice_id": notice.notice_id,
+            }),
+            self.clock.now(),
+        )?;
+        let clawback = self.positions.reverse_settlement(market, &snap)?;
+        self.audit(
+            "settlement_reversal",
+            Some(market.as_str()),
+            serde_json::json!({
+                "clawback_cents": clawback.raw(),
+                "corrected_winner": format!("{corrected_winner:?}"),
+                "notice_id": notice.notice_id,
+            }),
+        );
+        // Re-score the veto counterfactuals against the corrected truth.
+        self.score_vetoes_at_settlement(market, corrected_winner, true);
+        // Corrected re-settlement through the same fresh path (new pending
+        // chain over the Reversed head).
+        self.apply_fresh_settlement(market, corrected_winner, notice)
+            .await
+    }
+
+    async fn apply_void(
+        &mut self,
+        market: &MarketId,
+        notice: &SettlementNotice,
+    ) -> Result<(), RunnerError> {
+        self.abandon_vetoes_on_void(market);
+        let held = self
+            .positions
+            .position(market)
+            .map(|p| p.yes.qty != 0 || p.no.qty != 0)
+            .unwrap_or(false);
+        if !held {
+            self.audit(
+                "settlement",
+                Some(market.as_str()),
+                serde_json::json!({
+                    "voided": true,
+                    "refund": 0,
+                    "held": false,
+                    "notice_id": notice.notice_id,
+                }),
+            );
+            return Ok(());
+        }
+        let refund = self.positions.apply_void_refund(market)?;
+        let pending_id = self.ids.next(self.clock.now())?.to_string();
+        self.settlements.record_pending(
+            pending_id,
+            market.clone(),
+            self.venue.id(),
+            refund,
+            serde_json::json!({
+                "voided": true,
+                "notice_id": notice.notice_id,
+                "venue_detail": notice.detail,
+            }),
+            self.clock.now(),
+        )?;
+        let posted_id = self.ids.next(self.clock.now())?.to_string();
+        self.settlements.advance(
+            posted_id,
+            market,
+            SettlementStatus::Posted,
+            self.clock.now(),
+        )?;
+        self.audit(
+            "settlement",
+            Some(market.as_str()),
+            serde_json::json!({
+                "voided": true,
+                "refund": refund.raw(),
+                "held": true,
+                "notice_id": notice.notice_id,
+            }),
+        );
+        Ok(())
+    }
+
+    /// An explicit books-vs-venue mismatch record (spec 5.13: no silent
+    /// corrections; resolution is a matching entry, an adjustment with
+    /// reason, or operator escalation — recorded by the ledger repos in
+    /// the live composition).
+    fn record_discrepancy(&mut self, kind: &str, detail: serde_json::Value) {
+        self.audit(
+            "discrepancy",
+            None,
+            serde_json::json!({ "kind": kind, "detail": detail }),
+        );
+        self.bus.publish_external(EventPayload::Raw {
+            kind: "discrepancy".into(),
+            data: serde_json::json!({ "kind": kind }),
+        });
+    }
+
+    /// Lifecycle watchdogs (spec 5.13): confirm posted entries against
+    /// venue positions, overdue-settlement alerts, dispute freezes, and
+    /// the persistent books-vs-venue mismatch detector. No orphans: every
+    /// stranded state is surfaced and dispositioned, never discovered by
+    /// accident.
+    async fn run_watchdogs(&mut self) -> Result<(), RunnerError> {
+        let venue_positions = match self.venue.positions().await {
+            Ok(p) => p,
+            Err(_) => return Ok(()), // outage: watch again next tick
+        };
+        let mut venue_by_market: BTreeMap<MarketId, (i64, i64)> = BTreeMap::new();
+        for vp in &venue_positions {
+            venue_by_market.insert(vp.market.clone(), (vp.yes, vp.no));
+        }
+
+        // Confirm step: a Posted entry confirms when the venue shows no
+        // residual position for the market (its truth incorporated ours).
+        let posted: Vec<MarketId> = self
+            .settlements
+            .markets()
+            .filter(|m| {
+                self.settlements.head(m).map(|h| h.status) == Some(SettlementStatus::Posted)
+            })
+            .cloned()
+            .collect();
+        for market in posted {
+            let residual = venue_by_market
+                .get(&market)
+                .map(|(y, n)| *y != 0 || *n != 0)
+                .unwrap_or(false);
+            if !residual {
+                let id = self.ids.next(self.clock.now())?.to_string();
+                self.settlements.advance(
+                    id,
+                    &market,
+                    SettlementStatus::Confirmed,
+                    self.clock.now(),
+                )?;
+            }
+        }
+
+        let now_ms = self.clock.now().epoch_millis();
+        let metas: Vec<Market> = self.market_meta.values().cloned().collect();
+        for meta in metas {
+            let market = meta.id.clone();
+            let held = self
+                .positions
+                .position(&market)
+                .map(|p| p.yes.qty != 0 || p.no.qty != 0)
+                .unwrap_or(false);
+
+            // Dispute freeze: a disputed market's position leaves bankroll
+            // but REMAINS in exposure (reversal risk is real risk).
+            if meta.status == MarketStatus::Disputed
+                && held
+                && self.dispute_frozen.insert(market.clone())
+            {
+                self.positions
+                    .set_lifecycle(&market, PositionLifecycle::Disputed)?;
+                self.audit(
+                    "watchdog",
+                    Some(market.as_str()),
+                    serde_json::json!({ "kind": "dispute_freeze" }),
+                );
+                self.bus.publish_external(EventPayload::Raw {
+                    kind: "dispute_freeze".into(),
+                    data: serde_json::json!({ "market": market.to_string() }),
+                });
+            }
+
+            // Settlement-overdue: close_at + expected lag + grace passed,
+            // position still live, no settlement chain. Alert once.
+            if held && self.settlements.head(&market).is_none() {
+                if let Some(close) = meta.close_at {
+                    let expected_ms = close.epoch_millis()
+                        + i64::from(meta.settlement.expected_lag_hours) * 3_600_000
+                        + OVERDUE_GRACE_MS;
+                    if now_ms > expected_ms && self.overdue_alerted.insert(market.clone()) {
+                        self.audit(
+                            "watchdog",
+                            Some(market.as_str()),
+                            serde_json::json!({
+                                "kind": "settlement_overdue",
+                                "expected_by_epoch_ms": expected_ms,
+                            }),
+                        );
+                        self.bus.publish_external(EventPayload::Raw {
+                            kind: "settlement_overdue".into(),
+                            data: serde_json::json!({ "market": market.to_string() }),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Books-vs-venue position mismatch: transient drift is explained
+        // by in-flight fills; PERSISTENT drift is a discrepancy and a
+        // GLOBAL HALT (containment: per-strategy attribution is not
+        // possible from venue positions alone).
+        let mut all_markets: std::collections::BTreeSet<MarketId> =
+            venue_by_market.keys().cloned().collect();
+        for p in self.positions.positions() {
+            all_markets.insert(p.market.clone());
+        }
+        for market in all_markets {
+            let (vy, vn) = venue_by_market.get(&market).copied().unwrap_or((0, 0));
+            let (by, bn) = self
+                .positions
+                .position(&market)
+                .map(|p| (p.yes.qty, p.no.qty))
+                .unwrap_or((0, 0));
+            if (vy, vn) == (by, bn) {
+                self.mismatch_streak.remove(&market);
+                continue;
+            }
+            let streak = {
+                let e = self.mismatch_streak.entry(market.clone()).or_insert(0);
+                *e += 1;
+                *e
+            };
+            if streak == MISMATCH_STREAK_LIMIT {
+                self.record_discrepancy(
+                    "position_mismatch",
+                    serde_json::json!({
+                        "market": market.to_string(),
+                        "venue": { "yes": vy, "no": vn },
+                        "books": { "yes": by, "no": bn },
+                        "consecutive_ticks": streak,
+                    }),
+                );
+                if self.gates.halts().global_halted().is_none() {
+                    self.gates.set_halt(
+                        HaltScope::Global,
+                        format!("books-vs-venue position mismatch on {market}"),
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Apply a venue settlement to local books (sim convenience mirroring
+    /// what the settlement processors automate at T1.4).
+    pub fn apply_settlement(
+        &mut self,
+        market: &MarketId,
+        winner: fortuna_core::market::Side,
+        payout: Cents,
+    ) -> Result<(), RunnerError> {
+        // Counterfactually score vetoed-away quantity FIRST (spec Section
+        // 6): a fully suppressed trade left no position behind, but the
+        // settlement outcome is observable either way and the veto's
+        // value-add must be measured. Exactly-once: scored entries drain.
+        self.score_vetoes_at_settlement(market, winner, false);
         // Markets settle whether we hold them or not; the strict state
         // layer (untracked-market settlement is an error there) is only
         // consulted when a position actually exists.

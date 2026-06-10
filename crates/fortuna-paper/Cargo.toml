@@ -9,6 +9,7 @@ fortuna-gates = { path = "../fortuna-gates" }
 fortuna-venues = { path = "../fortuna-venues" }
 thiserror = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 async-trait = { workspace = true }
 
 [dev-dependencies]

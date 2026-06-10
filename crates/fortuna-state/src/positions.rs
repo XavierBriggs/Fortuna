@@ -286,6 +286,70 @@ impl PositionBook {
         Ok(payout)
     }
 
+    /// Point-in-time lot snapshot for settlement reversal (spec 5.13:
+    /// settled -> reversed -> re-settled). Captured BEFORE
+    /// `apply_settlement`; `reverse_settlement` restores it exactly.
+    pub fn settlement_snapshot(
+        &self,
+        market: &MarketId,
+    ) -> Result<crate::SettlementSnapshot, StateError> {
+        let pos = self
+            .positions
+            .get(market)
+            .ok_or_else(|| StateError::UnknownMarket {
+                market: market.clone(),
+            })?;
+        Ok(crate::SettlementSnapshot {
+            yes: pos.yes,
+            no: pos.no,
+            realized_pnl_before: pos.realized_pnl,
+        })
+    }
+
+    /// Venue settlement correction (spec 5.13: reversals are new entries,
+    /// never edits — at the POSITION level the reversal restores the exact
+    /// pre-settlement lots and realized PnL so the corrected re-settlement
+    /// replays cleanly). Returns the clawback owed back to the venue
+    /// (= the payout the reversed settlement had credited). Refuses if the
+    /// market is unknown or its lots are not the post-settlement zeroes
+    /// (a repopulated market cannot be reversed into).
+    pub fn reverse_settlement(
+        &mut self,
+        market: &MarketId,
+        snapshot: &crate::SettlementSnapshot,
+    ) -> Result<Cents, StateError> {
+        let pos = self
+            .positions
+            .get_mut(market)
+            .ok_or_else(|| StateError::UnknownMarket {
+                market: market.clone(),
+            })?;
+        if pos.yes.qty != 0 || pos.no.qty != 0 {
+            return Err(StateError::IllegalReversal {
+                market: market.clone(),
+                reason: "live lots present; only a settled (zeroed) market reverses",
+            });
+        }
+        // realized delta the settlement applied = current - before.
+        let delta = pos
+            .realized_pnl
+            .checked_sub(snapshot.realized_pnl_before)
+            .map_err(StateError::Money)?;
+        // The venue claws back what it paid: payout = delta + total basis
+        // (settlement pnl = payout - basis ==> payout = pnl + basis).
+        let basis_total = snapshot
+            .yes
+            .cost_basis
+            .checked_add(snapshot.no.cost_basis)
+            .map_err(StateError::Money)?;
+        let clawback = delta.checked_add(basis_total).map_err(StateError::Money)?;
+        pos.yes = snapshot.yes;
+        pos.no = snapshot.no;
+        pos.realized_pnl = snapshot.realized_pnl_before;
+        pos.lifecycle = PositionLifecycle::ResolutionPending;
+        Ok(clawback)
+    }
+
     /// Void/refund path: both lots clear and the refund (= total cost basis
     /// across both lots) is returned. Realized PnL is untouched: a voided
     /// market is the world breaking the question, not a trading outcome

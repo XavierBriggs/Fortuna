@@ -963,3 +963,50 @@ fn venue_id_is_what_was_configured() {
     let venue = venue_with(&mock, &["KXHIGHNY"]);
     assert_eq!(venue.id().as_str(), "kalshi");
 }
+
+// ---- settlements_since (T1.4): the 5.13 reconciliation input ----
+
+#[test]
+fn settlements_map_market_result_and_hold_cursor_on_terminal_page() {
+    use fortuna_venues::SettlementOutcome;
+    let mock = Arc::new(MockKalshiTransport::new());
+    mock.push_ok(200, sample("settlements_response.json"));
+    let venue = venue_with(&mock, &["KXHIGHNY"]);
+
+    let page = block_on(venue.settlements_since(Cursor::start())).unwrap();
+    assert_eq!(page.notices.len(), 1);
+    let n = &page.notices[0];
+    assert_eq!(n.market.as_str(), "HIGHNY-24JAN02-T55");
+    assert_eq!(
+        n.outcome,
+        SettlementOutcome::Winner(fortuna_core::market::Side::Yes)
+    );
+    assert_eq!(
+        n.at,
+        UtcTimestamp::parse_iso8601("2024-01-03T00:30:00Z").unwrap()
+    );
+    // The raw venue record rides along for audit + payout reconciliation.
+    assert_eq!(n.detail["revenue"], 1000);
+    // Doc sample has cursor "": terminal page holds the polled cursor.
+    assert_eq!(page.next_cursor, Cursor::start());
+
+    let calls = mock.calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].path, "/portfolio/settlements");
+}
+
+#[test]
+fn settlement_with_undocumented_market_result_is_a_hard_error() {
+    let mock = Arc::new(MockKalshiTransport::new());
+    let mut body = sample("settlements_response.json");
+    body["settlements"][0]["market_result"] = serde_json::json!("voided_maybe");
+    mock.push_ok(200, body);
+    let venue = venue_with(&mock, &["KXHIGHNY"]);
+
+    let err = block_on(venue.settlements_since(Cursor::start())).unwrap_err();
+    assert!(
+        matches!(err, VenueError::Invalid { .. }),
+        "undocumented market_result must fail loud (void representation \
+         is a fixture-confirmation item), got {err:?}"
+    );
+}

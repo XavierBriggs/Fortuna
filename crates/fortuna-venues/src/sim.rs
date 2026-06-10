@@ -19,7 +19,8 @@
 
 use crate::fees::ScheduleFeeModel;
 use crate::{
-    Cursor, Fill, FillPage, Market, MarketFilter, MarketStatus, VenueError, VenuePosition,
+    Cursor, Fill, FillPage, Market, MarketFilter, MarketStatus, SettlementNotice,
+    SettlementOutcome, SettlementPage, VenueError, VenuePosition,
 };
 use async_trait::async_trait;
 use fortuna_core::book::{FeeModel, FillRole, OrderBook, PriceLevel};
@@ -133,6 +134,20 @@ struct State {
     next_order_seq: u64,
     outage_until: Option<UtcTimestamp>,
     faults: FaultConfig,
+    /// Authoritative settlement history (spec 5.13 notice stream).
+    /// Corrections append NEW notices; nothing is edited.
+    settlement_notices: Vec<SettlementNotice>,
+    /// What each settlement paid (per market), so a venue-side reversal
+    /// can claw back and re-pay exactly.
+    settled_history: BTreeMap<MarketId, SettledRecord>,
+}
+
+#[derive(Debug, Clone)]
+struct SettledRecord {
+    yes: i64,
+    no: i64,
+    winner: Side,
+    paid: Cents,
 }
 
 impl State {
@@ -195,6 +210,8 @@ impl SimVenue {
                 reserved: Cents::ZERO,
                 next_order_seq: 0,
                 outage_until: None,
+                settlement_notices: Vec::new(),
+                settled_history: BTreeMap::new(),
                 faults,
             }),
         }
@@ -368,9 +385,9 @@ impl SimVenue {
             let m = st.markets.get(market).ok_or_else(|| VenueError::NotFound {
                 what: format!("market {market}"),
             })?;
-            if m.status == MarketStatus::Settled {
+            if matches!(m.status, MarketStatus::Settled | MarketStatus::Voided) {
                 return Err(VenueError::Rejected {
-                    reason: format!("market {market} already settled"),
+                    reason: format!("market {market} already terminal ({:?})", m.status),
                 });
             }
             m.payout_per_contract
@@ -412,13 +429,179 @@ impl SimVenue {
         }
         st.pending = kept_pending;
 
-        st.positions.remove(market);
+        let held = st.positions.remove(market).unwrap_or(Pos {
+            yes: 0,
+            no: 0,
+            cost: Cents::ZERO,
+        });
         st.cash = new_cash;
         if let Some(m) = st.markets.get_mut(market) {
             m.status = MarketStatus::Settled;
         }
         st.books.remove(market);
+        st.settled_history.insert(
+            market.clone(),
+            SettledRecord {
+                yes: held.yes,
+                no: held.no,
+                winner,
+                paid: payout,
+            },
+        );
+        let seq = st.settlement_notices.len();
+        let notice = SettlementNotice {
+            notice_id: format!("stl-{market}-{seq}"),
+            market: market.clone(),
+            outcome: SettlementOutcome::Winner(winner),
+            at: self.clock.now(),
+            detail: serde_json::json!({ "paid_cents": payout.raw() }),
+        };
+        st.settlement_notices.push(notice);
         Ok(payout)
+    }
+
+    /// Void path (spec 5.13 terminal alternative): refund the position's
+    /// exact cost basis, cancel the market's orders, emit a Voided notice.
+    pub fn void_market(&self, market: &MarketId) -> Result<Cents, VenueError> {
+        let mut st = self.lock();
+        {
+            let m = st.markets.get(market).ok_or_else(|| VenueError::NotFound {
+                what: format!("market {market}"),
+            })?;
+            if matches!(m.status, MarketStatus::Settled | MarketStatus::Voided) {
+                return Err(VenueError::Rejected {
+                    reason: format!("market {market} already terminal ({:?})", m.status),
+                });
+            }
+        }
+        let refund = st
+            .positions
+            .get(market)
+            .map(|p| p.cost)
+            .unwrap_or(Cents::ZERO);
+        let new_cash = st.cash.checked_add(refund).map_err(VenueError::Money)?;
+        let resting = std::mem::take(&mut st.resting);
+        let mut kept = Vec::with_capacity(resting.len());
+        for r in resting {
+            if &r.req.market == market {
+                st.release(r.reserved)?;
+            } else {
+                kept.push(r);
+            }
+        }
+        st.resting = kept;
+        let pending = std::mem::take(&mut st.pending);
+        let mut kept_pending = Vec::with_capacity(pending.len());
+        for p in pending {
+            if &p.req.market == market {
+                st.release(p.reserved)?;
+            } else {
+                kept_pending.push(p);
+            }
+        }
+        st.pending = kept_pending;
+        st.positions.remove(market);
+        st.cash = new_cash;
+        if let Some(m) = st.markets.get_mut(market) {
+            m.status = MarketStatus::Voided;
+        }
+        st.books.remove(market);
+        let seq = st.settlement_notices.len();
+        let notice = SettlementNotice {
+            notice_id: format!("stl-{market}-{seq}"),
+            market: market.clone(),
+            outcome: SettlementOutcome::Voided,
+            at: self.clock.now(),
+            detail: serde_json::json!({ "refund_cents": refund.raw() }),
+        };
+        st.settlement_notices.push(notice);
+        Ok(refund)
+    }
+
+    /// Venue correction (spec 5.13: determined may be reversed and
+    /// re-determined; reversals are new entries). Claws back what the
+    /// original settlement paid, pays the corrected winner from the
+    /// recorded held lots, and emits a NEW notice for the correction.
+    pub fn reverse_settlement(
+        &self,
+        market: &MarketId,
+        corrected_winner: Side,
+    ) -> Result<(), VenueError> {
+        let mut st = self.lock();
+        let record =
+            st.settled_history
+                .get(market)
+                .cloned()
+                .ok_or_else(|| VenueError::Rejected {
+                    reason: format!("market {market} has no settlement to reverse"),
+                })?;
+        if record.winner == corrected_winner {
+            return Err(VenueError::Rejected {
+                reason: format!("correction matches the original winner {corrected_winner:?}"),
+            });
+        }
+        let payout_per = st
+            .markets
+            .get(market)
+            .map(|m| m.payout_per_contract)
+            .ok_or_else(|| VenueError::NotFound {
+                what: format!("market {market}"),
+            })?;
+        let winning = match corrected_winner {
+            Side::Yes => record.yes.max(0),
+            Side::No => record.no.max(0),
+        };
+        let repay = payout_per.checked_mul(winning).map_err(VenueError::Money)?;
+        let new_cash = st
+            .cash
+            .checked_sub(record.paid)
+            .and_then(|c| c.checked_add(repay))
+            .map_err(VenueError::Money)?;
+        st.cash = new_cash;
+        st.settled_history.insert(
+            market.clone(),
+            SettledRecord {
+                winner: corrected_winner,
+                paid: repay,
+                ..record
+            },
+        );
+        let seq = st.settlement_notices.len();
+        let notice = SettlementNotice {
+            notice_id: format!("stl-{market}-{seq}"),
+            market: market.clone(),
+            outcome: SettlementOutcome::Winner(corrected_winner),
+            at: self.clock.now(),
+            detail: serde_json::json!({
+                "correction": true,
+                "clawed_cents": record.paid.raw(),
+                "repaid_cents": repay.raw(),
+            }),
+        };
+        st.settlement_notices.push(notice);
+        Ok(())
+    }
+
+    /// What the venue's settlement record says it paid for a settled
+    /// market (post-reversal: the corrected repay). DST I-money input.
+    pub fn settled_paid(&self, market: &MarketId) -> Option<Cents> {
+        self.lock().settled_history.get(market).map(|r| r.paid)
+    }
+
+    /// Test/DST hook: force a market's lifecycle status (e.g. Disputed
+    /// for the 5.13 dispute-watchdog scenarios).
+    pub fn set_market_status(&self, market: &MarketId, status: MarketStatus) {
+        let mut st = self.lock();
+        if let Some(m) = st.markets.get_mut(market) {
+            m.status = status;
+        }
+    }
+
+    /// Test/DST hook: seed a held position directly (qty + cost basis)
+    /// without driving the order path.
+    pub fn seed_position(&self, market: &MarketId, yes: i64, no: i64, cost: Cents) {
+        let mut st = self.lock();
+        st.positions.insert(market.clone(), Pos { yes, no, cost });
     }
 
     // ---- order intake ----
@@ -993,6 +1176,26 @@ impl crate::Venue for SimVenue {
         }
         Ok(FillPage {
             fills,
+            next_cursor: Cursor(next.to_string()),
+        })
+    }
+
+    async fn settlements_since(&self, cursor: Cursor) -> Result<SettlementPage, VenueError> {
+        let mut st = self.lock();
+        self.check_outage(&st)?;
+        self.transient(&mut st)?;
+        let start: usize = if cursor.0.is_empty() {
+            0
+        } else {
+            cursor.0.parse().map_err(|_| VenueError::Invalid {
+                reason: format!("bad settlement cursor {:?}", cursor.0),
+            })?
+        };
+        let notices: Vec<SettlementNotice> =
+            st.settlement_notices.iter().skip(start).cloned().collect();
+        let next = start + notices.len();
+        Ok(SettlementPage {
+            notices,
             next_cursor: Cursor(next.to_string()),
         })
     }
