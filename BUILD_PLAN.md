@@ -184,7 +184,11 @@ EXIT MET TO THE BUILDABLE EXTENT (2026-06-10, commit bee37a6):
       capital BeliefDrafts (aeolus: namespace, p_raw preserved); JournalRepo
       one-per-day. Real-fixture validation operator-blocked (prod read denied by
       classifier; exact unblock in GAPS).
-- [ ] T2.8 Calibration layer (Platt/isotonic, shrinkage prior, versioned params). (5.10)
+- [x] T2.8 Calibration layer (Platt/isotonic, shrinkage prior, versioned params). (5.10)
+      DONE 70c5df6: deterministic Platt (Newton, refuses degenerate records) +
+      isotonic PAV (step apply); shrinkage w=min(n/50,1) ignores fit+extremization
+      below threshold; quality = n-ramp x reliability-gap accuracy -> T2.6 haircut;
+      versioned CalibrationParamsRepo (INSERT-only, latest per scope).
 
 EXIT: full decision loop in Sim with StubMind under DST (including cognition failure
 scenarios); AnthropicMind exercised behind a feature flag with budget controls;
