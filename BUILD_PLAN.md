@@ -110,11 +110,31 @@ postgres service committed). Invariants: I1, I2, I3, I4 implemented and green
       GLOBAL halt); Settlements/Discrepancies Pg repos; DST void+reversal arms; 25 new
       tests, DST 3000 clean. Divergence detector deferred to T2.1 (needs events/edges,
       GAPS).
-- [ ] T1.5 Metrics (OpenTelemetry), minimal read-only dashboard, daily digest,
+- [x] T1.5 Metrics (OpenTelemetry), minimal read-only dashboard, daily digest,
       accounting export. (8)
+      DONE bee37a6: deterministic MetricsRegistry -> Prometheus text exposition 0.0.4
+      (research: OTel Rust exporters Beta/RC, OTLP = documented upgrade path); runner
+      MetricSample export w/ strategy attribution; read-only axum dashboard (GET-only
+      by construction); pure digest composer; write-once accounting CSVs; full
+      sim->metrics->dashboard->digest chain test; 11 new tests.
 
 EXIT: both mechanical strategies in Paper against recorded data streams; settlement and
 discrepancy paths exercised in DST; dashboards and digest render from sim data.
+EXIT MET TO THE BUILDABLE EXTENT (2026-06-10, commit bee37a6):
+- Settlement and discrepancy paths in DST: settle/void/REVERSAL action arms drive the
+  sim venue with I-money extended through refunds and claw/repay; 3000-seed run clean
+  at T1.4 (a0aa419); composed-loop tests cover processor dedup/correction/void,
+  overdue/dispute/mismatch watchdogs, discrepancy + global halt.
+- Dashboards and digest from sim data: tests/observability.rs runs the mech_structural
+  arb end-to-end and renders the SAME run through registry -> /metrics scrape ->
+  /api/boards -> digest text ("dashboards_and_digest_render_from_sim_data").
+- Both mechanical strategies: mech_structural + mech_extremes run the full composed
+  Sim loop (mech_extremes WITH its veto); paper engine proven at the gated-order
+  parity boundary. "Against recorded data streams" is OPERATOR-BLOCKED on the Kalshi
+  fixture capture (websocket book/trade streams) — GAPS has the exact unblock steps;
+  first post-fixture task is the venue-generic runner composition replaying recordings
+  into PaperVenue.
+- Battery at exit: 504 workspace tests 0 failures; fmt + clippy -D warnings clean.
 
 ## Phase 2 — Belief pipeline (Section 12)
 
