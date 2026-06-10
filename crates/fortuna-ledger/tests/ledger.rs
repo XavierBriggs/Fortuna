@@ -713,3 +713,111 @@ async fn source_registry_upserts_and_loads_allowlist(pool: PgPool) {
         .await
         .is_err());
 }
+
+// ---- beliefs repo (T2.3, spec 5.5) ----
+
+async fn seed_event(pool: &PgPool, id: &str) {
+    fortuna_ledger::EventsRepo::new(pool.clone())
+        .create(
+            id,
+            "s",
+            "c",
+            "src",
+            None,
+            "2026-06-20T18:00:00.000Z",
+            "weather",
+            "2026-06-10T12:00:00.000Z",
+        )
+        .await
+        .unwrap();
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn beliefs_insert_supersede_and_score_exactly_once(pool: PgPool) {
+    seed_event(&pool, "evt-1").await;
+    let repo = fortuna_ledger::BeliefsRepo::new(pool);
+
+    repo.insert(
+        "b-1",
+        "2026-06-10T12:00:00.000Z",
+        "evt-1",
+        0.62,
+        0.65,
+        "2026-06-20T18:00:00.000Z",
+        &serde_json::json!([{"source": "aeolus"}]),
+        &serde_json::json!({"model_id": "stub"}),
+        None,
+    )
+    .await
+    .unwrap();
+
+    // An update is a NEW row superseding the old; the old flips status.
+    repo.insert(
+        "b-2",
+        "2026-06-10T13:00:00.000Z",
+        "evt-1",
+        0.70,
+        0.72,
+        "2026-06-20T18:00:00.000Z",
+        &serde_json::json!([{"source": "aeolus"}]),
+        &serde_json::json!({"model_id": "stub"}),
+        Some("b-1"),
+    )
+    .await
+    .unwrap();
+    let b1 = repo.get("b-1").await.unwrap();
+    assert_eq!(b1.status, "superseded");
+    let b2 = repo.get("b-2").await.unwrap();
+    assert_eq!(b2.status, "open");
+    assert_eq!(b2.supersedes.as_deref(), Some("b-1"));
+
+    // Content is immutable at the DATABASE (the T0.8 guard).
+    assert!(repo.try_mutate_content_for_test("b-2", 0.99).await.is_err());
+
+    // Scoring fills outcome/brier/clv exactly once.
+    repo.resolve_and_score("b-2", true, 0.09, Some(1_250.0))
+        .await
+        .unwrap();
+    let b2 = repo.get("b-2").await.unwrap();
+    assert_eq!(b2.status, "resolved");
+    assert_eq!(b2.outcome, Some(1));
+    assert!((b2.brier.unwrap() - 0.09).abs() < 1e-9);
+    assert!((b2.clv_bps.unwrap() - 1_250.0).abs() < 1e-9);
+
+    // A second scoring attempt is refused (score-once).
+    assert!(repo
+        .resolve_and_score("b-2", false, 0.49, None)
+        .await
+        .is_err());
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn beliefs_abandon_on_event_death_excludes_from_calibration(pool: PgPool) {
+    seed_event(&pool, "evt-1").await;
+    let repo = fortuna_ledger::BeliefsRepo::new(pool);
+    repo.insert(
+        "b-1",
+        "2026-06-10T12:00:00.000Z",
+        "evt-1",
+        0.62,
+        0.65,
+        "2026-06-20T18:00:00.000Z",
+        &serde_json::json!([]),
+        &serde_json::json!({"model_id": "stub"}),
+        None,
+    )
+    .await
+    .unwrap();
+
+    repo.abandon_open_for_event("evt-1").await.unwrap();
+    let b1 = repo.get("b-1").await.unwrap();
+    assert_eq!(b1.status, "abandoned");
+    assert!(
+        b1.outcome.is_none(),
+        "abandoned is scored neither right nor wrong"
+    );
+
+    // Calibration samples = RESOLVED beliefs only.
+    let samples = repo.resolved_samples("weather").await.unwrap();
+    assert!(samples.is_empty());
+}

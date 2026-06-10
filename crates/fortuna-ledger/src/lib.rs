@@ -30,9 +30,10 @@ mod repos;
 pub use audit::{AuditRow, AuditWriter};
 pub use intent_journal::PgIntentJournal;
 pub use repos::{
-    halt_scope_string, parse_halt_scope, DiscrepanciesRepo, EdgeRow, EdgesRepo, EventRow,
-    EventsRepo, FillsRepo, HaltsRepo, ReservationsRepo, SettlementEntryRow, SettlementsRepo,
-    SignalsRepo, SnapshotRow, SnapshotsRepo, SourceRegistryRepo, SourceRegistryRow,
+    halt_scope_string, parse_halt_scope, BeliefRow, BeliefsRepo, DiscrepanciesRepo, EdgeRow,
+    EdgesRepo, EventRow, EventsRepo, FillsRepo, HaltsRepo, ReservationsRepo, SettlementEntryRow,
+    SettlementsRepo, SignalsRepo, SnapshotRow, SnapshotsRepo, SourceRegistryRepo,
+    SourceRegistryRow,
 };
 
 pub use sqlx::PgPool;

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE beliefs SET status = 'superseded'\n                   WHERE belief_id = $1 AND status = 'open'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "021e2684aaa98310463cc63ed80e0390a97874578ad26734f158b34b10b53137"
+}

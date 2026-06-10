@@ -825,3 +825,177 @@ impl SourceRegistryRepo {
             .collect())
     }
 }
+
+/// One persisted belief row (spec 5.5).
+#[derive(Debug, Clone)]
+pub struct BeliefRow {
+    pub belief_id: String,
+    pub event_id: String,
+    pub p: f64,
+    pub p_raw: f64,
+    pub status: String,
+    pub supersedes: Option<String>,
+    pub outcome: Option<i32>,
+    pub brier: Option<f64>,
+    pub clv_bps: Option<f64>,
+}
+
+/// Belief ledger ops (spec 5.5): rows are immutable (DB content guard);
+/// an update INSERTS a superseding row and flips the prior's status;
+/// scoring fills outcome/brier/clv exactly once (repo-enforced over the
+/// guard's field-level protection).
+pub struct BeliefsRepo {
+    pool: PgPool,
+}
+
+impl BeliefsRepo {
+    pub fn new(pool: PgPool) -> BeliefsRepo {
+        BeliefsRepo { pool }
+    }
+
+    /// Insert one belief; when `supersedes` is set, the prior row's
+    /// status flips to 'superseded' in the same transaction.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn insert(
+        &self,
+        belief_id: &str,
+        created_at: &str,
+        event_id: &str,
+        p: f64,
+        p_raw: f64,
+        horizon: &str,
+        evidence: &serde_json::Value,
+        provenance: &serde_json::Value,
+        supersedes: Option<&str>,
+    ) -> Result<(), LedgerError> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query!(
+            r#"INSERT INTO beliefs
+               (belief_id, created_at, event_id, p, p_raw, horizon,
+                evidence, provenance, supersedes)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)"#,
+            belief_id,
+            created_at,
+            event_id,
+            p,
+            p_raw,
+            horizon,
+            evidence,
+            provenance,
+            supersedes
+        )
+        .execute(&mut *tx)
+        .await?;
+        if let Some(prior) = supersedes {
+            sqlx::query!(
+                r#"UPDATE beliefs SET status = 'superseded'
+                   WHERE belief_id = $1 AND status = 'open'"#,
+                prior
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn get(&self, belief_id: &str) -> Result<BeliefRow, LedgerError> {
+        let r = sqlx::query!(
+            r#"SELECT belief_id, event_id, p, p_raw, status, supersedes,
+                      outcome, brier, clv_bps
+               FROM beliefs WHERE belief_id = $1"#,
+            belief_id
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(BeliefRow {
+            belief_id: r.belief_id,
+            event_id: r.event_id,
+            p: r.p,
+            p_raw: r.p_raw,
+            status: r.status,
+            supersedes: r.supersedes,
+            outcome: r.outcome,
+            brier: r.brier,
+            clv_bps: r.clv_bps,
+        })
+    }
+
+    /// Resolve + score EXACTLY ONCE: refused unless the belief is still
+    /// unscored (outcome IS NULL) and not abandoned.
+    pub async fn resolve_and_score(
+        &self,
+        belief_id: &str,
+        outcome: bool,
+        brier: f64,
+        clv_bps: Option<f64>,
+    ) -> Result<(), LedgerError> {
+        let res = sqlx::query!(
+            r#"UPDATE beliefs
+               SET status = 'resolved', outcome = $2, brier = $3, clv_bps = $4
+               WHERE belief_id = $1 AND outcome IS NULL
+                 AND status IN ('open','superseded')"#,
+            belief_id,
+            i32::from(outcome),
+            brier,
+            clv_bps
+        )
+        .execute(&self.pool)
+        .await?;
+        if res.rows_affected() != 1 {
+            return Err(LedgerError::CorruptRow {
+                table: "beliefs",
+                reason: format!(
+                    "belief {belief_id} not scorable (already scored, abandoned, or missing)"
+                ),
+            });
+        }
+        Ok(())
+    }
+
+    /// Event died: every open belief on it is abandoned — excluded from
+    /// calibration entirely (the world broke the question).
+    pub async fn abandon_open_for_event(&self, event_id: &str) -> Result<u64, LedgerError> {
+        let res = sqlx::query!(
+            r#"UPDATE beliefs SET status = 'abandoned'
+               WHERE event_id = $1 AND status = 'open'"#,
+            event_id
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(res.rows_affected())
+    }
+
+    /// Calibration inputs: (p, outcome) for RESOLVED beliefs in a
+    /// category (joined through events).
+    pub async fn resolved_samples(&self, category: &str) -> Result<Vec<(f64, bool)>, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT b.p, b.outcome as "outcome!"
+               FROM beliefs b JOIN events e ON e.event_id = b.event_id
+               WHERE b.status = 'resolved' AND b.outcome IS NOT NULL
+                 AND e.category = $1
+               ORDER BY b.created_at"#,
+            category
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|r| (r.p, r.outcome == 1)).collect())
+    }
+
+    /// Test hook proving the DATABASE guard refuses content mutation
+    /// (never used by production code).
+    pub async fn try_mutate_content_for_test(
+        &self,
+        belief_id: &str,
+        new_p: f64,
+    ) -> Result<(), LedgerError> {
+        sqlx::query!(
+            r#"UPDATE beliefs SET p = $2 WHERE belief_id = $1"#,
+            belief_id,
+            new_p
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+}

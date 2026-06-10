@@ -3,6 +3,32 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T2.3 — belief ledger ops, freshness, scoring
+
+- **Probabilities are STRICTLY inside (0,1).** p = 0 or 1 is a claim of
+  certainty — schema-invalid model output, rejected, never clamped or
+  repaired (spec 5.9 discipline). NaN/inf likewise.
+- **Supersession is transactional:** the new row INSERTs and the prior
+  open row flips to 'superseded' in one transaction; the DB content guard
+  (T0.8) refuses any change to content fields, proven by a repo test
+  that tries.
+- **Score-once is repo-enforced over the guard:** resolve_and_score
+  updates only `WHERE outcome IS NULL AND status IN (open, superseded)` —
+  a second scoring, or scoring an abandoned belief, errors. (Superseded
+  beliefs still score: the model said it, the record grades it.)
+- **Abandonment excludes from calibration entirely** (event died — the
+  world broke the question): `resolved_samples` reads status='resolved'
+  only.
+- **Freshness:** the pre-benchmark tightened age OVERRIDES the category
+  age inside the window (staleness costs most near the benchmark); a
+  relevant signal newer than the belief's creation forces refresh
+  regardless of age; the comparator-side exclusion of Stale beliefs is
+  pinned here and enforced where the comparator lands (T2.6).
+- **Calibration curves omit empty buckets** (no fake calibration points)
+  and report (mean_p, observed frequency, n) per bucket; grouping
+  dimensions (model/category/strategy) are the caller's query via
+  `resolved_samples`-style joins.
+
 ## T2.2 — signal ingestion + trigger engine
 
 - **Dedup is per-(source, content_hash), receipt-time excluded.** The

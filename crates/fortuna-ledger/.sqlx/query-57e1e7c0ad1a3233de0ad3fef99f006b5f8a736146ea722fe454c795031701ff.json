@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE beliefs SET p = $2 WHERE belief_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "57e1e7c0ad1a3233de0ad3fef99f006b5f8a736146ea722fe454c795031701ff"
+}
