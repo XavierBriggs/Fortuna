@@ -6,8 +6,10 @@ Tick boxes with a one-line completion note and the commit hash.
 
 ## Phase 0 — Verification spine and deterministic core (spec 5.1, Section 12)
 
-- [ ] T0.1 `fortuna-core`: `Clock` trait (real + sim), ULID ids, `Cents` newtype with
+- [x] T0.1 `fortuna-core`: `Clock` trait (real + sim), ULID ids, `Cents` newtype with
       checked arithmetic, error types. (5.1, conventions)
+      DONE c1ad334: 56 tests (incl. 6 proptests) green; fmt/clippy clean; fixed-ms
+      ISO8601 timestamps + SplitMix64 IdGen for byte-stable replay; 4 ASSUMPTIONS entries.
 - [ ] T0.2 `fortuna-core`: single-threaded deterministic event bus (`BusEvent`),
       replay recorder/player; same seed => byte-identical event stream test. (5.1)
 - [ ] T0.3 `fortuna-venues`: `Venue` trait, `FeeModel` (config-driven schedule
