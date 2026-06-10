@@ -288,6 +288,7 @@ fn run_world(seed: u64, verbose: bool) -> Result<String, String> {
                 resolution_source: "dst".into(),
                 expected_lag_hours: 0,
             },
+            volume_contracts: None,
             payout_per_contract: Cents::new(100),
         });
         let (bids, asks) = random_book(&mut rng);

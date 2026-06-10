@@ -10,10 +10,10 @@
 use fortuna_core::market::{Action, Side};
 use fortuna_core::money::Cents;
 use fortuna_venues::kalshi::dto::{
-    error_reason, format_count, format_price_dollars, from_direction, parse_count_integral,
-    parse_dollars_to_cents_exact, parse_fee_dollars_ceil, to_book_side, CancelOrderV2Response,
-    CreateOrderV2Request, CreateOrderV2Response, GetBalanceResponse, GetEventResponse,
-    GetFillsResponse, GetMarketsResponse, GetOrderResponse, GetOrderbookResponse,
+    error_reason, format_count, format_price_dollars, from_direction, parse_count_ceil,
+    parse_count_integral, parse_dollars_to_cents_exact, parse_fee_dollars_ceil, to_book_side,
+    CancelOrderV2Response, CreateOrderV2Request, CreateOrderV2Response, GetBalanceResponse,
+    GetEventResponse, GetFillsResponse, GetMarketsResponse, GetOrderResponse, GetOrderbookResponse,
     GetOrdersResponse, GetPositionsResponse, GetSeriesResponse, GetSettlementsResponse,
     KalshiBookSide, KalshiFeeType, KalshiMarketStatus, KalshiOrderStatus, KalshiOutcomeSide,
     KalshiStp, KalshiTimeInForce,
@@ -356,4 +356,22 @@ fn error_reason_survives_arbitrary_bodies() {
     assert!(!reason.is_empty());
     let reason = error_reason(&serde_json::Value::Null);
     assert!(!reason.is_empty());
+}
+
+// ---- volume parsing (T1.3: mech_extremes sub-volume filter input) ----
+
+#[test]
+fn volume_parse_ceils_fractional_contracts() {
+    // Fractional volume is legitimate (0.01-contract granularity); ceil
+    // OVER-states it so sub-volume market filters stay conservative.
+    assert_eq!(parse_count_ceil("33896.50").unwrap(), 33_897);
+    assert_eq!(parse_count_ceil("33896.00").unwrap(), 33_896);
+    assert_eq!(parse_count_ceil("0.01").unwrap(), 1);
+    assert_eq!(parse_count_ceil("0").unwrap(), 0);
+}
+
+#[test]
+fn volume_parse_rejects_negative_and_garbage() {
+    assert!(parse_count_ceil("-1.00").is_err());
+    assert!(parse_count_ceil("not a number").is_err());
 }

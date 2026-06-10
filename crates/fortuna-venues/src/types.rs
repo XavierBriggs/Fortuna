@@ -42,6 +42,12 @@ pub struct Market {
     pub close_at: Option<UtcTimestamp>,
     pub settlement: SettlementMeta,
     pub payout_per_contract: Cents,
+    /// Lifetime contracts traded as the venue reports it (Kalshi
+    /// `volume_fp`, ceil-parsed: over-stating volume keeps sub-volume
+    /// market filters conservative). `None` = the venue did not say —
+    /// volume-capped strategies must SKIP, never assume small.
+    #[serde(default)]
+    pub volume_contracts: Option<i64>,
 }
 
 /// Catalog filter for `Venue::markets`.

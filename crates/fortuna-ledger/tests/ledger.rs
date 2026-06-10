@@ -108,6 +108,7 @@ fn sim_venue(clock: Arc<SimClock>) -> SimVenue {
             resolution_source: "t".into(),
             expected_lag_hours: 0,
         },
+        volume_contracts: None,
         payout_per_contract: Cents::new(100),
     });
     v.set_book(

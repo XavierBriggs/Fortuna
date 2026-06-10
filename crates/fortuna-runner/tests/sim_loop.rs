@@ -52,6 +52,7 @@ fn bracket_market(id: &str) -> Market {
             resolution_source: "nws".into(),
             expected_lag_hours: 2,
         },
+        volume_contracts: None,
         payout_per_contract: Cents::new(100),
     }
 }

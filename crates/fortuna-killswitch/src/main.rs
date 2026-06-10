@@ -170,6 +170,7 @@ fn build_sim(clock: Arc<SimClock>) -> Result<SimVenue, Box<dyn std::error::Error
             resolution_source: "t".into(),
             expected_lag_hours: 0,
         },
+        volume_contracts: None,
         payout_per_contract: Cents::new(100),
     });
     venue.set_book(

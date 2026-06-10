@@ -1,0 +1,128 @@
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.kalshi.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Rate Limits and Tiers
+
+> Understanding API rate limits, token costs, and access tiers
+
+## Token-based limits
+
+Every authenticated request costs **tokens**. Your tier defines how many tokens you can spend per second. Most requests cost the default of **10 tokens**; each operation's API reference page lists its cost where it differs (order cancellations, single-order reads, quote create/cancel, and multivariate-collection lookup are currently cheaper than the default).
+
+Your effective rate for any given endpoint is `budget ÷ cost`.
+
+## Reads and writes are billed separately
+
+You have two independent token budgets:
+
+| Bucket    | What it covers                                                          |
+| --------- | ----------------------------------------------------------------------- |
+| **Read**  | `GET` endpoints and anything not explicitly routed elsewhere.           |
+| **Write** | Order placement, amends, cancels, order groups, and the RFQ quote flow. |
+
+## Perps limits use separate buckets
+
+The Perps API uses the **same tiers and per-second token budgets** described here, but perps traffic is metered in its **own** Read and Write buckets. Perps calls don't draw down your event-contract budgets, and event-contract calls don't draw down your perps budgets. In effect you have up to four independent buckets: event-contract Read, event-contract Write, perps Read, and perps Write.
+
+Check your perps tier and limits with [`GET /account/limits/perps`](/margin-rest/account/get-perps-account-api-limits), the perps counterpart of [`GET /account/limits`](/api-reference/account/get-account-api-limits).
+
+See the [Perps API](/margin) overview for the full perps surface.
+
+## Batch endpoints don't save tokens
+
+A batch request costs the same as making each call individually. Every item in the batch is billed separately:
+
+* [Batch Create Orders](/api-reference/orders/batch-create-orders): submitting 25 orders costs `25 × 10 = 250` tokens.
+* [Batch Cancel Orders](/api-reference/orders/batch-cancel-orders): cancelling 25 orders costs `25 × 2 = 50` tokens.
+
+## Tiers and budgets
+
+Per-second token budgets in each bucket:
+
+<div style={{width: '100%', overflowX: 'auto'}}>
+  <table style={{width: '100%', borderCollapse: 'collapse', fontSize: '1rem'}}>
+    <thead>
+      <tr style={{backgroundColor: 'rgba(255, 255, 255, 0.05)', borderBottom: '2px solid rgba(255, 255, 255, 0.1)'}}>
+        <th style={{padding: '1rem 1.5rem', textAlign: 'left', fontWeight: '600'}}>Tier</th>
+        <th style={{padding: '1rem 1.5rem', textAlign: 'right', fontWeight: '600'}}>Read budget</th>
+        <th style={{padding: '1rem 1.5rem', textAlign: 'right', fontWeight: '600'}}>Write budget</th>
+      </tr>
+    </thead>
+
+    <tbody>
+      <tr><td style={{padding: '0.9rem 1.5rem', borderBottom: '1px solid rgba(255, 255, 255, 0.1)'}}>Basic</td><td style={{padding: '0.9rem 1.5rem', textAlign: 'right', borderBottom: '1px solid rgba(255, 255, 255, 0.1)'}}>200</td><td style={{padding: '0.9rem 1.5rem', textAlign: 'right', borderBottom: '1px solid rgba(255, 255, 255, 0.1)'}}>100</td></tr>
+      <tr style={{backgroundColor: 'rgba(255, 255, 255, 0.02)'}}><td style={{padding: '0.9rem 1.5rem', borderBottom: '1px solid rgba(255, 255, 255, 0.1)'}}>Advanced</td><td style={{padding: '0.9rem 1.5rem', textAlign: 'right', borderBottom: '1px solid rgba(255, 255, 255, 0.1)'}}>300</td><td style={{padding: '0.9rem 1.5rem', textAlign: 'right', borderBottom: '1px solid rgba(255, 255, 255, 0.1)'}}>300</td></tr>
+      <tr><td style={{padding: '0.9rem 1.5rem', borderBottom: '1px solid rgba(255, 255, 255, 0.1)'}}>Premier</td><td style={{padding: '0.9rem 1.5rem', textAlign: 'right', borderBottom: '1px solid rgba(255, 255, 255, 0.1)'}}>1,000</td><td style={{padding: '0.9rem 1.5rem', textAlign: 'right', borderBottom: '1px solid rgba(255, 255, 255, 0.1)'}}>1,000</td></tr>
+      <tr style={{backgroundColor: 'rgba(255, 255, 255, 0.02)'}}><td style={{padding: '0.9rem 1.5rem', borderBottom: '1px solid rgba(255, 255, 255, 0.1)'}}>Paragon</td><td style={{padding: '0.9rem 1.5rem', textAlign: 'right', borderBottom: '1px solid rgba(255, 255, 255, 0.1)'}}>2,000</td><td style={{padding: '0.9rem 1.5rem', textAlign: 'right', borderBottom: '1px solid rgba(255, 255, 255, 0.1)'}}>2,000</td></tr>
+      <tr><td style={{padding: '0.9rem 1.5rem'}}>Prime</td><td style={{padding: '0.9rem 1.5rem', textAlign: 'right'}}>4,000</td><td style={{padding: '0.9rem 1.5rem', textAlign: 'right'}}>4,000</td></tr>
+    </tbody>
+  </table>
+</div>
+
+## Tier qualification
+
+* **Basic**: complete account signup.
+* **Advanced**: call the [Upgrade Account API Usage Level endpoint](/api-reference/account/upgrade-account-api-usage-level).
+* **Premier, Paragon, and Prime**: earned automatically from your trading volume (see [Earning higher tiers](#earning-higher-tiers-by-volume) below), or assigned by Kalshi.
+
+<Info>
+  Kalshi may, at its discretion, adjust your tier at any time, including downgrading you from higher tiers following prolonged inactivity. Members may request an upgrade by contacting support with a description of their use case.
+</Info>
+
+## Earning higher tiers by volume
+
+Once a day, Kalshi reviews your trading volume and grants Premier, Paragon, or Prime if you qualify. Your **volume share** is your trailing 30-day volume (counting both sides of every trade you're part of, as maker and as taker) divided by twice the previous calendar month's total exchange volume:
+
+`volume share = your trailing 30-day volume ÷ (previous month's exchange volume × 2)`
+
+Qualifying grants the tier for **30 days**, so a slow day never drops you right away. The daily review renews that window for as long as you keep qualifying, and each tier has two thresholds (a higher bar to **earn** it and a lower **keep** bar to hold it), so a small dip doesn't cost you the tier:
+
+| Tier    | Earn  | Keep  |
+| ------- | ----- | ----- |
+| Premier | 0.25% | 0.20% |
+| Paragon | 0.50% | 0.40% |
+| Prime   | 1.00% | 0.80% |
+
+If your volume falls below the **Keep** bar, the tier doesn't drop immediately. It lapses only when your current 30-day grant runs out.
+
+## Your grants
+
+Your tier is the highest level among your active **grants**. Each grant raises you to a level on a lane, `event_contract` (predictions) or `margined` (margin), until it expires, and records how you got it:
+
+* **`volume`**: earned automatically from your trading volume.
+* **`manual`**: assigned by Kalshi.
+
+Fetch your grants from [`GET /account/limits`](/api-reference/account/get-account-api-limits), returned alongside your current `usage_tier`:
+
+```json theme={null}
+{
+  "usage_tier": "premier",
+  "read":  { "refill_rate": 1000, "bucket_capacity": 1000 },
+  "write": { "refill_rate": 1000, "bucket_capacity": 2000 },
+  "grants": [
+    { "exchange_instance": "event_contract", "level": "premier", "expires_ts": 1751558400, "source": "volume" },
+    { "exchange_instance": "event_contract", "level": "advanced", "source": "manual" }
+  ]
+}
+```
+
+A grant with no `expires_ts` is permanent. You keep your best grant at each level, so a longer-lived manual grant is never shortened by a volume grant. Similarly, if a manual grant is close to expiry but you're now qualifying for the tier by volume, your grant is extended to a fresh 30 days.
+
+## When you hit the limit
+
+A rate-limited request returns `429 Too Many Requests` with the body:
+
+```json theme={null}
+{"error": "too many requests"}
+```
+
+429 responses don't currently include `Retry-After` or `X-RateLimit-*` headers. Apply exponential backoff on 429 until your bucket refills.
+
+## Bursting above your per-second budget
+
+Your Write bucket holds **two seconds** of your per-second budget, so idle or below-steady traffic builds up headroom you can spend in a single burst. Useful for event-driven clients reacting quickly to market moves or price prints. Each request drains the bucket by its token cost; the bucket refills continuously at your per-second budget up to its capacity.
+
+Over-drawing returns `429 Too Many Requests`. There's no enforced cooldown; your next request is allowed as soon as the bucket has enough tokens to cover it.
+
+Basic tier is the exception: its Write bucket holds one second of budget, with no accumulated headroom.

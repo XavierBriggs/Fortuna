@@ -58,6 +58,7 @@ fn test_market(id: &str, category: &str) -> Market {
             resolution_source: "test-source".into(),
             expected_lag_hours: 1,
         },
+        volume_contracts: None,
         payout_per_contract: Cents::new(100),
     }
 }

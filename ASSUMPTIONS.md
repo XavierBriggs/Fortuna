@@ -3,6 +3,44 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T1.3 — mech_extremes
+
+- **"Sub-$100k volume" is enforced via a provable upper bound, not an
+  undocumented field.** Kalshi's documented-required `volume_fp` (lifetime
+  contracts) maps to `Market.volume_contracts` (ceil-parsed: over-stating
+  volume keeps the filter conservative). Every traded contract pair
+  escrows exactly $1, so dollar volume <= contracts x $1 ALWAYS; capping
+  at 100_000 contracts therefore admits only markets that are sub-$100k
+  under ANY definition of dollar volume. The `dollar_volume` field seen in
+  one raw doc sample is NOT in the documented schema and is not relied on.
+  Unknown volume = SKIP (a whale market with a missing field must not
+  slip in). This under-selects some genuinely small markets — conservative;
+  revisit when fixtures pin `dollar_volume` semantics.
+- **"Price extreme" = the favorite side's own-space best bid at/above
+  `extreme_min_cents`** (validated 51..=99; composition default 90). In a
+  binary market fading the overpriced longshot IS buying the underpriced
+  favorite, so the proposal is always a BUY of the favorite.
+- **Maker-only is structural:** the limit JOINS the own-side best bid
+  (book validity bid < ask guarantees no cross; a defensive re-check
+  skips rather than crosses), urgency is Passive, and the never-crosses
+  sweep test pins it. No taker escalation path exists in this strategy.
+- **`fair_value = limit + bias_premium_cents`, clamped to 99c** (a binary
+  is never worth 100c before settlement); if the clamp eats the whole
+  premium there is no honest edge claim and nothing is proposed. The
+  premium is an operator-tuned config (longshot-bias literature), not a
+  fitted parameter — the gates recompute net edge from it (spec 5.3).
+- **Catalog guards fail closed:** non-Trading status, unknown close time,
+  close nearer than `min_ms_to_close`, and books missing either touch all
+  skip. A book snapshot for a market absent from the catalog metadata is
+  skipped entirely.
+- **One shot per (market, side, limit):** the same book state never
+  re-proposes; a moved bid is a new key (the gates' one-working-order
+  rule and position caps bound the stack independently).
+- **Runner-level doctrine scenarios live in the composed-loop tests**
+  (sim_loop / veto_loop / mech_extremes), as established at T0.10; the
+  core DST world (gates->manager->venue) gained no new failure modes from
+  this task — no strategy code runs inside it.
+
 ## T1.3 — model veto scaffolding (mech_extremes lands with the volume field)
 
 - **Reduce-only is enforced by TYPE, not policy.** `VetoVerdict` has no

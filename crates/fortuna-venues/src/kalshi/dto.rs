@@ -75,6 +75,23 @@ pub fn parse_count_integral(raw: &str) -> Result<Contracts, VenueError> {
     Ok(Contracts::new(n))
 }
 
+/// Parse a `FixedPointCount` VOLUME into whole contracts, rounding UP.
+/// Volume can legitimately be fractional (0.01-contract granularity,
+/// fractional_trading_enabled is always true); ceil over-states it, which
+/// keeps sub-volume market filters (mech_extremes' $100k cap) conservative
+/// — a market is never admitted because rounding made it look smaller.
+pub fn parse_count_ceil(raw: &str) -> Result<i64, VenueError> {
+    let d = parse_decimal(raw, "contract count")?;
+    if d.is_sign_negative() {
+        return Err(VenueError::Invalid {
+            reason: format!("kalshi volume {raw:?} is negative"),
+        });
+    }
+    d.ceil().to_i64().ok_or_else(|| VenueError::Invalid {
+        reason: format!("kalshi volume {raw:?} out of i64 range"),
+    })
+}
+
 /// Format cents as the 4-decimal dollar string the doc examples use
 /// (`56c -> "0.5600"`).
 pub fn format_price_dollars(price: Cents) -> Result<String, VenueError> {
@@ -258,6 +275,12 @@ pub struct KalshiMarket {
     pub notional_value_dollars: String,
     /// `linear_cent` | `deci_cent` | `tapered_deci_cent` (research §3).
     pub price_level_structure: String,
+    /// Lifetime contracts traded (`FixedPointCount`). Required in the
+    /// OpenAPI schema, kept optional here so its absence degrades to
+    /// unknown-volume (volume-capped strategies skip) instead of failing
+    /// the whole catalog page.
+    #[serde(default)]
+    pub volume_fp: Option<String>,
     #[serde(default)]
     pub result: Option<String>,
     #[serde(default)]

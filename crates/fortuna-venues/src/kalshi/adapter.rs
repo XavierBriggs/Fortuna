@@ -851,6 +851,12 @@ fn map_market(
             expected_lag_hours,
         },
         payout_per_contract: payout,
+        // Ceil: over-stated volume keeps sub-volume filters conservative.
+        volume_contracts: km
+            .volume_fp
+            .as_deref()
+            .map(dto::parse_count_ceil)
+            .transpose()?,
     })
 }
 

@@ -206,6 +206,10 @@ fn markets_paginates_filters_structures_and_maps_fields() {
     // finalized -> Settled; 7200s settlement timer -> 2h.
     assert_eq!(markets[1].status, MarketStatus::Settled);
     assert_eq!(markets[1].settlement.expected_lag_hours, 2);
+    // volume_fp maps ceil-rounded ("33896.50" -> 33897: over-stating keeps
+    // sub-volume strategy filters conservative); whole counts map exactly.
+    assert_eq!(m.volume_contracts, Some(33_897));
+    assert_eq!(markets[1].volume_contracts, Some(500));
 
     // Call sequence: series info, then cursor-paged market listing.
     let calls = mock.calls();

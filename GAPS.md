@@ -20,11 +20,12 @@ requires this file to contain ONLY operator-blocked items, each with exact unblo
 - Aeolus sample envelope fixture for aeolus_eval (T2.7). Unblock: operator exports one Aeolus run.
 
 ## Open
-- **Sub-cent price structures excluded (T0.3, 2026-06-09).** Kalshi has live
-  `deci_cent`/`tapered_deci_cent` markets (2 as of 2026-06-09) and Polymarket
-  ticks go to 0.0001: core money is integer cents by convention, so adapters
-  MUST filter these market structures out (T1.1/T3.4 filter + test). Revisit
-  only if such markets matter commercially; would require a price-tick type.
+- **Sub-cent price structures excluded (T0.3, 2026-06-09; Kalshi filter
+  SHIPPED at T1.1).** Core money is integer cents by convention. The Kalshi
+  adapter now filters `deci_cent`/`tapered_deci_cent` structures and scalar
+  markets out of the catalog (tested vs doc samples); the same rule is owed
+  by the Polymarket adapter at T3.4 (0.0001 ticks). Revisit only if such
+  markets matter commercially; would require a price-tick type.
 - **Spec 5.2 fee claims are stale** (documented drift, not a code gap):
   "Polymarket Intl mostly zero" and "Polymarket US flat 10bp taker" describe
   superseded regimes. Current reality (researched 2026-06-09, docs/research/

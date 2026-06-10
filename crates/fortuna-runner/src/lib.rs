@@ -25,6 +25,7 @@
     )
 )]
 
+pub mod mech_extremes;
 pub mod mech_structural;
 mod runner;
 
