@@ -3,6 +3,45 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T3.1 — weekly/monthly review jobs
+
+- **The weekly review's deterministic core never depends on the mind.**
+  Calibration audit + GO/NO-GO recommendations compute first; commentary
+  and lesson candidates layer on top. Mind failure, a missing journal,
+  or a contract-violating body degrade to a report with a recorded
+  defect — never a lost report, never repaired prose.
+- **Lesson candidates ride inside the journal body as strict JSON**
+  (WeeklyCommentary: {commentary, lesson_candidates[]}). MindOutput's
+  I6-pinned surface (beliefs/proposals/journal/cost) is NOT grown for
+  lessons; the journal field is the spec'd text vehicle. Free prose
+  fails the parse and yields zero candidates (never guessed from text).
+- **Lesson promotion is an operator action** (spec 8 approve/reject):
+  the weekly job DRAFTS candidates; LessonsRepo.insert is called by the
+  operator approval path. Confirmation extends review_at and demotion
+  (monthly decay) both happen by SUPERSEDING INSERT — the lessons table
+  is append-only; the live row is the unsuperseded chain head; acting
+  on a non-head row is refused.
+- **GO/NO-GO encodes Section 11 as deterministic checks** with reasons:
+  invariant violations are an unconditional NO-GO; mechanical needs >=
+  30 paper days; synthesis needs >= 60 resolved beliefs AND measurable
+  positive CLV; both need positive expectancy net of fees and fee/PnL
+  < 0.35. Brier-vs-market-baseline for synthesis GO needs per-belief
+  market-implied baselines (richer query) — recorded as pending; CLV
+  carries the market-relative criterion meanwhile. Verdicts are
+  RECOMMENDATIONS (I7): no stage, no mutation surface.
+- **Refit versioning:** weekly refits advance version = prior + 1 per
+  scope (caller supplies priors from CalibrationParamsRepo.latest);
+  below n=50 no fit; degenerate records refuse with the reason in
+  fit_defect. extremization_k stays 1.0 until the audit supports more.
+- **Monthly allocation rule (spec silent on the algorithm):** net
+  (pnl - fees - cognition cost) < 0 => recommend halving; otherwise
+  hold. Recommendations never sum above the current total (no invented
+  capital); increases are explicitly the operator's. Kill-switch test
+  and backup restore drill emit as checklist REMINDERS only.
+- **Per-strategy aggregates are review INPUTS** (the composition
+  computes them from its own state/intents); fills carry no strategy
+  column and the audit log is not an analytics store.
+
 ## Phase 2 EXIT — composed decision loop, invariants, aeolus_eval
 
 - **The synthesis adapter triggers one cycle per book event for a

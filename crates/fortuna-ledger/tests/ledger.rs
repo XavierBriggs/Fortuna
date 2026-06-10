@@ -1048,3 +1048,110 @@ async fn aeolus_eval_writes_scored_beliefs_from_the_fixture_envelope(pool: PgPoo
     assert_eq!(b1.status, "resolved");
     assert_eq!(b1.outcome, Some(1));
 }
+
+// ---- lessons repo (T3.1, spec 5.6 semantic memory) ----
+
+#[sqlx::test(migrations = "./migrations")]
+async fn lessons_promote_confirm_and_demote_by_superseding_insert(pool: PgPool) {
+    let repo = fortuna_ledger::LessonsRepo::new(pool);
+
+    // Operator-approved promotion: an ACTIVE lesson with provenance and
+    // a review date.
+    repo.insert(
+        "l-1",
+        "NWS discussion updates before 06Z lead Kalshi high-temp markets",
+        &serde_json::json!({"journal_days": ["2026-06-08", "2026-06-09"]}),
+        "2026-07-10T00:00:00.000Z",
+        "2026-06-10T00:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    let active = repo.active().await.unwrap();
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].lesson_id, "l-1");
+
+    // Confirmation extends the review date via a SUPERSEDING insert
+    // (the table is append-only; the old row is never touched).
+    repo.confirm(
+        "l-1",
+        "l-2",
+        "2026-08-10T00:00:00.000Z",
+        "2026-07-09T00:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    let active = repo.active().await.unwrap();
+    assert_eq!(active.len(), 1, "confirmation replaces, never duplicates");
+    assert_eq!(active[0].lesson_id, "l-2");
+    assert_eq!(active[0].review_at, "2026-08-10T00:00:00.000Z");
+    assert_eq!(
+        active[0].body, "NWS discussion updates before 06Z lead Kalshi high-temp markets",
+        "body rides through confirmation"
+    );
+
+    // Decay: demotion supersedes with a demoted row.
+    repo.demote("l-2", "l-3", "2026-08-11T00:00:00.000Z")
+        .await
+        .unwrap();
+    assert!(
+        repo.active().await.unwrap().is_empty(),
+        "demoted = out of memory"
+    );
+
+    // Confirming or demoting a superseded lesson is refused (the chain
+    // head is the only live row).
+    assert!(repo
+        .demote("l-1", "l-4", "2026-08-12T00:00:00.000Z")
+        .await
+        .is_err());
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn journal_range_returns_the_weekly_window_in_order(pool: PgPool) {
+    let repo = fortuna_ledger::JournalRepo::new(pool);
+    for day in ["2026-06-08", "2026-06-10", "2026-06-09", "2026-06-15"] {
+        repo.insert(
+            &format!("j-{day}"),
+            day,
+            &serde_json::json!({"body": format!("entry {day}")}),
+            "2026-06-16T00:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    }
+    let week = repo.range("2026-06-08", "2026-06-14").await.unwrap();
+    assert_eq!(
+        week.iter().map(|r| r.day.as_str()).collect::<Vec<_>>(),
+        vec!["2026-06-08", "2026-06-09", "2026-06-10"],
+        "inclusive window, day-ordered, the 15th excluded"
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn resolved_stats_expose_brier_and_clv_for_the_review(pool: PgPool) {
+    seed_event(&pool, "evt-1").await;
+    let repo = fortuna_ledger::BeliefsRepo::new(pool);
+    repo.insert(
+        "b-1",
+        "2026-06-10T12:00:00.000Z",
+        "evt-1",
+        0.7,
+        0.72,
+        "2026-06-20T18:00:00.000Z",
+        &serde_json::json!([]),
+        &serde_json::json!({"model_id": "stub"}),
+        None,
+    )
+    .await
+    .unwrap();
+    repo.resolve_and_score("b-1", true, 0.09, Some(150.0))
+        .await
+        .unwrap();
+
+    let stats = repo.resolved_stats("weather").await.unwrap();
+    assert_eq!(stats.len(), 1);
+    assert!((stats[0].p - 0.7).abs() < 1e-9);
+    assert!(stats[0].outcome);
+    assert!((stats[0].brier - 0.09).abs() < 1e-9);
+    assert!((stats[0].clv_bps.unwrap() - 150.0).abs() < 1e-9);
+}

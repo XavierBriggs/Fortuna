@@ -826,6 +826,15 @@ impl SourceRegistryRepo {
     }
 }
 
+/// One resolved belief's review stats (T3.1 weekly calibration audit).
+#[derive(Debug, Clone)]
+pub struct ResolvedStat {
+    pub p: f64,
+    pub outcome: bool,
+    pub brier: f64,
+    pub clv_bps: Option<f64>,
+}
+
 /// One persisted belief row (spec 5.5).
 #[derive(Debug, Clone)]
 pub struct BeliefRow {
@@ -982,6 +991,30 @@ impl BeliefsRepo {
         Ok(rows.into_iter().map(|r| (r.p, r.outcome == 1)).collect())
     }
 
+    /// Review inputs: full resolved stats (p, outcome, brier, clv) for a
+    /// category — the weekly calibration audit's query (T3.1).
+    pub async fn resolved_stats(&self, category: &str) -> Result<Vec<ResolvedStat>, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT b.p, b.outcome as "outcome!", b.brier as "brier!", b.clv_bps
+               FROM beliefs b JOIN events e ON e.event_id = b.event_id
+               WHERE b.status = 'resolved' AND b.outcome IS NOT NULL
+                 AND b.brier IS NOT NULL AND e.category = $1
+               ORDER BY b.created_at"#,
+            category
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| ResolvedStat {
+                p: r.p,
+                outcome: r.outcome == 1,
+                brier: r.brier,
+                clv_bps: r.clv_bps,
+            })
+            .collect())
+    }
+
     /// Test hook proving the DATABASE guard refuses content mutation
     /// (never used by production code).
     pub async fn try_mutate_content_for_test(
@@ -1052,6 +1085,31 @@ impl JournalRepo {
             day: r.day,
             body: r.body,
         }))
+    }
+
+    /// Inclusive day window, day-ordered (the weekly review's episodic
+    /// input, spec 5.8).
+    pub async fn range(
+        &self,
+        from_day: &str,
+        to_day: &str,
+    ) -> Result<Vec<JournalRow>, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT journal_id, day, body FROM journal
+               WHERE day >= $1 AND day <= $2 ORDER BY day"#,
+            from_day,
+            to_day
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| JournalRow {
+                journal_id: r.journal_id,
+                day: r.day,
+                body: r.body,
+            })
+            .collect())
     }
 }
 
@@ -1152,5 +1210,154 @@ impl CalibrationParamsRepo {
             version: r.version,
             effective_at: r.effective_at,
         }))
+    }
+}
+
+// ------------------------------------------------------------------------
+// lessons (T3.1, spec 5.6 semantic memory)
+// ------------------------------------------------------------------------
+
+/// One semantic-memory lesson row.
+#[derive(Debug, Clone)]
+pub struct LessonRow {
+    pub lesson_id: String,
+    pub body: String,
+    pub provenance: serde_json::Value,
+    pub status: String,
+    pub review_at: String,
+    pub supersedes: Option<String>,
+}
+
+/// Semantic memory (spec 5.6): a bounded list of distilled lessons with
+/// provenance and review dates. The table is append-only (T0.8 trigger):
+/// confirmation and demotion are SUPERSEDING inserts; the chain head is
+/// the live row. Promotion (the initial insert) is an OPERATOR action —
+/// the weekly review only drafts candidates.
+pub struct LessonsRepo {
+    pool: PgPool,
+}
+
+impl LessonsRepo {
+    pub fn new(pool: PgPool) -> LessonsRepo {
+        LessonsRepo { pool }
+    }
+
+    /// Insert an operator-approved lesson as ACTIVE.
+    pub async fn insert(
+        &self,
+        lesson_id: &str,
+        body: &str,
+        provenance: &serde_json::Value,
+        review_at: &str,
+        created_at: &str,
+    ) -> Result<(), LedgerError> {
+        sqlx::query!(
+            r#"INSERT INTO lessons
+               (lesson_id, body, provenance, status, review_at, created_at)
+               VALUES ($1,$2,$3,'active',$4,$5)"#,
+            lesson_id,
+            body,
+            provenance,
+            review_at,
+            created_at
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Supersede `prior_id` with a new row carrying `status`. Refused
+    /// unless the prior row is the live chain head (active and not
+    /// already superseded).
+    async fn supersede(
+        &self,
+        prior_id: &str,
+        new_id: &str,
+        status: &str,
+        review_at: Option<&str>,
+        created_at: &str,
+    ) -> Result<(), LedgerError> {
+        let mut tx = self.pool.begin().await?;
+        let prior = sqlx::query!(
+            r#"SELECT body, provenance, review_at FROM lessons
+               WHERE lesson_id = $1 AND status = 'active'
+                 AND NOT EXISTS (
+                   SELECT 1 FROM lessons l2 WHERE l2.supersedes = lessons.lesson_id
+                 )"#,
+            prior_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(prior) = prior else {
+            return Err(LedgerError::CorruptRow {
+                table: "lessons",
+                reason: format!("lesson {prior_id} is not the live chain head"),
+            });
+        };
+        sqlx::query!(
+            r#"INSERT INTO lessons
+               (lesson_id, body, provenance, status, review_at, supersedes, created_at)
+               VALUES ($1,$2,$3,$4,$5,$6,$7)"#,
+            new_id,
+            prior.body,
+            prior.provenance,
+            status,
+            review_at.unwrap_or(&prior.review_at),
+            prior_id,
+            created_at
+        )
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Weekly confirmation: the lesson held up; extend its review date.
+    pub async fn confirm(
+        &self,
+        prior_id: &str,
+        new_id: &str,
+        new_review_at: &str,
+        created_at: &str,
+    ) -> Result<(), LedgerError> {
+        self.supersede(prior_id, new_id, "active", Some(new_review_at), created_at)
+            .await
+    }
+
+    /// Monthly decay (spec 5.6): an unconfirmed lesson demotes.
+    pub async fn demote(
+        &self,
+        prior_id: &str,
+        new_id: &str,
+        created_at: &str,
+    ) -> Result<(), LedgerError> {
+        self.supersede(prior_id, new_id, "demoted", None, created_at)
+            .await
+    }
+
+    /// The live semantic memory: active chain heads, oldest first.
+    pub async fn active(&self) -> Result<Vec<LessonRow>, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT lesson_id, body, provenance, status, review_at, supersedes
+               FROM lessons l
+               WHERE status = 'active'
+                 AND NOT EXISTS (
+                   SELECT 1 FROM lessons l2 WHERE l2.supersedes = l.lesson_id
+                 )
+               ORDER BY created_at, lesson_id"#
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| LessonRow {
+                lesson_id: r.lesson_id,
+                body: r.body,
+                provenance: r.provenance,
+                status: r.status,
+                review_at: r.review_at,
+                supersedes: r.supersedes,
+            })
+            .collect())
     }
 }
