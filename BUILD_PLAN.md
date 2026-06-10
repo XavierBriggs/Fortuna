@@ -92,8 +92,15 @@ postgres service committed). Invariants: I1, I2, I3, I4 implemented and green
       test), floor-rounded shared-FIFO haircut budget, taker crosses displayed depth
       only, sim/paper parity test at the gated-order boundary; 10 tests; recorded-
       stream runs blocked on fixture capture (GAPS).
-- [ ] T1.3 `mech_extremes` + model-veto scaffolding (veto reduce-only, counterfactual
+- [x] T1.3 `mech_extremes` + model-veto scaffolding (veto reduce-only, counterfactual
       scoring records; stub mind acceptable this phase). (6)
+      DONE 99752eb + 88c9b91: reduce-only veto BY TYPE (KeepBps 1..=9999, no grow
+      variant; serde through checked ctor) + StubVetoMind (deterministic); veto sits
+      after sizing/before gates, every consult audited, provider error = fail-closed
+      flagged UNSCORED, counterfactuals scored exactly-once at settlement (maker-fee
+      net, filled-at-limit recorded); mech_extremes maker-only fade w/ provable
+      sub-$100k bound (contracts x $1), fail-closed catalog guards; 39 new tests;
+      DST 2000 clean.
 - [ ] T1.4 Settlement lifecycle processors + watchdogs (overdue, dispute, divergence,
       stranded-state) + discrepancy records. (5.13)
 - [ ] T1.5 Metrics (OpenTelemetry), minimal read-only dashboard, daily digest,
