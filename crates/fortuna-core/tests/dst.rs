@@ -1,40 +1,43 @@
-//! Deterministic simulation testing harness (T0.4). Spec 5.1, PROMPT doctrine.
+//! Deterministic simulation testing harness (T0.4; exec layer added T0.6).
+//! Spec 5.1, PROMPT doctrine.
 //!
 //! Contract (scripts/run-dst.sh):
 //!   dst [--nocapture] --seeds N        # corpus first, then N random seeds
 //!   dst --replay-seed S                # one seed, verbose trace
 //!
-//! Every scenario: build a seeded world (sim clock, sim venue with a random
-//! fault config, random markets/books), drive a seeded actor through a random
-//! action stream (places, cancels, ticks, clock advances, public flow, fill
-//! polls with crash-amnesia, book resets, settles, outages), then quiesce and
-//! assert the cross-cutting invariants:
+//! Every scenario builds a seeded world — sim clock, sim venue with a random
+//! fault config, random markets/books, a REAL gate pipeline, and a REAL
+//! order manager over an in-memory journal — and drives a seeded action
+//! stream: gated placements, cancels, fill polls, ticks, clock advances,
+//! public flow, book resets, settles, outages, TTL sweeps, and CRASHES
+//! (drop the manager, rebuild from the journal, boot-reconcile). This
+//! composes the spec 5.4 crash scenarios randomly: crash between persistence
+//! and submission, crash between submission and ack, duplicate fill
+//! delivery, fill after local cancel, partial fill then outage.
 //!
-//!   I-money     venue cash == initial - sum(buy gross+fee) + sum(sell
-//!               gross-fee) + sum(settle payouts), derived from the DEDUP'D
-//!               fill stream (at-least-once delivery must reconcile exactly).
-//!   I-reserve   after cancel-all + flush, reserved == 0 (no leaked
-//!               reservations) and no negative cash ever.
-//!   I-position  dedup'd fill-derived positions == venue positions
-//!               (settled markets absent).
-//!   I-delivery  every fill the venue recorded is eventually delivered
-//!               (cursor mechanics lose nothing).
-//!   I-determinism  running the same seed twice produces byte-identical
-//!               traces.
+//! Invariants at quiesce:
+//!   I-money       venue cash == replay of the DEDUP'D fill stream + payouts
+//!   I-reserve     reserved == 0 after cancel-all; cash never negative
+//!   I-position    fill-derived positions == venue positions
+//!   I-delivery    every fill the venue recorded is eventually delivered
+//!   I-journal     no intent stuck Submitted after boot; every venue order's
+//!                 client id is journaled (no orphans from our side); per
+//!                 intent, cum_filled == the dedup'd fills for its order
+//!   I-determinism every scenario runs twice; traces must be byte-identical
 //!
 //! A violation prints the seed and fails the run (exit 1). Reproduce with
 //!   scripts/replay.sh --seed <S>
 //! Minimize per dst-corpus/README.md, then commit the seed file.
 
 use fortuna_core::clock::{Clock, SimClock, UtcTimestamp};
-use fortuna_core::ids::SplitMix64;
-use fortuna_core::market::{Action, ClientOrderId, Contracts, MarketId, Side, VenueId};
+use fortuna_core::ids::{IdGen, IntentId, SplitMix64};
+use fortuna_core::market::{Action, ClientOrderId, Contracts, MarketId, Side, StrategyId, VenueId};
 use fortuna_core::money::Cents;
+use fortuna_exec::{ExecError, ExecPolicy, IntentStatus, MemoryJournal, OrderManager};
+use fortuna_gates::{CandidateOrder, GateConfig, GateInputs, GatePipeline};
 use fortuna_venues::fees::{FeeSchedule, ScheduleFeeModel};
-use fortuna_venues::sim::{FaultConfig, PlaceOrder, SimVenue};
-use fortuna_venues::{
-    Cursor, Fill, Market, MarketStatus, PriceLevel, SettlementMeta, Venue, VenueError,
-};
+use fortuna_venues::sim::{FaultConfig, SimVenue};
+use fortuna_venues::{Fill, Market, MarketStatus, PriceLevel, SettlementMeta, Venue, VenueError};
 use std::collections::{BTreeMap, BTreeSet};
 use std::panic::AssertUnwindSafe;
 use std::process::ExitCode;
@@ -61,7 +64,7 @@ fn main() -> ExitCode {
                     None => return usage(),
                 };
             }
-            "--nocapture" => {} // libtest compat; we always print
+            "--nocapture" => {}
             other => {
                 eprintln!("dst: unknown arg {other:?}");
                 return usage();
@@ -91,8 +94,6 @@ fn main() -> ExitCode {
         run_one(*seed, &format!("corpus ({label})"), &mut failures);
     }
 
-    // Fresh randomized seeds. Master entropy comes from the real clock (the
-    // one legal wall-time source) unless pinned via DST_MASTER_SEED.
     let master = std::env::var("DST_MASTER_SEED")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -151,8 +152,6 @@ fn run_one(seed: u64, kind: &str, failures: &mut Vec<(u64, String)>) {
     }
 }
 
-/// Corpus format: one file per seed in dst-corpus/, lines starting with '#'
-/// describe the failure mode; exactly one non-comment line holds the seed.
 fn load_corpus() -> Vec<(u64, String)> {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/dst-corpus");
     let mut out = Vec::new();
@@ -187,10 +186,8 @@ fn load_corpus() -> Vec<(u64, String)> {
 
 // ---- scenario ----
 
-const START_MS: i64 = 1_780_000_000_000; // 2026-06-08T16:26:40Z; arbitrary fixed epoch
+const START_MS: i64 = 1_780_000_000_000;
 
-/// Run a scenario twice and byte-compare traces (I-determinism), returning
-/// the first run's invariant verdict.
 fn run_scenario(seed: u64, verbose: bool) -> Result<(), String> {
     let trace1 = run_world(seed, verbose)?;
     let trace2 = run_world(seed, false)?;
@@ -208,12 +205,48 @@ fn run_scenario(seed: u64, verbose: bool) -> Result<(), String> {
     Ok(())
 }
 
-struct ActorState {
-    cursor: Cursor,
-    checkpoint_cursor: Cursor,
-    seen: BTreeMap<String, Fill>, // dedup by fill_id
-    known_orders: Vec<fortuna_core::market::VenueOrderId>,
+fn permissive_gate_config() -> GateConfig {
+    // Generous caps and huge rate buckets: DST exercises the gated PATH and
+    // crash machinery; tight-limit behavior has its own suites in
+    // fortuna-gates. Caps still real (i64), checks all run.
+    let src = r#"
+        [global]
+        max_total_exposure_cents = 100000000
+        max_daily_loss_cents = 50000
+        min_order_contracts = 1
+        max_order_contracts = 100000
+        price_band_cents = 98
+        max_cross_cents = 98
+        per_market_exposure_cents = 100000000
+        per_event_exposure_cents = 100000000
+        require_event_mapping = false
+
+        [per_strategy.dst]
+        max_exposure_cents = 100000000
+        max_order_notional_cents = 100000000
+        min_net_edge_bps = 0
+
+        [rate.sim]
+        burst = 1000000
+        sustained_per_min = 1000000
+        market_burst = 1000000
+        market_sustained_per_min = 1000000
+    "#;
+    toml::from_str(src).unwrap_or_else(|e| panic!("gate config literal: {e}"))
+}
+
+struct World {
+    clock: Arc<SimClock>,
+    venue: SimVenue,
+    pipeline: GatePipeline,
+    manager: Option<OrderManager<MemoryJournal>>,
+    ids: IdGen,
+    seen: BTreeMap<String, Fill>,
+    cursor: fortuna_venues::Cursor,
     payouts: Cents,
+    settled: BTreeSet<MarketId>,
+    markets: Vec<MarketId>,
+    coid_seq: u64,
 }
 
 fn run_world(seed: u64, verbose: bool) -> Result<String, String> {
@@ -227,7 +260,6 @@ fn run_world(seed: u64, verbose: bool) -> Result<String, String> {
         trace.push('\n');
     };
 
-    // World setup.
     let clock = Arc::new(SimClock::new(
         UtcTimestamp::from_epoch_millis(START_MS).map_err(|e| e.to_string())?,
     ));
@@ -264,104 +296,81 @@ fn run_world(seed: u64, verbose: bool) -> Result<String, String> {
             .map_err(|e| format!("setup book: {e}"))?;
         markets.push(id);
     }
+
+    let manager = OrderManager::recover(
+        MemoryJournal::default(),
+        clock.clone(),
+        ExecPolicy {
+            default_ttl_ms: 120_000,
+            ..ExecPolicy::default()
+        },
+    )
+    .map_err(|e| format!("manager init: {e}"))?;
+
+    let mut w = World {
+        clock,
+        venue,
+        pipeline: GatePipeline::new(permissive_gate_config())
+            .map_err(|e| format!("pipeline init: {e}"))?,
+        manager: Some(manager),
+        ids: IdGen::new(seed ^ 0xDEAD_BEEF),
+        seen: BTreeMap::new(),
+        cursor: fortuna_venues::Cursor::start(),
+        payouts: Cents::ZERO,
+        settled: BTreeSet::new(),
+        markets,
+        coid_seq: 0,
+    };
     log(
         format!("world seed={seed} markets={n_markets} cash={initial_cash} faults={faults:?}"),
         &mut trace,
     );
 
-    let mut actor = ActorState {
-        cursor: Cursor::start(),
-        checkpoint_cursor: Cursor::start(),
-        seen: BTreeMap::new(),
-        known_orders: Vec::new(),
-        payouts: Cents::ZERO,
-    };
-    let mut settled: BTreeSet<MarketId> = BTreeSet::new();
-    let mut coid_seq = 0u64;
-
-    // Action stream.
     let n_actions = 30 + (rng.next_u64() % 50) as usize;
     for step in 0..n_actions {
-        let market = markets[(rng.next_u64() % markets.len() as u64) as usize].clone();
+        let market = w.markets[(rng.next_u64() % w.markets.len() as u64) as usize].clone();
         match rng.next_u64() % 100 {
-            // place (40%)
-            0..=39 => {
-                coid_seq += 1;
-                let req = PlaceOrder {
-                    market: market.clone(),
-                    side: if rng.next_u64().is_multiple_of(2) {
-                        Side::Yes
-                    } else {
-                        Side::No
-                    },
-                    action: if rng.next_u64().is_multiple_of(4) {
-                        Action::Sell
-                    } else {
-                        Action::Buy
-                    },
-                    limit_price: Cents::new(1 + (rng.next_u64() % 99) as i64),
-                    qty: Contracts::new(1 + (rng.next_u64() % 20) as i64),
-                    client_order_id: ClientOrderId::new(format!("dst-{seed}-{coid_seq}"))
-                        .map_err(|e| e.to_string())?,
-                };
-                let res = venue.place_raw(req.clone());
-                if let Ok(id) = &res {
-                    actor.known_orders.push(id.clone());
-                }
-                log(format!("{step} place {req:?} -> {res:?}"), &mut trace);
+            // gated placement (38%)
+            0..=37 => {
+                let line = place_via_gates(&mut w, &mut rng, &market)?;
+                log(format!("{step} {line}"), &mut trace);
             }
-            // cancel (12%)
-            40..=51 => {
-                let target = if !actor.known_orders.is_empty() && !rng.next_u64().is_multiple_of(4)
-                {
-                    let i = (rng.next_u64() % actor.known_orders.len() as u64) as usize;
-                    actor.known_orders[i].clone()
+            // cancel a working intent (10%)
+            38..=47 => {
+                let manager = w.manager.as_mut().ok_or("manager missing")?;
+                let working: Vec<IntentId> = manager
+                    .intents()
+                    .iter()
+                    .filter(|(_, r)| r.status.is_working() && r.venue_order_id.is_some())
+                    .map(|(id, _)| **id)
+                    .collect();
+                if working.is_empty() {
+                    log(format!("{step} cancel: nothing working"), &mut trace);
                 } else {
-                    fortuna_core::market::VenueOrderId::new(format!("sim-{}", rng.next_u64() % 200))
-                        .map_err(|e| e.to_string())?
-                };
-                let res = futures::executor::block_on(venue.cancel(&target));
-                log(format!("{step} cancel {target} -> {res:?}"), &mut trace);
-            }
-            // poll fills (18%)
-            52..=69 => {
-                let res = futures::executor::block_on(venue.fills_since(actor.cursor.clone()));
-                match res {
-                    Ok(page) => {
-                        for f in &page.fills {
-                            actor.seen.insert(f.fill_id.clone(), f.clone());
-                        }
-                        log(
-                            format!(
-                                "{step} poll {} -> {} fill(s), cursor {}",
-                                actor.cursor.0,
-                                page.fills.len(),
-                                page.next_cursor.0
-                            ),
-                            &mut trace,
-                        );
-                        actor.cursor = page.next_cursor;
-                        if rng.next_u64().is_multiple_of(3) {
-                            actor.checkpoint_cursor = actor.cursor.clone();
-                        }
-                    }
-                    Err(e) => log(format!("{step} poll -> {e:?}"), &mut trace),
+                    let target = working[(rng.next_u64() % working.len() as u64) as usize];
+                    let res = futures::executor::block_on(manager.cancel_intent(target, &w.venue));
+                    log(format!("{step} cancel {target} -> {res:?}"), &mut trace);
                 }
             }
-            // tick (8%)
-            70..=77 => {
-                let res = venue.tick();
+            // poll + ingest fills (15%)
+            48..=62 => {
+                let line = poll_and_ingest(&mut w)?;
+                log(format!("{step} {line}"), &mut trace);
+            }
+            // tick (6%)
+            63..=68 => {
+                let res = w.venue.tick();
                 log(format!("{step} tick -> {res:?}"), &mut trace);
             }
             // advance clock (8%)
-            78..=85 => {
+            69..=76 => {
                 let ms = 100 + rng.next_u64() % 60_000;
-                clock.advance_millis(ms).map_err(|e| e.to_string())?;
+                w.clock.advance_millis(ms).map_err(|e| e.to_string())?;
                 log(format!("{step} advance {ms}ms"), &mut trace);
             }
-            // inject public flow (6%)
-            86..=91 => {
-                let res = venue.inject_public_order(
+            // public flow (6%)
+            77..=82 => {
+                let res = w.venue.inject_public_order(
                     &market,
                     if rng.next_u64().is_multiple_of(2) {
                         Side::Yes
@@ -377,47 +386,58 @@ fn run_world(seed: u64, verbose: bool) -> Result<String, String> {
                     1 + (rng.next_u64() % 15) as i64,
                 );
                 log(
-                    format!("{step} public -> {:?}", res.map(|fills| fills.len())),
+                    format!("{step} public -> {:?}", res.map(|f| f.len())),
                     &mut trace,
                 );
             }
-            // reset book (3%)
-            92..=94 => {
-                let (bids, asks) = random_book(&mut rng);
-                if settled.contains(&market) {
+            // book reset (3%)
+            83..=85 => {
+                if w.settled.contains(&market) {
                     log(format!("{step} set_book skipped (settled)"), &mut trace);
                 } else {
-                    let res = venue.set_book(&market, bids, asks);
+                    let (bids, asks) = random_book(&mut rng);
+                    let res = w.venue.set_book(&market, bids, asks);
                     log(format!("{step} set_book -> {res:?}"), &mut trace);
                 }
             }
-            // actor crash: forget everything since last checkpoint (3%)
-            95..=97 => {
-                actor.cursor = actor.checkpoint_cursor.clone();
-                log(format!("{step} actor-crash, cursor rewound"), &mut trace);
+            // CRASH: rebuild from journal + boot reconcile (6%)
+            86..=91 => {
+                let line = crash_and_recover(&mut w)?;
+                log(format!("{step} {line}"), &mut trace);
             }
-            // outage window (1%)
-            98 => {
-                let until = clock
+            // crash BETWEEN persistence and submission (2%)
+            92..=93 => {
+                let line = created_only_crash(&mut w, &mut rng, &market)?;
+                log(format!("{step} {line}"), &mut trace);
+            }
+            // TTL sweep (3%)
+            94..=96 => {
+                let manager = w.manager.as_mut().ok_or("manager missing")?;
+                let res = futures::executor::block_on(manager.sweep_ttl(&w.venue));
+                log(format!("{step} ttl-sweep -> {res:?}"), &mut trace);
+            }
+            // outage window (2%)
+            97..=98 => {
+                let until = w
+                    .clock
                     .now()
                     .checked_add_millis(1_000 + (rng.next_u64() % 5_000) as i64)
                     .map_err(|e| e.to_string())?;
-                venue.set_outage_until(until);
+                w.venue.set_outage_until(until);
                 log(format!("{step} outage until {until}"), &mut trace);
             }
             // settle (1%)
             _ => {
-                if !settled.contains(&market) {
+                if !w.settled.contains(&market) {
                     let winner = if rng.next_u64().is_multiple_of(2) {
                         Side::Yes
                     } else {
                         Side::No
                     };
-                    match venue.settle_market(&market, winner) {
+                    match w.venue.settle_market(&market, winner) {
                         Ok(p) => {
-                            settled.insert(market.clone());
-                            actor.payouts =
-                                actor.payouts.checked_add(p).map_err(|e| e.to_string())?;
+                            w.settled.insert(market.clone());
+                            w.payouts = w.payouts.checked_add(p).map_err(|e| e.to_string())?;
                             log(
                                 format!("{step} settle {market} {winner:?} -> {p}"),
                                 &mut trace,
@@ -429,9 +449,7 @@ fn run_world(seed: u64, verbose: bool) -> Result<String, String> {
             }
         }
 
-        // Continuous invariant: cash never negative, reservations never
-        // exceed cash (worst-case reservation discipline holds).
-        let (cash, reserved, _, _) = venue.inspect_totals();
+        let (cash, reserved, _, _) = w.venue.inspect_totals();
         if cash < Cents::ZERO {
             return Err(format!(
                 "I-reserve violated at step {step}: negative cash {cash}"
@@ -450,46 +468,72 @@ fn run_world(seed: u64, verbose: bool) -> Result<String, String> {
     }
 
     // ---- quiesce ----
-    // Clear any outage so cleanup can proceed deterministically.
-    clock.advance_millis(600_000).map_err(|e| e.to_string())?;
-    venue.tick().map_err(|e| format!("quiesce tick: {e}"))?;
-    // Cancel everything still resting (bounded retries; cancel faults may
-    // time out, but every retry re-rolls).
-    for _ in 0..200 {
-        let resting = venue.resting_orders();
-        if resting.is_empty() {
-            break;
+    w.clock.advance_millis(600_000).map_err(|e| e.to_string())?;
+    w.venue.tick().map_err(|e| format!("quiesce tick: {e}"))?;
+
+    // Final crash + boot: resolves every Submitted-unknown intent.
+    let boot_line = crash_and_recover(&mut w)?;
+    log(format!("quiesce {boot_line}"), &mut trace);
+
+    // I-journal (pre-cancel): every venue order's client id is ours.
+    {
+        let manager = w.manager.as_ref().ok_or("manager missing")?;
+        let known = manager.known_client_order_ids();
+        for _ in 0..100 {
+            match futures::executor::block_on(w.venue.open_orders()) {
+                Ok(open) => {
+                    for o in &open {
+                        if !known.contains(o.client_order_id.as_str()) {
+                            return Err(format!(
+                                "I-journal violated: venue order {} has unknown client id {}",
+                                o.venue_order_id, o.client_order_id
+                            ));
+                        }
+                    }
+                    break;
+                }
+                Err(VenueError::Outage { .. }) => continue,
+                Err(e) => return Err(format!("open_orders: {e:?}")),
+            }
         }
-        for (id, _) in resting {
-            let _ = futures::executor::block_on(venue.cancel(&id));
-        }
-    }
-    if !venue.resting_orders().is_empty() {
-        return Err("quiesce: resting orders survived 200 cancel rounds".into());
     }
 
-    // Drain fills to fixpoint (dedup absorbs duplicates; withheld fills are
-    // delivered on subsequent polls by construction).
-    let (_, _, fill_count, pending_count) = venue.inspect_totals();
+    // Cancel everything still working through the manager (bounded).
+    for _ in 0..200 {
+        let manager = w.manager.as_mut().ok_or("manager missing")?;
+        let working: Vec<IntentId> = manager
+            .intents()
+            .iter()
+            .filter(|(_, r)| r.status.is_working() && r.venue_order_id.is_some())
+            .map(|(id, _)| **id)
+            .collect();
+        if working.is_empty() && w.venue.resting_orders().is_empty() {
+            break;
+        }
+        for intent in working {
+            let _ = futures::executor::block_on(manager.cancel_intent(intent, &w.venue));
+        }
+    }
+    if !w.venue.resting_orders().is_empty() {
+        return Err("quiesce: venue resting orders survived 200 cancel rounds".into());
+    }
+
+    // Drain fills to fixpoint.
+    let (_, _, fill_count, pending_count) = w.venue.inspect_totals();
     if pending_count != 0 {
         return Err("quiesce: pending orders survived tick".into());
     }
     let mut stable = 0;
     for _ in 0..10_000 {
-        // Injected transient API errors are expected here; retry through them.
-        let page = match futures::executor::block_on(venue.fills_since(actor.cursor.clone())) {
-            Ok(p) => p,
-            Err(VenueError::Outage { .. }) => continue,
-            Err(e) => return Err(format!("quiesce poll: {e:?}")),
+        let before = w.seen.len();
+        let advanced = match poll_and_ingest(&mut w) {
+            Ok(_) => true,
+            Err(e) => return Err(format!("quiesce poll: {e}")),
         };
-        for f in &page.fills {
-            actor.seen.insert(f.fill_id.clone(), f.clone());
-        }
-        let advanced = page.next_cursor != actor.cursor;
-        actor.cursor = page.next_cursor;
-        if !advanced && page.fills.is_empty() {
+        let _ = advanced;
+        if w.seen.len() == before {
             stable += 1;
-            if stable >= 3 && actor.seen.len() >= fill_count {
+            if stable >= 5 && w.seen.len() >= fill_count {
                 break;
             }
         } else {
@@ -498,26 +542,23 @@ fn run_world(seed: u64, verbose: bool) -> Result<String, String> {
     }
 
     // ---- invariants ----
-    let (cash, reserved, fill_count, _) = venue.inspect_totals();
+    let (cash, reserved, fill_count, _) = w.venue.inspect_totals();
 
-    // I-delivery: nothing the venue recorded is lost to cursor mechanics.
-    if actor.seen.len() != fill_count {
+    if w.seen.len() != fill_count {
         return Err(format!(
             "I-delivery violated: venue recorded {fill_count} fills, actor saw {}",
-            actor.seen.len()
+            w.seen.len()
         ));
     }
-
-    // I-reserve: no leaked reservations after cancel-all.
     if reserved != Cents::ZERO {
         return Err(format!(
             "I-reserve violated: reserved {reserved} != $0.00 after cancel-all"
         ));
     }
 
-    // I-money: replay the dedup'd fill stream against initial cash.
+    // I-money.
     let mut expected = initial_cash;
-    for f in actor.seen.values() {
+    for f in w.seen.values() {
         let gross = f
             .price
             .checked_mul(f.qty.raw())
@@ -533,20 +574,16 @@ fn run_world(seed: u64, verbose: bool) -> Result<String, String> {
                 .map_err(|e| e.to_string())?,
         };
     }
-    expected = expected
-        .checked_add(actor.payouts)
-        .map_err(|e| e.to_string())?;
+    expected = expected.checked_add(w.payouts).map_err(|e| e.to_string())?;
     if cash != expected {
         return Err(format!(
-            "I-money violated: venue cash {cash}, fill-stream replay expects {expected} \
-             (initial {initial_cash}, payouts {})",
-            actor.payouts
+            "I-money violated: venue cash {cash}, fill-stream replay expects {expected}"
         ));
     }
 
-    // I-position: dedup'd fill-derived net-yes per market == venue positions.
+    // I-position.
     let mut derived: BTreeMap<MarketId, i64> = BTreeMap::new();
-    for f in actor.seen.values() {
+    for f in w.seen.values() {
         let delta = match (f.side, f.action) {
             (Side::Yes, Action::Buy) => f.qty.raw(),
             (Side::Yes, Action::Sell) => -f.qty.raw(),
@@ -555,12 +592,11 @@ fn run_world(seed: u64, verbose: bool) -> Result<String, String> {
         };
         *derived.entry(f.market.clone()).or_insert(0) += delta;
     }
-    derived.retain(|m, n| *n != 0 && !settled.contains(m));
+    derived.retain(|m, n| *n != 0 && !w.settled.contains(m));
     let venue_positions: BTreeMap<MarketId, i64> = {
-        // Retry through injected transient errors (bounded).
         let mut result = None;
         for _ in 0..100 {
-            match futures::executor::block_on(venue.positions()) {
+            match futures::executor::block_on(w.venue.positions()) {
                 Ok(p) => {
                     result = Some(p);
                     break;
@@ -581,20 +617,257 @@ fn run_world(seed: u64, verbose: bool) -> Result<String, String> {
         ));
     }
 
+    // I-journal: no stuck Submitted; per-intent cum == dedup'd fills.
+    let manager = w.manager.as_ref().ok_or("manager missing")?;
+    let mut fills_by_coid: BTreeMap<String, i64> = BTreeMap::new();
+    for f in w.seen.values() {
+        *fills_by_coid
+            .entry(f.client_order_id.as_str().to_string())
+            .or_insert(0) += f.qty.raw();
+    }
+    for (id, rec) in manager.intents() {
+        if rec.status == IntentStatus::Submitted {
+            return Err(format!(
+                "I-journal violated: intent {id} stuck Submitted after boot reconcile"
+            ));
+        }
+        let seen_qty = fills_by_coid
+            .get(rec.order.client_order_id.as_str())
+            .copied()
+            .unwrap_or(0);
+        if rec.cum_filled.raw() != seen_qty {
+            return Err(format!(
+                "I-journal violated: intent {id} cum_filled {} != dedup'd fills {seen_qty}",
+                rec.cum_filled
+            ));
+        }
+    }
+
     log(
         format!(
-            "quiesce ok: cash {cash}, {} fills recorded, {} seen, {} settled",
-            fill_count,
-            actor.seen.len(),
-            settled.len()
+            "quiesce ok: cash {cash}, {fill_count} fills, {} intents, {} settled",
+            manager.intents().len(),
+            w.settled.len()
         ),
         &mut trace,
     );
     Ok(trace)
 }
 
+/// Build a seeded candidate, run it through the REAL gate pipeline, submit
+/// through the manager. Returns the trace line.
+fn place_via_gates(
+    w: &mut World,
+    rng: &mut SplitMix64,
+    market: &MarketId,
+) -> Result<String, String> {
+    w.coid_seq += 1;
+    let intent = IntentId::new(
+        w.ids
+            .next(w.clock.now())
+            .map_err(|e| format!("idgen: {e}"))?,
+    );
+    let limit = Cents::new(1 + (rng.next_u64() % 99) as i64);
+    let candidate = CandidateOrder {
+        intent_id: intent,
+        strategy: StrategyId::new("dst").map_err(|e| e.to_string())?,
+        venue: VenueId::new("sim").map_err(|e| e.to_string())?,
+        market: market.clone(),
+        side: if rng.next_u64().is_multiple_of(2) {
+            Side::Yes
+        } else {
+            Side::No
+        },
+        action: if rng.next_u64() % 4 == 3 {
+            Action::Sell
+        } else {
+            Action::Buy
+        },
+        limit_price: limit,
+        qty: Contracts::new(1 + (rng.next_u64() % 20) as i64),
+        fair_value: Cents::new((limit.raw() + 3).min(100)),
+        client_order_id: ClientOrderId::from_intent(intent),
+    };
+
+    let book = futures::executor::block_on(w.venue.book(market)).ok();
+    let manager = w.manager.as_mut().ok_or("manager missing")?;
+    let known = manager.known_client_order_ids();
+    let fees = kalshi_style_fees();
+    let inputs = GateInputs {
+        now: w.clock.now(),
+        open_exposure_cents: Cents::ZERO,
+        market_exposure_cents: Cents::ZERO,
+        strategy_exposure_cents: Cents::ZERO,
+        event_exposure_cents: Cents::ZERO,
+        event_id: None,
+        book: book.as_ref(),
+        last_trade_price: Some(Cents::new(50)),
+        fee_model: &fees,
+        category: Some("dst"),
+        own_resting: &[],
+        recent_client_order_ids: &known,
+    };
+    let outcome = w.pipeline.evaluate(&candidate, &inputs);
+    match outcome.gated {
+        Err(rej) => Ok(format!("gate-reject {:?}: {}", rej.check, rej.reason)),
+        Ok(order) => {
+            let res = futures::executor::block_on(manager.submit(order, &w.venue));
+            match res {
+                Ok(out) => Ok(format!("placed {intent} -> {out:?}")),
+                Err(ExecError::WorkingOrderExists { existing, .. }) => {
+                    Ok(format!("exec-refused (working order {existing})"))
+                }
+                Err(e) => Err(format!("submit failed unexpectedly: {e}")),
+            }
+        }
+    }
+}
+
+/// Poll one page of fills and ingest through the manager (and the actor's
+/// dedup view, which feeds the venue-level invariants).
+fn poll_and_ingest(w: &mut World) -> Result<String, String> {
+    let page = match futures::executor::block_on(w.venue.fills_since(w.cursor.clone())) {
+        Ok(p) => p,
+        Err(VenueError::Outage { .. }) => return Ok("poll -> outage".into()),
+        Err(e) => return Err(format!("poll: {e:?}")),
+    };
+    let n = page.fills.len();
+    let manager = w.manager.as_mut().ok_or("manager missing")?;
+    for f in &page.fills {
+        w.seen.insert(f.fill_id.clone(), f.clone());
+        match manager.ingest_fill(f) {
+            Ok(_) => {}
+            Err(e) => return Err(format!("ingest_fill: {e}")),
+        }
+    }
+    let line = format!(
+        "poll {} -> {n} fill(s), cursor {}",
+        w.cursor.0, page.next_cursor.0
+    );
+    w.cursor = page.next_cursor;
+    Ok(line)
+}
+
+/// Drop the manager, rebuild from the journal, boot-reconcile (with bounded
+/// retries across outage windows).
+fn crash_and_recover(w: &mut World) -> Result<String, String> {
+    let manager = w.manager.take().ok_or("manager missing")?;
+    let journal = manager.into_journal();
+    let mut rebuilt = OrderManager::recover(
+        journal,
+        w.clock.clone(),
+        ExecPolicy {
+            default_ttl_ms: 120_000,
+            ..ExecPolicy::default()
+        },
+    )
+    .map_err(|e| format!("recover: {e}"))?;
+    let mut last_err = String::new();
+    for _ in 0..10 {
+        match futures::executor::block_on(rebuilt.boot_reconcile(&w.venue)) {
+            Ok(report) => {
+                // The manager's cursor checkpoint may differ from the
+                // actor's; the actor keeps its own for venue invariants.
+                let line = format!(
+                    "crash+boot: adopted={} orphans={} closed={} missing={} fills={} orphan_fills={}",
+                    report.adopted.len(),
+                    report.orphans_cancelled.len(),
+                    report.closed_unsubmitted.len(),
+                    report.missing_at_venue.len(),
+                    report.fills_applied,
+                    report.orphan_fills.len()
+                );
+                // Fills the BOOT drained must also land in the actor's view.
+                let refresh = {
+                    w.manager = Some(rebuilt);
+                    poll_to_fixpoint(w)?
+                };
+                return Ok(format!("{line}; refreshed {refresh}"));
+            }
+            Err(e) => {
+                last_err = e.to_string();
+                w.clock.advance_millis(10_000).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    Err(format!("boot_reconcile failed 10 times: {last_err}"))
+}
+
+/// Journal a Created row and "crash" before submitting (spec 5.4: crash
+/// between intent persistence and submission). Boot closes it later.
+fn created_only_crash(
+    w: &mut World,
+    rng: &mut SplitMix64,
+    market: &MarketId,
+) -> Result<String, String> {
+    w.coid_seq += 1;
+    let intent = IntentId::new(
+        w.ids
+            .next(w.clock.now())
+            .map_err(|e| format!("idgen: {e}"))?,
+    );
+    let limit = Cents::new(1 + (rng.next_u64() % 99) as i64);
+    let candidate = CandidateOrder {
+        intent_id: intent,
+        strategy: StrategyId::new("dst").map_err(|e| e.to_string())?,
+        venue: VenueId::new("sim").map_err(|e| e.to_string())?,
+        market: market.clone(),
+        side: Side::Yes,
+        action: Action::Buy,
+        limit_price: limit,
+        qty: Contracts::new(1),
+        fair_value: Cents::new((limit.raw() + 3).min(100)),
+        client_order_id: ClientOrderId::from_intent(intent),
+    };
+    let book = futures::executor::block_on(w.venue.book(market)).ok();
+    let fees = kalshi_style_fees();
+    let manager = w.manager.as_mut().ok_or("manager missing")?;
+    let known = manager.known_client_order_ids();
+    let inputs = GateInputs {
+        now: w.clock.now(),
+        open_exposure_cents: Cents::ZERO,
+        market_exposure_cents: Cents::ZERO,
+        strategy_exposure_cents: Cents::ZERO,
+        event_exposure_cents: Cents::ZERO,
+        event_id: None,
+        book: book.as_ref(),
+        last_trade_price: Some(Cents::new(50)),
+        fee_model: &fees,
+        category: Some("dst"),
+        own_resting: &[],
+        recent_client_order_ids: &known,
+    };
+    match w.pipeline.evaluate(&candidate, &inputs).gated {
+        Err(rej) => Ok(format!("created-crash gate-reject {:?}", rej.check)),
+        Ok(order) => {
+            manager.journal_created_for_test(&order);
+            let line = crash_and_recover(w)?;
+            Ok(format!("created-then-{line}"))
+        }
+    }
+}
+
+fn poll_to_fixpoint(w: &mut World) -> Result<usize, String> {
+    let mut total = 0;
+    let mut stable = 0;
+    for _ in 0..1_000 {
+        let before = w.seen.len();
+        poll_and_ingest(w)?;
+        let gained = w.seen.len() - before;
+        total += gained;
+        if gained == 0 {
+            stable += 1;
+            if stable >= 3 {
+                break;
+            }
+        } else {
+            stable = 0;
+        }
+    }
+    Ok(total)
+}
+
 fn random_faults(rng: &mut SplitMix64, seed: u64) -> FaultConfig {
-    // ~1/4 of scenarios run clean (faithful venue); the rest mix faults.
     if rng.next_u64().is_multiple_of(4) {
         return FaultConfig::none(seed);
     }
@@ -613,8 +886,6 @@ fn random_faults(rng: &mut SplitMix64, seed: u64) -> FaultConfig {
 }
 
 fn random_book(rng: &mut SplitMix64) -> (Vec<PriceLevel>, Vec<PriceLevel>) {
-    // Mid in [20, 80], spread >= 2, up to 3 levels per side, qty 1..50.
-    // Prices step CUMULATIVELY away from mid so sides stay strictly sorted.
     let mid = 20 + (rng.next_u64() % 61) as i64;
     let half_spread = 1 + (rng.next_u64() % 5) as i64;
     let mut bids = Vec::new();
@@ -657,11 +928,4 @@ fn kalshi_style_fees() -> ScheduleFeeModel {
     )
     .unwrap_or_else(|e| panic!("fee schedule literal: {e}"));
     ScheduleFeeModel::new(vec![s]).unwrap_or_else(|e| panic!("fee model: {e}"))
-}
-
-// Suppress the unused-error-variant lint surface: VenueError is matched via
-// Debug formatting in traces; this keeps the import honest.
-#[allow(dead_code)]
-fn _venue_error_witness(e: VenueError) -> String {
-    format!("{e:?}")
 }

@@ -3,6 +3,43 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T0.6 — order manager
+
+- **`Venue::open_orders()` added to the trait** (5.2 sketch omits it; 5.4 boot
+  reconciliation cannot exist without it).
+- **Boot does not auto-resubmit.** Intents with no venue evidence after a
+  crash (Created-only, or Submitted with nothing at the venue and no fills)
+  are closed (`BootClosed`); strategies re-propose through the gates against
+  CURRENT state. Auto-resubmitting a stale intent would honor a gate verdict
+  issued against a dead market state. The idempotent-coid machinery still
+  protects the case where the order DID reach the venue (AlreadyExists ->
+  adopt).
+- **Orphan venue orders at boot are cancelled and reported** (spec's "adopt
+  orphans" sentence defines adoption as cancel + alert; we follow it
+  literally).
+- **Late fills are applied to Cancelled AND BootClosed intents** (status
+  unchanged, flagged): venue truth arrives late and reality always wins;
+  rejecting it would desync positions. Fills against Rejected intents remain
+  illegal (a clean venue reject cannot have fills; if one appears it is a
+  venue discrepancy and must error).
+- **Resubmitting an intent the manager already knows is Acked short-circuits**
+  to the known venue order id without a venue call (manager-level
+  idempotency, mirroring the venue's coid idempotency).
+- **Cancel of a Submitted-unknown intent (no venue id) is refused**; the
+  caller reconciles first. Cancel Timeout leaves status unchanged
+  (CancelOutcome::Unknown) for the next sweep to retry.
+- **TTL is measured from intent creation** (created_at), per-strategy
+  configurable with a default; sweep skips Submitted-unknown intents (no
+  venue id to cancel).
+- **Group unhedged-notional (v1)** = spread between the most- and
+  least-filled legs' filled notional; completion economics use a declared
+  `value_per_set` walked against current books at taker, all-in with fees;
+  insufficient depth or a missing book always unwinds (cannot price
+  completion honestly = do not chase it).
+- **Flatten planner** marks at the touch and walks visible depth net of
+  taker fees; any unfillable remainder forces FreezeAndCancel regardless of
+  the auto bound.
+
 ## T0.5 — gate pipeline
 
 - **A rate-limit breach halts the VENUE for both bucket kinds** (venue bucket

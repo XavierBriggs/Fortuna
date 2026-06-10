@@ -4,8 +4,14 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+fortuna-core = { path = "../fortuna-core" }
+fortuna-gates = { path = "../fortuna-gates" }
+fortuna-venues = { path = "../fortuna-venues" }
 thiserror = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+toml = { workspace = true }
+futures = { workspace = true }

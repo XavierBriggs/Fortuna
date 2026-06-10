@@ -238,6 +238,8 @@ name = "fortuna-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "fortuna-exec",
+ "fortuna-gates",
  "fortuna-venues",
  "futures",
  "proptest",
@@ -253,9 +255,15 @@ dependencies = [
 name = "fortuna-exec"
 version = "0.1.0"
 dependencies = [
+ "fortuna-core",
+ "fortuna-gates",
+ "fortuna-venues",
+ "futures",
  "proptest",
  "serde",
+ "serde_json",
  "thiserror",
+ "toml",
 ]
 
 [[package]]

@@ -88,6 +88,18 @@ pub struct FillPage {
     pub next_cursor: Cursor,
 }
 
+/// A working order as the venue reports it (boot reconciliation input).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpenOrder {
+    pub venue_order_id: VenueOrderId,
+    pub client_order_id: ClientOrderId,
+    pub market: MarketId,
+    pub side: Side,
+    pub action: Action,
+    pub limit_price: Cents,
+    pub remaining_qty: Contracts,
+}
+
 /// Venue-reported position (venue truth; reconciled against local state).
 /// `net_yes` > 0 is long YES, < 0 is long NO.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

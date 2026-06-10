@@ -14,6 +14,8 @@ rust_decimal = { workspace = true }
 [dev-dependencies]
 proptest = { workspace = true }
 fortuna-venues = { path = "../fortuna-venues" }
+fortuna-gates = { path = "../fortuna-gates" }
+fortuna-exec = { path = "../fortuna-exec" }
 futures = { workspace = true }
 toml = { workspace = true }
 

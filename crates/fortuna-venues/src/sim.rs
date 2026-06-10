@@ -900,6 +900,35 @@ impl crate::Venue for SimVenue {
         }
     }
 
+    async fn open_orders(&self) -> Result<Vec<crate::OpenOrder>, VenueError> {
+        let mut st = self.lock();
+        self.check_outage(&st)?;
+        self.transient(&mut st)?;
+        let mut out: Vec<crate::OpenOrder> = st
+            .resting
+            .iter()
+            .map(|r| crate::OpenOrder {
+                venue_order_id: r.id.clone(),
+                client_order_id: r.req.client_order_id.clone(),
+                market: r.req.market.clone(),
+                side: r.req.side,
+                action: r.req.action,
+                limit_price: r.req.limit_price,
+                remaining_qty: r.remaining,
+            })
+            .collect();
+        out.extend(st.pending.iter().map(|p| crate::OpenOrder {
+            venue_order_id: p.id.clone(),
+            client_order_id: p.req.client_order_id.clone(),
+            market: p.req.market.clone(),
+            side: p.req.side,
+            action: p.req.action,
+            limit_price: p.req.limit_price,
+            remaining_qty: p.req.qty,
+        }));
+        Ok(out)
+    }
+
     async fn positions(&self) -> Result<Vec<VenuePosition>, VenueError> {
         let mut st = self.lock();
         self.check_outage(&st)?;

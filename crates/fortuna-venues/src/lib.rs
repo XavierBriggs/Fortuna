@@ -34,7 +34,8 @@ use thiserror::Error;
 
 pub use fortuna_core::book::{FeeError, FeeModel, FillRole, OrderBook, PriceLevel};
 pub use types::{
-    Cursor, Fill, FillPage, Market, MarketFilter, MarketStatus, SettlementMeta, VenuePosition,
+    Cursor, Fill, FillPage, Market, MarketFilter, MarketStatus, OpenOrder, SettlementMeta,
+    VenuePosition,
 };
 
 /// Venue adapter errors.
@@ -82,6 +83,9 @@ pub trait Venue: Send + Sync {
     async fn place(&self, order: GatedOrder) -> Result<VenueOrderId, VenueError>;
     async fn cancel(&self, id: &VenueOrderId) -> Result<(), VenueError>;
     async fn positions(&self) -> Result<Vec<VenuePosition>, VenueError>;
+    /// Open (working) orders as the venue sees them. Spec 5.4 boot
+    /// reconciliation requires this; the 5.2 sketch omits it (ASSUMPTIONS).
+    async fn open_orders(&self) -> Result<Vec<OpenOrder>, VenueError>;
     /// Available (unreserved) cash as reported by the venue.
     async fn balance(&self) -> Result<Cents, VenueError>;
     /// Fills at or after `cursor`. Delivery is at-least-once: pages may
