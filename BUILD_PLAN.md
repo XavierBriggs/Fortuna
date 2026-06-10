@@ -177,8 +177,13 @@ EXIT MET TO THE BUILDABLE EXTENT (2026-06-10, commit bee37a6):
       values; stale/tier/floor exclusions); fail-closed haircut; first-K-per-day
       deterministic shadow sampling (scored, never traded); DecisionCycle w/ manifest
       provenance + cost. Sim/DST composition -> Phase 2 exit.
-- [ ] T2.7 Daily reconciliation loop (journal, exits evaluation), aeolus_eval ingestion
+- [x] T2.7 Daily reconciliation loop (journal, exits evaluation), aeolus_eval ingestion
       against the sample fixture. (5.8, 6)
+      DONE 38766b4: journal-or-error reconciliation w/ structurally-zero orders
+      (mind proposals counted + discarded); strict AeolusEnvelope contract -> zero-
+      capital BeliefDrafts (aeolus: namespace, p_raw preserved); JournalRepo
+      one-per-day. Real-fixture validation operator-blocked (prod read denied by
+      classifier; exact unblock in GAPS).
 - [ ] T2.8 Calibration layer (Platt/isotonic, shrinkage prior, versioned params). (5.10)
 
 EXIT: full decision loop in Sim with StubMind under DST (including cognition failure
