@@ -234,7 +234,10 @@ EXIT MET TO THE BUILDABLE EXTENT (2026-06-10):
       worse, dedup on pairing key, recommendation-only). Closed BOTH staged I7
       invariant stubs (+ runner::promotion::effective_stage) — zero ignored tests
       in fortuna-invariants.
-- [ ] T3.4 Polymarket US adapter (fixtures-gated; stub + GAPS entry if fixtures absent).
+- [x] T3.4 Polymarket US adapter (fixtures-gated; stub + GAPS entry if fixtures absent).
+      DONE 31926b9: fixtures absent -> PolymarketUsStub behind the Venue trait;
+      every operation + fee model refuses (VenueError::FixtureGated); GAPS entry
+      sequences research loop -> operator fixtures -> recordings-only adapter.
 - [ ] T3.5 `synth_events` strategy in Paper. (6)
 - [ ] T3.6 FINAL_REPORT.md + operator go-live runbook + full acceptance checklist run.
 
