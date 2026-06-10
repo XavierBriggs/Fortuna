@@ -138,8 +138,13 @@ EXIT MET TO THE BUILDABLE EXTENT (2026-06-10, commit bee37a6):
 
 ## Phase 2 — Belief pipeline (Section 12)
 
-- [ ] T2.1 Events + edges + snapshot scheduler (benchmark_at; T-24h/1h/5m + on-trade);
+- [x] T2.1 Events + edges + snapshot scheduler (benchmark_at; T-24h/1h/5m + on-trade);
       CLV scoring job with liquidity filter. (5.12, 5.5)
+      DONE 1a4f635: lifecycle legal-or-error (5.13 model); edge tiers gate structurally
+      (confirmed-only for multi-leg); deterministic source/horizon checks (mismatch=0,
+      UMA-mode); once-per-window scheduler excluding post-benchmark; integer-exact CLV
+      with None-over-fake-CLV liquidity filter; Events/Edges/Snapshots Pg repos.
+      Belief-row job wiring -> T2.3; on-trade hook -> T2.6.
 - [ ] T2.2 Signals: `Source` trait, normalizer/envelope/dedup, source registry with
       trust tiers, trigger engine (rules + debounce + per-event serialization). (5.11, 5.8)
 - [ ] T2.3 Belief ledger ops + freshness policy + scoring (Brier, calibration curves
