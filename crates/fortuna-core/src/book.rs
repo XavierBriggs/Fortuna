@@ -6,7 +6,7 @@
 //! venues crate (venues -> gates -> core is the dependency chain).
 
 use crate::clock::UtcTimestamp;
-use crate::market::{Contracts, MarketId};
+use crate::market::{Action, ClientOrderId, Contracts, MarketId, Side, VenueOrderId};
 use crate::money::{Cents, MoneyError};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -126,4 +126,41 @@ pub trait FeeModel: Send + Sync {
         category: Option<&str>,
         at: UtcTimestamp,
     ) -> Result<Cents, FeeError>;
+}
+
+/// An execution. `fill_id` is the venue-unique dedup key (delivery is
+/// at-least-once; consumers must dedup on it).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Fill {
+    pub fill_id: String,
+    pub venue_order_id: VenueOrderId,
+    pub client_order_id: ClientOrderId,
+    pub market: MarketId,
+    pub side: Side,
+    pub action: Action,
+    pub price: Cents,
+    pub qty: Contracts,
+    pub fee: Cents,
+    pub is_maker: bool,
+    pub at: UtcTimestamp,
+}
+
+/// Opaque venue pagination cursor. `start()` reads from the beginning.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Cursor(pub String);
+
+impl Cursor {
+    pub fn start() -> Cursor {
+        Cursor(String::new())
+    }
+}
+
+/// One page of fills plus the cursor to poll from next. The venue chooses
+/// `next_cursor` so that nothing is ever permanently skipped; re-polling an
+/// old cursor may re-deliver fills (at-least-once).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FillPage {
+    pub fills: Vec<Fill>,
+    pub next_cursor: Cursor,
 }

@@ -53,6 +53,43 @@ conservative option, and the spec section it interprets.
   depth, the gates' halt flag (human re-arm only) is the real lock (I2
   invariant test implemented at this task).
 
+## T0.10 — strategy interface, mech_structural, the composed runner
+
+- **mech_structural v0 = the BRACKET yes-sum scan** (cross-market). The
+  spec's "YES/NO sum scans" within one market are degenerate on
+  Kalshi-semantics venues: the YES ask ladder IS the NO bid ladder (one book
+  of yes-bids and no-bids), so a single-market sum below 100c is a crossed
+  book the exchange itself matches. Real structural edge is cross-market
+  (bracket families) and cross-venue (T3.4). Bracket families are strategy
+  CONFIG in Phase 0; canonical-event edges replace config at Phase 3.
+  Bracket monotonicity joins when event mappings exist.
+- **Strategies are iterated by the runner over newly recorded bus events**
+  (registration order), not wired in as bus handlers: ownership stays
+  simple, ordering deterministic, and the bus remains the byte-exact record
+  of every input and decision artifact. Spec 5.1's pattern is preserved in
+  substance (deterministic dispatch + replayable record).
+- **Strategies emit UNSIZED proposals** (legs with limit + honest fair
+  value + group policy + urgency). Sizing is the harness's: arb sets from
+  envelope headroom (`affordable_sets`, floor division), Kelly for belief
+  trades (Phase 2), all re-checked by the gates. Edge distribution across
+  arb legs: fair_leg = ask + floor(edge/n) so each leg independently clears
+  the gate floor — thin arbs whose per-leg share can't clear the floor are
+  deliberately not tradeable.
+- **Scan fee estimates use a representative batch (qty 10, ceil per
+  contract)**: quantity-1 estimates overstate (ceil eats sub-cent fees) and
+  killed real arbs; the gates re-verify at the sized quantity regardless.
+- **Group complete-or-unwind in the runner (v0):** TakerComplete cancels
+  stale resting legs and lets the strategy re-propose against fresh books
+  (gates apply, I1); Unwind FREEZES (cancel unfilled legs, hold filled lots,
+  loud audit + bus alert) rather than panic-selling — consistent with the
+  flatten planner's philosophy. Spec 5.4's executed unwind lands with paper
+  realism (T1.2) where exit fair-values are honest.
+- **Audit-failure halt is wired and tested in the runner** (I5: the first
+  failed audit write sets a global halt recorded on the still-alive bus).
+- **Equity for drawdown in Sim** = venue total cash + conservative marks of
+  open lots; positions in limbo states excluded by the marks/lifecycle
+  machinery from T0.7.
+
 ## T0.9 — ops, kill switch, CLI
 
 - **Kill-switch independence is STRUCTURAL:** it lives in its own crate

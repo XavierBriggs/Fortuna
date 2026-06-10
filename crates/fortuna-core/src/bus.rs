@@ -11,7 +11,9 @@
 //! Fail-closed: a handler error aborts dispatch and propagates. A bus error
 //! is fatal to the run; there are no resume semantics (the runner halts).
 
+use crate::book::{Fill, OrderBook};
 use crate::clock::{Clock, UtcTimestamp};
+use crate::market::{MarketId, VenueId};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -67,6 +69,18 @@ pub enum EventPayload {
     Raw {
         kind: String,
         data: serde_json::Value,
+    },
+    /// Point-in-time book for a tracked market (T0.10: the strategy clock).
+    BookSnapshot { venue: VenueId, book: OrderBook },
+    /// A deduplicated fill applied to our books (T0.10).
+    FillSeen { venue: VenueId, fill: Fill },
+    /// Scheduled wakeup (TTL sweeps, group evaluation).
+    Timer { name: String },
+    /// A market settled at the venue.
+    Settled {
+        venue: VenueId,
+        market: MarketId,
+        payout_cents: i64,
     },
 }
 

@@ -563,6 +563,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "fortuna-runner"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "fortuna-core",
+ "fortuna-exec",
+ "fortuna-gates",
+ "fortuna-state",
+ "fortuna-venues",
+ "futures",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "toml",
+]
+
+[[package]]
 name = "fortuna-state"
 version = "0.1.0"
 dependencies = [

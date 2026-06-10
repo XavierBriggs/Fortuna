@@ -1,0 +1,19 @@
+[package]
+name = "fortuna-runner"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fortuna-core = { path = "../fortuna-core" }
+fortuna-gates = { path = "../fortuna-gates" }
+fortuna-exec = { path = "../fortuna-exec" }
+fortuna-state = { path = "../fortuna-state" }
+fortuna-venues = { path = "../fortuna-venues" }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+[dev-dependencies]
+toml = { workspace = true }

@@ -12,6 +12,7 @@ members = [
   "crates/fortuna-invariants",
   "crates/fortuna-killswitch",
   "crates/fortuna-cli",
+  "crates/fortuna-runner",
 ]
 
 [workspace.dependencies]

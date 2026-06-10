@@ -32,11 +32,10 @@ use fortuna_core::money::{Cents, MoneyError};
 use fortuna_gates::GatedOrder;
 use thiserror::Error;
 
-pub use fortuna_core::book::{FeeError, FeeModel, FillRole, OrderBook, PriceLevel};
-pub use types::{
-    Cursor, Fill, FillPage, Market, MarketFilter, MarketStatus, OpenOrder, SettlementMeta,
-    VenuePosition,
+pub use fortuna_core::book::{
+    Cursor, FeeError, FeeModel, Fill, FillPage, FillRole, OrderBook, PriceLevel,
 };
+pub use types::{Market, MarketFilter, MarketStatus, OpenOrder, SettlementMeta, VenuePosition};
 
 /// Venue adapter errors.
 #[derive(Debug, Error)]

@@ -30,12 +30,14 @@ mod drawdown;
 mod marks;
 mod positions;
 mod reservations;
+mod sizing;
 
 pub use accounts::{build_account_view, AccountView, PositionValuation};
 pub use drawdown::{DrawdownMonitor, DrawdownVerdict};
 pub use marks::{mark_lots, Mark, MarkPolicy};
 pub use positions::{Lot, Position, PositionBook, PositionLifecycle};
 pub use reservations::ReservationLedger;
+pub use sizing::{affordable_sets, kelly_binary, kelly_contracts};
 
 use fortuna_core::ids::IntentId;
 use fortuna_core::market::MarketId;

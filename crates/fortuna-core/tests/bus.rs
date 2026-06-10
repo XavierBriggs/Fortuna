@@ -69,17 +69,18 @@ impl Handler for Deriver {
     }
 
     fn on_event(&mut self, ev: &BusEvent, out: &mut Outbox) -> Result<(), BusError> {
-        let EventPayload::Raw { kind, .. } = &ev.payload;
-        if kind == "tick" {
-            let id = self
-                .ids
-                .next(ev.at)
-                .map_err(|e| BusError::handler("deriver", e.to_string()))?;
-            out.publish(raw(
-                "derived",
-                json!({ "id": id.to_string(), "n": self.count }),
-            ));
-            self.count += 1;
+        if let EventPayload::Raw { kind, .. } = &ev.payload {
+            if kind == "tick" {
+                let id = self
+                    .ids
+                    .next(ev.at)
+                    .map_err(|e| BusError::handler("deriver", e.to_string()))?;
+                out.publish(raw(
+                    "derived",
+                    json!({ "id": id.to_string(), "n": self.count }),
+                ));
+                self.count += 1;
+            }
         }
         Ok(())
     }
@@ -96,9 +97,10 @@ impl Handler for FailsOn {
     }
 
     fn on_event(&mut self, ev: &BusEvent, _out: &mut Outbox) -> Result<(), BusError> {
-        let EventPayload::Raw { kind, .. } = &ev.payload;
-        if *kind == self.kind {
-            return Err(BusError::handler("fails-on", format!("refusing {kind}")));
+        if let EventPayload::Raw { kind, .. } = &ev.payload {
+            if *kind == self.kind {
+                return Err(BusError::handler("fails-on", format!("refusing {kind}")));
+            }
         }
         Ok(())
     }
@@ -205,6 +207,7 @@ fn handler_published_events_queue_fifo_behind_pending_events() {
         .iter()
         .map(|e| match &e.payload {
             EventPayload::Raw { kind, .. } => kind.as_str(),
+            other => panic!("unexpected payload {other:?}"),
         })
         .collect();
     assert_eq!(kinds, vec!["tick", "other", "derived"]);
@@ -410,10 +413,11 @@ fn an_erroring_handlers_pending_publishes_are_discarded() {
             "publish-then-fail"
         }
         fn on_event(&mut self, ev: &BusEvent, out: &mut Outbox) -> Result<(), BusError> {
-            let EventPayload::Raw { kind, .. } = &ev.payload;
-            if kind == "poison" {
-                out.publish(raw("should-never-dispatch", json!({})));
-                return Err(BusError::handler("publish-then-fail", "boom"));
+            if let EventPayload::Raw { kind, .. } = &ev.payload {
+                if kind == "poison" {
+                    out.publish(raw("should-never-dispatch", json!({})));
+                    return Err(BusError::handler("publish-then-fail", "boom"));
+                }
             }
             Ok(())
         }
