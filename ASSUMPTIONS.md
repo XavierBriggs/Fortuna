@@ -3,6 +3,33 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T2.4 — context assembler
+
+- **The budget unit is CHARACTERS, not tokens.** Tokenizers are
+  model-specific and non-deterministic across versions; a char budget is
+  exact and replayable. The composition root sets it conservatively
+  (~4 chars/token rule of thumb belongs in config comments, not code).
+- **Packing is greedy in-order:** sections in spec priority order, input
+  order within a section; an item that does not fit is SKIPPED and
+  counted, later smaller items may still fit. Whole items only — a
+  truncated stored item would lie about its hash.
+- **"Before the trigger" is STRICT:** an item timestamped exactly at the
+  trigger is excluded (and counted). Conservative reading of
+  "only data timestamped before the cycle trigger".
+- **Hash verification covers every OFFERED item, not just included ones**
+  (a corrupted reference poisons replayability whether or not it fits)
+  and is fail-closed. Manifest serialization failure is an ERROR, never
+  an empty-string hash.
+- **Anonymization pseudonymizes the rendered item ids stably within one
+  build; the MANIFEST keeps real ids** (replayability is not anonymized;
+  the rendered text is what a retrospective evaluator sees). Body-content
+  entity stripping beyond ids (tickers inside prose) is the evaluation
+  harness's concern at T3.3 — noted, not silently claimed.
+- **Injection hygiene at the formatting layer:** bodies render inside
+  delimited `<context-item>` blocks tagged with id+section; the Mind's
+  prompt (T2.5) instructs that block content is data. I6 + gates bound
+  the blast radius regardless.
+
 ## T2.3 — belief ledger ops, freshness, scoring
 
 - **Probabilities are STRICTLY inside (0,1).** p = 0 or 1 is a claim of
