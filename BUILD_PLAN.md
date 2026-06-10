@@ -17,7 +17,7 @@ Tick boxes with a one-line completion note and the commit hash.
 - [x] T0.3 `fortuna-venues`: `Venue` trait, `FeeModel` (config-driven schedule
       interpreter: quadratic/flat/tiered + effective_date versioning), sim venue with
       seeded fault injection (delay/drop/dup/crash hooks, configurable book). (5.2)
-      DONE cf96f68: 51 new tests green (19 fees incl. Polymarket-US rebate/banker's
+      DONE a4c9071: 51 new tests green (19 fees incl. Polymarket-US rebate/banker's
       vectors, 26 sim venue incl. all fault arms + determinism, 6 vocab); fee facts
       grounded in docs/research/venue/ (Kalshi 0.07/0.0175 confirmed vs official PDF);
       spec 5.2 fee drift recorded in GAPS; sealed GatedOrder shell shipped (zero ctors).
