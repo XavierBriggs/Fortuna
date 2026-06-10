@@ -33,10 +33,14 @@ Tick boxes with a one-line completion note and the commit hash.
       suites + I1 (runtime + 2 compile-fail doctests) + I3 (rate halt survives time,
       re-arm only; dup coids exactly-once) green; fail-closed on unknown strategy/venue/
       reference; hot-reload preserves halts.
-- [ ] T0.6 `fortuna-exec`: intent journal state machine, deterministic client ids,
+- [x] T0.6 `fortuna-exec`: intent journal state machine, deterministic client ids,
       IntentGroup completion policy, execution policy (TTL, re-quote,
       one-working-order rule), flatten planner; boot reconciliation; DST crash
       scenarios. (5.4)
+      DONE ee96f14: 31 tests green (incl. crash-resubmit-via-AlreadyExists, late fills
+      after cancel/boot-close, boot adopt/orphan/close paths); DST world now drives
+      gates->manager->venue with crash+boot actions + I-journal invariants; 4000
+      seeds x 5 masters zero violations.
 - [ ] T0.7 `fortuna-state`: positions, account views (settled/committed/floating/total),
       conservative marking, reservation ledger rebuilt-at-boot; drawdown halt flags
       (I2). (5.14, 5.13)
