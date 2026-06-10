@@ -143,6 +143,10 @@ pub struct RunCounters {
     pub veto_suppressed: u64,
     pub discrepancies: u64,
     pub settlement_notices: u64,
+    /// Aggregated from strategy metrics at read time (synthesis cycles).
+    pub cognition_failures: u64,
+    pub shadow_cycles: u64,
+    pub beliefs_drafted: u64,
 }
 
 /// One exported metric sample (plain data: the ops layer maps these into
@@ -1510,7 +1514,7 @@ impl SimRunner {
     /// multiple strategies labels "shared" rather than guessing).
     pub fn metrics_export(&self) -> Vec<MetricSample> {
         let mut samples = Vec::new();
-        let c = self.counters;
+        let c = self.counters();
         for (name, help, value) in [
             ("fortuna_ticks_total", "Loop heartbeats", c.ticks),
             (
@@ -1547,6 +1551,21 @@ impl SimRunner {
                 "fortuna_settlement_notices_total",
                 "Venue settlement notices processed",
                 c.settlement_notices,
+            ),
+            (
+                "fortuna_cognition_failures_total",
+                "Decision cycles degraded by cognition failure",
+                c.cognition_failures,
+            ),
+            (
+                "fortuna_shadow_cycles_total",
+                "Declined-trigger cycles run in shadow",
+                c.shadow_cycles,
+            ),
+            (
+                "fortuna_beliefs_drafted_total",
+                "Belief drafts produced by minds",
+                c.beliefs_drafted,
             ),
         ] {
             samples.push(MetricSample {
@@ -1671,7 +1690,14 @@ impl SimRunner {
     }
 
     pub fn counters(&self) -> RunCounters {
-        self.counters
+        let mut counters = self.counters;
+        for strategy in &self.strategies {
+            let m = strategy.metrics();
+            counters.cognition_failures += m.cognition_failures;
+            counters.shadow_cycles += m.shadow_cycles;
+            counters.beliefs_drafted += m.beliefs_drafted;
+        }
+        counters
     }
 
     /// Apply a venue settlement to local books (sim convenience mirroring

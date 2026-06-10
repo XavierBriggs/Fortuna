@@ -28,6 +28,7 @@
 pub mod mech_extremes;
 pub mod mech_structural;
 mod runner;
+pub mod synthesis;
 
 pub use runner::{MetricSample, RunCounters, RunnerConfig, RunnerReport, SimRunner, TickReport};
 
@@ -90,6 +91,14 @@ pub enum Stage {
 pub struct StrategyMetrics {
     pub events_seen: u64,
     pub proposals_emitted: u64,
+    /// Decision cycles that failed in cognition (provider error, schema-
+    /// invalid output, refusal, budget exhaustion, context failure) and
+    /// degraded to zero proposals. Mechanical strategies leave this 0.
+    pub cognition_failures: u64,
+    /// Declined-trigger cycles run in shadow (beliefs scored, no trades).
+    pub shadow_cycles: u64,
+    /// Belief drafts produced by the mind across all cycles.
+    pub beliefs_drafted: u64,
 }
 
 /// Execution style request (never size — spec 5.9).

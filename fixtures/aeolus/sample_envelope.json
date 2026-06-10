@@ -1,0 +1,10 @@
+{
+  "station": "KNYC",
+  "target_date": "2026-06-12",
+  "run_at": "2026-06-11T10:00:00.000Z",
+  "brackets": [
+    { "event_hint": "highny-2026-06-12-t60", "p": 0.18 },
+    { "event_hint": "highny-2026-06-12-t65", "p": 0.55 },
+    { "event_hint": "highny-2026-06-12-t70", "p": 0.27 }
+  ]
+}

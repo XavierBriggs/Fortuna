@@ -959,3 +959,92 @@ async fn calibration_params_are_versioned_append_only_config(pool: PgPool) {
         .unwrap()
         .is_none());
 }
+
+// ---- aeolus_eval end to end (Phase 2 EXIT, spec Section 6 item 3) ----
+
+/// The full aeolus_eval path: fixture envelope -> strict contract parse
+/// -> ZERO-CAPITAL belief drafts -> persisted -> resolved & scored ->
+/// the calibration record sees them. No order type exists anywhere in
+/// this flow; the signal is evaluated, never traded.
+#[sqlx::test(migrations = "./migrations")]
+async fn aeolus_eval_writes_scored_beliefs_from_the_fixture_envelope(pool: PgPool) {
+    use fortuna_cognition::beliefs::calibration_curve;
+    use fortuna_cognition::calibration::calibration_quality;
+    use fortuna_cognition::reconciliation::{map_aeolus_envelope, AeolusEnvelope};
+    use fortuna_core::clock::UtcTimestamp;
+
+    let fixture = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/aeolus/sample_envelope.json"
+    ))
+    .unwrap();
+    let envelope: AeolusEnvelope = serde_json::from_str(&fixture).unwrap();
+    let horizon = UtcTimestamp::parse_iso8601("2026-06-12T23:00:00.000Z").unwrap();
+    let drafts = map_aeolus_envelope(&envelope, horizon).unwrap();
+    assert_eq!(drafts.len(), 3, "every bracket becomes a belief draft");
+
+    // The composition persists drafts as beliefs on aeolus-namespaced
+    // events (created by the events pipeline in the live composition).
+    let events = fortuna_ledger::EventsRepo::new(pool.clone());
+    let beliefs = fortuna_ledger::BeliefsRepo::new(pool.clone());
+    for (i, draft) in drafts.iter().enumerate() {
+        events
+            .create(
+                &draft.event_id,
+                &format!("NYC high in bracket {i}"),
+                "NWS daily climate report",
+                "nws",
+                Some("2026-06-12T23:00:00.000Z"),
+                "2026-06-11T10:00:00.000Z",
+                "weather",
+                "2026-06-11T10:00:00.000Z",
+            )
+            .await
+            .unwrap();
+        beliefs
+            .insert(
+                &format!("b-aeolus-{i}"),
+                "2026-06-11T10:00:00.000Z",
+                &draft.event_id,
+                draft.p,
+                draft.p_raw,
+                "2026-06-12T23:00:00.000Z",
+                &draft.evidence,
+                &draft.provenance,
+                None,
+            )
+            .await
+            .unwrap();
+    }
+
+    // Settlement day: the t65 bracket verified; the others did not.
+    // Brier = (p - outcome)^2, computed by the scoring composition.
+    let outcomes = [false, true, false];
+    for (i, (draft, outcome)) in drafts.iter().zip(outcomes).enumerate() {
+        let target = f64::from(u8::from(outcome));
+        let brier = (draft.p - target) * (draft.p - target);
+        beliefs
+            .resolve_and_score(&format!("b-aeolus-{i}"), outcome, brier, None)
+            .await
+            .unwrap();
+    }
+
+    // The scored record is queryable as calibration input and the
+    // quality factor sees it (tiny n => heavily ramped down: honesty).
+    let samples = beliefs.resolved_samples("weather").await.unwrap();
+    assert_eq!(samples.len(), 3);
+    let curve = calibration_curve(&samples, 10);
+    assert!(!curve.is_empty());
+    let quality = calibration_quality(&curve, samples.len());
+    assert!(quality > 0.0, "scored record must register");
+    assert!(
+        quality <= 3.0 / 50.0 + 1e-9,
+        "n=3 stays ramped down (low-data honesty), got {quality}"
+    );
+
+    // Zero capital is structural: nothing in this test ever touched an
+    // order, an intent, or a venue — there is no API surface for it.
+    let b1 = beliefs.get("b-aeolus-1").await.unwrap();
+    assert_eq!(b1.status, "resolved");
+    assert_eq!(b1.outcome, Some(1));
+}

@@ -3,6 +3,43 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## Phase 2 EXIT — composed decision loop, invariants, aeolus_eval
+
+- **The synthesis adapter triggers one cycle per book event for a
+  mapped market.** TriggerEngine debounce/coalescing (T2.2) wires in at
+  the live composition (Phase 3); the Sim tick cadence is already one
+  book event per market per tick, so the adapter stays honest without
+  it. Candidates map to single-leg Passive proposals at the candidate's
+  max price (cap at displayed ask); urgency escalation is a Phase 3
+  policy decision.
+- **Cognition failure semantics:** ANY CycleError (provider, schema-
+  invalid, refusal, budget exhaustion, context assembly) degrades to
+  zero proposals + a counted `cognition_failures` metric. The tick
+  NEVER errors and mechanical strategies are unaffected (spec 5.9
+  "degrade to mechanical-only"). Counters merge strategy metrics at
+  read time (the runner cannot reach inside Box<dyn Strategy> state).
+- **I6 is enforced three ways:** deny_unknown_fields on the whole mind
+  output surface (smuggled sizing/order fields reject the WHOLE
+  output, never silently dropped — added to BeliefDraft, ProposalDraft,
+  JournalDraft, MindOutput); a field-set pin on ProposalDraft/MindOutput
+  (growing them breaks the invariant test); and a dependency-direction
+  assertion (fortuna-cognition cannot name fortuna-venues/exec/state/
+  runner types).
+- **I7 is implemented for what exists:** the Sim runner refuses
+  higher-staged strategies at construction; the Stage ladder is a total
+  order. The operator-action-record and shadow-comparison clauses are
+  staged stubs owned by T3.1/T3.3 (their rails don't exist yet) — the
+  same pattern I5 used for its T0.10 extension. See GAPS.
+- **Synthesis DST master seed follows the core DST convention** (wall
+  clock unless DST_MASTER_SEED is set, every failure prints its seed);
+  scripts/run-dst.sh runs it as stage 2 with the same seed count. Each
+  scenario replays itself and demands a byte-identical recording.
+- **aeolus_eval EXIT evidence uses the FORTUNA-defined contract fixture**
+  (fixtures/aeolus/sample_envelope.json). Brier is computed by the
+  scoring composition as (p - outcome)^2; the operator-recorded real
+  export stays open in GAPS (it validates Aeolus's exporter, not our
+  parser).
+
 ## T2.8 — calibration layer
 
 - **Shrinkage weight is linear, w = min(n/50, 1):** spec 5.10 names the

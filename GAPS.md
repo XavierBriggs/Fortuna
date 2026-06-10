@@ -34,8 +34,20 @@ requires this file to contain ONLY operator-blocked items, each with exact unblo
   "SELECT ... one run ..."'` shaped to the contract (or adds an export
   endpoint to aeolus-runner). The fixture then validates the exporter
   conforms; any mismatch is a contract negotiation, not a silent adapt.
+  (Phase 2 EXIT note, 2026-06-10: fixtures/aeolus/sample_envelope.json
+  now holds the FORTUNA-DEFINED contract sample; the end-to-end
+  fixture->drafts->persisted->scored path is proven against it in
+  fortuna-ledger tests. The OPERATOR-RECORDED real export remains the
+  open item — it validates Aeolus's exporter, not FORTUNA's parser.)
 
 ## Open
+- **Two I7 invariant clauses staged as ignored stubs (Phase 2 EXIT,
+  2026-06-10).** i7_promotion_gates is implemented (stage-violation
+  refusal + ordered Stage ladder); the "promotion requires an operator
+  action record" clause is staged as an ignored stub owned by T3.1 and
+  "model swap requires a shadow comparison record" by T3.3 — their rails
+  (promotion records, shadow comparison harness) do not exist yet. The
+  acceptance checklist's zero-ignored-tests requirement closes both.
 - **Kalshi void representation in /portfolio/settlements is undocumented
   (T1.4, 2026-06-10).** `market_result` documents only yes/no/scalar; the
   adapter hard-errors on anything else so a void cannot pass silently.

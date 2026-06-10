@@ -62,8 +62,11 @@ pub enum DraftUrgency {
 
 /// One UNSIZED proposal draft (spec 5.9: market, side, max_price,
 /// thesis, belief_ref, urgency). `thesis` is model text — data, never
-/// instructions downstream.
+/// instructions downstream. Unknown fields are REJECTED (I6): a model
+/// that smuggles sizing or execution fields is schema-invalid and its
+/// whole output is discarded.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProposalDraft {
     pub market: String,
     pub side: Side,
@@ -100,13 +103,17 @@ impl ProposalDraft {
 
 /// Reconciliation-cycle journal draft (free text; episodic memory input).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct JournalDraft {
     pub body: String,
 }
 
 /// What the mind emits (spec 5.9). `cost_cents` is what answering cost
-/// (stub = 0; Anthropic = usage x configured prices).
+/// (stub = 0; Anthropic = usage x configured prices). Unknown top-level
+/// fields are REJECTED (I6): there is no escape hatch for orders, tool
+/// calls, or commands.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MindOutput {
     pub beliefs: Vec<BeliefDraft>,
     pub proposals: Vec<ProposalDraft>,

@@ -17,6 +17,10 @@ fortuna-venues = { path = "../fortuna-venues" }
 fortuna-state = { path = "../fortuna-state" }
 fortuna-ledger = { path = "../fortuna-ledger" }
 fortuna-killswitch = { path = "../fortuna-killswitch" }
+fortuna-cognition = { path = "../fortuna-cognition" }
+fortuna-runner = { path = "../fortuna-runner" }
+fortuna-exec = { path = "../fortuna-exec" }
+async-trait = { workspace = true }
 futures = { workspace = true }
 toml = { workspace = true }
 sqlx = { workspace = true }

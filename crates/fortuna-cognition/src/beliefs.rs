@@ -47,7 +47,9 @@ impl BeliefStatus {
 
 /// What the mind emits (pre-persistence). `evidence` and `provenance`
 /// follow the spec's JSON shapes; both are DATA (5.11 discipline).
+/// Unknown fields are REJECTED (I6 schema discipline).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BeliefDraft {
     pub event_id: String,
     /// Post-calibration probability.

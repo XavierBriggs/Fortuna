@@ -193,6 +193,22 @@ EXIT MET TO THE BUILDABLE EXTENT (2026-06-10, commit bee37a6):
 EXIT: full decision loop in Sim with StubMind under DST (including cognition failure
 scenarios); AnthropicMind exercised behind a feature flag with budget controls;
 aeolus_eval writes scored beliefs from fixture envelopes; I5-I7 invariant tests green.
+EXIT MET TO THE BUILDABLE EXTENT (2026-06-10):
+- Full decision loop in Sim under DST: SynthesisStrategy adapts DecisionCycle to the
+  Strategy trait (same sizing/gates/audit path, I1); tests/synthesis_loop.rs proves
+  belief -> comparator -> proposal -> fill end to end, cognition-failure degrade
+  (4 error kinds, zero proposals, loop continues), and shadow-run no-trade;
+  tests/synthesis_dst.rs is stage 2 of scripts/run-dst.sh (chaos mind: 813 cognition
+  failures across 60 seeds, zero violations, byte-identical replay per seed).
+- aeolus_eval scored beliefs: fixtures/aeolus/sample_envelope.json (FORTUNA-defined
+  contract sample) -> strict parse -> zero-capital drafts -> BeliefsRepo -> scored ->
+  calibration record (ledger test). Operator-recorded real export still open in GAPS.
+- I5 (T0.8) green; I6 implemented (schema-rejects smuggled sizing, field-set pins,
+  dependency-direction); I7 implemented for existing rails (stage-violation refusal,
+  ordered ladder) with T3.1/T3.3 clauses staged as owned stubs (GAPS).
+- AnthropicMind live exercise OPERATOR-BLOCKED on ANTHROPIC_API_KEY (the env-key gate
+  IS the feature flag; budget controls built + mock-tested at T2.5). GAPS has the
+  recommended first exercise (one haiku smoke call under a tight CostBudget).
 
 ## Phase 3 — Closing the loop (Section 12)
 

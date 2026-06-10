@@ -560,10 +560,14 @@ dependencies = [
 name = "fortuna-invariants"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "fortuna-cognition",
  "fortuna-core",
+ "fortuna-exec",
  "fortuna-gates",
  "fortuna-killswitch",
  "fortuna-ledger",
+ "fortuna-runner",
  "fortuna-state",
  "fortuna-venues",
  "futures",
@@ -593,6 +597,7 @@ name = "fortuna-ledger"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "fortuna-cognition",
  "fortuna-core",
  "fortuna-exec",
  "fortuna-gates",

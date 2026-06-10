@@ -17,3 +17,4 @@ async-trait = { workspace = true }
 [dev-dependencies]
 tokio = { workspace = true }
 toml = { workspace = true }
+fortuna-cognition = { path = "../fortuna-cognition" }
