@@ -219,8 +219,14 @@ EXIT MET TO THE BUILDABLE EXTENT (2026-06-10):
       candidates from the journal body; monthly review (conservative allocation
       recommendations, cost audit, lesson decay, operator checklist); LessonsRepo
       superseding-insert chains + journal range + resolved_stats queries.
-- [ ] T3.2 Market-back discovery loop + edge confirmation cards; world-forward
+- [x] T3.2 Market-back discovery loop + edge confirmation cards; world-forward
       watchlist loop with cost cap + unscoreable rule. (5.12)
+      DONE 753a288: deterministic prefilter w/ counted exclusions; tradability
+      persisted append-only; strict-JSON normalization (match-before-create,
+      hallucinations dropped); cards carry model + deterministic scores w/
+      high-stakes flag; wake_events trigger; world-forward unscoreable rule
+      (registry-checked, beliefs refused) + DiscoveryBudget throttle-before-spend;
+      calibration queries exclude unscoreable.
 - [ ] T3.3 Shadow-mode model comparison harness (paired contexts, separate budget). (11)
 - [ ] T3.4 Polymarket US adapter (fixtures-gated; stub + GAPS entry if fixtures absent).
 - [ ] T3.5 `synth_events` strategy in Paper. (6)
