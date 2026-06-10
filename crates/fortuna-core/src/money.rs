@@ -110,6 +110,15 @@ impl Cents {
         decimal_to_i64(cents, dollars).map(Cents)
     }
 
+    /// Convert decimal dollars to cents with banker's rounding (round half
+    /// to even). Only for venues that DOCUMENT this rounding (e.g.
+    /// Polymarket US); the default modeling choice is floor/ceil against us.
+    pub fn from_dollars_half_even(dollars: Decimal) -> Result<Cents, MoneyError> {
+        let rounded =
+            dollars.round_dp_with_strategy(2, rust_decimal::RoundingStrategy::MidpointNearestEven);
+        Self::from_dollars_exact(rounded)
+    }
+
     /// Exact decimal-dollar view (boundary use only).
     pub fn to_dollars(self) -> Decimal {
         Decimal::new(self.0, 2)

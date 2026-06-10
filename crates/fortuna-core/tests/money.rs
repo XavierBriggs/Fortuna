@@ -186,6 +186,32 @@ fn from_dollars_in_decimal_range_but_beyond_i64_cents_is_error() {
 }
 
 #[test]
+fn from_dollars_half_even_uses_bankers_rounding() {
+    // For venues that document banker's rounding (Polymarket US).
+    assert_eq!(
+        Cents::from_dollars_half_even(dec("0.375")),
+        Ok(Cents::new(38))
+    ); // midpoint -> even
+    assert_eq!(
+        Cents::from_dollars_half_even(dec("0.125")),
+        Ok(Cents::new(12))
+    ); // midpoint -> even
+    assert_eq!(
+        Cents::from_dollars_half_even(dec("-0.125")),
+        Ok(Cents::new(-12))
+    );
+    assert_eq!(Cents::from_dollars_half_even(dec("0.005")), Ok(Cents::ZERO)); // 0.5c -> 0 (even)
+    assert_eq!(
+        Cents::from_dollars_half_even(dec("0.376")),
+        Ok(Cents::new(38))
+    ); // ordinary nearest
+    assert_eq!(
+        Cents::from_dollars_half_even(dec("12.34")),
+        Ok(Cents::new(1234))
+    ); // exact passthrough
+}
+
+#[test]
 fn to_dollars_round_trips_whole_cents() {
     assert_eq!(Cents::new(1234).to_dollars(), dec("12.34"));
     assert_eq!(Cents::new(-5).to_dollars(), dec("-0.05"));

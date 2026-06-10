@@ -3,6 +3,40 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T0.3 — venues, fees, sim venue
+
+- **`Venue::balance()` added to the trait.** The spec's 5.2 trait sketch omits
+  it, but 5.4/5.14 make venue balances authoritative for reconciliation, so
+  the trait must surface them. It returns AVAILABLE (unreserved) cash, which
+  is what venues report and what affordability means.
+- **`fills_since` returns a `FillPage` (fills + next_cursor)** instead of the
+  sketch's bare `Vec<Fill>`: a cursor protocol needs the venue to hand back
+  the next cursor, and choosing it venue-side lets delivery be honestly
+  at-least-once (late and duplicate delivery arise naturally; consumers dedup
+  on `fill_id`).
+- **Duplicate client order ids are refused with `AlreadyExists{existing}`**,
+  mirroring Kalshi's ORDER_ALREADY_EXISTS (researched 2026-06-09, official
+  API docs). Exec treats it as success-equivalent on resubmission. The sim
+  venue models venue-faithful behavior rather than silently returning Ok.
+- **Sim venue sells are close-only** (rejected beyond held position net of
+  already-working sells), modeling Kalshi semantics; to be re-verified
+  against fixtures in T1.1.
+- **Sim venue buys reserve worst-case cost** (limit x qty + max(maker,taker)
+  fee at limit) at accept; exact reserved amounts are stored and released
+  verbatim (never recomputed), so fee-schedule changes can't drift the ledger.
+- **Fee rounding model: ceil per fill by default.** Kalshi's PDF rounds up
+  per trade total and its engine uses a per-order accumulator at $0.0001
+  precision; ceil-per-fill is the conservative model per the research doc.
+  `half_even` mode exists only for venues that DOCUMENT banker's rounding
+  (Polymarket US). Maker coefficients may be negative (per-fill rebates are
+  real: Polymarket US theta = -0.0125); taker negatives are config errors.
+  Under "up" rounding, rebate magnitudes round DOWN (ceil of a negative):
+  against us in both directions.
+- **Per-category coefficient tables** (Polymarket Intl 0.03-0.07 by category)
+  are expressed by instantiating one schedule per category at the adapter
+  level (T3.4), not by a third config mechanism; `category_multipliers`
+  covers the Kalshi-style scaling case.
+
 ## T0.2 — deterministic bus + replay
 
 - **Recorded time is authoritative during replay.** The replayer drives a fresh

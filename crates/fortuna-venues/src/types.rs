@@ -1,0 +1,171 @@
+//! Market-data structures shared by all venue adapters. Spec 5.2, 5.13.
+
+use fortuna_core::clock::UtcTimestamp;
+use fortuna_core::market::{
+    Action, ClientOrderId, Contracts, MarketId, Side, VenueId, VenueOrderId,
+};
+use fortuna_core::money::Cents;
+use serde::{Deserialize, Serialize};
+
+use crate::VenueError;
+
+/// One aggregated price level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PriceLevel {
+    pub price: Cents,
+    pub qty: Contracts,
+}
+
+/// Canonical book form: YES bids (descending) and YES asks (ascending).
+/// Adapters normalize venue-native forms (e.g. Kalshi's yes/no bid books)
+/// into this. NO-side liquidity is derived: no_ask(p) == yes_bid(100-p).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrderBook {
+    pub market: MarketId,
+    pub as_of: UtcTimestamp,
+    pub yes_bids: Vec<PriceLevel>,
+    pub yes_asks: Vec<PriceLevel>,
+}
+
+impl OrderBook {
+    /// Structural hygiene: bids strictly descending, asks strictly ascending,
+    /// positive quantities, prices within (0, 100) exclusive, not crossed.
+    pub fn validate(&self) -> Result<(), VenueError> {
+        let check_levels = |levels: &[PriceLevel], descending: bool| -> Result<(), VenueError> {
+            for (i, l) in levels.iter().enumerate() {
+                if l.qty.raw() <= 0 {
+                    return Err(VenueError::Invalid {
+                        reason: format!("non-positive quantity at level {i}"),
+                    });
+                }
+                if l.price.raw() <= 0 || l.price.raw() >= 100 {
+                    return Err(VenueError::Invalid {
+                        reason: format!("price {} outside (0, 100) cents", l.price),
+                    });
+                }
+                if i > 0 {
+                    let prev = levels[i - 1].price;
+                    let ordered = if descending {
+                        l.price < prev
+                    } else {
+                        l.price > prev
+                    };
+                    if !ordered {
+                        return Err(VenueError::Invalid {
+                            reason: format!("levels not strictly sorted at index {i}"),
+                        });
+                    }
+                }
+            }
+            Ok(())
+        };
+        check_levels(&self.yes_bids, true)?;
+        check_levels(&self.yes_asks, false)?;
+        if let (Some(bid), Some(ask)) = (self.yes_bids.first(), self.yes_asks.first()) {
+            if bid.price >= ask.price {
+                return Err(VenueError::Invalid {
+                    reason: format!("crossed book: bid {} >= ask {}", bid.price, ask.price),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    pub fn best_bid(&self) -> Option<&PriceLevel> {
+        self.yes_bids.first()
+    }
+
+    pub fn best_ask(&self) -> Option<&PriceLevel> {
+        self.yes_asks.first()
+    }
+}
+
+/// Market lifecycle states (spec 5.13: venue projection of an event).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MarketStatus {
+    Listed,
+    Trading,
+    Halted,
+    Expired,
+    Determined,
+    Settled,
+    Voided,
+}
+
+/// Settlement metadata (spec 5.2): oracle-delay artifacts must be excludable
+/// from edge scans, so every market carries its resolution mechanics.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SettlementMeta {
+    pub oracle_type: String,
+    pub resolution_source: String,
+    pub expected_lag_hours: u32,
+}
+
+/// A venue market snapshot. `title` is UNTRUSTED external text (spec 5.11):
+/// data, never instructions; it must never be interpolated into anything
+/// executable and reaches model context only as quoted data.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Market {
+    pub id: MarketId,
+    pub venue: VenueId,
+    pub title: String,
+    pub category: String,
+    pub status: MarketStatus,
+    pub close_at: Option<UtcTimestamp>,
+    pub settlement: SettlementMeta,
+    pub payout_per_contract: Cents,
+}
+
+/// Catalog filter for `Venue::markets`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MarketFilter {
+    pub category: Option<String>,
+    pub status: Option<MarketStatus>,
+}
+
+/// An execution. `fill_id` is the venue-unique dedup key (delivery is
+/// at-least-once; consumers must dedup on it).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Fill {
+    pub fill_id: String,
+    pub venue_order_id: VenueOrderId,
+    pub client_order_id: ClientOrderId,
+    pub market: MarketId,
+    pub side: Side,
+    pub action: Action,
+    pub price: Cents,
+    pub qty: Contracts,
+    pub fee: Cents,
+    pub is_maker: bool,
+    pub at: UtcTimestamp,
+}
+
+/// Opaque venue pagination cursor. `start()` reads from the beginning.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Cursor(pub String);
+
+impl Cursor {
+    pub fn start() -> Cursor {
+        Cursor(String::new())
+    }
+}
+
+/// One page of fills plus the cursor to poll from next. The venue chooses
+/// `next_cursor` so that nothing is ever permanently skipped; re-polling an
+/// old cursor may re-deliver fills (at-least-once).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FillPage {
+    pub fills: Vec<Fill>,
+    pub next_cursor: Cursor,
+}
+
+/// Venue-reported position (venue truth; reconciled against local state).
+/// `net_yes` > 0 is long YES, < 0 is long NO.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VenuePosition {
+    pub market: MarketId,
+    pub net_yes: i64,
+    pub cost: Cents,
+}

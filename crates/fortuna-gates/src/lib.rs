@@ -8,3 +8,20 @@
 //! Checks (spec 5.3): halts, capital threshold, position caps, price sanity,
 //! size sanity, fee-adjusted edge floor, rate limits (I3 dual token bucket),
 //! idempotency, same-event exposure cap (via edges), internal netting.
+//! The pipeline itself is T0.5; the sealed type ships first (T0.3) so the
+//! Venue trait can bind to it.
+
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented
+    )
+)]
+
+mod order;
+
+pub use order::GatedOrder;

@@ -25,11 +25,30 @@ mech_extremes_cents   = 200_000
 [sizing]
 kelly_fraction = 0.25
 
-[fees.kalshi]              # spec 5.2: fee schedules are data, verified per fill
-formula = "quadratic"      # fee = coeff * p * (1-p) * contracts
+# spec 5.2: fee schedules are data, verified per fill.
+# Values grounded in docs/research/venue/kalshi-fees-2026-06-09 (official PDF
+# effective 2026-02-05): taker ceil(0.07*C*P*(1-P)); maker 0.0175 (charged only
+# on fee_type=quadratic_with_maker_fees series); per-series fee_multiplier
+# (x0.5 S&P500/Nasdaq-100 family, x0 promos) maps to category_multipliers via
+# the adapter's series->category mapping (T1.1). Rounding "up" = ceil per fill
+# (the conservative model of Kalshi's per-order accumulator).
+[fees.kalshi]
+formula = "quadratic"      # fee = coeff * contracts * p * (1-p), p = price/$1
 taker_coeff = "0.07"
 maker_coeff = "0.0175"
-effective_date = "2026-01-01"
+effective_date = "2026-02-05"
+[fees.kalshi.category_multipliers]
+sp500_nasdaq_range = "0.5"
+
+# Polymarket US (live since 2025-12-03; schedule effective 2026-04-03 per
+# docs/research/venue/polymarket-fees-2026-06-09): taker 0.05 quadratic,
+# maker -0.0125 (per-fill REBATE), banker's rounding documented by the venue.
+[fees.polymarket_us]
+formula = "quadratic"
+taker_coeff = "0.05"
+maker_coeff = "-0.0125"
+rounding = "half_even"
+effective_date = "2026-04-03"
 
 [slack]                    # channel ids from env: FORTUNA_SLACK_*
 channels = ["trading", "alerts", "review", "digest", "ops"]

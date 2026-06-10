@@ -10,11 +10,17 @@ Tick boxes with a one-line completion note and the commit hash.
       checked arithmetic, error types. (5.1, conventions)
       DONE c1ad334: 56 tests (incl. 6 proptests) green; fmt/clippy clean; fixed-ms
       ISO8601 timestamps + SplitMix64 IdGen for byte-stable replay; 4 ASSUMPTIONS entries.
-- [ ] T0.2 `fortuna-core`: single-threaded deterministic event bus (`BusEvent`),
+- [x] T0.2 `fortuna-core`: single-threaded deterministic event bus (`BusEvent`),
       replay recorder/player; same seed => byte-identical event stream test. (5.1)
-- [ ] T0.3 `fortuna-venues`: `Venue` trait, `FeeModel` (config-driven schedule
+      DONE a6cad5c: 23 bus tests (same-seed byte-identical stream; replay regen +
+      divergence/tamper/truncation); replay-verify bin + replay.sh live; 78 tests total green.
+- [x] T0.3 `fortuna-venues`: `Venue` trait, `FeeModel` (config-driven schedule
       interpreter: quadratic/flat/tiered + effective_date versioning), sim venue with
       seeded fault injection (delay/drop/dup/crash hooks, configurable book). (5.2)
+      DONE cf96f68: 51 new tests green (19 fees incl. Polymarket-US rebate/banker's
+      vectors, 26 sim venue incl. all fault arms + determinism, 6 vocab); fee facts
+      grounded in docs/research/venue/ (Kalshi 0.07/0.0175 confirmed vs official PDF);
+      spec 5.2 fee drift recorded in GAPS; sealed GatedOrder shell shipped (zero ctors).
 - [ ] T0.4 DST harness + `scripts/run-dst.sh` + CI wiring: randomized scenario runner,
       seed minimizer note, regression corpus directory. (5.1, PROMPT doctrine)
 - [ ] T0.5 `fortuna-gates`: checks 1-10, TOML config, `GatedOrder` sealed constructor,
