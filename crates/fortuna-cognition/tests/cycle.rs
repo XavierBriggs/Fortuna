@@ -203,11 +203,34 @@ fn stub_output() -> MindOutput {
     .unwrap()
 }
 
+fn near_identity_calibration() -> fortuna_cognition::cycle::CalibrationContext {
+    use fortuna_cognition::calibration::{fit_platt, CalibrationMethod, CalibrationParams};
+    // Well-calibrated record: the fit is near-identity, so calibrated p
+    // tracks the claim (E1: a cycle now REQUIRES a calibration context
+    // for beliefs to keep autonomous weight; this is the neutral one).
+    let mut samples = Vec::new();
+    for i in 0..100 {
+        samples.push((0.7, i % 10 < 7));
+        samples.push((0.3, i % 10 < 3));
+        samples.push((0.5, i % 2 == 0));
+    }
+    fortuna_cognition::cycle::CalibrationContext {
+        params: CalibrationParams {
+            version: 1,
+            method: CalibrationMethod::Platt(fit_platt(&samples).unwrap()),
+            extremization_k: 1.0,
+            fitted_on_n: 300,
+        },
+        resolved_n: 300,
+    }
+}
+
 #[tokio::test]
 async fn accepted_trigger_runs_the_mind_and_derives_candidates() {
     let mind = StubMind::scripted(vec![stub_output()]);
     let triage = TriageDecision::AlwaysAccept;
-    let mut cycle = DecisionCycle::new(triage, ShadowSampler::new(1), config());
+    let mut cycle = DecisionCycle::new(triage, ShadowSampler::new(1), config())
+        .with_calibration(near_identity_calibration());
 
     let outcome = cycle
         .run(
@@ -274,4 +297,149 @@ async fn declined_trigger_skips_the_mind_unless_shadow_sampled() {
     assert_eq!(second.triage, TriageVerdict::Declined);
     assert!(!second.shadow, "quota exhausted: plain decline");
     assert!(second.beliefs.is_empty(), "no mind call at all");
+}
+
+// ---- E1: the calibration layer ACTUALLY adjusts p in the cycle ----
+
+fn overconfident_platt_params() -> fortuna_cognition::calibration::CalibrationParams {
+    use fortuna_cognition::calibration::{fit_platt, CalibrationMethod, CalibrationParams};
+    // Claims at 0.9/0.1 resolving at 0.7/0.3: the fit tempers.
+    let mut samples = Vec::new();
+    for i in 0..60 {
+        samples.push((0.9, i % 10 < 7));
+        samples.push((0.1, i % 10 < 3));
+    }
+    CalibrationParams {
+        version: 1,
+        method: CalibrationMethod::Platt(fit_platt(&samples).unwrap()),
+        extremization_k: 1.0,
+        fitted_on_n: 120,
+    }
+}
+
+fn overconfident_belief_output() -> MindOutput {
+    serde_json::from_value(serde_json::json!({
+        "beliefs": [{
+            "event_id": "evt-1",
+            "p": 0.90,
+            "p_raw": 0.90,
+            "horizon": "2026-06-20T18:00:00.000Z",
+            "evidence": [{"source": "stub", "ref": "sig-1"}]
+        }],
+        "proposals": [],
+        "journal": null
+    }))
+    .unwrap()
+}
+
+#[tokio::test]
+async fn calibration_layer_adjusts_p_before_the_comparator() {
+    use fortuna_cognition::cycle::CalibrationContext;
+    let mind = StubMind::scripted(vec![overconfident_belief_output()]);
+    let mut cycle = DecisionCycle::new(
+        TriageDecision::AlwaysAccept,
+        ShadowSampler::new(1),
+        config(),
+    )
+    .with_calibration(CalibrationContext {
+        params: overconfident_platt_params(),
+        resolved_n: 120,
+    });
+
+    let outcome = cycle
+        .run(
+            "evt-1",
+            &mind,
+            &[],
+            &[edge("KXA", "evt-1", MappingType::Direct, true)],
+            &[quote("KXA", 58, 60)],
+            t("2026-06-11T12:00:00.000Z"),
+        )
+        .await
+        .unwrap();
+
+    // The mind claimed 0.90; the fitted layer tempers toward ~0.70.
+    let p = outcome.beliefs[0].p;
+    assert!(
+        p > 0.6 && p < 0.8,
+        "calibrated p tempers the overconfident claim, got {p}"
+    );
+    assert!(
+        (outcome.beliefs[0].p_raw - 0.90).abs() < 1e-9,
+        "the raw claim is preserved for scoring"
+    );
+    // The comparator saw the CALIBRATED p: fair ~70 vs ask 60 => candidate
+    // carrying the exact probability for the sizing layer.
+    assert_eq!(outcome.candidates.len(), 1);
+    let c = &outcome.candidates[0];
+    assert!((c.calibrated_p - p).abs() < 1e-12);
+    assert!(c.fair_cents >= 60 && c.fair_cents <= 80);
+}
+
+#[tokio::test]
+async fn uncalibrated_scope_shrinks_to_market_and_cannot_trade() {
+    // NO calibration context wired: the conservative rule is full
+    // shrinkage toward the market prior (n = 0 => zero autonomous
+    // weight) — an uncalibrated scope structurally produces no edge.
+    let mind = StubMind::scripted(vec![overconfident_belief_output()]);
+    let mut cycle = DecisionCycle::new(
+        TriageDecision::AlwaysAccept,
+        ShadowSampler::new(1),
+        config(),
+    );
+
+    let outcome = cycle
+        .run(
+            "evt-1",
+            &mind,
+            &[],
+            &[edge("KXA", "evt-1", MappingType::Direct, true)],
+            &[quote("KXA", 58, 60)],
+            t("2026-06-11T12:00:00.000Z"),
+        )
+        .await
+        .unwrap();
+
+    let p = outcome.beliefs[0].p;
+    assert!(
+        (p - 0.59).abs() < 1e-9,
+        "p shrinks to the market mid (58/60 => 0.59), got {p}"
+    );
+    assert!(
+        outcome.candidates.is_empty(),
+        "market-prior beliefs price no edge"
+    );
+}
+
+#[tokio::test]
+async fn low_data_scope_gets_little_autonomous_weight() {
+    use fortuna_cognition::cycle::CalibrationContext;
+    // Params exist but the scope has only 10 resolved beliefs: shrinkage
+    // applies (spec 5.10) and the 0.90 claim moves barely off market.
+    let mind = StubMind::scripted(vec![overconfident_belief_output()]);
+    let mut cycle = DecisionCycle::new(
+        TriageDecision::AlwaysAccept,
+        ShadowSampler::new(1),
+        config(),
+    )
+    .with_calibration(CalibrationContext {
+        params: overconfident_platt_params(),
+        resolved_n: 10,
+    });
+
+    let outcome = cycle
+        .run(
+            "evt-1",
+            &mind,
+            &[],
+            &[edge("KXA", "evt-1", MappingType::Direct, true)],
+            &[quote("KXA", 58, 60)],
+            t("2026-06-11T12:00:00.000Z"),
+        )
+        .await
+        .unwrap();
+
+    let p = outcome.beliefs[0].p;
+    // w = 10/50 = 0.2: p = 0.2*0.9 + 0.8*0.59 = 0.652.
+    assert!((p - 0.652).abs() < 1e-9, "got {p}");
 }

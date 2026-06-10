@@ -11,6 +11,7 @@
 //! drawdown breach => global halt (I2); both clear only via operator re-arm.
 
 use crate::{AuditSink, CoreHandle, Proposal, RunnerError, Stage, Strategy};
+use fortuna_cognition::cycle::haircut_kelly_fraction;
 use fortuna_cognition::veto::{
     counterfactual_pnl, FillAssumption, VetoCandidate, VetoMind, VetoVerdict,
 };
@@ -26,8 +27,9 @@ use fortuna_exec::{
 };
 use fortuna_gates::{CandidateOrder, GateConfig, GateInputs, GatePipeline, HaltScope};
 use fortuna_state::{
-    affordable_sets, mark_lots, DrawdownMonitor, DrawdownVerdict, MarkPolicy, PositionBook,
-    PositionLifecycle, ReservationLedger, SettlementLedger, SettlementSnapshot, SettlementStatus,
+    affordable_sets, kelly_contracts, mark_lots, DrawdownMonitor, DrawdownVerdict, MarkPolicy,
+    PositionBook, PositionLifecycle, ReservationLedger, SettlementLedger, SettlementSnapshot,
+    SettlementStatus,
 };
 use fortuna_venues::fees::ScheduleFeeModel;
 use fortuna_venues::sim::{FaultConfig, SimVenue};
@@ -50,6 +52,10 @@ pub struct RunnerConfig {
     pub mark_policy: MarkPolicy,
     /// Max sets per arb proposal (belt to the gates' braces).
     pub max_sets_per_proposal: i64,
+    /// Base fractional-Kelly scalar for synthesis sizing (spec line 240;
+    /// config [sizing] kelly_fraction, default 0.25). The effective
+    /// fraction is this x the strategy's calibration quality.
+    pub kelly_fraction: f64,
     /// The reduce-only model veto (spec Section 6). Strategies listed in
     /// `veto_strategies` have every sized candidate assessed BEFORE the
     /// gates; listing a strategy without providing a mind is a
@@ -130,6 +136,11 @@ pub struct SimRunner {
     /// PnL follows venue truth, divergence is recorded, never
     /// reconciled away). Value: (canonical outcome, edge id).
     canonical_resolutions: BTreeMap<MarketId, (Side, String)>,
+    /// Calibration quality per strategy (T2.8 calibration_quality), fed
+    /// by the composition. MISSING => 0.0 => synthesis sizes ZERO (fail
+    /// closed; an unmeasured calibration earns no size).
+    calibration_quality: BTreeMap<String, f64>,
+    kelly_fraction: f64,
     /// Markets with a defined next processor (fresh open belief OR a
     /// mechanical owner), fed by the composition. None = the coverage
     /// view is not wired and the orphan watchdog stays silent.
@@ -231,6 +242,14 @@ impl SimRunner {
             clock.clone(),
             config.exec_policy,
         ))?;
+        // Fail closed on a nonsensical base fraction: NaN/negative/>1
+        // collapses to 0.0 (synthesis sizes nothing) rather than erroring
+        // the whole composition.
+        let config_kelly_fraction = if config.kelly_fraction.is_finite() {
+            config.kelly_fraction.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
         Ok(SimRunner {
             bus: EventBus::new(clock.clone()),
             venue,
@@ -266,6 +285,8 @@ impl SimRunner {
             dispute_frozen: std::collections::BTreeSet::new(),
             mismatch_streak: BTreeMap::new(),
             canonical_resolutions: BTreeMap::new(),
+            calibration_quality: BTreeMap::new(),
+            kelly_fraction: config_kelly_fraction,
             position_coverage: None,
             orphan_flagged: std::collections::BTreeSet::new(),
             counters: RunCounters::default(),
@@ -285,6 +306,14 @@ impl SimRunner {
     /// or a mechanical owner. Wiring this ENABLES the orphan watchdog.
     pub fn set_position_coverage(&mut self, covered: std::collections::BTreeSet<MarketId>) {
         self.position_coverage = Some(covered);
+    }
+
+    /// Composition feed (T2.8): the strategy's calibration quality in
+    /// [0,1] from its resolved record. Unwired => 0.0 => its synthesis
+    /// proposals size ZERO (an unmeasured calibration earns no size).
+    pub fn set_calibration_quality(&mut self, strategy: &str, quality: f64) {
+        self.calibration_quality
+            .insert(strategy.to_string(), quality);
     }
 
     /// Read-only view of the settlement-entry chains (tests, dashboards).
@@ -476,6 +505,45 @@ impl SimRunner {
             .headroom(strategy_id.as_str())
             .unwrap_or(Cents::ZERO);
         let mut sets = affordable_sets(headroom, cost_per_set, self.max_sets_per_proposal);
+
+        // E1 (spec 5.8 + line 240): synthesis legs carry a calibrated
+        // win-probability; their size is haircut-Kelly BOUNDED BY
+        // affordability — contracts = min(kelly, affordable). Fraction =
+        // base kelly_fraction x calibration quality; an unwired or zero
+        // quality, or any invalid Kelly input, fails CLOSED to zero —
+        // never full envelope headroom.
+        if let Some(p) = proposal.legs.first().and_then(|l| l.calibrated_p) {
+            let quality = self
+                .calibration_quality
+                .get(strategy_id.as_str())
+                .copied()
+                .unwrap_or(0.0);
+            let fraction = haircut_kelly_fraction(self.kelly_fraction, quality);
+            let price = proposal.legs[0].limit_price;
+            let kelly = kelly_contracts(
+                p,
+                price,
+                fraction,
+                headroom,
+                cost_per_set,
+                self.max_sets_per_proposal,
+            )
+            .unwrap_or(0);
+            self.audit(
+                "sizing",
+                None,
+                serde_json::json!({
+                    "strategy": strategy_id.to_string(),
+                    "mode": "haircut_kelly",
+                    "calibrated_p": p,
+                    "quality": quality,
+                    "fraction": fraction,
+                    "kelly_contracts": kelly,
+                    "affordable_contracts": sets,
+                }),
+            );
+            sets = sets.min(kelly);
+        }
         if sets == 0 {
             self.audit(
                 "gate_decision",

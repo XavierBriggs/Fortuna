@@ -126,6 +126,7 @@ impl MechStructural {
                 action: Action::Buy,
                 limit_price: ask,
                 fair_value: Cents::new((ask.raw() + per_leg_edge).min(100)),
+                calibrated_p: None,
             })
             .collect();
         Ok(Some((

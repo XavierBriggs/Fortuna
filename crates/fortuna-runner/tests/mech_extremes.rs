@@ -433,6 +433,7 @@ fn fade_rests_maker_side_through_the_full_loop_with_veto() {
             max_spread_cents: 20,
         },
         max_sets_per_proposal: 10,
+        kelly_fraction: 0.25,
         veto_mind: Some(Arc::new(StubVetoMind::allow_all())),
         veto_strategies: vec![StrategyId::new("mech_extremes").unwrap()],
     };

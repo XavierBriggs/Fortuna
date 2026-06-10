@@ -107,6 +107,7 @@ fn arb_runner() -> SimRunner {
             max_spread_cents: 20,
         },
         max_sets_per_proposal: 50,
+        kelly_fraction: 0.25,
         veto_mind: None,
         veto_strategies: Vec::new(),
     };

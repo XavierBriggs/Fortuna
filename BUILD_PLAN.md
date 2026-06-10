@@ -172,6 +172,10 @@ EXIT MET TO THE BUILDABLE EXTENT (2026-06-10, commit bee37a6):
       budget checks w/ 00:00 UTC day roll; cost from usage x configured prices; env-key
       gate = the live feature flag (operator-blocked). 6 new tests.
 - [x] T2.6 Decision cycle + comparator + Kelly sizing with calibration haircut;
+      (E1 CORRECTION 2026-06-10: the original DONE note implied the haircut-Kelly
+      sizing was composed into the runner — it was a LIBRARY ONLY with zero call
+      sites until the post-verification E1 fix wired calibrate->comparator->
+      min(kelly, affordable) end to end. The verification gate caught it.)
       triage tier + triage scoring (declined-trigger shadow sampling). (5.8, 5.9, 5.14)
       DONE ea65ff2: two-sided comparator (Direct+Negation only; floor fair
       values; stale/tier/floor exclusions); fail-closed haircut; first-K-per-day

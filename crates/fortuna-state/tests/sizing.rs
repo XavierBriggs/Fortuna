@@ -75,3 +75,58 @@ fn kelly_contracts_floors_into_integer_money() {
     let n = kelly_contracts(0.9, Cents::new(50), 0.25, Cents::ZERO, Cents::new(52), 100).unwrap();
     assert_eq!(n, 0);
 }
+
+// ---- E5a: the fraction-of-headroom budget is INTEGER money ----
+
+#[test]
+fn kelly_budget_is_integer_exact_and_never_exceeds_headroom() {
+    // f = 1.0 (full Kelly at certainty x fraction 1.0): the budget is the
+    // headroom EXACTLY — no float drift at the money boundary.
+    let contracts = kelly_contracts(
+        1.0,
+        Cents::new(50),
+        1.0,
+        Cents::new(999_999_999_999), // ~$10B: float would lose ulps here
+        Cents::new(1),
+        i64::MAX,
+    )
+    .unwrap();
+    assert_eq!(contracts, 999_999_999_999, "exact at f = 1.0");
+
+    // Conservative: for any fraction the spend never exceeds headroom*f.
+    for (p, frac, headroom, cost) in [
+        (0.7, 0.25, 1_000_000_i64, 61_i64),
+        (0.9, 0.25, 300_000, 62),
+        (0.55, 0.1, 12_345_678, 7),
+        (1.0, 1.0, i64::MAX / 200_000, 99),
+    ] {
+        let f = kelly_binary(p, Cents::new(60), frac).unwrap();
+        let n = kelly_contracts(
+            p,
+            Cents::new(60),
+            frac,
+            Cents::new(headroom),
+            Cents::new(cost),
+            i64::MAX,
+        )
+        .unwrap();
+        let spend = (n as f64) * (cost as f64);
+        assert!(
+            spend <= headroom as f64 * f + 1e-6,
+            "spend {spend} exceeds budget for p={p} frac={frac}"
+        );
+        assert!(n >= 0);
+    }
+
+    // Saturating scale: an astronomically large headroom cannot overflow.
+    let n = kelly_contracts(
+        1.0,
+        Cents::new(50),
+        1.0,
+        Cents::new(i64::MAX),
+        Cents::new(1),
+        1_000,
+    )
+    .unwrap();
+    assert_eq!(n, 1_000, "cap binds; no overflow panic");
+}

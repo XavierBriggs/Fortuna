@@ -4,11 +4,15 @@
 //!
 //! Flow: a fired trigger -> TRIAGE (cheap tier: worth frontier attention
 //! or not; every verdict is loggable) -> on accept, assemble context and
-//! run the frontier mind -> validated beliefs -> the COMPARATOR derives
-//! two-sided UNSIZED candidates against live prices through the edges.
-//! Sizing happens downstream (the runner draws from the envelope via
-//! reservations using the haircut Kelly fraction); the gates re-check
-//! everything (I1).
+//! run the frontier mind -> validated beliefs -> the CALIBRATION LAYER
+//! adjusts each belief's raw p (spec 5.8/5.10: fitted method at n >= 50,
+//! shrinkage toward the market prior below; an UNWIRED scope shrinks
+//! fully to market and structurally prices no edge) -> the COMPARATOR
+//! derives two-sided UNSIZED candidates against live prices through the
+//! edges, each carrying its calibrated p. Sizing happens downstream in
+//! the runner: contracts = min(haircut-Kelly, envelope affordability)
+//! with fraction = config kelly_fraction x calibration quality; the
+//! gates re-check everything (I1).
 //!
 //! Triage is itself scored: a deterministic fixed daily sample of
 //! DECLINED triggers runs the full cycle in SHADOW — beliefs are
@@ -16,6 +20,7 @@
 //! candidates. This measures triage recall instead of assuming it.
 
 use crate::beliefs::{BeliefDraft, Freshness};
+use crate::calibration::{calibrate, shrink_toward_market, CalibrationParams};
 use crate::context::{assemble_context, AssemblerConfig, ContextItem};
 use crate::events::{EdgeTier, MappingType};
 use crate::mind::{Mind, MindError};
@@ -59,6 +64,17 @@ pub struct MarketQuote {
     pub yes_ask_cents: i64,
 }
 
+/// The calibration scope for this cycle's beliefs (spec 5.10): the
+/// latest versioned params for the (model, strategy, category) scope and
+/// the scope's resolved-belief count. The composition fetches both from
+/// the ledger (CalibrationParamsRepo.latest + resolved_stats). Without
+/// one, beliefs shrink FULLY to the market prior and price no edge.
+#[derive(Debug, Clone)]
+pub struct CalibrationContext {
+    pub params: CalibrationParams,
+    pub resolved_n: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct ComparatorConfig {
     /// Gross edge floor for emitting a candidate (the gates recompute the
@@ -82,6 +98,9 @@ pub struct EdgeCandidate {
     /// The displayed price cap (own-side ask).
     pub max_price_cents: i64,
     pub edge_cents: i64,
+    /// CALIBRATED probability of the candidate side (the Kelly input:
+    /// win-probability for a buy of this side at max_price_cents).
+    pub calibrated_p: f64,
 }
 
 /// Compare fresh calibrated beliefs to live prices through the edges.
@@ -89,6 +108,21 @@ pub struct EdgeCandidate {
 /// Direct and Negation mappings only (bracket-component and
 /// conditional-on carry composite semantics the v1 comparator must not
 /// guess at — they are skipped, never mispriced).
+/// The market prior for a belief's event: the Direct-edge quote mid in
+/// probability space. Negation/composite mappings are not used as priors
+/// (a wrong equivalence would poison the shrinkage target); no Direct
+/// quote means no market prior (the caller shrinks toward 0.5).
+fn direct_market_prior(event_id: &str, edges: &[EdgeView], quotes: &[MarketQuote]) -> Option<f64> {
+    let edge = edges
+        .iter()
+        .find(|e| e.event_id == event_id && e.mapping == MappingType::Direct)?;
+    let quote = quotes.iter().find(|q| q.market == edge.market)?;
+    if quote.yes_bid_cents <= 0 || quote.yes_ask_cents <= 0 {
+        return None;
+    }
+    Some((quote.yes_bid_cents + quote.yes_ask_cents) as f64 / 200.0)
+}
+
 pub fn compare_beliefs_to_markets(
     beliefs: &[BeliefView],
     edges: &[EdgeView],
@@ -127,6 +161,7 @@ pub fn compare_beliefs_to_markets(
                     fair_cents: fair_yes,
                     max_price_cents: quote.yes_ask_cents,
                     edge_cents: fair_yes - quote.yes_ask_cents,
+                    calibrated_p: market_p,
                 });
             }
             // Buy NO when the NO fair exceeds the NO ask (= 100 - yes bid).
@@ -141,6 +176,7 @@ pub fn compare_beliefs_to_markets(
                     fair_cents: fair_no,
                     max_price_cents: no_ask,
                     edge_cents: fair_no - no_ask,
+                    calibrated_p: 1.0 - market_p,
                 });
             }
         }
@@ -246,6 +282,7 @@ pub struct DecisionCycle {
     sampler: ShadowSampler,
     comparator: ComparatorConfig,
     assembler: AssemblerConfig,
+    calibration: Option<CalibrationContext>,
 }
 
 impl DecisionCycle {
@@ -262,7 +299,16 @@ impl DecisionCycle {
                 budget_chars: 100_000,
                 anonymize: false,
             },
+            calibration: None,
         }
+    }
+
+    /// Wire the scope's calibration (spec 5.10). Without it, every
+    /// belief shrinks fully to the market prior (zero autonomous
+    /// weight) — the conservative default for an unwired scope.
+    pub fn with_calibration(mut self, calibration: CalibrationContext) -> DecisionCycle {
+        self.calibration = Some(calibration);
+        self
     }
 
     /// Run one cycle for a fired trigger on `event_id`. The mind's
@@ -297,11 +343,24 @@ impl DecisionCycle {
         };
 
         let ctx = assemble_context(context_items, now, "decision", &self.assembler)?;
-        let output = mind.decide(&ctx).await?;
+        let mut output = mind.decide(&ctx).await?;
+
+        // THE CALIBRATION LAYER (spec 5.8 "Calibration layer adjusts p",
+        // 5.10): each draft's RAW claim is calibrated against the scope's
+        // fitted params; below n = 50 (or with no scope wired) the claim
+        // shrinks toward the market prior — the Direct-edge quote mid for
+        // the belief's event, or 0.5 when no market prices it. The
+        // calibrated value REPLACES p (p_raw is preserved for scoring).
+        for belief in &mut output.beliefs {
+            let market_p = direct_market_prior(&belief.event_id, edges, quotes);
+            belief.p = match &self.calibration {
+                Some(c) => calibrate(belief.p_raw, &c.params, market_p, c.resolved_n),
+                None => shrink_toward_market(belief.p_raw, market_p.unwrap_or(0.5), 0),
+            };
+        }
 
         // Comparator inputs: the freshly minted beliefs are fresh by
-        // construction this tick; calibration (T2.8) adjusts p upstream
-        // of this view in the live composition.
+        // construction this tick, carrying CALIBRATED p.
         let views: Vec<BeliefView> = output
             .beliefs
             .iter()

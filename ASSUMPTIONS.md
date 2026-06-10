@@ -3,6 +3,32 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## E1/E5a — calibration + Kelly wiring (verification-gate fixes)
+
+- **The calibration layer now BINDS in the decision cycle.** Each mind
+  belief's raw p is calibrated before the comparator: fitted method at
+  the scope's resolved_n >= 50, shrinkage toward the market prior below,
+  and an UNWIRED scope (no CalibrationContext) shrinks FULLY to market —
+  it structurally prices no edge. The market prior is the Direct-edge
+  quote mid only (a negation/composite prior could poison the shrinkage
+  target); no Direct quote => prior 0.5. Calibrated p REPLACES belief.p;
+  p_raw is preserved for scoring.
+- **Synthesis sizing = min(haircut-Kelly, affordability).** EdgeCandidate
+  and ProposedLeg carry the calibrated win-probability of the candidate
+  side (NO-side candidates carry 1 - p). The runner computes fraction =
+  kelly_fraction (RunnerConfig, fed from ops [sizing] config; clamped,
+  non-finite => 0) x calibration quality (composition feed per strategy;
+  UNWIRED => 0 => zero size). Every kelly sizing emits an audit row with
+  p/quality/fraction/kelly/affordable. Mechanical legs (calibrated_p =
+  None) keep pure affordability — an arb's edge is structural.
+- **kelly_contracts is integer money (E5a):** the f64 fraction converts
+  once to floored parts-per-million; the budget multiplies in i128 and
+  floors — money never rides in a float; double flooring is conservative.
+- **i7_promotion_gates.rs received a one-line compile fix** (new required
+  RunnerConfig field `kelly_fraction: 0.25` in its config fixture) — no
+  assertion logic touched; added to the protected-crate waive queue in
+  GAPS.md as batch 4.
+
 ## T3.6 — closing watchdogs + decision records (moved from GAPS)
 
 - **Divergence detector (spec 5.13) wiring:** the runner takes canonical
@@ -275,7 +301,12 @@ conservative option, and the spec section it interprets.
 - **The haircut fails closed:** quality clamps to [0,1]; NaN/non-finite
   => fraction 0 (an unmeasured calibration earns no size). The base
   fraction (0.25 default) and the quality value are inputs; T2.8
-  computes quality from the calibration record.
+  computes quality from the calibration record. (E1 correction,
+  2026-06-10: until E1 this lib had ZERO call sites — the claim that the
+  runner used it was false. It is now wired: runner sizing for
+  calibrated legs = min(kelly_contracts, affordable_sets) with fraction
+  = config kelly_fraction x composition-fed quality; unwired quality
+  sizes zero.)
 - **Shadow sampling is FIRST-K per UTC day** (deterministic and
   replayable; a random sample needs a seed and buys nothing at these
   volumes). Shadow runs produce beliefs that are scored normally and
@@ -776,8 +807,10 @@ crates/fortuna-venues/tests/kalshi_doc_samples/ are NOT recordings.
   substance (deterministic dispatch + replayable record).
 - **Strategies emit UNSIZED proposals** (legs with limit + honest fair
   value + group policy + urgency). Sizing is the harness's: arb sets from
-  envelope headroom (`affordable_sets`, floor division), Kelly for belief
-  trades (Phase 2), all re-checked by the gates. Edge distribution across
+  envelope headroom (`affordable_sets`, floor division); belief trades
+  size by haircut-Kelly bounded by affordability (WIRED at E1, 2026-06-10
+  — earlier revisions of this entry claimed the Kelly wiring landed in
+  Phase 2, which was false until the E1 fix); all re-checked by the gates. Edge distribution across
   arb legs: fair_leg = ask + floor(edge/n) so each leg independently clears
   the gate floor — thin arbs whose per-leg share can't clear the floor are
   deliberately not tradeable.

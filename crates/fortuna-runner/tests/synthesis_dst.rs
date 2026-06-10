@@ -121,6 +121,25 @@ impl Mind for ChaosMind {
     }
 }
 
+fn near_identity_calibration() -> fortuna_cognition::cycle::CalibrationContext {
+    use fortuna_cognition::calibration::{fit_platt, CalibrationMethod, CalibrationParams};
+    let mut samples = Vec::new();
+    for i in 0..100 {
+        samples.push((0.7, i % 10 < 7));
+        samples.push((0.3, i % 10 < 3));
+        samples.push((0.5, i % 2 == 0));
+    }
+    fortuna_cognition::cycle::CalibrationContext {
+        params: CalibrationParams {
+            version: 1,
+            method: CalibrationMethod::Platt(fit_platt(&samples).unwrap()),
+            extremization_k: 1.0,
+            fitted_on_n: 300,
+        },
+        resolved_n: 300,
+    }
+}
+
 // --------------------------------------------------------------- scenario
 
 fn fee_model() -> ScheduleFeeModel {
@@ -196,6 +215,7 @@ fn runner_config(seed: u64, faults: FaultConfig) -> RunnerConfig {
             max_spread_cents: 20,
         },
         max_sets_per_proposal: 50,
+        kelly_fraction: 0.25,
         veto_mind: None,
         veto_strategies: Vec::new(),
     }
@@ -227,6 +247,16 @@ fn run_scenario(seed: u64) -> Result<ScenarioResult, String> {
     faults.drop_fill_pm = (rng.next_u64() % 100) as u32;
     faults.dup_fill_pm = (rng.next_u64() % 100) as u32;
 
+    // Seeded calibration chaos: most scenarios run a near-identity
+    // fitted scope; some run UNWIRED (beliefs shrink fully to market and
+    // price no edge — also a valid world). Quality is seeded too.
+    let calibration = if rng.next_u64().is_multiple_of(5) {
+        None
+    } else {
+        Some(near_identity_calibration())
+    };
+    let quality = (rng.next_u64() % 101) as f64 / 100.0;
+
     // Worst case two cycles per tick (one per mapped market/event).
     let mind: Arc<dyn Mind> = Arc::new(ChaosMind::seeded(rng.next_u64(), ticks * 2));
     let strategy = SynthesisStrategy::new(
@@ -248,6 +278,7 @@ fn run_scenario(seed: u64) -> Result<ScenarioResult, String> {
             },
             triage,
             shadow_quota,
+            calibration,
             stage: fortuna_runner::Stage::Sim,
         },
         mind,
@@ -260,6 +291,7 @@ fn run_scenario(seed: u64) -> Result<ScenarioResult, String> {
         t0(),
     )
     .map_err(|e| format!("construction failed: {e}"))?;
+    runner.set_calibration_quality("synth_dst", quality);
 
     let mut proposals_seen: u64 = 0;
     for tick_no in 0..ticks {

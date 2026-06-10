@@ -51,7 +51,10 @@ pub fn kelly_binary(p: f64, price: Cents, fraction: f64) -> Result<f64, StateErr
 }
 
 /// Contracts to buy: kelly fraction of the envelope headroom at the given
-/// all-in cost per contract, floored, capped. The integer-money boundary.
+/// all-in cost per contract, floored, capped. The integer-money boundary:
+/// the f64 fraction converts ONCE to parts-per-million (floored), and the
+/// budget is computed in widened integer arithmetic — money never rides
+/// in a float. Double flooring (ppm, then division) is conservative.
 pub fn kelly_contracts(
     p: f64,
     price: Cents,
@@ -64,8 +67,10 @@ pub fn kelly_contracts(
     if headroom.raw() <= 0 || all_in_cost_per_contract.raw() <= 0 || cap_contracts <= 0 {
         return Ok(0);
     }
-    // f in [0,1]: budget = floor(headroom * f) stays within headroom.
-    let budget = (headroom.raw() as f64 * f).floor() as i64;
+    // f in [0,1] by construction; ppm in [0, 1_000_000].
+    let f_ppm = (f * 1_000_000.0).floor() as i128;
+    let budget_wide = i128::from(headroom.raw()) * f_ppm / 1_000_000;
+    let budget = i64::try_from(budget_wide).unwrap_or(i64::MAX);
     Ok((budget / all_in_cost_per_contract.raw())
         .min(cap_contracts)
         .max(0))

@@ -112,6 +112,7 @@ fn runner_config(seed: u64) -> RunnerConfig {
             max_spread_cents: 20,
         },
         max_sets_per_proposal: 50,
+        kelly_fraction: 0.25,
         veto_mind: None,
         veto_strategies: Vec::new(),
     }
@@ -132,6 +133,25 @@ fn belief_output(event: &str, p: f64) -> MindOutput {
     .unwrap()
 }
 
+fn near_identity_calibration() -> fortuna_cognition::cycle::CalibrationContext {
+    use fortuna_cognition::calibration::{fit_platt, CalibrationMethod, CalibrationParams};
+    let mut samples = Vec::new();
+    for i in 0..100 {
+        samples.push((0.7, i % 10 < 7));
+        samples.push((0.3, i % 10 < 3));
+        samples.push((0.5, i % 2 == 0));
+    }
+    fortuna_cognition::cycle::CalibrationContext {
+        params: CalibrationParams {
+            version: 1,
+            method: CalibrationMethod::Platt(fit_platt(&samples).unwrap()),
+            extremization_k: 1.0,
+            fitted_on_n: 300,
+        },
+        resolved_n: 300,
+    }
+}
+
 fn synthesis_config() -> SynthesisConfig {
     SynthesisConfig {
         id: StrategyId::new("synth_sim").unwrap(),
@@ -147,6 +167,7 @@ fn synthesis_config() -> SynthesisConfig {
         },
         triage: TriageDecision::AlwaysAccept,
         shadow_quota: 1,
+        calibration: Some(near_identity_calibration()),
         stage: fortuna_runner::Stage::Sim,
     }
 }
@@ -176,6 +197,9 @@ fn synthesis_belief_trades_through_the_full_loop() {
         t0(),
     )
     .unwrap();
+    // E1: sizing is haircut-Kelly; the composition wires the strategy's
+    // measured calibration quality (unwired => zero size by design).
+    r.set_calibration_quality("synth_sim", 1.0);
     set_book(&r, 58, 60);
 
     let report = futures::executor::block_on(r.tick()).unwrap();
@@ -287,4 +311,120 @@ fn declined_triage_shadow_runs_believe_but_never_trade() {
     // The shadow run produced beliefs (they are scored like any other).
     assert!(r.counters().shadow_cycles >= 1);
     assert!(r.counters().beliefs_drafted >= 1);
+}
+
+// ---- E1: haircut-Kelly sizing binds the synthesis path ----
+
+fn wide_runner_config(seed: u64) -> RunnerConfig {
+    let mut cfg = runner_config(seed);
+    // Lift the per-proposal cap so affordability stops masking Kelly,
+    // and the per-order notional gate so SIZING (not gate 5) is what
+    // these tests observe.
+    cfg.max_sets_per_proposal = 1_000;
+    cfg.gate_config = toml::from_str(
+        r#"
+        [global]
+        max_total_exposure_cents = 800000
+        max_daily_loss_cents = 50000
+        min_order_contracts = 1
+        max_order_contracts = 1000
+        price_band_cents = 45
+        max_cross_cents = 10
+        per_market_exposure_cents = 100000
+        per_event_exposure_cents = 150000
+        require_event_mapping = false
+
+        [per_strategy.synth_sim]
+        max_exposure_cents = 200000
+        max_order_notional_cents = 100000
+        min_net_edge_bps = 100
+
+        [rate.sim]
+        burst = 100
+        sustained_per_min = 600
+        market_burst = 50
+        market_sustained_per_min = 300
+        "#,
+    )
+    .unwrap();
+    cfg
+}
+
+#[test]
+fn kelly_haircut_binds_synthesis_sizing_below_affordability() {
+    // Belief ~0.70 vs ask 60: kelly_binary = ((70-60)/40) * fraction.
+    // fraction = kelly_fraction 0.25 x quality 0.1 = 0.025 => f = 0.00625
+    // => budget ~ 1,875c of the 300,000c envelope => ~30 contracts at
+    // ~62c all-in. Affordability alone would size ~1,000 (the cap).
+    let mind: Arc<dyn Mind> = Arc::new(StubMind::scripted(vec![belief_output("evt-1", 0.70)]));
+    let strategy = SynthesisStrategy::new(synthesis_config(), mind);
+    let mut r = SimRunner::new(
+        wide_runner_config(21),
+        vec![Box::new(strategy)],
+        Box::new(MemoryAuditSink::default()),
+        t0(),
+    )
+    .unwrap();
+    r.set_calibration_quality("synth_sim", 0.1);
+    set_book(&r, 58, 60);
+
+    let report = futures::executor::block_on(r.tick()).unwrap();
+    assert!(report.proposals >= 1);
+    assert!(report.orders_submitted >= 1, "kelly sizes a real position");
+
+    let qty = r.positions().position(&mkt("KX-A")).unwrap().yes.qty;
+    assert!(
+        qty > 0 && qty < 100,
+        "haircut Kelly must bind far below the ~1000-contract affordability: got {qty}"
+    );
+}
+
+#[test]
+fn full_quality_sizes_larger_but_never_above_affordability() {
+    let run = |quality: f64| -> i64 {
+        let mind: Arc<dyn Mind> = Arc::new(StubMind::scripted(vec![belief_output("evt-1", 0.70)]));
+        let strategy = SynthesisStrategy::new(synthesis_config(), mind);
+        let mut r = SimRunner::new(
+            wide_runner_config(22),
+            vec![Box::new(strategy)],
+            Box::new(MemoryAuditSink::default()),
+            t0(),
+        )
+        .unwrap();
+        r.set_calibration_quality("synth_sim", quality);
+        set_book(&r, 58, 60);
+        futures::executor::block_on(r.tick()).unwrap();
+        r.positions()
+            .position(&mkt("KX-A"))
+            .map(|p| p.yes.qty)
+            .unwrap_or(0)
+    };
+    let small = run(0.1);
+    let large = run(1.0);
+    assert!(large > small, "quality scales size: {small} -> {large}");
+    assert!(large <= 1_000, "never above affordability/cap");
+}
+
+#[test]
+fn missing_calibration_quality_fails_closed_to_zero_size() {
+    // The composition never wired quality for this strategy: the spec'd
+    // fail-closed is ZERO size — never full envelope headroom.
+    let mind: Arc<dyn Mind> = Arc::new(StubMind::scripted(vec![belief_output("evt-1", 0.70)]));
+    let strategy = SynthesisStrategy::new(synthesis_config(), mind);
+    let mut r = SimRunner::new(
+        wide_runner_config(23),
+        vec![Box::new(strategy)],
+        Box::new(MemoryAuditSink::default()),
+        t0(),
+    )
+    .unwrap();
+    set_book(&r, 58, 60);
+
+    let report = futures::executor::block_on(r.tick()).unwrap();
+    assert!(report.proposals >= 1, "the cycle still proposes");
+    assert_eq!(
+        report.orders_submitted, 0,
+        "unwired calibration quality must size zero, not full headroom"
+    );
+    assert!(r.positions().position(&mkt("KX-A")).is_none());
 }

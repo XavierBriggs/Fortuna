@@ -95,6 +95,25 @@ fn belief_output(p: f64) -> MindOutput {
     .unwrap()
 }
 
+fn near_identity_calibration() -> fortuna_cognition::cycle::CalibrationContext {
+    use fortuna_cognition::calibration::{fit_platt, CalibrationMethod, CalibrationParams};
+    let mut samples = Vec::new();
+    for i in 0..100 {
+        samples.push((0.7, i % 10 < 7));
+        samples.push((0.3, i % 10 < 3));
+        samples.push((0.5, i % 2 == 0));
+    }
+    fortuna_cognition::cycle::CalibrationContext {
+        params: CalibrationParams {
+            version: 1,
+            method: CalibrationMethod::Platt(fit_platt(&samples).unwrap()),
+            extremization_k: 1.0,
+            fitted_on_n: 300,
+        },
+        resolved_n: 300,
+    }
+}
+
 fn edge() -> EdgeView {
     EdgeView {
         market: "KX-A".to_string(),
@@ -108,7 +127,12 @@ fn edge() -> EdgeView {
 
 #[test]
 fn synth_events_declares_paper_but_starts_at_sim() {
-    let cfg = synth_events_config(vec![edge()], TriageDecision::AlwaysAccept).unwrap();
+    let cfg = synth_events_config(
+        vec![edge()],
+        TriageDecision::AlwaysAccept,
+        Some(near_identity_calibration()),
+    )
+    .unwrap();
     assert_eq!(cfg.id.to_string(), "synth_events");
     assert_eq!(cfg.stage, Stage::Paper, "spec: paper-only initially");
     assert_eq!(
@@ -138,7 +162,12 @@ fn synth_events_maker_quote_fills_only_on_trade_through_in_paper() {
         // The mind believes 0.70; the book shows 55/62. Fair 70 vs ask
         // 62: the comparator proposes (max acceptable price 62).
         let mind: Arc<dyn Mind> = Arc::new(StubMind::scripted(vec![belief_output(0.70)]));
-        let mut cfg = synth_events_config(vec![edge()], TriageDecision::AlwaysAccept).unwrap();
+        let mut cfg = synth_events_config(
+            vec![edge()],
+            TriageDecision::AlwaysAccept,
+            Some(near_identity_calibration()),
+        )
+        .unwrap();
         cfg.stage = Stage::Sim; // boundary test runs at the unpromoted stage
         let mut strategy = SynthesisStrategy::new(cfg, mind);
 

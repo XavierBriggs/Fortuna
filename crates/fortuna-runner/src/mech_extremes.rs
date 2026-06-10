@@ -218,6 +218,7 @@ impl Strategy for MechExtremes {
                 action: Action::Buy,
                 limit_price: limit,
                 fair_value: Cents::new(fair),
+                calibrated_p: None,
             }],
             group_policy: None,
             urgency: Urgency::Passive,

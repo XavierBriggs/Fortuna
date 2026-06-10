@@ -204,6 +204,7 @@ impl Strategy for TestFade {
             action: Action::Buy,
             limit_price: ask.price,
             fair_value: Cents::new(ask.price.raw() + 5),
+            calibrated_p: None,
         };
         Ok(vec![Proposal {
             legs: vec![leg; self.legs],
@@ -263,6 +264,7 @@ fn world_with(
             max_spread_cents: 20,
         },
         max_sets_per_proposal: 10,
+        kelly_fraction: 0.25,
         veto_mind: mind,
         veto_strategies,
     };
@@ -478,6 +480,7 @@ fn veto_enabled_strategy_without_a_mind_is_a_construction_error() {
             max_spread_cents: 20,
         },
         max_sets_per_proposal: 10,
+        kelly_fraction: 0.25,
         veto_mind: None,
         veto_strategies: vec![StrategyId::new("test_fade").unwrap()],
     };
@@ -517,6 +520,7 @@ fn multileg_proposal_from_veto_enrolled_strategy_is_suppressed_whole() {
             max_spread_cents: 20,
         },
         max_sets_per_proposal: 10,
+        kelly_fraction: 0.25,
         veto_mind: Some(mind),
         veto_strategies: vec![StrategyId::new("test_fade").unwrap()],
     };

@@ -198,6 +198,7 @@ impl Strategy for TestBuyer {
                 action: Action::Buy,
                 limit_price: ask.price,
                 fair_value: Cents::new(ask.price.raw() + 5),
+                calibrated_p: None,
             }],
             group_policy: None,
             urgency: Urgency::Taker,
@@ -233,6 +234,7 @@ fn world(seed: u64) -> World {
             max_spread_cents: 90,
         },
         max_sets_per_proposal: 10,
+        kelly_fraction: 0.25,
         veto_mind: None,
         veto_strategies: Vec::new(),
     };

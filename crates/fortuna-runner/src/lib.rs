@@ -120,6 +120,10 @@ pub struct ProposedLeg {
     pub action: Action,
     pub limit_price: Cents,
     pub fair_value: Cents,
+    /// CALIBRATED win-probability of this leg's side (synthesis legs
+    /// only; mechanical legs carry None). The harness uses it for
+    /// haircut-Kelly sizing — the strategy never sizes (I6).
+    pub calibrated_p: Option<f64>,
 }
 
 /// What strategies emit. Sizing, gating, timing, and execution belong to

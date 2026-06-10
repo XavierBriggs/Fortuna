@@ -39,6 +39,7 @@ pub const SYNTH_EVENTS_SHADOW_QUOTA: u32 = 3;
 pub fn synth_events_config(
     edges: Vec<EdgeView>,
     triage: TriageDecision,
+    calibration: Option<fortuna_cognition::cycle::CalibrationContext>,
 ) -> Result<SynthesisConfig, RunnerError> {
     Ok(SynthesisConfig {
         id: StrategyId::new("synth_events").map_err(|e| RunnerError::Config {
@@ -53,6 +54,7 @@ pub fn synth_events_config(
         },
         triage,
         shadow_quota: SYNTH_EVENTS_SHADOW_QUOTA,
+        calibration,
         stage: SYNTH_EVENTS_STAGE_CAP,
     })
 }

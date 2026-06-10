@@ -25,7 +25,8 @@ use crate::{
 use async_trait::async_trait;
 use fortuna_cognition::context::{content_hash_of, ContextItem, SectionKind};
 use fortuna_cognition::cycle::{
-    ComparatorConfig, DecisionCycle, EdgeView, MarketQuote, ShadowSampler, TriageDecision,
+    CalibrationContext, ComparatorConfig, DecisionCycle, EdgeView, MarketQuote, ShadowSampler,
+    TriageDecision,
 };
 use fortuna_cognition::mind::Mind;
 use fortuna_core::bus::{BusEvent, EventPayload};
@@ -43,6 +44,10 @@ pub struct SynthesisConfig {
     pub triage: TriageDecision,
     /// Declined-trigger shadow runs per UTC day (T2.6 sampler).
     pub shadow_quota: u32,
+    /// The scope's calibration (spec 5.10), fetched by the composition
+    /// from the ledger. None => beliefs shrink fully to the market prior
+    /// and the strategy structurally prices no edge (fail closed).
+    pub calibration: Option<CalibrationContext>,
     /// The stage this instance runs at. The composition derives it via
     /// `promotion::effective_stage(declared_cap, operator_records)` —
     /// a strategy never promotes itself (I7).
@@ -61,13 +66,17 @@ pub struct SynthesisStrategy {
 
 impl SynthesisStrategy {
     pub fn new(config: SynthesisConfig, mind: Arc<dyn Mind>) -> SynthesisStrategy {
+        let mut cycle = DecisionCycle::new(
+            config.triage,
+            ShadowSampler::new(config.shadow_quota),
+            config.comparator,
+        );
+        if let Some(calibration) = config.calibration {
+            cycle = cycle.with_calibration(calibration);
+        }
         SynthesisStrategy {
             id: config.id,
-            cycle: DecisionCycle::new(
-                config.triage,
-                ShadowSampler::new(config.shadow_quota),
-                config.comparator,
-            ),
+            cycle,
             edges: config.edges,
             mind,
             metrics: StrategyMetrics::default(),
@@ -183,6 +192,9 @@ impl Strategy for SynthesisStrategy {
                     action: Action::Buy,
                     limit_price: Cents::new(candidate.max_price_cents),
                     fair_value: Cents::new(candidate.fair_cents),
+                    // The Kelly input for the harness's sizing (I6: the
+                    // strategy still sizes nothing).
+                    calibrated_p: Some(candidate.calibrated_p),
                 }],
                 group_policy: None,
                 urgency: Urgency::Passive,
