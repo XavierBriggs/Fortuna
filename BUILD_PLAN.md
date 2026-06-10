@@ -227,7 +227,13 @@ EXIT MET TO THE BUILDABLE EXTENT (2026-06-10):
       high-stakes flag; wake_events trigger; world-forward unscoreable rule
       (registry-checked, beliefs refused) + DiscoveryBudget throttle-before-spend;
       calibration queries exclude unscoreable.
-- [ ] T3.3 Shadow-mode model comparison harness (paired contexts, separate budget). (11)
+- [x] T3.3 Shadow-mode model comparison harness (paired contexts, separate budget). (11)
+      DONE 6276274: manifest-hash pairing (provable identical contexts); structurally
+      zero-order ShadowRun; own budget checked before sampling; first-K/day sampling;
+      evaluate_model_swap I7 gate (>=30 paired per active category, Brier+CLV no
+      worse, dedup on pairing key, recommendation-only). Closed BOTH staged I7
+      invariant stubs (+ runner::promotion::effective_stage) — zero ignored tests
+      in fortuna-invariants.
 - [ ] T3.4 Polymarket US adapter (fixtures-gated; stub + GAPS entry if fixtures absent).
 - [ ] T3.5 `synth_events` strategy in Paper. (6)
 - [ ] T3.6 FINAL_REPORT.md + operator go-live runbook + full acceptance checklist run.
