@@ -13,3 +13,10 @@ rust_decimal = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+fortuna-venues = { path = "../fortuna-venues" }
+futures = { workspace = true }
+toml = { workspace = true }
+
+[[test]]
+name = "dst"
+harness = false

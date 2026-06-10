@@ -3,6 +3,25 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T0.4 — DST harness
+
+- **Master entropy comes from `RealClock` unless `DST_MASTER_SEED` is set**,
+  and is always printed. Randomized novelty per run is the point (Antithesis/
+  VOPR pattern); reproducibility comes from the printed per-scenario seed,
+  not from a frozen corpus. RealClock is the one legal wall-time source.
+- **Quiesce-phase venue calls retry through INJECTED TRANSIENT errors**
+  (bounded). A transient API error is retryable by definition; failing a
+  scenario because the last poll randomly faulted would be harness noise,
+  not a system defect. Explicit outage windows are ended by advancing the
+  sim clock first.
+- **Phase-0 invariant set** asserted per scenario: I-money (venue cash equals
+  a replay of the dedup'd fill stream + payouts), I-reserve (no leaked
+  reservations after cancel-all; cash never negative; reserved never exceeds
+  cash), I-position (fill-derived == venue), I-delivery (no fill lost to
+  cursor mechanics), I-determinism (every scenario runs twice; traces must be
+  byte-identical). Order-journal/crash-recovery scenarios extend this at
+  T0.6 per BUILD_PLAN; gate scenarios at T0.5.
+
 ## T0.3 — venues, fees, sim venue
 
 - **`Venue::balance()` added to the trait.** The spec's 5.2 trait sketch omits

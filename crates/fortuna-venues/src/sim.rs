@@ -264,6 +264,13 @@ impl SimVenue {
         self.lock().outage_until = Some(until);
     }
 
+    /// Ground-truth totals for DST invariant checks:
+    /// (total cash, reserved, recorded fill count, pending order count).
+    pub fn inspect_totals(&self) -> (Cents, Cents, usize, usize) {
+        let st = self.lock();
+        (st.cash, st.reserved, st.fills.len(), st.pending.len())
+    }
+
     /// Live resting orders (ours), in placement order, qty = remaining.
     pub fn resting_orders(&self) -> Vec<(VenueOrderId, PlaceOrder)> {
         self.lock()
