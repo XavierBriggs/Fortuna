@@ -3,6 +3,34 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T2.2 — signal ingestion + trigger engine
+
+- **Dedup is per-(source, content_hash), receipt-time excluded.** The
+  same content re-fetched later IS the duplicate (RSS re-serves are not
+  news); the same payload from a DIFFERENT source is a distinct signal
+  (corroboration is information). The hash is SHA-256 over
+  source/kind/canonical-JSON payload — serde_json's default (sorted) map
+  makes key order unable to defeat dedup; the index rebuilds at boot from
+  the append-only store (`dedup_pairs`).
+- **The registry refuses fail-closed** — unregistered AND disabled
+  sources produce `Refused*` outcomes, never partial ingestion. Trust
+  tier is 0..=10 by construction (the schema CHECK range; the spec names
+  no vocabulary). Registry rows are updatable ON THE RECORD (updated_at);
+  demotion evidence lives in belief attribution + audit (T2.3+).
+- **Poll-or-push unifies as drain-on-poll:** push adapters buffer
+  internally and drain on `fetch`. `received_at` is assigned by the
+  ADAPTER at receipt from its injected clock (point-in-time authority).
+- **Trigger semantics:** request_cycle is Fire only when no cycle is in
+  flight for the event AND the post-completion debounce window has
+  passed; in-flight requests count as pending and `complete_cycle`
+  RETURNS that count (the caller audits and decides about a follow-up —
+  coalesced bursts are never silent). `begin_cycle` is idempotent.
+- **Keyword matching is data-only:** case-insensitive substring over the
+  payload's STRING values; nothing in any payload is ever interpreted as
+  an instruction (5.11 discipline).
+- **Triage (cheap-model gate between trigger and frontier) is T2.6** per
+  BUILD_PLAN, as is the divergence-rule's belief input (no beliefs yet).
+
 ## T2.1 — events, edges, snapshots, CLV
 
 - **Event lifecycle legality lives in cognition; the repo persists.** The

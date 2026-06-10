@@ -704,3 +704,124 @@ impl SnapshotsRepo {
         }))
     }
 }
+
+/// Append-only signal envelopes (spec 5.11). Point-in-time: rows are
+/// INSERT-only (table triggers refuse mutation); received_at is the
+/// adapter's receipt time.
+pub struct SignalsRepo {
+    pool: PgPool,
+}
+
+impl SignalsRepo {
+    pub fn new(pool: PgPool) -> SignalsRepo {
+        SignalsRepo { pool }
+    }
+
+    pub async fn insert(
+        &self,
+        signal_id: &str,
+        source: &str,
+        kind: &str,
+        received_at: &str,
+        content_hash: &str,
+        payload: &serde_json::Value,
+    ) -> Result<(), LedgerError> {
+        sqlx::query!(
+            r#"INSERT INTO signals
+               (signal_id, source, type, received_at, content_hash, payload)
+               VALUES ($1,$2,$3,$4,$5,$6)"#,
+            signal_id,
+            source,
+            kind,
+            received_at,
+            content_hash,
+            payload
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn count(&self) -> Result<i64, LedgerError> {
+        let row = sqlx::query!(r#"SELECT COUNT(*) as "n!" FROM signals"#)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row.n)
+    }
+
+    /// Boot-time rebuild input for the in-memory DedupIndex.
+    pub async fn dedup_pairs(&self) -> Result<Vec<(String, String)>, LedgerError> {
+        let rows = sqlx::query!(r#"SELECT DISTINCT source, content_hash FROM signals"#)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| (r.source, r.content_hash))
+            .collect())
+    }
+}
+
+/// One source_registry row (the funnel's allowlist).
+#[derive(Debug, Clone)]
+pub struct SourceRegistryRow {
+    pub source_id: String,
+    pub trust_tier: i32,
+    pub domain_tags: Vec<String>,
+    pub enabled: bool,
+}
+
+/// The curated source allowlist (spec 5.11): per-source trust tier +
+/// domain tags; demotions update the row ON THE RECORD (updated_at), the
+/// demotion evidence lives in belief attribution and audit.
+pub struct SourceRegistryRepo {
+    pool: PgPool,
+}
+
+impl SourceRegistryRepo {
+    pub fn new(pool: PgPool) -> SourceRegistryRepo {
+        SourceRegistryRepo { pool }
+    }
+
+    pub async fn upsert(
+        &self,
+        source_id: &str,
+        trust_tier: i32,
+        domain_tags: &[String],
+        enabled: bool,
+        at: &str,
+    ) -> Result<(), LedgerError> {
+        let tags = serde_json::to_value(domain_tags).unwrap_or_default();
+        sqlx::query!(
+            r#"INSERT INTO source_registry
+               (source_id, trust_tier, domain_tags, enabled, created_at, updated_at)
+               VALUES ($1,$2,$3,$4,$5,$5)
+               ON CONFLICT (source_id) DO UPDATE
+               SET trust_tier = $2, domain_tags = $3, enabled = $4, updated_at = $5"#,
+            source_id,
+            trust_tier,
+            tags,
+            enabled,
+            at
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn load_all(&self) -> Result<Vec<SourceRegistryRow>, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT source_id, trust_tier, domain_tags, enabled FROM source_registry"#
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| SourceRegistryRow {
+                source_id: r.source_id,
+                trust_tier: r.trust_tier,
+                domain_tags: serde_json::from_value(r.domain_tags).unwrap_or_default(),
+                enabled: r.enabled,
+            })
+            .collect())
+    }
+}

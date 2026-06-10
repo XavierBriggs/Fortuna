@@ -7,9 +7,12 @@ edition = "2021"
 fortuna-core = { path = "../fortuna-core" }
 async-trait = { workspace = true }
 thiserror = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
+futures = { workspace = true }
 proptest = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }

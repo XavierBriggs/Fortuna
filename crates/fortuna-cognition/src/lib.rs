@@ -27,4 +27,5 @@
 )]
 
 pub mod events;
+pub mod signals;
 pub mod veto;

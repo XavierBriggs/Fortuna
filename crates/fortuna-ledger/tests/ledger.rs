@@ -624,3 +624,92 @@ async fn snapshots_insert_and_latest_liquid_pre_benchmark_query(pool: PgPool) {
         .unwrap()
         .is_none());
 }
+
+// ---- signals + source registry repos (T2.2, spec 5.11) ----
+
+#[sqlx::test(migrations = "./migrations")]
+async fn signals_append_only_with_per_source_dedup_index_rebuild(pool: PgPool) {
+    let repo = fortuna_ledger::SignalsRepo::new(pool);
+    repo.insert(
+        "sig-1",
+        "aeolus",
+        "aeolus_run",
+        "2026-06-10T12:00:00.000Z",
+        "hash-a",
+        &serde_json::json!({"station": "KNYC"}),
+    )
+    .await
+    .unwrap();
+    repo.insert(
+        "sig-2",
+        "aeolus",
+        "aeolus_run",
+        "2026-06-10T13:00:00.000Z",
+        "hash-b",
+        &serde_json::json!({"station": "KBOS"}),
+    )
+    .await
+    .unwrap();
+    repo.insert(
+        "sig-3",
+        "rss-nws",
+        "news_item",
+        "2026-06-10T13:00:00.000Z",
+        "hash-a",
+        &serde_json::json!({"t": "x"}),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(repo.count().await.unwrap(), 3);
+
+    // The boot-time dedup index: (source, content_hash) pairs.
+    let pairs = repo.dedup_pairs().await.unwrap();
+    assert_eq!(pairs.len(), 3);
+    assert!(pairs.contains(&("aeolus".to_string(), "hash-a".to_string())));
+    assert!(pairs.contains(&("rss-nws".to_string(), "hash-a".to_string())));
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn source_registry_upserts_and_loads_allowlist(pool: PgPool) {
+    let repo = fortuna_ledger::SourceRegistryRepo::new(pool);
+    repo.upsert(
+        "aeolus",
+        7,
+        &["weather".to_string()],
+        true,
+        "2026-06-10T12:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    repo.upsert("sketchy-blog", 1, &[], false, "2026-06-10T12:00:00.000Z")
+        .await
+        .unwrap();
+    // Demotion on the record: an upsert updates tier + updated_at.
+    repo.upsert(
+        "aeolus",
+        4,
+        &["weather".to_string()],
+        true,
+        "2026-06-11T12:00:00.000Z",
+    )
+    .await
+    .unwrap();
+
+    let entries = repo.load_all().await.unwrap();
+    assert_eq!(entries.len(), 2);
+    let aeolus = entries.iter().find(|e| e.source_id == "aeolus").unwrap();
+    assert_eq!(aeolus.trust_tier, 4, "demotion persisted");
+    assert!(aeolus.enabled);
+    let blog = entries
+        .iter()
+        .find(|e| e.source_id == "sketchy-blog")
+        .unwrap();
+    assert!(!blog.enabled);
+
+    // Tier outside the schema CHECK is refused by the database.
+    assert!(repo
+        .upsert("aeolus", 11, &[], true, "2026-06-12T12:00:00.000Z")
+        .await
+        .is_err());
+}
