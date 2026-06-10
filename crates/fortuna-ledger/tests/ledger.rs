@@ -1155,3 +1155,130 @@ async fn resolved_stats_expose_brier_and_clv_for_the_review(pool: PgPool) {
     assert!((stats[0].brier - 0.09).abs() < 1e-9);
     assert!((stats[0].clv_bps.unwrap() - 150.0).abs() < 1e-9);
 }
+
+// ---- discovery persistence (T3.2, spec 5.12) ----
+
+#[sqlx::test(migrations = "./migrations")]
+async fn tradability_scores_persist_append_only_with_latest_query(pool: PgPool) {
+    let repo = fortuna_ledger::TradabilityRepo::new(pool);
+    repo.insert(
+        "ts-1",
+        "KX-A",
+        "kalshi",
+        0.42,
+        &serde_json::json!({"volume_factor": 0.7, "category_quality": 0.6}),
+        "2026-06-11T06:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    repo.insert(
+        "ts-2",
+        "KX-A",
+        "kalshi",
+        0.55,
+        &serde_json::json!({"volume_factor": 0.9, "category_quality": 0.61}),
+        "2026-06-12T06:00:00.000Z",
+    )
+    .await
+    .unwrap();
+
+    let latest = repo.latest("KX-A").await.unwrap().unwrap();
+    assert_eq!(latest.score_id, "ts-2");
+    assert!((latest.score - 0.55).abs() < 1e-9);
+    assert!(repo.latest("KX-UNSEEN").await.unwrap().is_none());
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn unscoreable_events_are_excluded_from_calibration_queries(pool: PgPool) {
+    let events = fortuna_ledger::EventsRepo::new(pool.clone());
+    let beliefs = fortuna_ledger::BeliefsRepo::new(pool.clone());
+
+    seed_event(&pool, "evt-good").await;
+    events
+        .create(
+            "watch:vibes",
+            "something unfalsifiable",
+            "vibes",
+            "my-cool-blog",
+            None,
+            "2026-06-20T18:00:00.000Z",
+            "weather",
+            "2026-06-10T12:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    events.mark_unscoreable("watch:vibes").await.unwrap();
+
+    for (b, evt) in [("b-good", "evt-good"), ("b-vibes", "watch:vibes")] {
+        beliefs
+            .insert(
+                b,
+                "2026-06-10T12:00:00.000Z",
+                evt,
+                0.7,
+                0.7,
+                "2026-06-20T18:00:00.000Z",
+                &serde_json::json!([]),
+                &serde_json::json!({"model_id": "stub"}),
+                None,
+            )
+            .await
+            .unwrap();
+        beliefs
+            .resolve_and_score(b, true, 0.09, None)
+            .await
+            .unwrap();
+    }
+
+    // Both resolved; only the scoreable event's belief reaches the
+    // calibration record (spec 5.12: no beliefs nobody can grade).
+    let samples = beliefs.resolved_samples("weather").await.unwrap();
+    assert_eq!(samples.len(), 1);
+    let stats = beliefs.resolved_stats("weather").await.unwrap();
+    assert_eq!(stats.len(), 1);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn current_edges_for_market_sees_chain_heads_only(pool: PgPool) {
+    seed_event(&pool, "evt-1").await;
+    let repo = fortuna_ledger::EdgesRepo::new(pool);
+    repo.insert_edge(
+        "e-1",
+        "KX-A",
+        "kalshi",
+        "evt-1",
+        "direct",
+        0.7,
+        "claude-fable-5",
+        None,
+        None,
+        "2026-06-10T12:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    // Confirmation supersedes.
+    repo.insert_edge(
+        "e-2",
+        "KX-A",
+        "kalshi",
+        "evt-1",
+        "direct",
+        0.7,
+        "claude-fable-5",
+        Some("operator"),
+        Some("e-1"),
+        "2026-06-11T12:00:00.000Z",
+    )
+    .await
+    .unwrap();
+
+    let edges = repo.current_edges_for_market("KX-A").await.unwrap();
+    assert_eq!(edges.len(), 1);
+    assert_eq!(edges[0].edge_id, "e-2");
+    assert_eq!(edges[0].confirmed_by.as_deref(), Some("operator"));
+    assert!(repo
+        .current_edges_for_market("KX-UNSEEN")
+        .await
+        .unwrap()
+        .is_empty());
+}

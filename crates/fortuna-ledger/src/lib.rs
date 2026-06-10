@@ -34,7 +34,7 @@ pub use repos::{
     CalibrationParamsRow, DiscrepanciesRepo, EdgeRow, EdgesRepo, EventRow, EventsRepo, FillsRepo,
     HaltsRepo, JournalRepo, JournalRow, LessonRow, LessonsRepo, ReservationsRepo, ResolvedStat,
     SettlementEntryRow, SettlementsRepo, SignalsRepo, SnapshotRow, SnapshotsRepo,
-    SourceRegistryRepo, SourceRegistryRow,
+    SourceRegistryRepo, SourceRegistryRow, TradabilityRepo, TradabilityRow,
 };
 
 pub use sqlx::PgPool;

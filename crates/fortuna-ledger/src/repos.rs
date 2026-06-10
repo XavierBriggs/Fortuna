@@ -618,6 +618,42 @@ impl EdgesRepo {
             })
             .collect())
     }
+
+    /// Current (non-superseded) edges for a MARKET — the market-back
+    /// discovery dedup query (already-edged listings skip normalization).
+    pub async fn current_edges_for_market(
+        &self,
+        market_id: &str,
+    ) -> Result<Vec<EdgeRow>, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT edge_id, market_id, venue, event_id, mapping_type,
+                      confidence, proposed_by, confirmed_by, supersedes
+               FROM market_event_edges e
+               WHERE market_id = $1
+                 AND NOT EXISTS (
+                     SELECT 1 FROM market_event_edges n
+                     WHERE n.supersedes = e.edge_id
+                 )
+               ORDER BY created_at, edge_id"#,
+            market_id
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| EdgeRow {
+                edge_id: r.edge_id,
+                market_id: r.market_id,
+                venue: r.venue,
+                event_id: r.event_id,
+                mapping_type: r.mapping_type,
+                confidence: r.confidence,
+                proposed_by: r.proposed_by,
+                confirmed_by: r.confirmed_by,
+                supersedes: r.supersedes,
+            })
+            .collect())
+    }
 }
 
 /// One persisted CLV price snapshot row (spec 5.5; append-only table).
@@ -976,13 +1012,14 @@ impl BeliefsRepo {
     }
 
     /// Calibration inputs: (p, outcome) for RESOLVED beliefs in a
-    /// category (joined through events).
+    /// category (joined through events). Unscoreable events are excluded
+    /// (spec 5.12: no beliefs nobody can grade).
     pub async fn resolved_samples(&self, category: &str) -> Result<Vec<(f64, bool)>, LedgerError> {
         let rows = sqlx::query!(
             r#"SELECT b.p, b.outcome as "outcome!"
                FROM beliefs b JOIN events e ON e.event_id = b.event_id
                WHERE b.status = 'resolved' AND b.outcome IS NOT NULL
-                 AND e.category = $1
+                 AND e.category = $1 AND NOT e.unscoreable
                ORDER BY b.created_at"#,
             category
         )
@@ -999,6 +1036,7 @@ impl BeliefsRepo {
                FROM beliefs b JOIN events e ON e.event_id = b.event_id
                WHERE b.status = 'resolved' AND b.outcome IS NOT NULL
                  AND b.brier IS NOT NULL AND e.category = $1
+                 AND NOT e.unscoreable
                ORDER BY b.created_at"#,
             category
         )
@@ -1359,5 +1397,77 @@ impl LessonsRepo {
                 supersedes: r.supersedes,
             })
             .collect())
+    }
+}
+
+// ------------------------------------------------------------------------
+// tradability scores (T3.2, spec 5.12 market-back discovery)
+// ------------------------------------------------------------------------
+
+/// One persisted tradability scoring run.
+#[derive(Debug, Clone)]
+pub struct TradabilityRow {
+    pub score_id: String,
+    pub market_id: String,
+    pub venue: String,
+    pub score: f64,
+    pub components: serde_json::Value,
+    pub created_at: String,
+}
+
+/// Tradability scores (spec 5.12: persisted per market, append-only —
+/// the score history is part of the discovery record).
+pub struct TradabilityRepo {
+    pool: PgPool,
+}
+
+impl TradabilityRepo {
+    pub fn new(pool: PgPool) -> TradabilityRepo {
+        TradabilityRepo { pool }
+    }
+
+    pub async fn insert(
+        &self,
+        score_id: &str,
+        market_id: &str,
+        venue: &str,
+        score: f64,
+        components: &serde_json::Value,
+        created_at: &str,
+    ) -> Result<(), LedgerError> {
+        sqlx::query!(
+            r#"INSERT INTO tradability_scores
+               (score_id, market_id, venue, score, components, created_at)
+               VALUES ($1,$2,$3,$4,$5,$6)"#,
+            score_id,
+            market_id,
+            venue,
+            score,
+            components,
+            created_at
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// The most recent score for a market, if any.
+    pub async fn latest(&self, market_id: &str) -> Result<Option<TradabilityRow>, LedgerError> {
+        let row = sqlx::query!(
+            r#"SELECT score_id, market_id, venue, score, components, created_at
+               FROM tradability_scores WHERE market_id = $1
+               ORDER BY created_at DESC, score_id DESC LIMIT 1"#,
+            market_id
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| TradabilityRow {
+            score_id: r.score_id,
+            market_id: r.market_id,
+            venue: r.venue,
+            score: r.score,
+            components: r.components,
+            created_at: r.created_at,
+        }))
     }
 }

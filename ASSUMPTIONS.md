@@ -3,6 +3,41 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T3.2 — discovery loops
+
+- **The normalization and watchlist contracts ride in the journal body
+  as strict JSON** (same vehicle as the weekly review): MindOutput's
+  I6-pinned surface is never grown; free prose degrades to an empty
+  outcome with a defect. Hallucinated event matches (ids not in the
+  existing set) and normalizations for non-survivor markets are dropped
+  loudly, never created.
+- **Match-before-create is enforced structurally:** a claimed match
+  must name a real existing event; a new-event draft must carry
+  statement + criteria. The composition supplies existing events per
+  category (the matching context) and creates rows only from validated
+  drafts.
+- **Every proposed edge gets a confirmation card** carrying BOTH the
+  model's confidence and the deterministic check score; high_stakes =
+  non-direct mapping OR deterministic score < 1.0 (resolution-source or
+  horizon mismatch — the UMA-mode failure). Cards are review-queue
+  artifacts; confirmation itself stays an operator superseding-insert
+  via EdgesRepo. Horizon tolerance for the deterministic check is 24h
+  (market close and event horizon rarely align to the minute).
+- **Tradability = min(volume/volume_norm, 1) x category calibration
+  quality, 0 if no checkable resolution source** (spec names the score,
+  not the formula). Persisted append-only (tradability_scores), one row
+  per scoring run; latest() is the read.
+- **Unscoreable rule:** the declared resolution source must be present
+  AND enabled in the source registry at creation; otherwise the event is
+  unscoreable, excluded from watchlist_count, and beliefs on it are
+  REFUSED with a defect (likewise beliefs on undeclared events).
+  resolved_samples/resolved_stats now exclude unscoreable events — the
+  exclusion lives in the QUERY so every calibration consumer inherits it.
+- **DiscoveryBudget throttles BEFORE spending** (00:00 UTC roll, like
+  CostBudget); a throttled loop is not a defect. "World-forward is the
+  first thing throttled" is composition ordering: it shares the budget
+  and runs after market-back.
+
 ## T3.1 — weekly/monthly review jobs
 
 - **The weekly review's deterministic core never depends on the mind.**
