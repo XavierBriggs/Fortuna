@@ -3,6 +3,86 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T0.7 — state crate
+
+- **THE PAIR-VALUE RULE (correction found in hostile review):** YES and NO
+  are tracked as SEPARATE lots everywhere (sim venue positions, the state
+  book, marks, DST derivation) and never net against each other. A held
+  YES+NO pair pays exactly $1 at settlement regardless of outcome; the
+  original net-YES model (my T0.3 design, inherited by the first T0.7 cut)
+  silently destroyed that value and would have made the sum-arb strategy
+  (mech_structural) look like a guaranteed loser in Sim. `net_yes()` survives
+  as an EXPOSURE view only (direction risk for gate inputs), never a
+  valuation. Real Kalshi auto-nets pairs with an immediate $1/pair credit
+  (capital efficiency); holding both lots to settlement is value-equivalent
+  and conservative — the difference is recorded in GAPS for T1.1/T1.2.
+- **Reductions are close-only per lot**; a sell beyond the held lot is
+  `OverClose` (books-vs-venue discrepancy), never a silent flip.
+- **Proportional basis on close** = `floor(cost_basis x closed / held)` via
+  `div_euclid` (true floor, not Rust's truncation); dust stays in the open
+  basis and telescopes out exactly on the final close. Conservation
+  (proptested): `yes.basis + no.basis == net cash into the market's
+  positions + realized_pnl` at every step.
+- **Settlement realizes BOTH lots** (winner at payout, loser at zero) and
+  returns the venue-owed payout (winner lot only); voids refund total basis
+  across both lots and never touch realized PnL (spec 5.13: the world broke
+  the question). Settling/voiding an untracked market errors (discrepancy
+  territory, never a silent no-op).
+- **Position entries are retained zeroed** after close/settle/void as
+  per-market realized-PnL/fee accumulators; lifecycle resets to Open.
+- **Marks** price each lot independently against the book (YES at bid, NO at
+  100-ask) and sum — a pair marks at ~the 100c pair value minus spread.
+  Stale (strictly older than max age) or wide (strictly above max spread,
+  both touches present) books still mark at the touch but set `wide_flag`;
+  a missing needed touch or missing book marks ZERO with the flag (no
+  reliable exit value; a binary lot is never worth less than zero); a
+  degenerate ask above 100c clamps to zero + flag.
+- **Account views are pure functions of explicit inputs**; `deployable` may
+  go negative (over-commitment is reported, never masked); Disputed /
+  ResolutionPending positions are excluded from floating while their
+  worst-case exposure is reported separately (spec 5.13).
+- **Reservations:** one active reservation per intent (duplicates error);
+  release is exactly-once (second release returns false, never
+  double-frees); rebuild replaces ALL state and ACCEPTS over-envelope totals
+  (flagged via `over_envelope`) so a reduced envelope config cannot brick
+  boot — new reservations still fail while old ones unwind; unknown-strategy
+  entries rebuild (flagged) but new reserves fail closed.
+- **Drawdown monitor:** day = 00:00 UTC, auto-rolled inside `check`; breach
+  at `loss >= limit` (limit > 0; non-positive limit disables); breach is
+  STICKY for the rest of the UTC day even through recovery — defense in
+  depth, the gates' halt flag (human re-arm only) is the real lock (I2
+  invariant test implemented at this task).
+
+## T0.8 — ledger schema (decisions made at migration design time)
+
+- **Timestamps are TEXT ISO8601** (fixed-ms, the in-process wire form), per
+  the spec 5.5 DDL and the conventions line. Lexical order == chronological
+  order at fixed precision, so range queries and partition bounds work.
+  TIMESTAMPTZ would be more idiomatic Postgres; following the spec's DDL is
+  the conservative read.
+- **Append-only is enforced in the DATABASE too** (BEFORE UPDATE/DELETE
+  triggers raising exceptions), not just at the application layer. CLAUDE.md
+  demands INSERT-only repos; the trigger makes I5 hold even against bugs or
+  manual psql. `beliefs` is content-immutable via a column-level guard:
+  only status/outcome/brier/clv_bps may change (the scoring job's columns,
+  spec 5.5).
+- **audit and signals are PARTITION BY RANGE with a DEFAULT partition.**
+  Spec Section 7 wants monthly partitions; the DEFAULT partition makes the
+  system correct from day one, and monthly partitions can be attached by an
+  ops job when volume warrants (recorded as future ops work, not a gap in
+  correctness).
+- **Supersession is pure-INSERT**: new rows carry `supersedes` pointing at
+  what they replace (settlements, edges, lessons, beliefs); the old row is
+  never touched. Queries derive "current" by anti-joining supersedes.
+- **Reservations and halts persist as event streams**
+  (reservation_events/halt_events, INSERT-only) and fold to current state at
+  boot — reservations because spec 5.14 defines them as derived state, halts
+  because I2 must survive restarts (a reboot must NOT clear a drawdown halt;
+  the runner restores halt flags from the fold).
+- **exec_cursors is mutable** (a checkpoint, not history) — cursor positions
+  are derived state like reservations, but a single-row-per-venue checkpoint
+  is the honest shape; history lives in audit.
+
 ## T0.6 — order manager
 
 - **`Venue::open_orders()` added to the trait** (5.2 sketch omits it; 5.4 boot

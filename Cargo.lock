@@ -284,6 +284,7 @@ version = "0.1.0"
 dependencies = [
  "fortuna-core",
  "fortuna-gates",
+ "fortuna-state",
  "fortuna-venues",
  "futures",
  "proptest",
@@ -313,6 +314,8 @@ dependencies = [
 name = "fortuna-state"
 version = "0.1.0"
 dependencies = [
+ "fortuna-core",
+ "fortuna-venues",
  "proptest",
  "serde",
  "thiserror",

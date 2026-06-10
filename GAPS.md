@@ -26,6 +26,12 @@ requires this file to contain ONLY operator-blocked items, each with exact unblo
 - **Kalshi maker-fee x multiplier scaling is inferred** from live page math
   (strong numeric evidence, no explicit doc sentence). Verify against fee
   fields in recorded fixtures at T1.1.
+- **Kalshi pair auto-netting not modeled (T0.7, 2026-06-09).** The sim venue
+  holds YES and NO lots to settlement (value-identical to netting, capital-
+  inefficient: real Kalshi credits $1/pair immediately when both sides are
+  held, freeing balance early). Verify the exact netting behavior against
+  fixtures at T1.1 and model the early credit in the paper engine (T1.2) if
+  confirmed — it affects capital-efficiency realism, never PnL totals.
 - **Polymarket per-market fee params should be read at runtime** (fd fields /
   feeSchedule on markets) rather than hard-coding category tables — T3.4
   design note from research; engine already takes schedules as data.

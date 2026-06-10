@@ -101,10 +101,13 @@ pub struct OpenOrder {
 }
 
 /// Venue-reported position (venue truth; reconciled against local state).
-/// `net_yes` > 0 is long YES, < 0 is long NO.
+/// YES and NO lots are tracked SEPARATELY: a YES+NO pair is worth $1 at
+/// settlement regardless of outcome, so netting them away would destroy
+/// real value (the sum-arb strategies depend on exactly this).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VenuePosition {
     pub market: MarketId,
-    pub net_yes: i64,
+    pub yes: i64,
+    pub no: i64,
     pub cost: Cents,
 }

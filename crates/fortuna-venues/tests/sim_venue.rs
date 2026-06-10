@@ -139,7 +139,7 @@ fn buy_yes_crossing_fills_through_visible_depth() {
     // Position: +15 yes.
     let pos = futures::executor::block_on(v.positions()).unwrap();
     assert_eq!(pos.len(), 1);
-    assert_eq!(pos[0].net_yes, 15);
+    assert_eq!((pos[0].yes, pos[0].no), (15, 0));
     // Visible depth consumed: 55-level gone, 5 left at 60.
     let book = futures::executor::block_on(v.book(&mkt("TEST-MKT"))).unwrap();
     assert_eq!(book.yes_asks, vec![level(60, 5)]);
@@ -205,9 +205,9 @@ fn buy_no_translates_against_yes_bids() {
     assert_eq!(fills.len(), 1);
     assert_eq!(fills[0].side, Side::No);
     assert_eq!((fills[0].price, fills[0].qty.raw()), (Cents::new(55), 10));
-    // Position: -10 net yes (long 10 NO).
+    // Position: long 10 NO (tracked separately from YES).
     let pos = futures::executor::block_on(v.positions()).unwrap();
-    assert_eq!(pos[0].net_yes, -10);
+    assert_eq!((pos[0].yes, pos[0].no), (0, 10));
     // Yes bid consumed.
     let book = futures::executor::block_on(v.book(&mkt("TEST-MKT"))).unwrap();
     assert!(book.yes_bids.is_empty());
@@ -226,7 +226,7 @@ fn sell_requires_a_held_position() {
     v.place_raw(order("c3", Side::Yes, Action::Sell, 45, 5))
         .unwrap();
     let pos = futures::executor::block_on(v.positions()).unwrap();
-    assert_eq!(pos[0].net_yes, 5);
+    assert_eq!((pos[0].yes, pos[0].no), (5, 0));
 }
 
 #[test]
@@ -355,6 +355,23 @@ fn settle_pays_winning_positions_and_clears_them() {
         .is_empty());
     // Settling again: market no longer settleable.
     assert!(v.settle_market(&mkt("TEST-MKT"), Side::Yes).is_err());
+}
+
+#[test]
+fn settle_pays_each_side_independently_pair_value_preserved() {
+    // Hold 10 YES (cost 550 + 18 fee) AND 10 NO. NO liquidity comes from the
+    // yes-bid mirror at 100-45=55 (cost 550 + fee 18). A YES settlement pays
+    // the YES lot 1000; the NO lot pays 0. The pair's $1 value is never
+    // netted away.
+    let (_c, v) = venue();
+    v.place_raw(order("c1", Side::Yes, Action::Buy, 55, 10))
+        .unwrap();
+    v.place_raw(order("c2", Side::No, Action::Buy, 55, 10))
+        .unwrap();
+    let pos = futures::executor::block_on(v.positions()).unwrap();
+    assert_eq!((pos[0].yes, pos[0].no), (10, 10));
+    let payout = v.settle_market(&mkt("TEST-MKT"), Side::Yes).unwrap();
+    assert_eq!(payout, Cents::new(1_000));
 }
 
 #[test]

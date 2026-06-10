@@ -581,19 +581,19 @@ fn run_world(seed: u64, verbose: bool) -> Result<String, String> {
         ));
     }
 
-    // I-position.
-    let mut derived: BTreeMap<MarketId, i64> = BTreeMap::new();
+    // I-position (per side: YES and NO lots never net against each other).
+    let mut derived: BTreeMap<MarketId, (i64, i64)> = BTreeMap::new();
     for f in w.seen.values() {
-        let delta = match (f.side, f.action) {
-            (Side::Yes, Action::Buy) => f.qty.raw(),
-            (Side::Yes, Action::Sell) => -f.qty.raw(),
-            (Side::No, Action::Buy) => -f.qty.raw(),
-            (Side::No, Action::Sell) => f.qty.raw(),
-        };
-        *derived.entry(f.market.clone()).or_insert(0) += delta;
+        let e = derived.entry(f.market.clone()).or_insert((0, 0));
+        match (f.side, f.action) {
+            (Side::Yes, Action::Buy) => e.0 += f.qty.raw(),
+            (Side::Yes, Action::Sell) => e.0 -= f.qty.raw(),
+            (Side::No, Action::Buy) => e.1 += f.qty.raw(),
+            (Side::No, Action::Sell) => e.1 -= f.qty.raw(),
+        }
     }
-    derived.retain(|m, n| *n != 0 && !w.settled.contains(m));
-    let venue_positions: BTreeMap<MarketId, i64> = {
+    derived.retain(|m, (y, n)| (*y != 0 || *n != 0) && !w.settled.contains(m));
+    let venue_positions: BTreeMap<MarketId, (i64, i64)> = {
         let mut result = None;
         for _ in 0..100 {
             match futures::executor::block_on(w.venue.positions()) {
@@ -608,7 +608,7 @@ fn run_world(seed: u64, verbose: bool) -> Result<String, String> {
         result
             .ok_or("positions: 100 transient errors in a row")?
             .into_iter()
-            .map(|p| (p.market, p.net_yes))
+            .map(|p| (p.market, (p.yes, p.no)))
             .collect()
     };
     if derived != venue_positions {

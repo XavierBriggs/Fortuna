@@ -113,7 +113,8 @@ struct FillRec {
 
 #[derive(Debug, Clone, Default)]
 struct Pos {
-    net_yes: i64,
+    yes: i64,
+    no: i64,
     cost: Cents,
 }
 
@@ -379,8 +380,8 @@ impl SimVenue {
         let payout = match st.positions.get(market) {
             Some(pos) => {
                 let winning = match winner {
-                    Side::Yes => pos.net_yes.max(0),
-                    Side::No => (-pos.net_yes).max(0),
+                    Side::Yes => pos.yes.max(0),
+                    Side::No => pos.no.max(0),
                 };
                 payout_per.checked_mul(winning).map_err(VenueError::Money)?
             }
@@ -487,15 +488,14 @@ impl SimVenue {
                 }
             }
             Action::Sell => {
-                let held = st
+                let held_side = st
                     .positions
                     .get(&req.market)
-                    .map(|p| p.net_yes)
+                    .map(|p| match req.side {
+                        Side::Yes => p.yes,
+                        Side::No => p.no,
+                    })
                     .unwrap_or(0);
-                let held_side = match req.side {
-                    Side::Yes => held.max(0),
-                    Side::No => (-held).max(0),
-                };
                 let already_selling: i64 = st
                     .resting
                     .iter()
@@ -686,8 +686,8 @@ impl SimVenue {
                     .map_err(VenueError::Money)?;
                 let pos = st.positions.entry(req.market.clone()).or_default();
                 match req.side {
-                    Side::Yes => pos.net_yes += take,
-                    Side::No => pos.net_yes -= take,
+                    Side::Yes => pos.yes += take,
+                    Side::No => pos.no += take,
                 }
                 pos.cost = pos.cost.checked_add(gross).map_err(VenueError::Money)?;
             }
@@ -699,8 +699,8 @@ impl SimVenue {
                     .map_err(VenueError::Money)?;
                 let pos = st.positions.entry(req.market.clone()).or_default();
                 match req.side {
-                    Side::Yes => pos.net_yes -= take,
-                    Side::No => pos.net_yes += take,
+                    Side::Yes => pos.yes -= take,
+                    Side::No => pos.no -= take,
                 }
                 pos.cost = pos.cost.checked_sub(gross).map_err(VenueError::Money)?;
             }
@@ -708,7 +708,7 @@ impl SimVenue {
         if st
             .positions
             .get(&req.market)
-            .is_some_and(|p| p.net_yes == 0)
+            .is_some_and(|p| p.yes == 0 && p.no == 0)
         {
             st.positions.remove(&req.market);
         }
@@ -938,7 +938,8 @@ impl crate::Venue for SimVenue {
             .iter()
             .map(|(market, pos)| VenuePosition {
                 market: market.clone(),
-                net_yes: pos.net_yes,
+                yes: pos.yes,
+                no: pos.no,
                 cost: pos.cost,
             })
             .collect())
