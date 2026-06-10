@@ -47,8 +47,12 @@ Tick boxes with a one-line completion note and the commit hash.
       DONE 11e8313: 64 state tests + I2 invariant (lifecycle + randomized equity-path
       property) green; hostile review caught + fixed the net-YES pair-value bug across
       venue/DST/state (per-side lots; pair settles at \$1); conservation proptested.
-- [ ] T0.8 `fortuna-ledger`: Postgres schema + migrations for ALL Section 7 tables;
+- [x] T0.8 `fortuna-ledger`: Postgres schema + migrations for ALL Section 7 tables;
       append-only audit writer (write failure => halt); sqlx setup. (5.5, 5.13, 7, I5)
+      DONE a1e4449: 22 tables w/ DB-level append-only triggers + beliefs content guard
+      (verified rejecting UPDATE/DELETE); Pg crash-recovery round trip proven; I5
+      implemented (mutation refused, replay byte-identical, dead-store halt contract);
+      halt_events make I2 survive restarts; .sqlx offline cache + CI postgres service.
 - [ ] T0.9 `fortuna-ops`: config loader, Slack client + channel routing, kill-switch
       STANDALONE binary (no Postgres, own credentials, freeze-and-cancel), CLI
       (halt/re-arm/kill/status), dead-man pinger. (8, I4)
