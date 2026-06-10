@@ -145,8 +145,12 @@ EXIT MET TO THE BUILDABLE EXTENT (2026-06-10, commit bee37a6):
       UMA-mode); once-per-window scheduler excluding post-benchmark; integer-exact CLV
       with None-over-fake-CLV liquidity filter; Events/Edges/Snapshots Pg repos.
       Belief-row job wiring -> T2.3; on-trade hook -> T2.6.
-- [ ] T2.2 Signals: `Source` trait, normalizer/envelope/dedup, source registry with
+- [x] T2.2 Signals: `Source` trait, normalizer/envelope/dedup, source registry with
       trust tiers, trigger engine (rules + debounce + per-event serialization). (5.11, 5.8)
+      DONE 674f7f0: drain-on-poll Source trait; canonical-JSON SHA-256 dedup per
+      (source, hash) w/ boot rebuild; fail-closed registry allowlist (tier 0..=10);
+      trigger engine w/ one-cycle-per-event serialization + debounce + REPORTED
+      coalesced counts; Signals/SourceRegistry Pg repos; 11 new tests.
 - [ ] T2.3 Belief ledger ops + freshness policy + scoring (Brier, calibration curves
       per model/strategy/category). (5.5, 5.10)
 - [ ] T2.4 Context assembler with manifests + replayability (snapshotted computed
