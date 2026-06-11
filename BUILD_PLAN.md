@@ -294,6 +294,27 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       cancel working orders + final audit row. `fortuna stop` (T4.4) depends
       on this contract existing and being test-asserted.
       Verifier-gated like every batch.
+      PROGRESS 2026-06-11 (box stays UNTICKED — one design-blocked item
+      remains): fortuna-live BOOTS AND RUNS, gate-clean, 702 tests / DST
+      all stages green, real-exit-code battery. WIRED + tested: fail-
+      closed boot (config+env), PgIntentJournal + PgAuditSink (I5 fail-
+      synchronous, audit-death-mid-staging aborts the group), journal-
+      generic SimRunner, clock-injected run loop (halt poll <=500ms with
+      identity-dedup + poll-failure alert), SIGTERM/SIGINT graceful
+      shutdown (cancels working orders + final audit row, smoke-asserted
+      via the stop channel incl. a working-orders-at-stop variant),
+      GET-only metrics endpoint, degrade-alert scrape consumer routed to
+      Slack (env-built router) + always audited, dead-man heartbeat
+      (independent task, mock-tested seam), daily-boundary scheduler ->
+      #fortuna-digest, belief-drain + persist path, kalshi-refuses-until-
+      fixtures, [sim] world from config. Survived the daemon gate's BLOCK
+      (all 7 findings fixed/ledgered). REMAINING (the one blocker to the
+      tick): the SYNTHESIS strategy composed into the daemon main — feeds
+      calibration_for_scope + persist_beliefs + the rich digest + weekly/
+      monthly reviews. BLOCKED on a deliberate design call (where the
+      daemon's synthesis EDGES come from: EdgesRepo load vs config vs the
+      discovery loop) — recorded in GAPS, not guessed. EXIT (continuous
+      Sim week with the real mind) also awaits that wiring.
 - [ ] T4.2 POST-FIXTURE tranche (blocked on the operator recording session):
       Kalshi WS dial (signed handshake, keep-alive, redial w/ resubscribe-on-gap),
       venue-generic recorded-stream replay into PaperVenue under both mech
