@@ -335,12 +335,16 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       Pg-down, cursor-pagination tests per the doc. Verifier-gated.
       PROGRESS (box stays unticked — slices remain): slice 1 (c3550f9) =
       read-only router + Option-capability state + gold/black shell;
-      slice 2 (this commit) = daemon-side `views_from` populating the
+      slice 2 (f8502c9) = daemon-side `views_from` populating the
       health + settlement views and gates/streams scalars from the runner's
       counters()/boards_json()/new active_halt(), wired into main's
-      between-segments closure (4 view tests; daemon_smoke green). REMAINING:
-      money/cognition views, audit-tail recents (R5 pool), streams fs-scan,
-      cursor-pagination test, Phase-3 shell/assets, R12 browser pass.
+      between-segments closure (4 view tests; daemon_smoke green);
+      slice 3 (this commit) = serve_dashboard MOUNTS rota_router (§6) so the
+      running daemon actually serves /rota + /api/rota/v1/* (was wired into
+      nothing); red-first merge test proves the populated view is served and
+      read-only survives. REMAINING: money/cognition views, audit-tail recents
+      (R5 pool), streams fs-scan, cursor-pagination test, Phase-3 shell/assets,
+      R12 browser pass.
 - [ ] T4.4 Operator CLI lifecycle (operator-directed 2026-06-11; design
       AUTHORITATIVE at docs/design/fortuna-cli.md INCLUDING its amendments
       section): `fortuna start/stop/status/logs/config-check` extending

@@ -65,13 +65,20 @@ async fn shell() -> Html<&'static str> {
 /// and the task's lifetime (spawn + abort).
 pub async fn serve_dashboard(
     listener: tokio::net::TcpListener,
-    state: Shared,
+    rota: crate::rota::RotaState,
 ) -> Result<(), std::io::Error> {
+    // The legacy Instrument routes share the SAME snapshot the ROTA console
+    // reads (RotaState.snapshot); ROTA mounts alongside at /rota + the
+    // /api/rota/v1 tree (T4.3 — "serve_dashboard gains RotaState, merges
+    // rota_router", design §6) so the live daemon actually serves the
+    // operator console, not just the legacy boards.
+    let state: Shared = rota.snapshot.clone();
     let app = Router::new()
         .route("/", get(shell))
         .route("/metrics", get(metrics))
         .route("/api/boards", get(boards))
-        .with_state(state);
+        .with_state(state)
+        .merge(crate::rota::rota_router(rota));
     axum::serve(listener, app).await
 }
 

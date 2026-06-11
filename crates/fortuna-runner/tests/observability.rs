@@ -11,6 +11,7 @@ use fortuna_exec::ExecPolicy;
 use fortuna_ops::dashboard::{serve_dashboard, DashboardSnapshot};
 use fortuna_ops::digest::{compose_daily_digest, DigestInputs, StrategyDigestRow};
 use fortuna_ops::metrics::MetricsRegistry;
+use fortuna_ops::rota::RotaState;
 use fortuna_runner::mech_structural::{MechStructural, MechStructuralConfig};
 use fortuna_runner::{MemoryAuditSink, RunnerConfig, SimRunner};
 use fortuna_state::MarkPolicy;
@@ -215,7 +216,10 @@ async fn dashboards_and_digest_render_from_sim_data() {
     let state = Arc::new(RwLock::new(snapshot));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let server = tokio::spawn(serve_dashboard(listener, Arc::clone(&state)));
+    let server = tokio::spawn(serve_dashboard(
+        listener,
+        RotaState::standalone(Arc::clone(&state)),
+    ));
     let client = reqwest::Client::new();
     let boards: serde_json::Value = client
         .get(format!("http://{addr}/api/boards"))

@@ -209,6 +209,15 @@ REMAINING (composition-wiring; T4.1 in progress — status 2026-06-11):
   tests (producer shape) + slice-1 populated_view_is_served_verbatim
   (consumer; read_view is a literal views.get(name) passthrough) +
   daemon_smoke (wiring) — no new dev-dep.
+- Slice 3 (this commit): serve_dashboard now MOUNTS rota_router (§6) — before
+  this, rota_router was wired into nothing and the running daemon served only
+  the legacy Instrument boards, so slices 1+2 were unreachable live. Signature
+  Shared -> RotaState; legacy routes derive state from rota.snapshot, ROTA
+  merges in at /rota + /api/rota/v1/* (no route overlap). Daemon main builds
+  RotaState::standalone (pool/perishable_dir None this slice). 3 callers
+  updated; new red-first test proves /rota serves the populated health view and
+  that read-only survives the merge (POST -> 405). An operator running the
+  daemon can now open /rota.
 - DEFERRED (capability-gated; keys ABSENT not faked-zero so a panel never
   reads falsely "all clear"): money view (needs the new boards "account"
   field, R6); cognition view (R7 — BeliefsRepo::recent + calibration-scope

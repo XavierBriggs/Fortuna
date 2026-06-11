@@ -441,6 +441,25 @@ book_age_ms (filesystem scan + new boards field), health.last_tick_age_ms
 views/fields; R5 pool; cursor-pagination test; the streams fs-scan; the
 Phase-3 shell/assets; R12 browser pass.
 
+SLICE 3 BUILT (2026-06-11): serve_dashboard now MOUNTS the ROTA console
+(design §6: "serve_dashboard gains RotaState, merges rota_router"). Before
+this, rota_router existed but was wired into NOTHING — the running daemon
+served only the legacy Instrument boards, so slices 1+2 were unreachable
+live (the dashboard was up only in fortuna-ops tests). serve_dashboard's
+signature changed Shared -> RotaState; it derives the legacy routes' state
+from rota.snapshot and `.merge`s rota_router(rota) (both Router<()> after
+with_state — no route overlap: legacy /,/metrics,/api/boards vs ROTA
+/rota,/api/rota/v1/*). The daemon main builds RotaState::standalone(snapshot)
+(pool/perishable_dir None this slice — the operator's primary panels need
+only the snapshot; the audit tail + recorder scan are later slices). The 3
+serve_dashboard callers (dashboard + observability tests, daemon main) all
+updated. New test serve_dashboard_mounts_the_rota_console_alongside_the_
+instrument: red-first (/rota 404 before the merge), proves the populated
+slice-2 health view is SERVED through the merged tree and that ROTA's
+read-only doctrine survives the merge (POST/rota -> 405). NOW: an operator
+running the daemon can open /rota and watch live health/settlement/gates/
+streams. REMAINING unchanged from slice 2 minus the mounting.
+
 - V-1 PASS: serve_dashboard + the three routes present (dashboard.rs ~52-68;
   `route("/")`, `/metrics`, `/api/boards`); POST-405 loop at
   tests/dashboard.rs:74-80 exactly as cited.

@@ -87,7 +87,12 @@ async fn main() -> Result<()> {
     );
     let dash_state = snapshot.clone();
     tokio::spawn(async move {
-        if let Err(e) = serve_dashboard(listener, dash_state).await {
+        // ROTA mounts alongside the legacy boards off the same snapshot
+        // (T4.3). pool/perishable_dir stay None this slice — the views the
+        // operator watches need only the snapshot; the audit tail + recorder
+        // scan land in later slices.
+        let rota = fortuna_ops::rota::RotaState::standalone(dash_state);
+        if let Err(e) = serve_dashboard(listener, rota).await {
             eprintln!("fortuna-live: metrics endpoint died: {e}");
         }
     });
