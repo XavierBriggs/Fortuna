@@ -408,3 +408,60 @@ fn settle_emits_a_winner_notice_on_the_stream() {
     let after = futures::executor::block_on(v.settlements_since(page.next_cursor)).unwrap();
     assert!(after.notices.is_empty());
 }
+
+// ---- stream-fed paper trading (the recorded-stream replay seam) ----
+
+#[test]
+fn a_recorded_stream_drives_paper_fills_through_the_assembler() {
+    use fortuna_paper::feed_stream_event;
+    use fortuna_venues::stream::{BookAssembler, MarketStream, RecordedStream, StreamEvent};
+
+    let (_c, v) = paper(50);
+    // Our maker bid rests at 50 (book from the harness: 45/55).
+    futures::executor::block_on(v.place(gated(61, Side::Yes, Action::Buy, 50, 10))).unwrap();
+
+    // The recorded stream: a fresh snapshot, a delta, then prints — a
+    // touch at 50 (must NOT fill) and a trade THROUGH at 49 (must fill).
+    let mut stream = RecordedStream::new(vec![
+        StreamEvent::BookSnapshot {
+            market: mkt("PM"),
+            yes_bids: vec![lvl(45, 50)],
+            yes_asks: vec![lvl(55, 50)],
+        },
+        StreamEvent::BookDelta {
+            market: mkt("PM"),
+            side: Side::Yes,
+            yes_price: Cents::new(46),
+            delta_contracts: 30,
+        },
+        StreamEvent::Trade {
+            market: mkt("PM"),
+            yes_price: Cents::new(50),
+            qty: 100,
+        },
+        StreamEvent::Trade {
+            market: mkt("PM"),
+            yes_price: Cents::new(49),
+            qty: 30,
+        },
+    ]);
+
+    let mut assembler = BookAssembler::new();
+    let mut events = 0;
+    loop {
+        let Some(event) = futures::executor::block_on(stream.next_event()).unwrap() else {
+            break;
+        };
+        feed_stream_event(&v, &mut assembler, event, t0()).unwrap();
+        events += 1;
+    }
+    assert_eq!(events, 4);
+
+    // Touch at 50 never filled; the 49 trade-through filled with the
+    // 50% haircut: floor(30/2) = 15, capped at our 10.
+    let fills = all_fills(&v);
+    assert_eq!(fills.len(), 1, "exactly the trade-through fill");
+    assert_eq!(fills[0].qty.raw(), 10);
+    assert_eq!(fills[0].price, Cents::new(50), "at OUR resting price");
+    assert!(fills[0].is_maker);
+}

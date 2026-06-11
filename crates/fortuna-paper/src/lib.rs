@@ -761,3 +761,33 @@ impl Venue for PaperVenue {
         &self.fees
     }
 }
+
+/// Feed one venue-normalized stream event into the paper engine (the
+/// recorded-stream replay seam: operator recordings — or synthetic
+/// sequences — drive the SAME fill rules as the pushed-book API). Book
+/// events fold through the caller's assembler so deltas always apply to
+/// a whole snapshot, never a torn book; trades hit the print path.
+pub fn feed_stream_event(
+    venue: &PaperVenue,
+    assembler: &mut fortuna_venues::stream::BookAssembler,
+    event: fortuna_venues::stream::StreamEvent,
+    at: fortuna_core::clock::UtcTimestamp,
+) -> Result<(), VenueError> {
+    use fortuna_venues::stream::StreamEvent;
+    match event {
+        StreamEvent::Trade {
+            market,
+            yes_price,
+            qty,
+        } => {
+            venue.apply_public_trade(&market, yes_price, qty)?;
+            Ok(())
+        }
+        book_event => {
+            if let Some(book) = assembler.apply(book_event, at)? {
+                venue.apply_book(&book.market, book.yes_bids, book.yes_asks)?;
+            }
+            Ok(())
+        }
+    }
+}

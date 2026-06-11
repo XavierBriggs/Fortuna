@@ -185,6 +185,14 @@ S14). Key endpoints (S1, S14–S16):
 Pagination on the gateway is `limit`/`offset` (S14); on the retail authenticated API
 it is `cursor`/`nextCursor` + `eof` (S17, S18). Two different conventions — do not mix.
 
+**Intl "CLOB API vs Gamma API" distinction — NOT applicable to the US entity.** The
+Intl stack (clob.polymarket.com for trading, gamma-api.polymarket.com for catalog,
+EIP-712 signed orders, token IDs) does not exist here. The closest structural analog
+is: `api.polymarket.us` ≈ the trading/CLOB role, `gateway.polymarket.us` ≈ the
+catalog/Gamma role — but the protocols, identifiers (market **slugs**, not condition
+IDs/token IDs), auth, and schemas are entirely different (S3). Nothing from
+`py-clob-client`/Intl SDKs transfers.
+
 ### 2c. Institutional "Polymarket Exchange" stack — `https://api.{dev01|preprod|prod}.polymarketexchange.com`
 
 For onboarded firms (Entity Participant Agreement → onboarding@polymarket.us, S29).

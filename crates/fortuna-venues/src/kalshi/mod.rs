@@ -48,6 +48,7 @@ pub mod adapter;
 pub mod auth;
 pub mod client;
 pub mod dto;
+pub mod ws;
 
 pub use adapter::{FeeReconciliation, KalshiVenue};
 pub use auth::{KalshiSigner, SignedHeaders};

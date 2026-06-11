@@ -26,6 +26,7 @@ pub mod fees;
 pub mod kalshi;
 pub mod polymarket;
 pub mod sim;
+pub mod stream;
 mod types;
 
 use async_trait::async_trait;

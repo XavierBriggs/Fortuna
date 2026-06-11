@@ -3,6 +3,36 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## Latency levers: concurrent legs + stream ingestion (operator-directed)
+
+- **Concurrent leg submission preserves the determinism doctrine:** the
+  phase split (journal-persist all legs -> place all CONCURRENTLY ->
+  process outcomes in LEG ORDER) keeps every decision artifact and
+  journal write deterministic; only the network IO overlaps. join_all
+  returns in input order regardless of completion order. All-or-nothing
+  UPGRADED: any pre-submission gate rejection aborts the whole group
+  (the old interleaved path could strand a submitted leg for the unwind
+  machinery). Proven by a yielding mock venue (max in-flight == legs on
+  a single-threaded executor).
+- **Stream layer is canonical YES space, cents-only:** StreamEvent /
+  MarketStream / BookAssembler are venue-generic; the assembler refuses
+  TORN states (delta before snapshot, overdrawn level) — a book we
+  cannot prove whole is never trusted. RecordedStream replays captured
+  sequences; fortuna-paper::feed_stream_event drives the SAME honest
+  fill rules from a stream (the recorded-replay seam — operator
+  recordings plug in directly).
+- **Kalshi WS message layer is doc-derived and dial-gated:** parser +
+  subscribe builder built ONLY against the verbatim official examples
+  and archived AsyncAPI spec (research 2026-06-10). We subscribe with
+  use_yes_price=true and parse BOTH sides on the yes scale (the no-leg
+  default is the documented trap; flag semantics are fixture item #20).
+  Sub-cent prices/fractional counts refuse. Per-sid seq tracking: a gap
+  returns SeqGap and the baseline does NOT advance — every subsequent
+  delta keeps screaming until the composition resubscribes. The live
+  socket DIAL (signed-handshake auth, ping/pong, redial policy) is
+  fixture-gated like the REST adapter; ws-via-fill stays out of scope
+  (REST fills remain the fee source of truth).
+
 ## F1-F3 + telemetry hardening (operator-prompted, post-independent-gate)
 
 - **Degrade is never silent (F1):** strategies buffer typed

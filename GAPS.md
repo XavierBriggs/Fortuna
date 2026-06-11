@@ -139,9 +139,13 @@ there by the independent e-gate:
   crates/fortuna-venues/tests/kalshi_doc_samples/README.md.
   The SAME capture must also include:
   - websocket `orderbook_snapshot`/`orderbook_delta` + public `trade`
-    messages (paper-engine recorded-stream replay; first post-fixture task
-    is the venue-generic runner composition replaying recordings into
-    PaperVenue under both mechanical strategies),
+    messages. (Status 2026-06-10: the WS MESSAGE layer is BUILT
+    doc-derived — parser, seq-gap detection, yes-scale subscribe builder,
+    BookAssembler, and the stream->PaperVenue replay seam are tested
+    against the verbatim official examples. The capture CONFIRMS the
+    contract — esp. use_yes_price semantics, fixture #20 — and unblocks
+    the live socket DIAL (signed-handshake auth, keep-alive, redial) plus
+    the venue-generic runner composition replaying the recordings.),
   - a VOIDED market's settlement record (`market_result` documents only
     yes/no/scalar; the adapter hard-errors on anything else so a live void
     surfaces loudly instead of passing silently),
@@ -190,21 +194,22 @@ there by the independent e-gate:
 
 ## Operator-blocked: Polymarket US
 
-- **Polymarket US adapter is a fixtures-gated STUB (T3.4).**
-  `fortuna_venues::polymarket::PolymarketUsStub` fills the trait slot;
-  every operation (and its fee model) refuses with
-  `VenueError::FixtureGated` — no market data, no orders, no invented
-  fees. Building the real adapter requires, in order: (1) a venue research
-  loop under docs/research/venue/polymarket-us-<date>/ (API auth model,
-  CLOB endpoints, fee schedule incl. per-market runtime fee params
-  (fd/feeSchedule fields — read at runtime, never hard-coded), sub-cent
-  tick handling per the cents-only core policy, settlement/void
-  representation, US-entity specifics), then (2) operator-recorded
-  fixtures under fixtures/polymarket/ covering the same checklist shape as
-  Kalshi's (catalog, books, order lifecycle incl. duplicate/timeout
-  semantics, fills paging, settlements incl. voids). Unblock: operator
-  authorizes the research loop + records demo fixtures; the adapter then
-  builds against recordings only, like kalshi/.
+- **Polymarket US adapter is a fixtures-gated STUB (T3.4); RESEARCH NOW
+  DONE (2026-06-10, operator-authorized this session):**
+  docs/research/venue/polymarket-us-2026-06-10/research.md (829 lines, 96
+  archived sources). Material findings that reshape the build decision:
+  (a) retail API has NO CLIENT ORDER ID — FORTUNA's crash-resubmission
+  idempotency model does not transfer (institutional stack has clordId);
+  (b) SUB-CENT TICKS ARE LIVE (0.5c, 0.25c preprod) + decimal quantities
+  + decimal settlements — three explicit conflicts with the integer-cents
+  core; (c) NO RETAIL SANDBOX — fixtures would be minimum-size recordings
+  on PROD, or institutional preprod via firm onboarding; (d) fee reality
+  CONFIRMED vs the 2026-06-09 research (taker 0.05 / maker -0.0125
+  quadratic, banker's rounding); (e) sports-only listings today.
+  OPERATOR DECISION REQUIRED before any build: retail-prod recording vs
+  institutional onboarding vs shelve until the entity matures. The stub
+  refuses everything meanwhile; the cents-core conflict alone argues for
+  shelving (a price-tick type is a spec-level change).
 
 ## Operator-blocked: spec maintenance
 
