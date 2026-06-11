@@ -3,9 +3,10 @@
 //! orders through the journaled path and writes the final audit row.
 //! `fortuna stop` (T4.4) depends on this existing and being asserted.
 //! Tested through the COMPOSITION (the daemon's Pg journal + Pg audit),
-//! not through signals — the SIGTERM handler in main() calls exactly
-//! this function. Written red-first against a shutdown() that did not
-//! exist.
+//! not through signals — the SIGTERM handler, WHEN the composition main
+//! lands (it does not exist yet; gate finding 3, 2026-06-11), must call
+//! exactly this function. Written red-first against a shutdown() that
+//! did not exist.
 
 use fortuna_core::clock::{Clock, SimClock};
 use fortuna_core::market::Contracts;

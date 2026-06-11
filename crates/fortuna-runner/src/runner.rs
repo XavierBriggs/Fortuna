@@ -843,6 +843,18 @@ impl<J: IntentJournal + Send> SimRunner<J> {
                     serde_json::to_value(record).unwrap_or_default(),
                 );
             }
+            // I5 hard stop (gate finding, 2026-06-11): if the audit store
+            // died while RECORDING these gate decisions, nothing staged may
+            // reach the venue — the probe that found this had three orders
+            // placed after the store died, their trail lost. The halt set
+            // by audit() only bites the NEXT tick's gate evaluations; this
+            // tick's already-gated legs must be aborted here.
+            if self.audit_dead {
+                for (prior, _) in &staged {
+                    let _ = self.reservations.release(*prior)?;
+                }
+                return Ok(());
+            }
             match outcome.gated {
                 Err(rejection) => {
                     report.gate_rejections += 1;
@@ -884,6 +896,15 @@ impl<J: IntentJournal + Send> SimRunner<J> {
             // reserved and walk away clean.
             for (intent, _) in &staged {
                 let _ = self.reservations.release(*intent)?;
+            }
+            return Ok(());
+        }
+
+        // Belt for the same I5 stop: no staged leg crosses into Phase B
+        // if the audit store is dead, whatever path killed it.
+        if self.audit_dead {
+            for (prior, _) in &staged {
+                let _ = self.reservations.release(*prior)?;
             }
             return Ok(());
         }
