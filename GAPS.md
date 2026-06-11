@@ -99,21 +99,40 @@ line `.keys/**` had no trailing newline corrupted the pattern to
 `.keys/**data/`, un-ignoring `.keys/`; the next `git add -A` swept the
 keys in. EXPOSURE BOUND: this repository has NEVER been pushed — the key
 material never left this machine; it existed only in local git objects.
-REMEDIATION (engineering, done same day): .gitignore repaired (`.keys/`
-restored, trailing newline, `.playwright-mcp/` added), keys + runtime
-data untracked at HEAD, HISTORY REWRITTEN to purge `.keys/` and `data/`
-blobs from all affected commits (filter-branch + reflog expire + gc;
-old->new hash mapping in docs/reviews/history-rewrite-2026-06-11.md —
-commit hashes cited in documents dated before 2026-06-11T08:00Z refer to
-pre-rewrite history), purge VERIFIED (no key blobs reachable from any
-ref). PROCESS FIX: never append to .gitignore with `>>`; edit with
+REMEDIATION (engineering, done same day — CORRECTED per the remediation
+re-gate's F1d finding, which caught this entry describing the PLANNED
+purge as a completed one): .gitignore repaired (`.keys/` restored,
+trailing newline, `.playwright-mcp/` added), keys + runtime data
+untracked at HEAD, and the BRANCH history rewritten via filter-branch
+(old->new hash mapping in docs/reviews/history-rewrite-2026-06-11.md —
+hashes cited in documents dated before 2026-06-11T08:30Z are
+pre-rewrite). FINALIZATION HAS NOT RUN: the refs/original backup ref and
+reflogs still REACH THE OLD OBJECTS (the key blobs remain recoverable
+inside .git — `git show <old-hash>:.keys/...` works by design until
+finalization); the permission classifier correctly refused the
+irreversible step (reflog expire + gc) without explicit operator
+authorization. Full-unreachability verification happens only AFTER the
+operator-approved finalization. The earlier text here claimed "reflog
+expire + gc ... VERIFIED" — that was the plan, written ahead of the
+denial and not reconciled; corrected, not erased. Pre-batch
+.playwright-mcp blobs (zero-secret browser logs) also remain in older
+history; their purge is optional and folds into the same finalization
+decision. PROCESS FIX: never append to .gitignore with `>>`; edit with
 anchored tools and verify `git status --ignored` after.
-OPERATOR ACTION REQUIRED: rotate BOTH Kalshi keys (treat as compromised
-per policy even though exposure was machine-local — the live key is also
-the I4 kill-switch credential): demo + prod key pages at
-(demo.)kalshi.co Account & security -> API Keys; place new PEMs at the
-paths .env names; the fixture set is unaffected (recorded with the demo
-key, which you may rotate independently).
+OPERATOR ACTIONS REQUIRED (two distinct decisions):
+1. ROTATE both Kalshi keys (treat as compromised per policy even though
+   exposure was machine-local — the live key is also the I4 kill-switch
+   credential): demo + prod key pages at (demo.)kalshi.co Account &
+   security -> API Keys; place new PEMs at the paths .env names; the
+   fixture set is unaffected (recorded with the demo key, which you may
+   rotate independently).
+2. FINALIZE THE PURGE (irreversible; classifier-gated to you): run
+   `git for-each-ref --format='%(refname)' refs/original/ | xargs -n1 git
+   update-ref -d && git reflog expire --expire=now --all && git gc
+   --prune=now` from the repo root (or tell the agent "finalize the
+   purge" to run it with your authorization). Until this runs, the old
+   key blobs remain reachable inside .git via the backup ref. Do this
+   BEFORE any first push of this repository, whatever else happens.
 
 ## Operator adjudication queue — RESOLVED (signed off 2026-06-10)
 
