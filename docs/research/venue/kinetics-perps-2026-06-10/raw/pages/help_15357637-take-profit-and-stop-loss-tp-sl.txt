@@ -1,0 +1,18 @@
+Take Profit (TP)
+A take profit order automatically closes your position when the price reaches your target level, locking in your gains.
+• Long position: Set a TP price above your entry price.
+• Short position: Set a TP price below your entry price.
+Stop Loss (SL)
+A stop loss order automatically closes your position if the price moves against you to the level you set. It limits your downside on a trade.
+• Long position: Set an SL price below your entry price.
+• Short position: Set an SL price above your entry price.
+Note: Using stop-losses is strongly recommended, especially at higher leverage. In volatile markets, a sudden price swing can liquidate your entire position before you have time to react manually.
+How TP/SL differs from liquidation
+A stop loss is a protective order you set voluntarily. Liquidation is an involuntary close triggered by the exchange when your margin falls below the maintenance threshold. A stop loss, if set appropriately, should trigger before your liquidation price — closing your position with some margin remaining rather than losing it all.
+Can I add or change TP/SL on an existing position?
+Yes. You can add, modify, or remove take profit and stop loss levels on an open position at any time from the position management screen.
+What if I have a resting order and a TP/SL at the same time?
+TP/SL is tied to your open position. If you also have a resting limit order on the same position, be aware of the resting order constraints — you cannot close the position while a resting order is active. Cancel the resting order first if you want to manually close or if your TP/SL may conflict.
+Related Articles
+How Margin Works
+Understanding Liquidation

@@ -1,0 +1,80 @@
+Available assets
+ | Asset
+ | Ticker
+ | Contract Size
+ | Min. Order Size
+ | Price Index
+ | Bitcoin
+ | BTC
+ | 1 BTC
+ | 0.0001 BTC
+ | CF Benchmarks BRTI
+ | Ethereum
+ | ETH
+ | 10 ETH
+ | 0.001 ETH
+ | CF Benchmarks ETHUSD_RTI
+ | Solana
+ | SOL
+ | 1,000 SOL
+ | 0.10 SOL
+ | CF Benchmarks SOLUSD_RTI
+ | Ripple
+ | XRP
+ | 10,000 XRP
+ | 1.00 XRP
+ | CF Benchmarks XRPUSD_RTI
+ | Dogecoin
+ | DOGE
+ | 1,000,000 DOGE
+ | 100.00 DOGE
+ | CF Benchmarks DOGEUSD_RTI
+ | Chainlink
+ | LINK
+ | 10,000 LINK
+ | 1.00 LINK
+ | CF Benchmarks LINKUSD_RTI
+ | Polkadot
+ | DOT
+ | 100,000 DOT
+ | 10.00 DOT
+ | CF Benchmarks DOTUSD_RTI
+ | Litecoin
+ | LTC
+ | 1,000 LTC
+ | 0.10 LTC
+ | CF Benchmarks LTCUSD_RTI
+ | Bitcoin Cash
+ | BCH
+ | 100 BCH
+ | 0.01 BCH
+ | CF Benchmarks BCHUSD_RTI
+ | Sui
+ | SUI
+ | 100,000 SUI
+ | 10.00 SUI
+ | CF Benchmarks SUIUSD_RTI
+ | Stellar
+ | XLM
+ | 100,000 XLM
+ | 10.00 XLM
+ | CF Benchmarks XLMUSD_RTI
+ | Shiba Inu
+ | SHIB
+ | 10,000,000,000 kSHIB
+ | 1,000,000.00 SHIB
+ | CF Benchmarks SHIBUSD_RTI
+ | Hedera
+ | HBAR
+ | 1,000,000 HBAR
+ | 100.00 HBAR
+ | CF Benchmarks HBARUSD_RTI
+Note: Leverage limits and minimum position sizes for non-BTC assets may vary. Check the market page for the latest details on each asset. 
+What is a contract size?
+The contract size is the amount of the underlying asset represented by one contract.
+You can hold multiple (or fractional) contracts to increase your position size. For example, 0.1 BTC contracts give you 0.1 BTC of exposure (~$8,000 at current prices).
+What price index does Kalshi use?
+All Kalshi crypto perpetuals use CF Benchmarks indices as the reference price for funding and settlement. CF Benchmarks is an institutional-grade benchmark provider that aggregates data from multiple regulated exchanges. For BTC, the specific index is the Bitcoin Real-Time Index (BRTI), which updates every second.
+For full contract details on a specific asset, see the BTC contract specification article or check the market page for other assets.
+Related Articles
+What Are Perpetual Futures?

@@ -1,0 +1,39 @@
+What is a perpetual futures contract?
+A perpetual futures (perp) contract lets you take a position on the price of an asset — for example, Bitcoin — with no expiration date. You decide when to open and close your position.
+Your profit or loss moves directly with the price of the underlying asset. For example, if you're long and the price goes up, you make money. If it goes down, your position goes down in value. Conversely, if you’re short on a position, and the position goes down, then you make money, and if the price goes up, you lose money.
+A simple example
+Imagine you believe Bitcoin's price will rise. You open a long position with $100 of margin at 5x leverage — giving you $500 of Bitcoin exposure.
+• If Bitcoin's price rises 10%, your position gains $50 — a 50% return on your $100 of margin.
+• If Bitcoin's price drops 10%, your position loses $50 — half your margin.
+• While your position is open, you may pay or receive a small funding payment every 8 hours depending on market conditions.
+How is this different from Kalshi's prediction markets?
+Kalshi's prediction markets resolve Yes or No at a set date. Perpetual futures work differently:
+• No expiration. There's no end date. You hold your position, long or short, until you choose to close it, or until your position is liquidated.
+• Price-based. Your P&L tracks the asset's price directly, not the outcome of an event.
+• Leverage. You can control a larger position with a smaller amount of capital — amplifying both gains and losses.
+• Funding payments. Every 8 hours, payment flows between long and short holders to keep the contract price anchored to the real-world spot price.
+• Margin required. You need to post collateral to open and maintain a position.
+How do perps compare to other instruments?
+• vs. spot markets — perps let you go long or short and use leverage for more capital-efficient positioning
+• vs. options — no strike prices, no expiration dates, and no complex option-specific factors that affect value; just linear exposure to price movements
+• vs. traditional futures — no expiry, no rolling contracts, no gaps when a contract closes
+• vs. prediction markets — continuous price exposure instead of a binary Yes/No outcome
+Is this regulated?
+Yes. Kalshi is a CFTC-regulated DCM. All perpetual futures are cleared through Kalshi Klear LLC (DCO). This makes Kalshi the first platform to offer true perpetual futures legally and natively to US residents.
+Your margin is held in a segregated account, separate from Kalshi's own funds, as mandated by CFTC regulations.
+Safety features built into the product
+Kalshi has built several safeguards into perpetual futures specifically to protect retail traders:
+• Application required. You must apply for margin access. Not all applicants are approved.
+• Mandatory education. Approved users go through product education before placing their first trade.
+• Separate margin account. Your perps balance is completely separate from your predictions balance. A liquidation event cannot touch your predictions funds.
+• Conservative leverage limits. Kalshi's leverage caps are lower than most offshore platforms at launch.
+Could I lose more than I put in?
+Perpetual futures are leveraged products, which means losses can happen quickly.
+If your position moves against you and your account falls below the required maintenance margin, Kalshi may liquidate your position to limit further losses.
+You can lose all of the funds in your perpetuals margin account, but a liquidation event will not affect funds held in your separate Kalshi predictions account.
+Related Articles
+BTC Perpetual Futures — Contract Specifications
+Your Perpetuals Margin Account
+Applying for Perpetuals Access
+Depositing, Transferring & Withdrawing
+Risks of Trading Perpetual Futures

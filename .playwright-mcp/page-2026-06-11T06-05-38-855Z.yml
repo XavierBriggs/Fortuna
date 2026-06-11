@@ -1,0 +1,278 @@
+- generic [ref=e4]:
+  - link "Skip Navigation" [ref=e5] [cursor=pointer]:
+    - /url: "#MainContent"
+  - banner [ref=e6]:
+    - generic [ref=e7]:
+      - generic:
+        - generic:
+          - link "CNBC" [ref=e9] [cursor=pointer]:
+            - /url: //www.cnbc.com/
+            - img "CNBC" [ref=e10]
+          - generic:
+            - generic [ref=e11]:
+              - button "Open Navigation Menu" [ref=e12] [cursor=pointer]:
+                - generic [ref=e13]: 
+              - generic [ref=e16]:
+                - menuitem "Markets" [ref=e17]:
+                  - link "Markets" [ref=e18] [cursor=pointer]:
+                    - /url: /markets/
+                    - text: 
+                    - generic [ref=e19]: Markets
+                - menuitem "Business" [ref=e20]:
+                  - link "Business" [ref=e21] [cursor=pointer]:
+                    - /url: /business/
+                    - text: 
+                    - generic [ref=e22]: Business
+                - menuitem "Investing" [ref=e23]:
+                  - link "Investing" [ref=e24] [cursor=pointer]:
+                    - /url: /investing/
+                    - generic [ref=e25]: Investing
+                - menuitem "Tech" [ref=e26]:
+                  - link "Tech" [ref=e27] [cursor=pointer]:
+                    - /url: /technology/
+                    - generic [ref=e28]: Tech
+                - menuitem "Politics" [ref=e29]:
+                  - link "Politics" [ref=e30] [cursor=pointer]:
+                    - /url: /politics/
+                    - generic [ref=e31]: Politics
+                - menuitem "Video" [ref=e32]:
+                  - link "Video" [ref=e33] [cursor=pointer]:
+                    - /url: /tv/
+                    - text: 
+                    - generic [ref=e34]: Video
+                - text: 
+                - menuitem "Investing Club" [ref=e35]:
+                  - link "Investing Club" [ref=e36] [cursor=pointer]:
+                    - /url: /investingclub/subscribe?__source=investingclub|globalnav|join&tpcc=investingclub|globalnav|join
+                    - generic [ref=e37]: Investing Club
+                - img "IC Join Pill" [ref=e39]
+                - menuitem "PRO" [ref=e40]:
+                  - link "PRO" [ref=e41] [cursor=pointer]:
+                    - /url: /application/pro?__source=pro|globalnav|join&tpcc=pro|globalnav|join
+                    - generic [ref=e42]: PRO
+                - img "Pro Join Pill" [ref=e44]
+                - generic [ref=e46]:
+                  - img [ref=e48]
+                  - link "Livestream" [ref=e53] [cursor=pointer]:
+                    - /url: /live-tv/
+                    - generic [ref=e54]: Livestream
+                - text: 
+            - text:   •
+          - generic [ref=e55]:
+            - button "Search" [ref=e57] [cursor=pointer]:
+              - generic [ref=e58]: Search quotes, news & videos
+              - generic [ref=e59]: 
+            - link "Watchlist" [ref=e62] [cursor=pointer]:
+              - /url: /watchlist/
+            - button "Show Notifications" [ref=e65] [cursor=pointer]:
+              - img [ref=e66]
+            - link "SIGN IN" [ref=e73] [cursor=pointer]:
+              - /url: "#"
+            - link "Create free account" [ref=e78] [cursor=pointer]:
+              - /url: "#"
+  - text:      
+  - main [ref=e79]:
+    - paragraph
+    - generic [ref=e82]:
+      - generic [ref=e90]:
+        - generic [ref=e91]:
+          - link "Markets" [ref=e92] [cursor=pointer]:
+            - /url: https://www.cnbc.com/markets/
+          - heading "Kalshi trading in ‘perps’ crosses $1 billion in volume within a week of launch" [level=1] [ref=e94]
+          - generic [ref=e95]:
+            - time [ref=e96]:
+              - text: Published Tue, Jun 9 2026
+              - generic [ref=e97]: •
+              - text: 2:05 PM EDT
+            - generic [ref=e98]: "|"
+            - time [ref=e99]:
+              - text: Updated Wed, Jun 10 2026
+              - generic [ref=e100]: •
+              - text: 12:43 PM EDT
+        - generic [ref=e104]:
+          - img "thumbnail" [ref=e105]
+          - generic [ref=e106]:
+            - link "Davis Giangiulio" [ref=e107] [cursor=pointer]:
+              - /url: https://www.cnbc.com/davis-giangiulio/
+            - link "@in/davis-giangiulio" [ref=e108] [cursor=pointer]:
+              - /url: https://linkedin.com/in/davis-giangiulio
+            - link "@GiangiulioDavis" [ref=e109] [cursor=pointer]:
+              - /url: https://twitter.com/@GiangiulioDavis
+      - generic [ref=e111]:
+        - generic [ref=e113]:
+          - generic [ref=e114]: Key Points
+          - list [ref=e118]:
+            - listitem [ref=e119]: Kalshi told CNBC that volumes on its perpetual futures, or “perps,” have crossed $1 billion in trading volume.
+            - listitem [ref=e120]: Perps first launched on the platform on Wednesday, and originally saw more than $100 million in trading volumes in 24 hours.
+            - listitem [ref=e121]: The asset class was previously not accessible in the U.S., but does $90 trillion in annual global volume.
+        - generic [ref=e122]:
+          - region "Bearish options action focuses on chip stocks watch now  VIDEO 01:27 Bearish options action focuses on chip stocks" [ref=e123]:
+            - button "Bearish options action focuses on chip stocks watch now  VIDEO 01:27 Bearish options action focuses on chip stocks" [ref=e124] [cursor=pointer]:
+              - generic [ref=e126]:
+                - generic [ref=e127]:
+                  - img "Bearish options action focuses on chip stocks" [ref=e128]
+                  - generic [ref=e130]:
+                    - generic: watch now
+                    - generic [ref=e131]: 
+                - generic [ref=e132]:
+                  - generic [ref=e133]: VIDEO 01:27
+                  - generic [ref=e134]: Bearish options action focuses on chip stocks
+          - generic [ref=e136]:
+            - paragraph [ref=e137]: Prediction market platform Kalshi’s perpetual futures have already crossed $1 billion in trading volume within a week of their launch last week, the company shared exclusively with CNBC.
+            - paragraph [ref=e138]:
+              - text: The company officially launched trading on
+              - link "crypto perpetual futures, or “perps,”" [ref=e139] [cursor=pointer]:
+                - /url: https://www.cnbc.com/2026/04/27/prediction-markets-prepare-to-invade-one-of-cryptos-biggest-and-riskiest-trades.html
+              - text: on Wednesday, and in the first 24 hours saw more than $100 million in volume. Volumes are notional, which means leverage traders take in their contracts is included in that figure.
+            - paragraph [ref=e140]: Perps are futures contracts with no expiration date that allow traders to speculate on a price without owning the underlying asset. Contracts track the price of an asset continuously, with funding payments keeping the perpetual contract price aligned with the market.
+            - paragraph [ref=e141]: The asset class has over $90 trillion in annual global volume, according to Bank of America, but before Kalshi there wasn’t a way to trade the contracts in the U.S.
+            - paragraph [ref=e142]:
+              - emphasis [ref=e143]: (Kalshi CEO Tarek Mansour will make an appearance on CNBC’s “Fast Money” on Tuesday at 5 p.m. ET.)
+            - paragraph [ref=e144]:
+              - text: Kalshi received
+              - link "regulatory approval" [ref=e145] [cursor=pointer]:
+                - /url: https://www.cnbc.com/2026/05/29/kalshi-is-moving-beyond-prediction-markets-and-into-one-of-cryptos-biggest-trading-lanes.html
+              - text: from the Commodity Futures Trading Commission on May 29 to be the first company in the U.S. to offer perp contracts.
+              - generic [ref=e146]:
+                - link "Coinbase" [ref=e147] [cursor=pointer]:
+                  - /url: /quotes/COIN/
+                - button "Add To Watchlist" [ref=e150] [cursor=pointer]
+              - text: on the same day also received approval from regulators to offer its U.S. traders access to global perp contracts through an affiliate.
+            - paragraph [ref=e152]: Pent up domestic demand has been reflected on Kalshi since the launch. A spokesperson said that at one point the waitlist to access perps on the platform had more than 1 million people on it, and that it’s the fastest growing product in the company’s history. It took Kalshi 40 months to see $1 billion in trading volumes across its event contracts.
+            - paragraph [ref=e153]: Perpetuals marked the company’s biggest product launch since it first launched its prediction markets.
+            - paragraph [ref=e154]:
+              - emphasis [ref=e155]: "Disclosure: CNBC and Kalshi have a commercial relationship that includes customer acquisition and a minority investment."
+          - link "Choose CNBC as your preferred source on Google and never miss a moment from the most trusted name in business news." [ref=e158] [cursor=pointer]:
+            - /url: https://www.google.com/preferences/source?q=https://www.cnbc.com/
+  - contentinfo [ref=e163]:
+    - generic [ref=e164]:
+      - link "CNBC logo" [ref=e166] [cursor=pointer]:
+        - /url: //www.cnbc.com
+        - img "CNBC logo" [ref=e167]
+      - list [ref=e168]:
+        - listitem [ref=e169]:
+          - link "facebook" [ref=e170] [cursor=pointer]:
+            - /url: https://www.facebook.com/cnbc/
+            - text: 
+        - listitem [ref=e171]:
+          - link "twitter" [ref=e172] [cursor=pointer]:
+            - /url: https://www.twitter.com/cnbc/
+            - text: 
+        - listitem [ref=e173]:
+          - link "linkedin" [ref=e174] [cursor=pointer]:
+            - /url: https://www.linkedin.com/company/cnbc/
+            - text: 
+        - listitem [ref=e175]:
+          - link "instagram" [ref=e176] [cursor=pointer]:
+            - /url: https://www.instagram.com/cnbc/
+            - text: 
+        - listitem [ref=e177]:
+          - link "youtube" [ref=e178] [cursor=pointer]:
+            - /url: https://www.youtube.com/user/cnbc/
+            - text: 
+        - listitem [ref=e179]:
+          - link "apple_news" [ref=e180] [cursor=pointer]:
+            - /url: https://apple.news/T3OtoXcxtRkuHRkM7SpFP_Q
+            - text: 
+        - listitem [ref=e181]:
+          - link "rss" [ref=e182] [cursor=pointer]:
+            - /url: /rss-feeds/
+            - text: 
+      - list [ref=e184]:
+        - listitem [ref=e185]:
+          - link "Subscribe to CNBC PRO" [ref=e186] [cursor=pointer]:
+            - /url: /application/pro/?__source=pro|globalfooter
+        - listitem [ref=e187]:
+          - link "Subscribe to Investing Club" [ref=e188] [cursor=pointer]:
+            - /url: /investingclub/subscribe?__source=investingclub|globalfooter
+        - listitem [ref=e189]:
+          - link "Licensing & Reprints" [ref=e190] [cursor=pointer]:
+            - /url: /cnbc-reprints/
+        - listitem [ref=e191]:
+          - link "CNBC Councils" [ref=e192] [cursor=pointer]:
+            - /url: https://www.cnbccouncils.com/
+        - listitem [ref=e193]:
+          - link "Select Personal Finance" [ref=e194] [cursor=pointer]:
+            - /url: /select/
+        - listitem [ref=e195]:
+          - link "Join the CNBC Panel" [ref=e196] [cursor=pointer]:
+            - /url: https://cnbcrsh.qualtrics.com/jfe/form/SV_dgRx5X1nYC0YjNI?Origin=cnbc
+        - listitem [ref=e197]:
+          - link "Closed Captioning" [ref=e198] [cursor=pointer]:
+            - /url: /closed-captioning/
+        - listitem [ref=e199]:
+          - link "Digital Products" [ref=e200] [cursor=pointer]:
+            - /url: /subscribe/all-access/
+        - listitem [ref=e201]:
+          - link "News Releases" [ref=e202] [cursor=pointer]:
+            - /url: /cnbc-news-releases/
+        - listitem [ref=e203]:
+          - link "Internships" [ref=e204] [cursor=pointer]:
+            - /url: /cnbc-internship-program/
+        - listitem [ref=e205]:
+          - link "Corrections" [ref=e206] [cursor=pointer]:
+            - /url: /corrections/
+        - listitem [ref=e207]:
+          - link "About CNBC" [ref=e208] [cursor=pointer]:
+            - /url: /about/
+        - listitem [ref=e209]:
+          - link "Site Map" [ref=e210] [cursor=pointer]:
+            - /url: /site-map/
+        - listitem [ref=e211]:
+          - link "Podcasts" [ref=e212] [cursor=pointer]:
+            - /url: /podcast/
+        - listitem [ref=e213]:
+          - link "Careers" [ref=e214] [cursor=pointer]:
+            - /url: /cnbc-careers-and-employment/
+        - listitem [ref=e215]:
+          - link "Help" [ref=e216] [cursor=pointer]:
+            - /url: https://help.cnbc.com/
+        - listitem [ref=e217]:
+          - link "Contact" [ref=e218] [cursor=pointer]:
+            - /url: https://help.cnbc.com/contact/
+      - list [ref=e219]:
+        - listitem [ref=e220]:
+          - heading "News Tips" [level=4] [ref=e221]
+          - paragraph [ref=e222]: Got a confidential news tip? We want to hear from you.
+          - link "Get In Touch" [ref=e223] [cursor=pointer]:
+            - /url: /news-tips/
+        - listitem [ref=e224]:
+          - heading " CNBC Newsletters" [level=4] [ref=e225]:
+            - generic [ref=e226]: 
+            - text: CNBC Newsletters
+          - paragraph [ref=e227]: Sign up for free newsletters and get more CNBC delivered to your inbox
+          - link "Sign Up Now" [ref=e228] [cursor=pointer]:
+            - /url: /sign-up-for-cnbc-newsletters/
+          - paragraph [ref=e229]: Get this delivered to your inbox, and more info about our products and services.
+        - listitem [ref=e230]:
+          - heading "Advertise With Us" [level=4] [ref=e231]
+          - link "Please Contact Us" [ref=e232] [cursor=pointer]:
+            - /url: https://together.nbcuni.com/advertise/?utm_source=cnbc&utm_medium=referral&utm_campaign=property_ad_pages
+      - list [ref=e233]:
+        - listitem [ref=e234]:
+          - link "Ad Choices" [ref=e235] [cursor=pointer]:
+            - /url: https://www.versantprivacy.com/privacy/cookies#accordionheader3
+          - text: "|"
+        - listitem [ref=e236]:
+          - link "Privacy Policy" [ref=e237] [cursor=pointer]:
+            - /url: https://www.versantprivacy.com/privacy
+          - text: "|"
+        - listitem [ref=e238]:
+          - generic [ref=e239] [cursor=pointer]: Your Privacy Choices
+          - text: "|"
+        - listitem [ref=e240]:
+          - link "CA Notice" [ref=e241] [cursor=pointer]:
+            - /url: http://www.versantprivacy.com/privacy/california-consumer-privacy-act
+          - text: "|"
+        - listitem [ref=e242]:
+          - link "Terms of Service" [ref=e243] [cursor=pointer]:
+            - /url: /terms/
+      - paragraph [ref=e244]: © 2026 Versant Media, LLC. All Rights Reserved. A Versant Media Company.
+      - paragraph [ref=e245]: Data is a real-time snapshot *Data is delayed at least 15 minutes. Global Business and Financial News, Stock Quotes, and Market Data and Analysis.
+      - link "Market Data Terms of Use and Disclaimers" [ref=e246] [cursor=pointer]:
+        - /url: /market-data-terms-of-service/
+      - paragraph [ref=e247]:
+        - text: Data also provided by
+        - link "Reuters logo" [ref=e248] [cursor=pointer]:
+          - /url: /market-data-terms-of-service/
+          - img "Reuters logo" [ref=e249]

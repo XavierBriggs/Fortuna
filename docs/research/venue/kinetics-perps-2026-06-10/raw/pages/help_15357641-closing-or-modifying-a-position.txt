@@ -1,0 +1,18 @@
+How to close a position
+To close a position, navigate to the market page or your Portfolio tab, select the open position, and choose Close. You can close fully or partially.
+When you close, your final P&L is calculated and crystallized. Your margin is released back to your account balance.
+Partial close
+You can close a portion of your position rather than the whole thing. This lets you take some profit or reduce your exposure while staying in the trade.
+Adding to a position
+You can add to an existing position by placing an additional order in the same direction on the same asset. Your average entry price will update to reflect the combined position.
+Resting order constraints
+If you have an open resting limit order on a position, you cannot partially or fully close that position until the resting order is cancelled. This applies to both buy-side and sell-side resting orders.
+To close or reduce your position, cancel the resting order first, then proceed with the close.
+What happens when a position is liquidated?
+If your account balance falls below the maintenance margin threshold, Kalshi Klear will close the position automatically. Any remaining margin after the close is returned to your account. For more detail on liquidation, see the Understanding Liquidation article.
+Related Articles
+What Are Perpetual Futures?
+How Margin Works
+Your Perpetuals Margin Account
+Understanding Liquidation
+Risks of Trading Perpetual Futures

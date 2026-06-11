@@ -1,0 +1,416 @@
+As of June 3, 2026
+Futures Commission Merchant (“FCM”) Disclosures (CFTC Rule 17 CFR 1.55(k) and 1.55(o))
+Kinetic Markets, LLC (“Kinetic Markets”)is a registered Futures Commission Merchant (“FCM”) with the
+Commodity Futures Trading Commission (“CFTC”) and a member of the National Futures Association
+(“NFA”). Kinetic Markets is wholly owned by Kalshi Inc. Kalshi Inc. also owns KalshiEx LLC (“KalshiEx”),
+a CFTC–regulated designated contract market, and Kalshi Klear LLC (“Kalshi Klear”), a CFTC-regulated
+derivatives clearing organization.
+The CFTC requires each FCM to provide the following information to a customer prior to the time the
+customer first enters into an account agreement with the FCM or deposits money or securities (collectively,
+“funds”) with the FCM. Except as otherwise noted below, the information set out is as of June 3, 2026.
+Kinetic Markets will update this information annually and as necessary to take into account of any material
+change to its business operations, financial condition or other factors that Kinetic Markets believes may be
+material to a customer’s decision to do business with Kinetic Markets. Nonetheless, the business activities
+and financial data of Kinetic Markets are not static and will change in non-material ways frequently
+throughout any 12-month period.
+Firm Information
+Pursuant to CFTC Rule 1.55(k)(1), the following information details our name, address of its principal place
+of business, phone number, fax number, and email address.
+Kinetic Markets LLC.
+416 West 13th Street
+New York, NY 10014
+Phone: (+1) 201-870-0389
+Email: general@kalshiarc.com
+Facsimile: N/A
+Website:
+
+Page 1 of 10
+
+As of June 3, 2026
+Firm Principals
+Pursuant to CFTC Rule 1.55(k)(2), the following information details the name, title, business address,
+business background, areas of responsibility, and the nature of the duties of each person that is defined as
+a principal of the futures commission merchant pursuant to CFTC Rule 17 CFR 3.1(a).
+
+Name & Title
+
+Business Background
+
+Lior Hirschfeld
+
+Mr. Hirschfeld is the CEO and oversees the FCM's operations.
+
+Chief Executive
+Officer
+
+Prior to serving as the CEO of Kinetic Markets, Mr. Hirschfeld was Kalshi
+Exchange's CTO. Earlier in his career, he worked at Google, Twitch, and on the
+macro trading desk at D.E. Shaw.
+
+(NFA ID: 0575249)
+
+Mr. Hirschfeld earned an S.B. in Mathematics and Computer Science from MIT.
+He is licensed with the FINRA Series 3.
+
+James Michael Hill
+
+Mr. Hill is the CCO and oversees the FCM’s regulatory compliance program.
+
+Chief Compliance
+Officer
+
+Prior to joining Kalshi, Mr. Hill was a Vice President within the Swap Dealer
+Compliance team at Goldman Sachs. There, he served as the Global Lead for
+First Line Advisory and Head of the Swap Dealer Compliance Monitoring and
+Testing Team, covering CFTC Swap Dealer ("SD") and SEC Security-Based
+Swap Dealer ("SBSD") requirements globally. Earlier in his career, Mr. Hill was
+a Vice President and Senior Compliance Officer at BNP Paribas in the Global
+Banking and Regulations Team, where he focused on CFTC SD, SEC SBSD,
+and Volcker Rule advisory. Mr. Hill began his career as a Management
+Consultant at KPMG, specializing in the financial services and compliance risk
+management sectors.
+
+(NFA ID: 0578460)
+
+Mr. Hill earned a B.A. in Social Sciences with a concentration in Economics
+from New York University.
+
+Daihee Cho
+Chief Financial
+Officer
+(NFA ID: 0578714)
+
+Mr. Cho is the CFO and oversees the FCM’s financial program.
+Prior to joining Kalshi, Mr. Cho was the CFO of R.J. O'Brien Securities, LLC,
+the Broker-Dealer ("BD") of the R.J. O'Brien franchise. Daihee served as the
+Principal Executive Officer and FinOp of the BD, and he also supported the
+financial operations of R.J. O'Brien & Associates, LLC, registered FCM.
+Daihee routinely supported/led regulatory exams and financial statement audits
+
+Page 2 of 10
+
+As of June 3, 2026
+
+Name & Title
+
+Business Background
+
+for both FCM and BD. Upon StoneX Group Inc. acquiring R.J. O'Brien in July
+2025, Mr. Cho contributed to the enhancement of regulatory capital operations
+at StoneX Financial Inc. (dually registered FCM and BD). Mr. Cho started his
+career at PricewaterhouseCoopers in Chicago, specializing in audits of
+financial services firms from 2015 to 2021, then served as a controller at Halo
+Investing Inc., a FinTech firm with a BD subsidiary, from 2021 to 2023.
+Mr. Cho earned a B.S. and M.S. in Accountancy from Northern Illinois
+University. Daihee is currently licensed as a Certified Public Accountant
+("CPA"), Certified Internal Auditor ("CIA"), and FINRA Series 7, 24, 27, and 63.
+
+Tarek Mansour
+
+Mr. Mansour is the CEO and co-founder of Kalshi Inc.
+
+Indirect Owner
+(NFA ID: 0576469)
+
+Luana Lopes Lara
+
+Ms. Lopes Lara is the COO and co-founder of Kalshi Inc.
+
+Indirect Owner
+(NFA ID: 0576453)
+
+Kalshi Inc.
+Parent Entity
+
+Kalshi Inc. is the parent entity of Kalshi Exchange, Kalshi Klear, and Kinetic
+Markets, LLC
+
+(NFA ID: 0577164)
+
+Page 3 of 10
+
+As of June 3, 2026
+Firm Business Activities
+Pursuant to CFTC Rule 1.55(k)(4), below is a description of the Firm's business on behalf of its
+customers.
+Kinetic Markets, LLC is a wholly owned subsidiary of Kalshi, Inc. and is affiliated with Kalshi Ex, LLC and
+KalshiKlear, LLC. Kinetic Markets will offer only perpetual futures contracts to be bought and sold through
+its online platform. Kinetic Markets will trade on KalshiEx, clear its trades through Kalshi Klear, and clear
+funds through a fully-disclosed settlement process.
+Kinetic Markets’s customers are all part of the customer-base of its affiliated exchange, Kalshi Ex, LLC.
+Kinetic Markets does not engage in proprietary trading and facilitates the trading of perpetual futures
+contracts for its customers and are traded 24 hours a days. Kinetic Markets does not offer any products,
+other than perpetual futures contracts, to its customers. Kinetic Markets, LLC engages Silicon Valley
+Bank, and Kalshi Klear, LLC for deposits of customers’ funds.
+All of Kinetic Markets’s capital supports its customer business and Kinetic Markets maintains sufficient
+excess regulatory capital to support its futures customer business. The Firm generally maintains a ratio of
+Adjusted Net Capital (ANC) to Regulatory Capital Required above 120%.
+Material Risks
+Pursuant to CFTC Rule 1.55(k)(5), below is a description of the Firm's material risks, accompanied by an
+explanation of how such risks may be material to its customers, of entrusting funds to the futures
+commission merchant, including, without limitation:
+A. the nature of investments made by the futures commission merchant (including credit quality,
+weighted average maturity, and weighted average coupon);
+B. the futures commission merchant's creditworthiness, leverage, capital, liquidity, principal
+liabilities, balance sheet leverage and other lines of business;
+C. risks to the futures commission merchant created by its affiliates and their activities, including
+investment of customer funds in an affiliated entity; and
+D. any significant liabilities, contingent or otherwise, and material commitments.
+Perpetual futures are leveraged products with no expiration. Unlike traditional futures contracts, perpetual
+futures lack any final settlement date. Market prices of a perpetual future contract as well as its
+underlying asset,, funding rates, indices, volatility, correlations, and liquidity can change rapidly and
+unpredictably, producing significant losses, including losses greater than posted margin. If a customer
+fails to meet margin requirements during market moves, Kinetic Markets may liquidate positions without
+prior notice and at adverse prices.
+Customer funds are held in compliance with the Commodity Exchange Act and CFTC segregation rules,
+including Rule 1.20 and related requirements. Kinetic Markets is required to maintain a Residual Interest
+Target Amount; widespread customer margin shortfalls during stress could increase compliance risk until
+deficiencies are cured.
+Liquidity risk may arise from intraday margin calls, increases in clearing requirements, or reduced market
+Page 4 of 10
+
+As of June 3, 2026
+depth. Kinetic Markets conducts cash forecasting and stress testing to help meet obligations to clearing
+intermediaries and to satisfy regulatory capital requirements; severe conditions may still require rapid
+position reductions.
+Operational and technology risks—including system outages, latency, cyber events, data errors, or
+third-party service disruptions—may delay order entry, execution, margining, funding-rate calculations, or
+liquidations, and may limit account access. Surveillance and trade monitoring are performed internally;
+critical services may also involve affiliates and external vendors.
+Settlement and banking risks may occur due to payment-rail cut-offs, bank holidays, intraday credit
+withdrawal, or custodian/intermediary failures, which can impede timely margin payments or liquidations.
+Collateral and settlements are in U.S. dollars only.
+Legal and regulatory changes—domestic or foreign—may alter margin, funding-rate mechanics, collateral
+eligibility, trading access, reporting, customer-fund protections, or other requirements, and may
+necessitate rapid changes to product access or risk parameters.
+Firm Designated Self-Regulatory Organization (“DSRO”)
+Pursuant to CFTC Rule 1.55(k)(6), the following information details the Firm’s DSRO.
+National Futures Association
+Website: https://www.nfa.futures.org
+
+Annual Audited Financial Statements
+Pursuant to CFTC Rule 1.55(k)(6), the following information details the Firm’s annual audited financial
+statements.
+Kinetic Markets, LLC’s annual audited financial statements may be found at the website below:
+Link: https://kalshi.com/kinetics
+
+Material Administrative, Civil, Enforcement, or Criminal Complaints or Actions
+Pursuant to CFTC Rule 1.55(k)(7), the Firm does not have material administrative, civil, enforcement, or
+criminal complaints or actions against the Firm.
+
+Page 5 of 10
+
+As of June 3, 2026
+Customer Fund Segregation
+Pursuant to CFTC Rule 1.55(k)(8), described below is a basic overview of customer fund segregation, FCM
+collateral management and investments, FCMs and joint FCM/Broker Dealers.
+FCMs may maintain up to three types of accounts for customers, depending on the products a customer
+trades:
+(i)
+a Customer Segregated Account for customers who trade futures and options on futures listed
+on U.S. futures exchange;
+(ii)
+a Secured or 30.7 Account (“Secured Account”) for customers who trade futures and options
+on futures listed on foreign board of trades; and
+(iii)
+a Cleared Swaps Customer Account for customers trading swaps that are cleared on a DCO
+registered with the CFTC.
+The requirement to maintain these separate accounts reflects the different risks posed by the different
+products. Cash, securities and other collateral (collectively, Customer Funds) required to be held in one
+type of account, e.g., the Customer Segregated Account, may not be commingled with funds required to
+be held in another type of account, e.g., the Secured Account, except as the Commission may permit by
+order. For example, the Commission has issued orders authorizing ICE Clear Europe Limited, which is
+registered with the Commission as a DCO, and its FCM clearing members: (i) to hold in Cleared Swaps
+Customer Accounts Customer Funds used to margin both (a) Cleared Swaps and (b) foreign futures and
+foreign options traded on ICE Futures Europe, and to provide for portfolio margining of such Cleared Swaps
+and foreign futures and foreign options; and (ii) to hold in Customer Segregated Accounts Customer Funds
+used to margin both (c) futures and options on futures traded on ICE Futures US and (d) foreign futures
+and foreign options traded on ICE Futures Europe, and to provide for portfolio margining of such
+transactions.
+Customer Segregated Account. Funds that customers deposit with an FCM, or that are otherwise
+required to be held for the benefit of customers, to margin futures and options on futures contracts traded
+on futures exchanges located in the U.S., i.e., designated contract markets, are held in a Customer
+Segregated Account in accordance with section 4d(a)(2) of the Commodity Exchange Act and Commission
+Rule 1.20. Customer Segregated Funds held in the Customer Segregated Account may not be used to
+meet the obligations of the FCM or any other person, including another customer.
+All Customer Segregated Funds may be commingled in a single account, i.e., a customer omnibus account,
+and held with: (i) a bank or trust company located in the U.S.; (ii) a bank or trust company located outside
+of the U.S. that has in excess of $1 billion of regulatory capital; (iii) an FCM; or (iv) a DCO. Such commingled
+account must be properly titled to make clear that the funds belong to, and are being held for the benefit of,
+the FCM’s customers. Unless a customer provides instructions to the contrary, an FCM may hold Customer
+Segregated Funds only: (i) in the U.S.; (ii) in a money center country;1 or (iii) in the country of origin of the
+currency.
+An FCM must hold sufficient U.S. dollars in the United States to meet all U.S. dollar obligations and sufficient
+funds in each other currency to meet obligations in such currency. Notwithstanding the foregoing, assets
+1
+
+Money center countries mean: Canada, France, Italy, Germany, Japan, and the United Kingdom.
+Page 6 of 10
+
+As of June 3, 2026
+denominated in a currency may be held to meet obligations denominated in another currency (other than
+the U.S. dollar) as follows: (i) U.S. dollars may be held in the U.S. or in money center countries to meet
+obligations denominated in any other currency; and (ii) funds in money center currencies2 may be held in
+the U.S. or in money center countries to meet obligations denominated in currencies other than the U.S.
+dollar.
+Secured Account. Funds that Secured Customers deposit with an FCM, or that are otherwise required to
+be held for the benefit of customers, to margin futures and options on futures contracts traded on foreign
+boards of trade, i.e., Secured Customer Funds, and sometimes referred to as the foreign futures and foreign
+options secured amount, are held in a Secured Account in accordance with Commission Rule 30.7.
+Funds required to be held in the Secured Account for or on behalf of Secured Customers may be
+commingled in an omnibus account and held with: (i) a bank or trust company located in the U.S.; (ii) a
+bank or trust company located outside the U.S. that has in excess of $1 billion in regulatory capital; (iii) an
+FCM; (iv) a DCO; (v) the clearing organization of any foreign board of trade; (vi) a foreign broker; or (vii)
+such clearing organization’s or foreign broker’s designated depositories. Such commingled account must
+be properly titled to make clear that the funds belong to, and are being held for the benefit of, the FCM’s
+Secured Customers. As explained below, Commission Rule 30.7 restricts the amount of such funds that
+may be held outside of the U.S.
+Customers trading on foreign markets assume additional risks. Laws or regulations will vary depending on
+the foreign jurisdiction in which the transaction occurs, and funds held in a Secured Account outside of the
+U.S. may not receive the same level of protection as Customer Segregated Funds. If the foreign broker
+carrying Secured Customer positions fails, the broker will be liquidated in accordance with the laws of the
+jurisdiction in which it is organized, which laws may differ significantly from the U.S. Bankruptcy Code.
+Return of Secured Customer Funds to the U.S. will be delayed and likely will be subject to the costs of
+administration of the failed foreign broker in accordance with the law of the applicable jurisdiction, as well
+as possible other intervening foreign brokers, if multiple foreign brokers were used to process the U.S.
+customers’ transactions on foreign markets.
+If the foreign broker does not fail but the Secured Customers’ U.S. FCM fails, the foreign broker may want
+to assure that appropriate authorization has been obtained before returning the Secured Customer Funds
+to the FCM’s trustee, which may delay their return. If both the foreign broker and the U.S. FCM were to fail,
+potential differences between the trustee for the U.S. FCM and the administrator for the foreign broker,
+each with independent fiduciary obligations under applicable law, may result in significant delays and
+additional administrative expenses. Use of other intervening foreign brokers by the U.S. FCM to process
+the trades of Secured Customers on foreign markets may cause additional delays and administrative
+expenses.
+To reduce the potential risk to Secured Customer Funds held outside of the U.S., Commission Rule 30.7
+generally provides that an FCM may not deposit or hold Secured Customer Funds in permitted accounts
+outside of the U.S. except as necessary to meet margin requirements, including prefunding margin
+requirements, established by rule, regulation, or order of the relevant foreign boards of trade or foreign
+2
+
+Money center currencies mean the currency of any money center country and the Euro.
+Page 7 of 10
+
+As of June 3, 2026
+clearing organizations, or to meet margin calls issued by foreign brokers carrying the Secured Customers’
+positions. The rule further provides, however, that, in order to avoid the daily transfer of funds from accounts
+in the U.S., an FCM may maintain in accounts located outside of the U.S. an additional amount of up to 20
+percent of the total amount of funds necessary to meet margin and prefunding margin requirements to avoid
+daily transfers of funds.
+Cleared Swaps Customer Account. Funds deposited with an FCM, or otherwise required to be held for
+the benefit of customers, to margin swaps cleared through a registered DCO, i.e., Cleared Swaps Customer
+Collateral, are held in a Cleared Swaps Customer Account in accordance with the provisions of section 4d(f)
+of the Act and Part 22 of the Commission’s rules. Cleared Swaps Customer Accounts are sometimes
+referred to as LSOC Accounts. LSOC is an acronym for “legally separated, operationally commingled.”
+Funds required to be held in a Cleared Swaps Customer Account may be commingled in an omnibus
+account and held with: (i) a bank or trust company located in the U.S.; (ii) a bank or trust company located
+outside of the U.S. that has in excess of $1 billion of regulatory capital; (iii) a DCO; or (iv) another FCM.
+Such commingled account must be properly titled to make clear that the funds belong to, and are being
+held for the benefit of, the FCM’s Cleared Swaps Customers. Kinetic Markets does not hold any cleared
+swaps customer funds.
+Investment of Customer Funds. Section 4d(a)(2) of the Act authorizes FCMs to invest Customer
+Segregated Funds in obligations of the United States, in general obligations of any State or of any political
+subdivision thereof, and in obligations fully guaranteed as to principal and interest by the United States.
+Section 4d(f) authorizes FCMs to invest Cleared Swaps Customer Collateral in similar instruments.
+Commission Rule 1.25 authorizes FCMs to invest Customer Segregated Funds, Cleared Swaps Customer
+Collateral and Secured Customer Funds in instruments of a similar nature. Commission rules further
+provide that the FCM may retain all gains earned and is responsible for investment losses incurred in
+connection with the investment of Customer Funds. However, the FCM and customer may agree that the
+FCM will pay the customer interest on the funds deposited.
+Permitted investments include:
+(i)
+Obligations of the United States and obligations fully guaranteed as to principal and interest by
+the United States (U.S. government securities);
+(ii)
+General obligations of any State or of any political subdivision thereof (municipal securities);
+(iii)
+Obligations of any United States government corporation or enterprise sponsored by the United
+States government (U.S. agency obligations); 3
+(iv)
+Interests in certain government money market mutual funds;
+(v)
+Interests in certain short-term U.S. Treasury exchange-traded funds; and
+(vi)
+General obligations of Canada, France, Germany, Japan, and the United Kingdom (permitted
+foreign sovereign debt), provided that the FCM may invest in the permitted sovereign debt of a
+country to the extent an FCM has balances in segregated accounts owed to its customers
+denominated in that country’s currency.
+Except for investments in government money market funds, U.S. Treasury exchange-traded funds, and
+3
+
+Obligations issued by the Federal National Mortgage Association or the Federal Home Loan Mortgage Association are permitted
+only while these entities operate under the conservatorship or receivership of the Federal Housing Finance Authority with capital
+support from the United States.
+Page 8 of 10
+
+As of June 3, 2026
+permitted foreign sovereign debt, the duration of the securities in which an FCM invests Customer Funds
+cannot exceed, on average, two years.
+An FCM may also engage in repurchase and reverse repurchase transactions with non-affiliated registered
+broker-dealers, provided such transactions are made on a delivery versus payment basis and involve only
+permitted investments. All funds or securities received in repurchase and reverse repurchase transactions
+with Customer Funds must be held in the appropriate Customer Account, i.e., Customer Segregated,
+Secured or Cleared Swaps Account. Further, in accordance with the provisions of Commission Rule 1.25,
+all such funds or collateral must be received in the appropriate Customer Account on a delivery versus
+payment basis in immediately available funds. 4
+Filing a Customer Complaint
+Pursuant to CFTC Rule 1.55(k)(9), please see below for how a customer may obtain information regarding
+filing a complaint about the FCM with the CFTC or with the FCM’s DSRO.
+CFTC Division of Enforcement Complaints Filing
+A customer may file a complaint about Kinetic Markets or one of its employees with the CFTC by contacting
+the CFTC’s Division of Enforcement either electronically or by calling the Division of Enforcement toll-free
+number:
+● CFTC Division of Enforcement Complaint Form: https://forms.cftc.gov/Forms/Complaint/Screen1
+● CFTC Toll-Free Number: 866-FON-CFTC (866-366-2382)
+National Futures Association Complaints Filing
+A customer may file a complaint about Kinetic Markets or one of its employees with the National Futures
+Association (“NFA”) either electronically or by calling the NFA directly:
+● NFA Complaint Form: https://www.nfa.futures.org/complaintnet/FileAComplaint.aspx
+● NFA Information Center Number: 312-781-1410 or 800-621-3570
+Kinetic Markets Financial Data
+Pursuant to CFTC Rule 1.55(k)(10), the Firm’s most recent month-end data can be accessed at the link
+below.
+Kinetic Markets, LLC Monthly Financial Disclosures: https://kalshi.com/kinetics
+
+4
+
+NFA publishes twice-monthly a report, which shows for each FCM, inter alia, the percentage of Customer Funds that are held in
+cash and each of the permitted investments under Commission Rule 1.25. The report also indicates where the FCM held any
+Customer Funds during that month at a depository that is an affiliate of the FCM.
+Page 9 of 10
+
+As of June 3, 2026
+Kinetic Markets Risk Practices, Controls, and Procedures
+Pursuant to CFTC Rule 1.55(k)(11), please see below for a summary of Kinetic Markets’s current risk
+practices controls, and procedures.
+Kinetic Markets has established, maintains, and enforces a comprehensive Risk Management Program
+("RMP") through written policies and procedures. The RMP is approved in writing by the Firm's Governing
+Body on an annual basis and upon any material change. The RMP focuses on the specific risks identified
+in CFTC Regulation 1.11, as well as other risks identified by the Firm.The Firm's RMP was designed and
+implemented to monitor and manage the risks associated with its activities as a registered futures
+commission merchant ("FCM") and to comply with Commodity Futures Trading Commission ("CFTC")
+Regulations 1.11, 1.14, and 1.15.
+Risk Governance. The Firm maintains a risk governance framework consisting of the Governing Body,
+Senior Management, a Risk Committee, and an independent Risk Management Unit ("RMU"). The Risk
+Committee meets quarterly to provide oversight of the RMU's activities and serves as an escalation point
+for limit breaches and other risk-related concerns. The RMU is independent from the Firm's business unit
+and is responsible for administering the RMP on a day-to-day basis.
+Risks Monitored. The RMP addresses the following risk categories: market risk, credit risk, liquidity risk,
+capital risk, foreign currency risk, legal risk, operational risk (including settlement risk), technological risk,
+segregation risk, and affiliate risk. For each risk category, the Firm has established quantitative Risk
+Tolerance Limits that are monitored on an intra-day and end-of-day basis. Early warning thresholds are
+prescribed at 85% of corresponding limits, and breaches are escalated to Senior Management and the
+Governing Body.
+Customer Protections. The Firm holds customer funds in cash in segregated accounts and does not
+invest customer funds. The Firm limits credit risk exposure to customers through collateral requirements,
+liquidation protections, and position limits. Customers are required to maintain equity above specified
+margin thresholds, and accounts may be auto-liquidated if account equity falls below initial margin
+requirements.
+Reporting and Audit. Each quarter, or upon detection of a material change in risk exposure, the RMU
+produces a written risk exposure report that is shared with the Governing Body, Senior Management, and
+Risk Committee, and submitted to the CFTC and NFA. The RMP is subject to an independent annual audit,
+the results of which are made available to the CFTC and NFA upon request.
+
+Page 10 of 10
+
+

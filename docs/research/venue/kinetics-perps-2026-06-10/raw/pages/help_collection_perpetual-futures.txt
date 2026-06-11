@@ -1,0 +1,34 @@
+Perpetual Futures | Kalshi Help Center
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• Copyright (c) 2023, Intercom, Inc. ([email protected]) with Reserved Font Name "Inter".
+ This Font Software is licensed under the SIL Open Font License, Version 1.1.Copyright (c) 2023, Intercom, Inc. ([email protected]) with Reserved Font Name "Inter".
+ This Font Software is licensed under the SIL Open Font License, Version 1.1.Skip to main content
+EnglishEnglish
+EnglishEnglish
+Search for articles...
+• All Collections
+• Perpetual Futures
+Perpetual Futures
+Getting started with Kalshi Perps
+13 articles
+What Are Perpetual Futures?Kalshi now offers perpetual futures — starting with crypto. If you've heard of futures trading but aren't sure how it works, or if you're familiar with Kalshi's prediction markets and…
+What perpetuals are available on Kalshi?Kalshi Perpetual Futures are available on the following crypto assets at launch. Additional assets will be added over time.
+BTC Perpetual Futures — Contract SpecificationsThis article covers the full contract specification for Kalshi's Bitcoin (BTC) perpetual futures contract.
+How Margin WorksTo open a perpetual futures position, you put up collateral that covers your potential losses. This article explains the types of margin and how they interact with your positions.
+Your Perpetuals Margin AccountYour perpetuals margin account is a separate account from your Kalshi predictions balance. This article covers how to fund it, how it's protected, and how to move money between accounts.
+How Funding WorksBecause perpetual futures never expire, a funding mechanism keeps the contract price anchored to the asset’s actual spot price. This article explains how the funding rate is calculated, when payments…
+Order TypesThis article covers the order types available for perpetual futures trading on Kalshi, and how to choose between them.
+Take Profit and Stop Loss (TP/SL)Take profit and stop loss orders let you automatically close your position when the price hits a level you set in advance. You can add them when placing a new…
+Closing or Modifying a Position
+Understanding LiquidationLiquidation occurs when your account balance falls below the maintenance margin threshold for a position. When this happens, Kalshi Klear will close your position to prevent further losses.
+Applying for Perpetuals AccessPerpetual futures trading is not automatically available to all Kalshi users. All users must apply for a margin account. This article explains the process and what to expect.
+Depositing, Transferring & WithdrawingYour perpetuals margin account is separate from your Kalshi predictions balance. This article covers how to get money in and out.
+Risks of Trading Perpetual FuturesPerpetual futures involve leverage and carry significant risk of loss. They may not be appropriate for all traders. Please read this article carefully before trading.
+Trade on anything.

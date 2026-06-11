@@ -1,0 +1,21 @@
+Isolated margin
+Isolated margin is the only mode currently available in the Kalshi app. With isolated margin, the risk on each trade is ring-fenced to that position only.
+Kalshi uses isolated margin to help users manage position-level risk and lower the likelihood of cross-position liquidations. As with any margined futures, losses in black swan scenarios can exceed posted margin. Kalshi therefore maintains a waterfall based financial safeguard, including a default fund and its own contributions, designed to help absorb shortfalls that may arise during default management.
+Portfolio Margining
+Portfolio margin offers offsets across related perpetual crypto positions in a portfolio. The approach is built to exceed regulatory protection standards and also allows for significant capital efficiencies in hedged portfolios. 
+Initial margin vs. maintenance margin
+• Initial margin is the amount you post to open a position. It is determined by the leverage you select and the notional size of your position.
+• Maintenance margin is the minimum balance required to keep a position open. If your account balance falls below this threshold due to market moves, you may face liquidation.
+• Variation margin is the profit and loss credited or debited to your account multiple times a day as the market moves. Gains increase your balance; losses reduce it.
+How leverage affects your margin requirement
+The higher the leverage you select, the less initial margin you need to open a position — but the closer your liquidation price is to your entry.
+Example: You want $1,000 of BTC exposure. At 1x leverage, you post $1,000 of margin. At 5x leverage, you post $200 of margin — but an adverse move could liquidate you.
+Settlement cycles
+A settlement cycle is the process where the exchange marks your position to the current market price and collects or credits the gains/losses (variation margin) from that price movement. Kalshi Klear runs two daily settlement cycles at approximately 12:00 PM ET and 4:00 PM ET. During settlement, all positions are marked to a fresh Volume Weighted Average Price and any variation margin owed is settled. Funding rate adjustments occur three times per day.
+Note: Your margin earns interest while held at the clearinghouse. The current rate is approximately 3.25% APY, subject to market conditions. More information on APY can be found here.
+Related Articles
+What Are Perpetual Futures?
+BTC Perpetual Futures — Contract Specifications
+Your Perpetuals Margin Account
+Understanding Liquidation
+Risks of Trading Perpetual Futures

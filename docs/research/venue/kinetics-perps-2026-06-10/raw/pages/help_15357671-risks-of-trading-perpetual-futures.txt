@@ -1,0 +1,21 @@
+Kalshi does not provide trading advice. All information provided by Kalshi is for informational purposes only. Trading perpetual futures involves risk and may not be appropriate for all. You should carefully consider whether trading perpetual futures on Kalshi is appropriate for you in light of your investment experience and financial resources. Any trading decisions you make are solely your responsibility and at your own risk.
+Liquidation risk
+If the market moves against your position and your account balance falls below the maintenance margin threshold, Kalshi Klear will liquidate your position. This can happen quickly in volatile markets. At 6x leverage, a ~17% adverse price move can wipe out your entire margin. Set a stop-loss to help manage this risk.
+Leverage risk
+Leverage amplifies gains but also amplifies losses by the same factor. A position that appears profitable can be eliminated by a relatively small adverse price move. Always understand your liquidation price before entering a leveraged trade.
+Funding rate costs
+Funding payments occur every 8 hours. If you hold a leveraged position for an extended period, these costs can accumulate — even if the price moves in your favor. Always factor funding into your cost of holding a position.
+Market volatility
+Crypto markets can move sharply and without warning. A sudden price swing can trigger liquidation faster than you can react. Use stop-losses, size your positions appropriately, and only trade amounts you can afford to lose.
+Operational and infrastructure risk
+Kalshi is a CFTC-regulated exchange. However, all trading platforms are subject to technical issues, outages, or unforeseen events. Kalshi performs scheduled maintenance on Thursdays from approximately 3:00–5:00 AM ET. During unscheduled outages, orders may not be executable.
+Regulatory risk
+Perpetual futures are a regulated financial product. Regulatory changes could affect the availability of the product, margin requirements, leverage limits, or other aspects of trading.
+Where to get help
+If you have questions about risk, reach out to Kalshi Support at [email protected]. If you are experiencing problems with your trading, you can also use the responsible trading tools available in your account settings.
+Related Articles
+What Are Perpetual Futures?
+How Margin Works
+Your Perpetuals Margin Account
+Understanding Liquidation
+Applying for Perpetuals Access

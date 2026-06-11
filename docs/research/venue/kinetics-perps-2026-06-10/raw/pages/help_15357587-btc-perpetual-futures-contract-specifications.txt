@@ -1,0 +1,36 @@
+Contract specification
+ | Spec
+ | Details
+ | Underlying
+ | Bitcoin (BTC) spot price in USD
+ | Price index
+ | CF Benchmarks Bitcoin Real-Time Index (BRTI)
+ | Index update frequency
+ | 1 second
+ | Contract type
+ | Linear (USD-margined)
+ | Contract size
+ | 0.0001 BTC per contract
+ | Min. position
+ | 1 contract (~$8 at current prices)
+ | Trading hours
+ | 24/7 (with exception to maintenance)
+ | Clearing
+ | Kalshi Klear LLC (CFTC-regulated DCO)
+ | Settlement cycles
+ | 12:00 PM ET and 4:00 PM ET daily
+ | Funding times
+ | 12:00 AM, 8:00 AM, and 4:00 PM ET
+ | Funding rate cap
+ | +2% / –2% per 8-hour interval
+ | Margin type
+ | Isolated (in Kalshi apps), portoflio via API
+What is the CF Benchmarks BRTI?
+The CF Benchmarks Bitcoin Real-Time Index (BRTI) is an institutional-grade spot price benchmark for Bitcoin. It aggregates prices from multiple regulated cryptocurrency exchanges and updates every second. It is widely used across regulated derivatives markets globally.
+Kalshi uses the BRTI as the reference price for funding rate calculations and settlement. When you see 'oracle price' or 'index price' in the product, this is the BRTI.
+Related Articles
+Crypto Markets
+What Are Perpetual Futures?
+What perpetuals are available on Kalshi?
+How Funding Works
+Risks of Trading Perpetual Futures

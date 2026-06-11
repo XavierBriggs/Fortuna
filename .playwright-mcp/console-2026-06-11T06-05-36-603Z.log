@@ -1,0 +1,67 @@
+[    1580ms] [LOG] Loading Amplitude Exp Scripts @ :95
+[    1734ms] [LOG] Amplitude experiment script loaded @ :88
+[    1862ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://www.cnbc.com/blaize/datalayer:0
+[    2325ms] [LOG] WPromote Pixels - CAT4 - Enabled @ :124
+[    2326ms] [LOG] Parsely - CAT7 - Enabled @ :160
+[    2327ms] [LOG] Amplitude variation captured via link call: CollapsibleGlobalNavCreateAccountButtonPresent @ :1140
+[    2328ms] [LOG] VWO - CAT7 - Enabled @ :52
+[    2328ms] [LOG] True Anthem Tag - CAT4 - Enabled @ :38
+[    2329ms] [LOG] saveDocIDToUserInfo @ :4
+[    2423ms] [INFO] [AccessEnabler.js][info] Version: 4.7.1-5a99613 RELEASE @ https://entitlement.auth.adobe.com/entitlement/v4/AccessEnabler.js:0
+[    2574ms] [LOG] ****** [mps] REDIRECTED: false → app.mps.vsnt.net ****** @ :1
+[    2576ms] [LOG] --[executed]--> MPS Header Additions (2) @ :0
+[    2578ms] [LOG] --[executed]--> MPS Footer Additions (3) @ :0
+[    2578ms] [LOG] This is the MPS omniture pagecall @ :1
+[    2673ms] [WARNING] [GPT] PubAdsService.disableInitialLoad is deprecated, use googletag.setConfig({disableInitialLoad: ...}) instead.
+https://goo.gle/gpt-message#170 @ https://securepubads.g.doubleclick.net/pagead/managed/js/gpt/m202606090101/pubads_impl.js?cb=31099063:18
+[    2687ms] [WARNING] [GPT] Slot.setCollapseEmptyDiv is deprecated, use Slot.setConfig({collapseDiv: ...}) instead.
+https://goo.gle/gpt-message#171 @ https://securepubads.g.doubleclick.net/pagead/managed/js/gpt/m202606090101/pubads_impl.js?cb=31099063:18
+[    2692ms] [WARNING] The following functions are deprecated: googletag.pubads().setTagForChildDirectedTreatment(), googletag.pubads().clearTagForChildDirectedTreatment(), googletag.pubads().setRequestNonPersonalizedAds(), and googletag.pubads().setTagForUnderAgeOfConsent(). Please use googletag.pubads().setPrivacySettings() instead. @ https://securepubads.g.doubleclick.net/pagead/managed/js/gpt/m202606090101/pubads_impl.js?cb=31099063:18
+[    2937ms] [INFO] [AccessEnablerProxy.js][info] Version: 4.7.1-5a99613 RELEASE @ https://sp.auth.adobe.com/entitlement/v4/AccessEnablerProxy.js:0
+[    3146ms] [WARNING] [GPT] Using deprecated googletag.encryptedSignalProviders. Please use googletag.secureSignalProviders instead.
+https://goo.gle/gpt-message#155 @ https://securepubads.g.doubleclick.net/pagead/managed/js/gpt/m202606090101/pubads_impl.js?cb=31099063:18
+[    3199ms] [WARNING] Google Deploy of the SharedId library has been deprecated. Please select another option in the GAM UI. If you use Prebid, we suggest the Prebid.js UserId option. If you do not, you may configure GAM to allow Google to share a first party user identifier with OB and AB participants, which is either the publisherProvidedId or the __gads value when that is missing. @ https://cdn.jsdelivr.net/gh/prebid/shared-id/pubcid.js/docs/pubcid.min.js:0
+[    3279ms] [LOG] PLSUB init called 17811579398776583 @ https://cdn-gl.imrworldwide.com/novms/js/2/nlsSDK600.bundle.min.js:5
+[    3286ms] [WARNING] [GPT] Using deprecated googletag.encryptedSignalProviders. Please use googletag.secureSignalProviders instead.
+https://goo.gle/gpt-message#155 @ https://securepubads.g.doubleclick.net/pagead/managed/js/gpt/m202606090101/pubads_impl.js?cb=31099063:18
+[    3333ms] [LOG] finished executing omniture now @ :1010
+[    3477ms] [ERROR] [AccessEnabler.js][error] Callback [ sendTrackingData ] is NOT implemented! Invoked with params [ authenticationDetection,false,,,,computer,html5,Mac OS X, ]. @ https://static-redesign.cnbcfm.com/dist/main-63c43b9914a9a4376060.js:1
+[    3484ms] [WARNING] [GPT] Using deprecated googletag.encryptedSignalProviders. Please use googletag.secureSignalProviders instead.
+https://goo.gle/gpt-message#155 @ https://securepubads.g.doubleclick.net/pagead/managed/js/gpt/m202606090101/pubads_impl.js?cb=31099063:18
+[    3610ms] [LOG] [mps:hb:dv] Call onDvtagReady @ https://app.mps.vsnt.net/fetch/ext/load-cnbc-web.js?nowrite=2:4106
+[    3611ms] [LOG] Polar Native - CAT4 - Enabled @ :34
+[    3612ms] [LOG] TVPromote Global Pixel - CAT4 - Enabled @ :43
+[    3612ms] [LOG] AdmantX - CAT4 - Enabled @ :39
+[    3613ms] [LOG] Iterate Survey - CAT6 - Enabled @ :112
+[    3613ms] [LOG] Omniture Search Quote Linkcall - CAT7 - Enabled @ :59
+[    3614ms] [LOG] Omniture Video Events - CAT7 - Enabled @ :1321
+[    3615ms] [LOG] Omniture Quotepage Linkcall - CAT7 - Enabled @ :62
+[    3615ms] [LOG] Omniture Quotepage Linkcall - CAT7 - Enabled @ :39
+[    3615ms] [LOG] SailThru - CAT7 - Enabled @ :77
+[    4226ms] [WARNING] adgb - not initialized. @ https://cdn.taboola.com/libtrc/cnbc/loader.js:58
+[    4720ms] [LOG] Inside Site Response @ https://static-redesign.cnbcfm.com/dist/83006-56af06bfc3a219d366cc.js:0
+[    5550ms] [LOG] [Experiment] mParticle and Amplitude detected, loading Experiment SDK @ https://www.cnbc.com/2026/06/09/kalshi-perpetual-futures-trading-perps-crosses-1-billion-in-volume-within-a-week-of-launch.html:135
+[    7063ms] [LOG] [Experiment] SDK loaded successfully @ https://www.cnbc.com/2026/06/09/kalshi-perpetual-futures-trading-perps-crosses-1-billion-in-volume-within-a-week-of-launch.html:140
+[    7203ms] [WARNING] A user identification type of customerId was selected in mParticle dashboard, but was not passed to the identity call. Please check your implementation. @ https://jssdkcdns.mparticle.com/js/v2/us1-99f689156b88a84fbe3383020acfea25/mparticle.js:41
+[    7218ms] [LOG] {layout: Array(0), aboutThisSection: null, aboutThisSectionRTE: Object, additionalMetadata: null, additionalSectionContentFormatted: wall street|stocks|us markets|finance} __CNBC_META_DATA DR Zephr after window.BI @ :1
+[    7219ms] [LOG] {layout: Array(0), aboutThisSection: null, aboutThisSectionRTE: Object, additionalMetadata: null, additionalSectionContentFormatted: wall street|stocks|us markets|finance} __CNBC_META_DATA DR Zephr after window.BI and promises @ :1
+[    7588ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[    7859ms] [WARNING] For '$exposure', the corresponding attribute value of 'metadata' must be a string, number, boolean, or null. @ https://jssdkcdns.mparticle.com/js/v2/us1-99f689156b88a84fbe3383020acfea25/mparticle.js:40
+[    7860ms] [LOG] mParticle event logged: true @ https://static-redesign.cnbcfm.com/dist/main-63c43b9914a9a4376060.js:216
+[    7861ms] [WARNING] For '$exposure', the corresponding attribute value of 'metadata' must be a string, number, boolean, or null. @ https://jssdkcdns.mparticle.com/js/v2/us1-99f689156b88a84fbe3383020acfea25/mparticle.js:40
+[    7862ms] [LOG] mParticle event logged: true @ https://static-redesign.cnbcfm.com/dist/main-63c43b9914a9a4376060.js:216
+[    7863ms] [WARNING] For '$exposure', the corresponding attribute value of 'metadata' must be a string, number, boolean, or null. @ https://jssdkcdns.mparticle.com/js/v2/us1-99f689156b88a84fbe3383020acfea25/mparticle.js:40
+[    7864ms] [LOG] mParticle event logged: true @ https://static-redesign.cnbcfm.com/dist/main-63c43b9914a9a4376060.js:216
+[    7865ms] [WARNING] For '$exposure', the corresponding attribute value of 'metadata' must be a string, number, boolean, or null. @ https://jssdkcdns.mparticle.com/js/v2/us1-99f689156b88a84fbe3383020acfea25/mparticle.js:40
+[    7866ms] [LOG] mParticle event logged: true @ https://static-redesign.cnbcfm.com/dist/main-63c43b9914a9a4376060.js:216
+[    7972ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://www.cnbc.com/api/affinity/users/6623393713849645488:0
+[    8066ms] [WARNING] For '$exposure', the corresponding attribute value of 'metadata' must be a string, number, boolean, or null. @ https://jssdkcdns.mparticle.com/js/v2/us1-99f689156b88a84fbe3383020acfea25/mparticle.js:40
+[    8068ms] [WARNING] For '$exposure', the corresponding attribute value of 'metadata' must be a string, number, boolean, or null. @ https://jssdkcdns.mparticle.com/js/v2/us1-99f689156b88a84fbe3383020acfea25/mparticle.js:40
+[    8069ms] [WARNING] For '$exposure', the corresponding attribute value of 'metadata' must be a string, number, boolean, or null. @ https://jssdkcdns.mparticle.com/js/v2/us1-99f689156b88a84fbe3383020acfea25/mparticle.js:40
+[    8070ms] [WARNING] For '$exposure', the corresponding attribute value of 'metadata' must be a string, number, boolean, or null. @ https://jssdkcdns.mparticle.com/js/v2/us1-99f689156b88a84fbe3383020acfea25/mparticle.js:40
+[    8451ms] [LOG] received a request for uspapi @ https://cdn.cookielaw.org/opt-out/otCCPAiab.js:95
+[    8459ms] [LOG] received a request for uspapi @ https://cdn.cookielaw.org/opt-out/otCCPAiab.js:95
+[   13646ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://www.cnbc.com/zephr/public/rule-outcomes/v1/conversions:0
+[   33228ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   63286ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   93162ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0

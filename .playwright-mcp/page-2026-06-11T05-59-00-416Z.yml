@@ -1,0 +1,336 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - paragraph [ref=e3]:
+      - text: Please review the
+      - link "NFA Website Disclaimer and Privacy Policy" [ref=e4]:
+        - /url: /disclaimer-and-privacy-policy.html
+      - text: to learn about our privacy practices.
+    - button "I Understand" [ref=e5] [cursor=pointer]
+    - img "National Futures Association" [ref=e6]
+  - generic [ref=e7]:
+    - generic [ref=e8]:
+      - banner [ref=e9]:
+        - generic [ref=e12]:
+          - link "National Futures Association" [ref=e14] [cursor=pointer]:
+            - /url: /index.html
+            - img "National Futures Association" [ref=e15]
+          - generic [ref=e16]:
+            - generic [ref=e17]:
+              - list [ref=e19]:
+                - listitem [ref=e20]:
+                  - link "Electronic Filing Systems|" [ref=e21] [cursor=pointer]:
+                    - /url: /electronic-filing-systems/index.html
+                - listitem [ref=e22]:
+                  - link "NFA Rulebook|" [ref=e23] [cursor=pointer]:
+                    - /url: /rulebook/index.aspx
+                - listitem [ref=e24]:
+                  - link "Online Registration System" [ref=e25] [cursor=pointer]:
+                    - /url: "#ORS"
+              - form [ref=e27]:
+                - generic [ref=e29]:
+                  - search [ref=e31]:
+                    - combobox "Search" [ref=e34]
+                  - button "Search" [ref=e35] [cursor=pointer]:
+                    - img "Search" [ref=e37]
+            - list [ref=e42]:
+              - listitem [ref=e43]:
+                - link "Basic Search Logo" [ref=e44] [cursor=pointer]:
+                  - /url: basic-search-landing.aspx
+                  - img "Basic Search Logo" [ref=e45]
+              - listitem [ref=e46]:
+                - link "File a Complaint" [ref=e47] [cursor=pointer]:
+                  - /url: /ComplaintNET/Complaint.aspx
+      - navigation [ref=e51]:
+        - list [ref=e54]:
+          - listitem [ref=e55]:
+            - link "About" [ref=e56] [cursor=pointer]:
+              - /url: /about/index.html
+          - listitem [ref=e57]:
+            - link "News & Notices" [ref=e58] [cursor=pointer]:
+              - /url: /news/indexNews.asp
+          - listitem [ref=e59]:
+            - link "Members" [ref=e60] [cursor=pointer]:
+              - /url: /members/index.html
+          - listitem [ref=e61]:
+            - link "Registration" [ref=e62] [cursor=pointer]:
+              - /url: /registration-membership/index.html
+          - listitem [ref=e63]:
+            - link "Investors" [ref=e64] [cursor=pointer]:
+              - /url: /investors/index.html
+          - listitem [ref=e65]:
+            - link "Careers" [ref=e66] [cursor=pointer]:
+              - /url: /careers/index.html
+    - main [ref=e67]:
+      - generic [ref=e68]:
+        - generic [ref=e71]:
+          - generic [ref=e72]:
+            - generic [ref=e73]:
+              - combobox [ref=e74] [cursor=pointer]:
+                - option "Firm" [selected]
+                - option "NFA ID"
+                - option "Individual"
+                - option "Pool"
+              - searchbox "Firm Name" [ref=e76]
+            - button [ref=e77] [cursor=pointer]
+            - img "Basic Search Logo" [ref=e78]
+            - link "Print" [ref=e79] [cursor=pointer]:
+              - /url: "#"
+              - img [ref=e80]
+              - text: Print
+          - generic [ref=e81]:
+            - link "Home" [ref=e82] [cursor=pointer]:
+              - /url: /index.html
+            - generic [ref=e83]: ">"
+            - link "BASIC" [ref=e84] [cursor=pointer]:
+              - /url: ./
+            - generic [ref=e85]: ">"
+            - text: Profile 0574784
+        - main [ref=e87]:
+          - generic [ref=e88]:
+            - complementary [ref=e89]:
+              - link "Basic Search Logo" [ref=e90] [cursor=pointer]:
+                - /url: ./
+                - img "Basic Search Logo" [ref=e91]
+              - generic [ref=e92]:
+                - 'heading "NFA ID: 0574784" [level=6] [ref=e93]'
+                - heading "KINETIC MARKETS LLC" [level=3] [ref=e94]
+              - paragraph [ref=e97]:
+                - strong [ref=e98]: NFA Member Approved
+              - list [ref=e100]:
+                - listitem [ref=e101]:
+                  - img "CFTC Registered label icon" [ref=e103]
+                  - generic [ref=e104]:
+                    - paragraph [ref=e105]:
+                      - strong [ref=e106]: CFTC Registered
+                    - paragraph
+                    - paragraph [ref=e107]: Futures Commission Merchant
+                    - paragraph
+              - list
+              - generic [ref=e109]:
+                - paragraph [ref=e110]:
+                  - strong [ref=e111]: Activity Status
+                - paragraph [ref=e112]:
+                  - text: Access activity information provided by the firm.
+                  - link "View Details" [ref=e113] [cursor=pointer]:
+                    - /url: basic-activity-status.aspx?nfaid=laKM6t6wuBQ%3D
+              - list [ref=e114]:
+                - listitem [ref=e115]:
+                  - img "icon of location" [ref=e117]
+                  - generic [ref=e118]:
+                    - paragraph [ref=e119]:
+                      - strong [ref=e120]: Business Address
+                    - paragraph [ref=e121]:
+                      - text: 416 West 13th Street
+                      - text: New York, NY 10014
+                      - text: United States
+                - listitem [ref=e122]:
+                  - img "icon of phone" [ref=e124]
+                  - generic [ref=e125]:
+                    - paragraph [ref=e126]:
+                      - strong [ref=e127]: Phone Number
+                    - paragraph [ref=e128]: (201) 780-7424
+            - generic [ref=e129]:
+              - generic [ref=e131]:
+                - generic [ref=e134]:
+                  - heading "Regulatory Actions ?" [level=3] [ref=e135]:
+                    - text: Regulatory Actions
+                    - generic [ref=e137]: "?"
+                  - generic [ref=e138]:
+                    - generic [ref=e139]:
+                      - text: "0"
+                      - paragraph [ref=e140]:
+                        - strong [ref=e141]: NFA Actions
+                    - generic [ref=e142]:
+                      - text: "0"
+                      - paragraph [ref=e143]:
+                        - strong [ref=e144]: CFTC Actions
+                    - generic [ref=e145]:
+                      - text: "0"
+                      - paragraph [ref=e146]:
+                        - strong [ref=e147]: Exchange Actions
+                - generic [ref=e149]:
+                  - generic [ref=e150]:
+                    - generic [ref=e151]: "0"
+                    - heading "NFA Arbitration Decisions ?" [level=3] [ref=e153]:
+                      - text: NFA Arbitration Decisions
+                      - generic [ref=e155]: "?"
+                  - generic [ref=e156]:
+                    - generic [ref=e157]: "0"
+                    - heading "CFTC Reparations Cases ?" [level=3] [ref=e159]:
+                      - text: CFTC Reparations Cases
+                      - generic [ref=e161]: "?"
+              - generic [ref=e162]:
+                - generic [ref=e163]:
+                  - img "icon of chart" [ref=e165]
+                  - heading "FCM Financial Data Reporting ?" [level=3] [ref=e167]:
+                    - text: FCM Financial Data Reporting
+                    - generic [ref=e169]: "?"
+                  - combobox [ref=e170] [cursor=pointer]:
+                    - option "Please select report to view data"
+                    - option "FCM Capital Data Report" [selected]
+                    - option "FCM Customer Segregated Funds Report"
+                    - option "FCM Customer Secured Amount Funds Report"
+                    - option "FCM Cleared Swaps Customer Collateral Report"
+                - generic [ref=e172]:
+                  - generic [ref=e173]:
+                    - paragraph [ref=e174]:
+                      - strong [ref=e175]: FCM Capital Data Report (Updated Monthly)
+                    - paragraph [ref=e176]:
+                      - generic [ref=e177]:
+                        - text: An FCM is required to maintain adjusted net capital greater than or equal to the amount of capital it is required to maintain (required net capital).
+                        - text: "This report is updated monthly and displays:"
+                        - list [ref=e178]:
+                          - listitem [ref=e179]:
+                            - text: Adjusted net capital;
+                            - generic [ref=e181]: "?"
+                          - listitem [ref=e182]:
+                            - text: Required net capital;
+                            - generic [ref=e184]: "?"
+                            - text: and
+                          - listitem [ref=e185]:
+                            - text: Excess net capital.
+                            - generic [ref=e187]: "?"
+                  - generic [ref=e188]:
+                    - separator [ref=e189]
+                    - generic [ref=e191]:
+                      - generic [ref=e198]: 1/1/2021
+                      - generic [ref=e201]: 12/31/2026
+                  - generic [ref=e204] [cursor=pointer]: Export Data (.xls)
+                  - img [ref=e207]:
+                    - generic [ref=e208]:
+                      - generic [ref=e215]:
+                        - generic [ref=e217]:
+                          - generic [ref=e218]: $0
+                          - generic [ref=e219]: $500K
+                          - generic [ref=e220]: $1M
+                          - generic [ref=e221]: $1.5M
+                          - generic [ref=e222]: $2M
+                        - generic [ref=e224]:
+                          - generic [ref=e225]: 03/31/2026
+                          - generic [ref=e226]: 04/30/2026
+                      - generic [ref=e243]:
+                        - generic [ref=e244] [cursor=pointer]: Adjusted Net Capital
+                        - generic [ref=e247] [cursor=pointer]: Net Capital Requirement
+              - tablist [ref=e251]:
+                - generic [ref=e252]:
+                  - tab "icon of calendar History Details" [ref=e253]:
+                    - button "icon of calendar History Details" [expanded] [ref=e254] [cursor=pointer]:
+                      - img "icon of calendar" [ref=e256]
+                      - heading "History Details" [level=3] [ref=e258]
+                  - tabpanel "icon of calendar History Details" [ref=e259]:
+                    - table [ref=e262]:
+                      - rowgroup [ref=e263]:
+                        - row "Date Description" [ref=e264]:
+                          - columnheader "Date" [ref=e265]
+                          - columnheader "Description" [ref=e266]
+                      - rowgroup [ref=e267]:
+                        - row "03/24/2026 SWAP FIRM APPROVED" [ref=e268]:
+                          - cell "03/24/2026" [ref=e269]
+                          - cell "SWAP FIRM APPROVED" [ref=e270]
+                        - row "03/24/2026 NFA MEMBER APPROVED" [ref=e271]:
+                          - cell "03/24/2026" [ref=e272]
+                          - cell "NFA MEMBER APPROVED" [ref=e273]
+                        - row "03/24/2026 FUTURES COMMISSION MERCHANT REGISTERED" [ref=e274]:
+                          - cell "03/24/2026" [ref=e275]
+                          - cell "FUTURES COMMISSION MERCHANT REGISTERED" [ref=e276]
+                        - row "11/21/2025 NFA MEMBER PENDING" [ref=e277]:
+                          - cell "11/21/2025" [ref=e278]
+                          - cell "NFA MEMBER PENDING" [ref=e279]
+                        - row "11/21/2025 SWAP FIRM PENDING" [ref=e280]:
+                          - cell "11/21/2025" [ref=e281]
+                          - cell "SWAP FIRM PENDING" [ref=e282]
+                        - row "11/21/2025 FUTURES COMMISSION MERCHANT PENDING" [ref=e283]:
+                          - cell "11/21/2025" [ref=e284]
+                          - cell "FUTURES COMMISSION MERCHANT PENDING" [ref=e285]
+              - generic [ref=e286]:
+                - generic [ref=e287]:
+                  - img "icon of person" [ref=e289]
+                  - generic [ref=e290]:
+                    - heading "Listed Principals" [level=3] [ref=e291]
+                    - paragraph [ref=e292]: Determined by their ability to control a registrant's business activities, their formal title or position with the registrant, or their ownership or financial stake in a registrant.
+                - table [ref=e295]:
+                  - rowgroup [ref=e296]:
+                    - row "Name Title 10% or More Financial Interest" [ref=e297]:
+                      - columnheader "Name" [ref=e298]: Name
+                      - columnheader "Title" [ref=e300]: Title
+                      - columnheader "10% or More Financial Interest" [ref=e302]: 10% or More Financial Interest
+                  - rowgroup [ref=e304]:
+                    - row "DAIHEE CHO CHIEF FINANCIAL OFFICER NO" [ref=e305]:
+                      - cell "DAIHEE CHO" [ref=e306]:
+                        - link "DAIHEE CHO" [ref=e307] [cursor=pointer]:
+                          - /url: basic-profile.aspx?nfaid=08HxmKj%2BapQ%3D
+                      - cell "CHIEF FINANCIAL OFFICER" [ref=e308]
+                      - cell "NO" [ref=e309]
+                    - row "JAMES MICHAEL HILL CHIEF COMPLIANCE OFFICER NO" [ref=e310]:
+                      - cell "JAMES MICHAEL HILL" [ref=e311]:
+                        - link "JAMES MICHAEL HILL" [ref=e312] [cursor=pointer]:
+                          - /url: basic-profile.aspx?nfaid=WjGo98GMWbc%3D
+                      - cell "CHIEF COMPLIANCE OFFICER" [ref=e313]
+                      - cell "NO" [ref=e314]
+                    - row "KALSHI INC YES" [ref=e315]:
+                      - cell "KALSHI INC" [ref=e316]:
+                        - link "KALSHI INC" [ref=e317] [cursor=pointer]:
+                          - /url: basic-profile.aspx?nfaid=J%2BmMdp%2BJWE0%3D
+                      - cell [ref=e318]
+                      - cell "YES" [ref=e319]
+                    - row "LIOR SAMUEL HIRSCHFELD CHIEF EXECUTIVE OFFICER NO" [ref=e320]:
+                      - cell "LIOR SAMUEL HIRSCHFELD" [ref=e321]:
+                        - link "LIOR SAMUEL HIRSCHFELD" [ref=e322] [cursor=pointer]:
+                          - /url: basic-profile.aspx?nfaid=d0EdiAiKIBs%3D
+                      - cell "CHIEF EXECUTIVE OFFICER" [ref=e323]
+                      - cell "NO" [ref=e324]
+                    - row "LUANA LOPES LARA INDIRECT OWNER YES" [ref=e325]:
+                      - cell "LUANA LOPES LARA" [ref=e326]:
+                        - link "LUANA LOPES LARA" [ref=e327] [cursor=pointer]:
+                          - /url: basic-profile.aspx?nfaid=7cQ%2BQD4n%2B5w%3D
+                      - cell "INDIRECT OWNER" [ref=e328]
+                      - cell "YES" [ref=e329]
+                    - row "TAREK MANSOUR INDIRECT OWNER YES" [ref=e330]:
+                      - cell "TAREK MANSOUR" [ref=e331]:
+                        - link "TAREK MANSOUR" [ref=e332] [cursor=pointer]:
+                          - /url: basic-profile.aspx?nfaid=wvyeN%2FGqZXI%3D
+                      - cell "INDIRECT OWNER" [ref=e333]
+                      - cell "YES" [ref=e334]
+    - contentinfo [ref=e336]:
+      - generic [ref=e338]:
+        - list [ref=e339]:
+          - listitem [ref=e340]:
+            - link "Contact NFA|" [ref=e341] [cursor=pointer]:
+              - /url: /contact-nfa/index.html
+          - listitem [ref=e342]:
+            - link "File a Complaint|" [ref=e343] [cursor=pointer]:
+              - /url: /ComplaintNET/Complaint.aspx
+          - listitem [ref=e344]:
+            - link "Arbitration Services|" [ref=e345] [cursor=pointer]:
+              - /url: /arbitration/index.html
+          - listitem [ref=e346]:
+            - link "Market Regulation Services|" [ref=e347] [cursor=pointer]:
+              - /url: /market-regulation/index.html
+          - listitem [ref=e348]:
+            - link "FAQs" [ref=e349] [cursor=pointer]:
+              - /url: /faqs/index.html
+        - list [ref=e350]:
+          - listitem [ref=e351]:
+            - link "Home|" [ref=e352] [cursor=pointer]:
+              - /url: /index.html
+          - listitem [ref=e353]:
+            - link "Site Index|" [ref=e354] [cursor=pointer]:
+              - /url: /site-index.html
+          - listitem [ref=e355]:
+            - link "Disclaimer and Privacy Policy" [ref=e356] [cursor=pointer]:
+              - /url: /disclaimer-and-privacy-policy.html
+        - separator [ref=e357]
+        - generic [ref=e358]:
+          - heading "Connect With Us" [level=3] [ref=e359]
+          - link "t Twitter" [ref=e360] [cursor=pointer]:
+            - /url: https://twitter.com/NFA_News
+            - text: t
+            - generic [ref=e361]: Twitter
+          - link "r Rss" [ref=e362] [cursor=pointer]:
+            - /url: /news/rss.asp
+            - text: r
+            - generic [ref=e363]: Rss
+      - paragraph [ref=e366]:
+        - text: Â©
+        - generic [ref=e367]: "2026"
+        - text: National Futures Association. All Rights Reserved. NFA and NATIONAL FUTURES ASSOCIATION are registered trademarks of National Futures Association.

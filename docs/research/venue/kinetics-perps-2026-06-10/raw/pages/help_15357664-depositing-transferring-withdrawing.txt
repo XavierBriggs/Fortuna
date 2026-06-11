@@ -1,0 +1,22 @@
+Funding your margin account
+To trade perpetual futures, you must fund your margin account. You have two options:
+• Deposit directly to your margin account via ACH, wire, or other supported payment methods.
+• Transfer funds from your existing Kalshi predictions account balance in the Portfolio tab.
+Transferring between your predictions and margin accounts
+You can move funds between your predictions balance and your margin account at any time from the Portfolio tab. Transfers are processed promptly.
+Margin currently allocated to open positions cannot be transferred until those positions are closed.
+Withdrawing from your margin account
+To withdraw, go to the Portfolio tab, select your perpetuals account, and choose Withdraw. You can send funds to your bank account or move them back to your predictions balance.
+Only funds not allocated to open positions are available for withdrawal.
+What happens during exchange maintenance?
+Kalshi performs scheduled maintenance on Thursdays from approximately 3:00 AM to 5:00 AM ET. During this window:
+• The exchange is offline and new orders cannot be placed or modified.
+• Existing open positions remain open and are not automatically closed.
+• The mark price does not change during maintenance.
+• Funding payments scheduled during maintenance are processed when the exchange comes back online.
+Related Articles
+What Are Perpetual Futures?
+How Margin Works
+Your Perpetuals Margin Account
+Understanding Liquidation
+Risks of Trading Perpetual Futures

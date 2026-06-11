@@ -1,0 +1,19 @@
+What triggers liquidation?
+If the market moves against your position and your account equity drops below the maintenance margin, your position is at risk of liquidation. Kalshi Klear monitors all positions continuously, 24/7.
+How isolated margin protects you
+Because Kalshi uses isolated margin by default, a liquidation event only affects the margin allocated to that specific position. Your funds in other positions and your predictions account balance are not at risk.
+What happens during liquidation?
+Kalshi Klear places opposing market orders to close the defaulting position as quickly as possible. Any remaining margin after the close is returned to your account. If the position closes with a deficit, the clearinghouse's risk waterfall absorbs it — your other margin funds are unaffected.
+How to reduce your liquidation risk
+• Use lower leverage
+• Set a stop-loss when opening a position — this should trigger before your liquidation price
+• Add funds to your margin account if your position is approaching the liquidation threshold
+• Monitor your liquidation price in the position details panel
+Can I get liquidated during exchange maintenance?
+No. The mark price does not change during scheduled maintenance windows, so your liquidation distance from the current price does not change while the exchange is offline. Liquidation monitoring resumes immediately when the exchange comes back online.
+Related Articles
+What Are Perpetual Futures?
+How Margin Works
+Your Perpetuals Margin Account
+Depositing, Transferring & Withdrawing
+Risks of Trading Perpetual Futures

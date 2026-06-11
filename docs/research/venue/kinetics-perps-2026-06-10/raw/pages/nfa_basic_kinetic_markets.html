@@ -1,0 +1,628 @@
+
+
+<!DOCTYPE html>
+<!--[if lt IE 8]> <html class="lt-ie9 lt-ie8 " lang="en"> <![endif]-->
+<!--[if IE 8]>    <html class="lt-ie9" lang="en"> <![endif]-->
+<!--[if IE 9]>    <html class="ie9 " lang="en"> <![endif]-->
+<!--[if gt IE 9]><!--> <html lang="en"><!--<![endif]-->
+<head><meta charset="utf-8" /><title>
+	BASIC | NFA
+</title><meta content="width=device-width, initial-scale=1" name="viewport" /><meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" /><meta http-equiv="Pragma" content="no-cache" /><meta http-equiv="Expires" content="0" />
+    <link href="./basic-icons/icons/apple-touch-icon.png" rel="apple-touch-icon" sizes="180x180" />
+    <link href="./basic-img/icons/favicon-32x32.png" rel="icon" sizes="32x32" type="image/png" />
+    <link href="./basic-img/icons/favicon-16x16.png" rel="icon" sizes="16x16" type="image/png" />
+    <link href="./manifest.json" rel="manifest" />
+    <link href="./basic-img/icons/favicon.ico" rel="shortcut icon" />
+    <link color="#5bbad5" href="/cms/icons/safari-pinned-tab.svg" rel="mask-icon" />
+    <meta content="#ffffff" name="theme-color" />
+
+    <script src="../cms/includes/js/hostedSearchPage.js"></script>
+    <script class="coveo-script" src="https://static.cloud.coveo.com/searchui/v2.10106/js/CoveoJsSearch.Lazy.min.js"></script>
+    <script src="https://static.cloud.coveo.com/searchui/v2.10106/js/templates/templates.js"></script>
+
+
+    <link href="https://fonts.googleapis.com/css?family=Nunito:300,400,600,700" rel="stylesheet" />
+    <link href="./cms/includes/css/icon-fonts.min.css" rel="stylesheet" type="text/css" />
+    <link href="./cms/includes/css/bootstrap.min.css" rel="stylesheet" />
+    <link href="./cms/includes/css/theme.min.css" rel="stylesheet" type="text/css" />
+    <link href="./cms/includes/css/slick.min.css" rel="stylesheet" type="text/css" />
+    <link href="./cms/includes/css/slick-theme.min.css" rel="stylesheet" type="text/css" />
+    <link href="./basic-css/basic-search.css" rel="stylesheet" />
+    <!-- *************************************************************** begin headCSSIncludes *******************-->
+    
+    <link href="basic-css/iThing.min.css" rel="stylesheet" type="text/css" />
+
+    <!-- *************************************************************** end headCSSIncludes *******************-->
+    
+    <link href="./basic-css/basic.css" rel="stylesheet" />
+    
+    <!-- *************************************************************** begin headJSIncludes *******************-->
+    
+    <!--[if lt IE 9]>
+    <script type="text/javascript" src="/cms/includes/js/respond.min.js"></script>
+    <![endif]-->
+
+    <script src="cms/includes/js/jquery.min.js" type="text/javascript"></script>
+    <script src="cms/includes/js/jquery-ui.min.js" type="text/javascript"></script>
+    <script src="cms/includes/js/bootstrap.bundle.min.js" type="text/javascript"></script>
+    <script src="basic-api/DataHandler.ashx?proxy" type="text/javascript"></script>
+    <script src="cms/includes/js/nfacommon.min.js" type="text/javascript"></script>
+    <script src="cms/includes/js/servermessage.js" type="text/javascript"></script>
+    <script src="basic-js/jQAllRangeSliders-min.js" type="text/javascript"></script>
+    <script src="basic-js/fusioncharts.js" type="text/javascript"></script>
+    <script src="basic-js/fusioncharts.charts.js" type="text/javascript"></script>
+    <script src="basic-js/fusioncharts.widgets.js" type="text/javascript"></script>
+
+    <script src="../cms/includes/js/servermessage.js" type="text/javascript"></script>
+    <!-- *************************************************************** end headJSIncludes *******************-->
+
+    <!-- Google Tag Manager -->
+    <script>
+        (function (w, d, s, l, i) {
+        w[l] = w[l] || []; w[l].push({
+        'gtm.start':
+        new Date().getTime(), event: 'gtm.js'
+        }); var f = d.getElementsByTagName(s)[0],
+        j = d.createElement(s), dl = l != 'dataLayer' ? '&l=' + l : ''; j.async = true; j.src =
+        'https://www.googletagmanager.com/gtm.js?id=' + i + dl; f.parentNode.insertBefore(j, f);
+        })(window, document, 'script', 'dataLayer', 'GTM-WCKZQ9D');
+    </script>
+    <!-- End Google Tag Manager -->
+    <!---->
+    <!-- *************************************************************** begin headMetaData *******************-->
+    
+    <meta content="" name="description" />
+    <meta content="" name="keywords" />
+
+    <!-- *************************************************************** end headMetaData *******************-->
+<meta name="description" content="Basic Profile" /></head>
+<body class="interior-body">
+    <!-- Google Tag Manager (noscript) -->
+    <noscript><iframe height="0" src="https://www.googletagmanager.com/ns.html?id=GTM-WCKZQ9D" style="display:none;visibility:hidden" width="0"></iframe></noscript>
+    <!-- End Google Tag Manager (noscript) -->
+    <div class="row-offcanvas row-offcanvas-left">
+        <div class="navbar-fixed-top">
+            <header class="main-header" role="banner">
+                <div id="headerLogoDiv">
+                    <div class="container clearfix">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <a class="site-logo" href="/index.html">
+                                    <img alt="National Futures Association" src="./cms/images/logo.png">
+                                </a>
+                            </div>
+                            <div class="col-md-9">
+                                <div class="header-top table-row">
+                                    <div class="column">
+                                        <ul class="secondary-nav column">
+                                            <li><a href="/electronic-filing-systems/index.html">Electronic Filing Systems</a>
+                                            </li>
+                                            <li><a href="/rulebook/index.aspx">NFA Rulebook</a>
+                                            </li>
+                                            <li><a name="ORS" id="ORS" href="#ORS">Online Registration System</a>
+                                            </li>
+                                        </ul>
+                                        <script type="text/javascript">
+                                            document.getElementById("ORS").onclick = function() {
+                                                open_app('/ORS/');
+                                            }
+                                        </script>
+                                    </div>
+                                    <div class="column">
+                                        <!-- BEGIN COVEO SEARCH INTEGRATION -->
+                                            <link href="../cms/includes/css/coveoFullSearch-custom.css" rel="stylesheet" type="text/css"/>
+                                            <div role="form" style="padding-top: 4px;">
+                                                <div id="searchbox">
+                                                    <div class="CoveoAnalytics" data-expression="@source==NFA" data-search-hub="Global-Search"></div>
+                                                    <div class="CoveoSearchbox" id="searchID"></div>
+                                                </div>
+                                            </div>
+                                        <script src="/cms/includes/js/coveoapiKeys.js"></script>
+                                        <script src="/cms/includes/js/coveo-contentLoader-v2.js"></script>
+
+                                        <!-- END COVEO SEARCH INTEGRATION -->
+                                    </div>
+                                </div>
+                                <div class="header-buttons">
+                                    <ul>
+                                        <li>
+                                            <a class="btn" href="basic-search-landing.aspx">
+                                                <img style="width: 70px;" alt="Basic Search Logo" src="./basic-img/company-logo/basic-logo-white-e9dbaa5a.svg">
+                                            </a>
+                                            <li><a class="btn" href="/ComplaintNET/Complaint.aspx">File a Complaint</a>
+                                            </li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </header>
+            <div id="navDiv">
+                <div class="nav-section">
+                    <div class="container clearfix">
+                        <!-- MAIN NAV -->
+                        <nav class="navbar navbar-default" role="navigation">
+                            <div class="container-fluid">
+                            <button class="navbar-toggle" type="button" data-toggle="offcanvas"  data-bs-target="#navbar"> <span class="visually-hidden">Toggle navigation</span><span class="icon-bar"></span><span class="icon-bar"></span><span class="icon-bar"></span>	
+                            </button>
+                            <div class="sidebar-offcanvas" id="navbar">
+                                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                                    <li> <a href="/about/index.html"><span>About</span></a>	
+                                    </li>
+                                    <li > <a  href="/news/indexNews.asp"><span>News &amp; Notices</span></a>	
+                                    </li>
+                                    <li > <a  href="/members/index.html"><span>Members</span></a>	
+                                    </li>
+                                    <li > <a  href="/registration-membership/index.html"><span>Registration</span></a>	
+                                    </li>
+                                    <li > <a  href="/investors/index.html"><span>Investors</span></a>	
+                                    </li>
+                                    <li > <a  href="/careers/index.html"><span>Careers</span></a>	
+                                    </li>
+                                </ul>
+                            </div>
+                        </nav>
+                        <!-- MAIN NAV end -->
+                    </div>
+                </div>
+            </div>
+            <div id="animationLoader">
+                <p>Loading</p>
+                <div id="load_spinner"></div>
+            </div>
+        </div>
+        <main class="main-content" id="main-content" role="main" tabindex="-1">
+            <div class="nfa-server-alert-urgent hidden"></div>
+            <div class="nfa-server-alert-info hidden"></div>
+            <div class="basic-wrapper">
+                <div id="headerDiv">
+                    <div class="container">
+                        <div class="bar" id="Div1">
+                            <div class="page-tools" id="PrintPageNew">
+                                
+                                 <form class="quick-search">
+                                     <span class="validation">
+                                          <span class="validation-search quick firm">Please enter a firm name.</span>
+                                          <span class="validation-search quick nfaid">Please enter an NFA or Pool ID.</span>
+                                          <span class="validation-search quick individual">Please enter a last name.</span>
+                                          <span class="validation-search quick pool">Please enter a pool name.</span>
+                                      </span>
+                                     <div style="display:none">
+                                         <input type="hidden" name="search_return_url_param" id="search_return_url_param" />
+                                    </div>
+                                    <select id="quick_search_dd">
+                                      <option value="firm" pholder="Firm Name">Firm</option>
+                                      <option value="nfaid" pholder="NFA ID">NFA ID</option>
+                                      <option value="individual" pholder="Last Name (required)">Individual</option>
+                                      <option value="pool" pholder="Pool Name">Pool</option>
+                                    </select>
+                                     
+                                    <div class="search-bar">
+                                      <input type="hidden" name="search_main_param" id="search_main_param" />
+                                      <input type="hidden" name="search_secondary_param" id="search_secondary_param" />
+                                      <input type="hidden" name="search_type_param" id="search_type_param" />
+                                      <input id="fname_in_qsearch" type="text" placeholder="First Name" style="display:none;margin-right:5px;" /><input id="input_in_qsearch" type="search" placeholder="Firm Name">
+                                    </div>
+                                </form>
+                                <button id="qsearch_btn" class="btn btn-primary"></button>
+                                <img class="search-bar-logo-right logo" alt="Basic Search Logo" src="./basic-img/company-logo/basic-logo-color-e2254905.svg">
+                                <a onclick="window.print(); return false;" href="#"><svg xmlns="http://www.w3.org/2000/svg" class="svg-icon-print" aria-hidden="true" focusable="false"> <use xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="#icon-print" /> </svg>Print                            </a>
+                            </div>
+                            <div class="breadcrumbs" id="Breadcrumbs">
+                                <a href="/index.html">Home</a>
+                                <span class="icon-bracket-right"></span>
+                                <a href="./">BASIC</a>
+                                <span class="icon-bracket-right"></span>
+                                <span class="nfa-breadcrumb-insert"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                
+                
+                
+                <div class="basic-content">
+                    <main class="content-with-sidebar">
+                        <div class="container">
+                            <aside class="side-bar" id="vitalsHolder">
+                                <img  alt="Basic Search Logo" src="./basic-img/company-logo/basic-logo-white-e9dbaa5a.svg" class="logo">
+                            </aside>
+                            <div id="mainContainer" class="col-md-9 col-md-offset-3 main-text" >
+                                <div id="notNFAHolder"></div>
+                                <div id="barredHolder"></div>
+                                <div id="notDoingBuisnessHolder"></div>
+                                <!-- *************************************************************** begin basicMainContent *******************-->
+                                
+    <div id="regActionArbRepHolder"></div>
+    <div id="reportCard" class="card" style="display: none;">
+        <div class="card-header with-dropdown">
+            <i class="circle-icon report-head-icon"><img src="basic-img/icons/chart-38f2a4d5.svg" alt="icon of chart"></i>
+            <div class="text-block">
+                <h3>FCM Financial Data Reporting  <div class='tooltip-block top'><span class='tooltip-trigger-def'>?</span><span class='tooltip-content'>
+                    <p>Futures commission merchants (FCM) file financial reports with NFA that provide transparency into their financial positions. This FCM's available financial data, starting with 2012, can be found in the charts below.
+                    </p>
+                    <p>Although all FCMs are required to provide accurate information to NFA, NFA makes no warranties of any kind, express or implied, about the completeness, accuracy, reliability, adequacy, or usefulness of this information, in whole or in part.</p></span></div></h3>
+            </div>
+            <select id="reportSelect">
+                <option value="pleaseSelect">Please select report to view data</option>
+                <option value="FCMCapDataReport">FCM Capital Data Report</option>
+                <option value="FCMSegFundsReport">FCM Customer Segregated Funds Report</option>
+                <option value="FCMCustSecuredAmtFundsReport">FCM Customer Secured Amount Funds Report</option>
+                <option value="FCMSwapsCustCollReport">FCM Cleared Swaps Customer Collateral Report</option>
+            </select>
+        </div>
+        <div class="card-inner">
+            <div class="card-inner-header fcm-charts-cap">
+                <div class="text-block" style="width: 100%;">
+                    <p><strong><span id="FCMReportTitle"></span></strong></p>
+                    <p><span id="FCMReportDescription"></span></p>
+                </div>
+                <div id="showHideSlider">
+                    <hr />
+                    <div style="padding-left: 50px; padding-right: 50px;"><div id="fcmDateSlider"></div></div>
+                    <br />
+                </div>
+                <div id="reportExportButtons" style="display: none;">
+                    <div id="exportReportXLS" class="btn btn-secondary">Export Data (.xls)</div>
+                </div>
+                <div id="chart-container"></div>
+            </div>
+            <div id="fcmReportHolder"></div>
+        </div>
+    </div>
+    <div id="historyHolder"></div>
+    <div id="exemptionsPoolsBox" class="container" style="display: none;">
+        <div class="row">
+            <div id="exemptionsPoolsHolder"></div>
+        </div>
+    </div>
+    <div class="card" id="principal-block" style="display: none;">
+        <div class="card-header">
+            <i class="circle-icon"><img src="basic-img/icons/person-a437b9b6.svg" alt="icon of person"></i>
+            <div class="text-block">
+                <h3>Listed Principals</h3>
+                <p>Determined by their ability to control a registrant's business activities, their formal title or position with the registrant, or their ownership or financial stake in a registrant.</p>
+            </div>
+        </div>
+        <div>
+            <div class="scrollable-table mobile-table-600">
+                <table id="principalTable">
+                    <thead>
+                    <th>Name <i class="sort-by ascending sort-by-NAME" data-sort-by="NAME"></i></th>
+                    <th>Title <i class="sort-by sort-by-TITLE_NAME" data-sort-by="TITLE_NAME"></i></th>
+                    <th>10% or More Financial Interest <i class="sort-by sort-by-TEN_PERCENT_IND" data-sort-by="TEN_PERCENT_IND"></i></th>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+                                <!-- *************************************************************** end basicMainContent *******************-->
+                            </div>
+                        </div>
+                    </main>
+                </div>
+            </div>
+        </main>
+    <div id="footerDiv">
+        <footer class="main-footer" role="contentinfo">
+            <div class="footer-top">
+                <div class="container clearfix">
+                    <ul>
+                        <li>
+                            <a href="/contact-nfa/index.html">Contact NFA</a>
+                        </li>
+                        <li>
+                            <a href="/ComplaintNET/Complaint.aspx">File a Complaint</a>
+                        </li>
+                        <li>
+                            <a href="/arbitration/index.html">Arbitration Services</a>
+                        </li>
+                        <li>
+                            <a href="/market-regulation/index.html">Market Regulation Services</a>
+                        </li>
+                        <li>
+                            <a href="/faqs/index.html">FAQs</a>
+                        </li>
+                    </ul>
+                    <ul>
+                        <li>
+                            <a href="/index.html">Home</a>
+                        </li>
+                        <li>
+                            <a href="/site-index.html">Site Index</a>
+                        </li>
+                        <li>
+                            <a href="/disclaimer-and-privacy-policy.html">Disclaimer and Privacy Policy</a>
+                        </li>
+                    </ul>
+                    <hr>
+                    <div class="social-icons">
+                        <h3>Connect With Us</h3>
+                        <a class="icon-twitter" href="https://twitter.com/NFA_News" target="_blank" rel="noopener noreferrer"><span class="visuallyHidden">Twitter</span></a>
+                        <a class="icon-rss" href="/news/rss.asp"><span class="visuallyHidden">Rss</span></a>
+                    </div>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <div class="container">
+                    <p>Â©<span id="copyRightSpn"> 2026</span>  National Futures Association. All Rights Reserved. NFA and NATIONAL FUTURES ASSOCIATION are registered trademarks of National Futures Association.
+                    </p>
+                </div>
+            </div>
+        </footer>
+    </div>        
+    </div>
+
+    <!-- insert required js template files -->
+    <script src="./basic-templates/template-alert-banner.js" type="text/javascript"></script>
+    <script src="./basic-templates/template-not-nfa.js" type="text/javascript"></script>
+    <script src="./basic-templates/template-barred.js" type="text/javascript"></script>
+    <script src="./basic-templates/template-not-doing-business-banner.js" type="text/javascript"></script>
+    <script src="./basic-api/DataHandlerSearch.ashx?proxy" type="text/javascript"></script>
+    <script src="./cms/includes/js/all.js"></script>
+    <script src="./basic-js/basic-search.js"></script>
+    <script>
+        $.nfa.basic.search.registerQuickSearch({
+            sdd: $("#quick_search_dd"),
+            fns: $("#fname_in_qsearch"),
+            qsearchbtn: $("#qsearch_btn")
+        });
+        $.nfa.basic.search.initQuickSearch();
+    </script>
+
+    <!-- *************************************************************** begin basicFooterJSIncludes *******************-->
+        
+    
+    <script src="basic-templates/template-firm-reg-action-counts.js" type="text/javascript"></script>
+    <script src="basic-templates/template-firm-vitals-left-nav.js" type="text/javascript"></script>
+    
+
+    <script src="basic-js/basic-common.js?v=3" type="text/javascript"></script>
+    <script src="basic-js/basic-common-nav-banners.js" type="text/javascript"></script>
+    <script src="basic-js/basic-profile-history.js" type="text/javascript"></script>
+    
+    <script src="basic-js/basic-common-firm.js?v=3" type="text/javascript"></script>
+    <script src="basic-js/basic-profile-tooltips.js" type="text/javascript"></script>
+    <script src="basic-js/basic-profile-firm.js?v=4" type="text/javascript"></script>
+    
+    <!-- *************************************************************** end basicFooterJSIncludes *******************-->
+ 
+
+    <!-- *************************************************************** begin basicTemplates *******************-->
+        
+    <script type="text/template" data-template="history-template">
+       <!--<div class="card" id="history-block" style="display: none;">
+            <div class="card-header with-header-only">
+                <i class="circle-icon"><img src="basic-img/icons/calendar-efb4ef1a.svg" alt="icon of calendar"></i>
+                <div class="text-block">
+                    <h3>History</h3>
+                </div>
+            </div>
+            <div class="card-inner">
+                <ul class="timeline">
+                    <li><span>Present</span></li>
+                    <li><span>2010</span></li>
+                    <li><span>2000</span></li>
+                    <li><span>1990</span></li>
+                    <li><span>1980</span></li>
+                    <li><span>1970</span></li>
+                </ul>
+
+                <ul class="timeline-events">
+                    {{EVENTS-}}
+                </ul>
+            </div>
+        </div>-->
+        <div class="accordion panel-group" id="accordion" role="tablist" aria-multiselectable="true">
+            <div class="accordion-item panel panel-default card">
+                <div class="accordion-header panel-heading card-header" id="heading0" role="tab">
+                    <a id="cardExpand0" class="accordion-button" role="button" aria-expanded="true" aria-controls="collapse0" href="#collapse0" data-toggle="collapse" data-parent="#accordion" data-bs-toggle="collapse" data-bs-target="#collapse0">
+                        <i class="circle-icon warn"><img src="basic-img/icons/calendar-efb4ef1a.svg" alt="icon of calendar"></i>
+                        <div class="text-block" style="padding-top: 14px;" >
+                            <h3>History Details</h3>
+                        </div>
+                    </a>
+                </div>
+                <div class="accordion-collapse panel-collapse show" id="collapse0" role="tabpanel" aria-expanded="false" aria-labelledby="heading0" data-bs-parent="#accordion">
+                    <div>
+                        <!--<strong>History Details: </strong>-->
+                        <div class="scrollable-table mobile-table-600">
+                            <table id="historyDetailTable" {{HIDE_HISTORY_TABLE}}>
+                                <thead>
+                                <th>Date </th>
+                                <th>Description</th>
+                                </thead>
+                                <tbody>{{DETAILS}}</tbody>
+                            </table>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+    </script>
+
+    <script type="text/template" data-template="exemptions-pools">
+        <div id="exemptionsBox" class="card" style="display:none;">
+            <div class="card-inner">
+                <div class="item is-vertical">
+                    
+                    <div class="text-block">
+                        <h3 style="padding-top:5px;">Firm Exemptions                   
+                            <div class="tooltip-block top" style="padding-left:2px; padding-bottom: 2px;">
+                                <span class="tooltip-trigger">?</span>
+                                <span class="tooltip-content">
+                                    <p>Under certain circumstances, commodity pool operators (CPO) and commodity trading advisors (CTA) may file for exemption from registration with NFA.</p>
+                                </span>
+                            </div>
+                        </h3> 
+                            
+                        {{EXEMPTIONS_VIEW_ALL}}
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="poolBox" class="card" style="display:none;">
+            <div class="card-inner">
+                <div class="item is-vertical">
+                    <div class="text-block">
+                        <h3 style="padding-bottom:1px;">Pools & Pool Exemptions                   
+                            <div class="tooltip-block top"  style="padding-left:2px; padding-bottom: 2px;">
+                                <span class="tooltip-trigger">?</span>
+                                <span class="tooltip-content">
+                                    <p>Pools are enterprises in which funds contributed by a number of persons are combined for the purpose of trading derivatives. A commodity pool operator (CPO) may request relief for its pools pursuant to certain CFTC regulations.</p>
+                                </span>
+                            </div>
+                         </h3>
+                        {{POOLS_VIEW_ALL}}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </script>
+
+    <script type="text/template" data-template="principal-row">
+        <tr>
+            <td><a href="basic-profile.aspx?nfaid={{ENTITY_ID}}">{{NAME}}</a> </td>
+            <td>{{TITLE_NAME}}</td>
+            <td>{{TEN_PERCENT_IND}}</td>
+        </tr>
+    </script>
+
+    
+    <script type="text/template" data-template="fcmPieReport">
+        <div class="fcm-charts" {{SECTION_HIDE}}>
+            <strong><span style="margin-bottom: 5px;" id="section-title-{{UNIQUE_IDENTIFIER}}"></span></strong>
+                <div class="tooltip-block top">
+                    <span class="tooltip-trigger">?</span>
+                    <span id="tooltip-content-2-1000" class="tooltip-content">
+                        <p>Customer funds invested in one of several investments permitted under CFTC Regulation 1.25 (U.S. government securities, bank certificates of deposit, money market mutual funds, municipal securities, government sponsored enterprise securities, commercial paper, corporate notes or bonds).</p>
+                    </span>
+                </div>
+
+            <div style="height: 25px;"></div>
+            <div class="scrollable-table mobile-table-600-pad-top-left">
+                <table id="pieReportTable-{{UNIQUE_IDENTIFIER}}">
+                    <tr>
+                        <td></td>
+                        <td>
+                            <strong><span id="date-1-{{UNIQUE_IDENTIFIER}}"></span></strong>
+                        </td>
+                        <td>
+                            <strong><span id="date-2-{{UNIQUE_IDENTIFIER}}"></span></strong>
+                        </td>
+                        <td>
+                            <strong><span id="date-3-{{UNIQUE_IDENTIFIER}}"></span></strong>
+                        </td>
+                        <td>
+                            <strong><span id="date-4-{{UNIQUE_IDENTIFIER}}"></span></strong>
+                        </td>
+                        <td>
+                            <strong><span id="date-5-{{UNIQUE_IDENTIFIER}}"></span></strong>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </script>
+    
+    <script type="text/template" data-template="fcmChartRow">
+        <tr id="section-row-{{SECTION}}-{{ROW}}">
+            <td>
+                <div style="height: 12px; width: 12px; background-color: {{BLOCK_COLOR}}; float:left; margin: 6px 4px 0px 0px;"></div><small>{{LINE_TITLE}}</small>
+                <div class="tooltip-block top">
+                    <span class="tooltip-trigger">?</span>
+                    <span id="tooltip-content-{{SECTION}}-{{ROWTT}}" class="tooltip-content">
+                        <p>Description goes here.</p>
+                    </span>
+                </div>
+            </td>
+            <td>
+                <div class="tooltip-block top" {{TOOLTIP_HIDE-1}} {{TOOLTIP_HIDE}}>            
+                    <span class="tooltip-trigger" style="color: #002d6a; border: 1px solid #002d6a; font-weight: bold">!</span>
+                    <span class="tooltip-content">
+                        <p style="text-align: left;">
+                            <strong><span style="color: {{BLOCK_COLOR}};">{{ROW_DATE-1}}</span></strong><br />
+                            <strong>Held Pursuant to an Agreement to Resell:</strong><br />
+                            {{LINE_TITLE-PURSUANT-1-{{ROWTT}}}}<br />
+                            {{LINE_DATA-PURSUANT-1-{{ROWTT}}}}
+                        </p>
+                    </span>
+                </div>
+                {{LINE_DATA-1}}
+            </td>
+            <td>
+                <div class="tooltip-block top" {{TOOLTIP_HIDE-2}} {{TOOLTIP_HIDE}}>             
+                    <span class="tooltip-trigger" style="color: #002d6a; border: 1px solid #002d6a; font-weight: bold">!</span>
+                    <span class="tooltip-content">
+                        <p style="text-align: left;">
+                            <strong><span style="color: {{BLOCK_COLOR}};">{{ROW_DATE-2}}</span></strong><br />
+                            <strong>Held Pursuant to an Agreement to Resell:</strong><br />
+                            {{LINE_TITLE-PURSUANT-2-{{ROWTT}}}}<br />
+                            {{LINE_DATA-PURSUANT-2-{{ROWTT}}}}
+                        </p>
+                    </span>
+                </div>
+                {{LINE_DATA-2}}
+            </td>
+            <td>
+                <div class="tooltip-block top" {{TOOLTIP_HIDE-3}} {{TOOLTIP_HIDE}}>              
+                    <span class="tooltip-trigger" style="color: #002d6a; border: 1px solid #002d6a; font-weight: bold">!</span>
+                    <span class="tooltip-content">
+                        <p style="text-align: left;">
+                            <strong><span style="color: {{BLOCK_COLOR}};">{{ROW_DATE-3}}</span></strong><br />
+                            <strong>Held Pursuant to an Agreement to Resell:</strong><br />
+                            {{LINE_TITLE-PURSUANT-3-{{ROWTT}}}}<br />
+                            {{LINE_DATA-PURSUANT-3-{{ROWTT}}}}
+                        </p>
+                    </span>
+                </div>
+                {{LINE_DATA-3}}
+            </td>
+            <td>
+                <div class="tooltip-block top" {{TOOLTIP_HIDE-4}} {{TOOLTIP_HIDE}}>            
+                    <span class="tooltip-trigger" style="color: #002d6a; border: 1px solid #002d6a; font-weight: bold">!</span>
+                    <span class="tooltip-content">
+                        <p style="text-align: left;">
+                            <strong><span style="color: {{BLOCK_COLOR}};">{{ROW_DATE-4}}</span></strong><br />
+                            <strong>Held Pursuant to an Agreement to Resell:</strong><br />
+                            {{LINE_TITLE-PURSUANT-4-{{ROWTT}}}}<br />
+                            {{LINE_DATA-PURSUANT-4-{{ROWTT}}}}
+                        </p>
+                    </span>
+                </div>
+                {{LINE_DATA-4}}
+            </td>
+            <td>
+                <div class="tooltip-block top" {{TOOLTIP_HIDE-5}} {{TOOLTIP_HIDE}}>             
+                    <span class="tooltip-trigger" style="color: #002d6a; border: 1px solid #002d6a; font-weight: bold">!</span>
+                    <span class="tooltip-content">
+                        <p style="text-align: left;">
+                            <strong><span style="color: {{BLOCK_COLOR}};">{{ROW_DATE-5}}</span></strong><br />
+                            <strong>Held Pursuant to an Agreement to Resell:</strong><br />
+                            {{LINE_TITLE-PURSUANT-5-{{ROWTT}}}}<br />
+                            {{LINE_DATA-PURSUANT-5-{{ROWTT}}}}
+                        </p>
+                    </span>
+                </div>
+                {{LINE_DATA-5}}
+            </td>
+        </tr>
+    </script>
+
+    <script type="text/template" data-template="fcmReportNotes">
+
+        <div class="note">
+            <h3>Depository Information:</h3>
+            <p>{{DEPOSITORY_INFO}}</p>
+        </div>
+    </script>
+
+    <!-- *************************************************************** end basicTemplates *******************-->
+</body>
+</html>

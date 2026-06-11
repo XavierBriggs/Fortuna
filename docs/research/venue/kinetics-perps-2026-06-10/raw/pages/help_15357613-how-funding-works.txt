@@ -1,0 +1,24 @@
+Why does funding exist?
+Perpetual futures don't expire, so there's no natural mechanism to keep the contract price in line with the real asset price. Funding solves this so that when the perp trades above spot, longs pay shorts to bring the price down, and vice versa. This keeps the perp anchored to the actual market price.
+How the funding rate is calculated
+Every 8 hours, Kalshi computes a time-weighted average price (TWAP) of 1-minute candlestick premiums over the 480 candles in that funding period. This produces a single rate representing the average gap between the perp price and spot during that period.
+Funding payment times
+• 12:00 AM ET
+• 8:00 AM ET
+• 4:00 PM ET
+Who pays and who receives?
+• If the funding rate is positive (perp trading above spot): long holders pay short holders.
+• If the funding rate is negative (perp trading below spot): short holders pay long holders.
+• If the rate is zero: no payment is made.
+Note: Funding payments are a real cost of holding a leveraged position. If you hold a large long position for days or weeks during a period of positive funding, these costs can accumulate significantly — even if the price moves in your favor. Always factor funding into the cost of holding your position.
+Funding rate caps and rounding
+• Cap: The funding rate is clamped to +2% / –2% per 8-hour interval.
+• Zero threshold: If the absolute value of the rate is below 0.01%, it is automatically set to zero and no payment is made.
+• Index outage: If the CF Benchmarks price feed is unavailable, funding rates are paused until the feed is restored.
+Is the funding payment a fee?
+No. Funding payments are transfers between traders, not fees charged by Kalshi. Depending on your position and the current rate, you may pay or receive funding.
+Related Articles
+What Are Perpetual Futures?
+BTC Perpetual Futures — Contract Specifications
+How Margin Works
+Your Perpetuals Margin Account

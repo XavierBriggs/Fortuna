@@ -1,0 +1,22 @@
+Who can apply?
+US-based Kalshi users who have completed KYC verification are eligible to apply. International availability may expand in the future.
+How to apply
+• Complete KYC on your Kalshi account if you haven't already.
+• Navigate to the Perpetuals section in the app.
+• Complete the margin account application, which includes a short questionnaire about your trading experience and risk tolerance.
+• Wait for your application to be reviewed. Most applications are processed quickly, but some may require manual review.
+• Once approved, complete the mandatory educational tutorial before placing your first trade.
+What the application asks
+The questionnaire covers your trading experience, familiarity with leveraged products, and financial situation. It is designed to ensure you understand the risks of perpetual futures trading before getting access.
+What if my application is not approved?
+Applications may be declined based on your questionnaire responses, regulatory requirements, or other eligibility criteria. If your application is declined, contact Kalshi Support for more information.
+Trading through Kinetics (FCM)
+Most retail users on Kalshi trade perpetuals currently through Kinetics, a registered Futures Commission Merchant (FCM). As an FCM, Kinetics handles your KYC, manages your margin account, monitors your risk exposure, and holds your funds in a customer-segregated account on your behalf.
+When you see the Kinetics name in your account materials or margin statements, this refers to the FCM entity — separate from Kalshi's prediction markets product. They are distinct regulated entities.
+Institutional and market maker access
+Institutional participants may alternatively become Self-Clearing Members (SCMs) and clear their trades directly with Kalshi Klear, bypassing the FCM layer. This requires meeting significant financial and operational thresholds. Contact Kalshi's institutional team at [email protected] for more information.
+Related Articles
+What Are Perpetual Futures?
+How Margin Works
+Your Perpetuals Margin Account
+Risks of Trading Perpetual Futures

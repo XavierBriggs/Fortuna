@@ -1,0 +1,537 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - link "Kalshi Perpetuals Learn" [ref=e3] [cursor=pointer]:
+      - /url: "#top"
+      - img "Kalshi" [ref=e4]
+      - generic [ref=e6]: Perpetuals
+      - generic [ref=e8]: Learn
+    - navigation [ref=e9]:
+      - link "Basics" [ref=e10] [cursor=pointer]:
+        - /url: "#s1"
+      - link "Leverage" [ref=e11] [cursor=pointer]:
+        - /url: "#s3"
+      - link "Risk" [ref=e12] [cursor=pointer]:
+        - /url: "#s4"
+      - link "Funding" [ref=e13] [cursor=pointer]:
+        - /url: "#s5"
+      - link "Liquidation" [ref=e14] [cursor=pointer]:
+        - /url: "#s6"
+      - link "FAQ" [ref=e15] [cursor=pointer]:
+        - /url: "#faq"
+    - link "Trade Perpetuals" [ref=e16] [cursor=pointer]:
+      - /url: https://kalshi.com/perps
+      - generic [ref=e17]: Trade Perpetuals
+      - img [ref=e19]
+  - generic [ref=e23]:
+    - heading "Kalshi Perpetual Futures (Perpetuals), explained — long & short, leverage, funding, and liquidation" [level=1] [ref=e24]
+    - generic [ref=e25]:
+      - img "Kalshi" [ref=e27]
+      - generic [ref=e29]: Perpetuals
+      - generic [ref=e30]: Learn
+    - paragraph [ref=e31]: Everything you need to understand Perpetuals — long & short, leverage, funding, and liquidation — in plain language.
+    - generic [ref=e33]:
+      - generic [ref=e34]: verified
+      - text: CFTC-regulated and First US Company to offer Perpetuals
+  - generic [ref=e35]:
+    - complementary [ref=e36]:
+      - paragraph [ref=e37]: Contents
+      - list [ref=e38]:
+        - listitem [ref=e39]:
+          - link "01 What are Perpetuals?" [ref=e40] [cursor=pointer]:
+            - /url: "#s1"
+            - generic [ref=e41]: "01"
+            - generic [ref=e42]: What are Perpetuals?
+        - listitem [ref=e43]:
+          - link "02 Long or short" [ref=e44] [cursor=pointer]:
+            - /url: "#s2"
+            - generic [ref=e45]: "02"
+            - generic [ref=e46]: Long or short
+        - listitem [ref=e47]:
+          - link "03 Leverage & margin" [ref=e48] [cursor=pointer]:
+            - /url: "#s3"
+            - generic [ref=e49]: "03"
+            - generic [ref=e50]: Leverage & margin
+        - listitem [ref=e51]:
+          - link "04 Risk controls" [ref=e52] [cursor=pointer]:
+            - /url: "#s4"
+            - generic [ref=e53]: "04"
+            - generic [ref=e54]: Risk controls
+        - listitem [ref=e55]:
+          - link "05 Funding rate" [ref=e56] [cursor=pointer]:
+            - /url: "#s5"
+            - generic [ref=e57]: "05"
+            - generic [ref=e58]: Funding rate
+        - listitem [ref=e59]:
+          - link "06 Liquidation" [ref=e60] [cursor=pointer]:
+            - /url: "#s6"
+            - generic [ref=e61]: "06"
+            - generic [ref=e62]: Liquidation
+        - listitem
+        - listitem [ref=e63]:
+          - link "What you can trade" [ref=e64] [cursor=pointer]:
+            - /url: "#assets"
+            - generic [ref=e65]: What you can trade
+        - listitem [ref=e66]:
+          - link "FAQ" [ref=e67] [cursor=pointer]:
+            - /url: "#faq"
+            - generic [ref=e68]: FAQ
+    - main [ref=e69]:
+      - generic [ref=e70]:
+        - generic [ref=e71]:
+          - paragraph [ref=e72]: 01The basics
+          - heading "What are Perpetuals?" [level=2] [ref=e73]
+          - paragraph [ref=e74]: Perpetual futures let you trade the price of an asset like Bitcoin without owning it. They use leverage, and they never expire.
+        - figure [ref=e75]:
+          - iframe [ref=e76]:
+            - generic [active] [ref=f1e1]:
+              - generic "YouTube Video Player" [ref=f1e3]
+              - generic [ref=f1e5]:
+                - generic:
+                  - generic:
+                    - button "Play video" [ref=f1e10] [cursor=pointer]
+                    - button "Hide player controls" [ref=f1e12] [cursor=pointer]
+                    - generic [ref=f1e14]:
+                      - generic [ref=f1e19]:
+                        - generic [ref=f1e20]:
+                          - link "What are Perpetuals? | Kalshi" [ref=f1e21] [cursor=pointer]:
+                            - /url: https://www.youtube.com/watch?v=fImrYZKKlEc
+                          - link "Kalshi" [ref=f1e22] [cursor=pointer]:
+                            - /url: /channel/UCUMPemO46nJTp-0iX9JXedQ
+                            - generic [ref=f1e23]: Kalshi
+                        - generic [ref=f1e24]:
+                          - button [ref=f1e25] [cursor=pointer]
+                          - generic [ref=f1e27]:
+                            - generic: Kalshi
+                            - generic: 6.77K subscribers
+                      - generic [ref=f1e28]:
+                        - button "Copy link" [ref=f1e31] [cursor=pointer]:
+                          - generic [ref=f1e35]:
+                            - img
+                        - link "Watch on YouTube" [ref=f1e42] [cursor=pointer]:
+                          - /url: https://www.youtube.com/watch?v=fImrYZKKlEc
+                          - generic [ref=f1e45]:
+                            - text: Watch on
+                            - img [ref=f1e47]:
+                              - generic [ref=f1e49]:
+                                - img
+        - generic [ref=e77]:
+          - paragraph [ref=e78]:
+            - text: Perpetuals track an asset's price. Go
+            - strong [ref=e79]: long
+            - text: if you expect it to rise,
+            - strong [ref=e80]: short
+            - text: if you expect it to fall. Unlike a traditional futures contract that expires on a set date, Perpetuals have
+            - strong [ref=e81]: no expiry
+            - text: — you hold the position as long as your collateral can back it, and close it whenever you choose. No crypto ever changes hands.
+          - paragraph [ref=e82]:
+            - text: Since perpetual futures never expire and require
+            - strong [ref=e83]: less upfront capital
+            - text: than traditional futures, they can be a simpler and cheaper way to open a position. Leverage does increase the risk.
+          - heading "How Perpetuals compare to spot trading" [level=3] [ref=e84]
+          - paragraph [ref=e85]: Spot trading means owning the real asset directly. Perpetuals trade the price instead, with leverage, the ability to go short, an 8-hour funding rate, and built-in liquidation all part of how the contract works.
+          - table [ref=e87]:
+            - rowgroup [ref=e88]:
+              - row "Spot trading Perpetuals" [ref=e89]:
+                - columnheader [ref=e90]
+                - columnheader "Spot trading" [ref=e91]
+                - columnheader "Perpetuals" [ref=e92]
+            - rowgroup [ref=e93]:
+              - row "Own the asset Yes No" [ref=e94]:
+                - cell "Own the asset" [ref=e95]
+                - cell "Yes" [ref=e96]
+                - cell "No" [ref=e97]
+              - row "Profit when price falls No Yes — by going short" [ref=e98]:
+                - cell "Profit when price falls" [ref=e99]
+                - cell "No" [ref=e100]
+                - cell "Yes — by going short" [ref=e101]
+              - row "Leverage No Yes" [ref=e102]:
+                - cell "Leverage" [ref=e103]
+                - cell "No" [ref=e104]
+                - cell "Yes" [ref=e105]
+              - row "Expiration None None" [ref=e106]:
+                - cell "Expiration" [ref=e107]
+                - cell "None" [ref=e108]
+                - cell "None" [ref=e109]
+              - row "Forced closure No Yes — via liquidation" [ref=e110]:
+                - cell "Forced closure" [ref=e111]
+                - cell "No" [ref=e112]
+                - cell "Yes — via liquidation" [ref=e113]
+          - heading "How Perpetuals compare to prediction markets" [level=3] [ref=e114]
+          - paragraph [ref=e115]: Kalshi offers both. They are built for different jobs. Perpetuals are a leveraged position on price direction. Prediction markets are a position on whether a specific event resolves yes or no.
+          - table [ref=e117]:
+            - rowgroup [ref=e118]:
+              - row "Perpetuals Prediction markets" [ref=e119]:
+                - columnheader [ref=e120]
+                - columnheader "Perpetuals" [ref=e121]
+                - columnheader "Prediction markets" [ref=e122]
+            - rowgroup [ref=e123]:
+              - row "What you trade Price direction of an asset Probability of a specific event" [ref=e124]:
+                - cell "What you trade" [ref=e125]
+                - cell "Price direction of an asset" [ref=e126]
+                - cell "Probability of a specific event" [ref=e127]
+              - row "Expiry No fixed end date Resolves YES or NO on a date" [ref=e128]:
+                - cell "Expiry" [ref=e129]
+                - cell "No fixed end date" [ref=e130]
+                - cell "Resolves YES or NO on a date" [ref=e131]
+              - row "Settlement Continuous; funding keeps it aligned One-time, when the event occurs" [ref=e132]:
+                - cell "Settlement" [ref=e133]
+                - cell "Continuous; funding keeps it aligned" [ref=e134]
+                - cell "One-time, when the event occurs" [ref=e135]
+              - row "Leverage Yes No" [ref=e136]:
+                - cell "Leverage" [ref=e137]
+                - cell "Yes" [ref=e138]
+                - cell "No" [ref=e139]
+              - row "Common use Directional exposure to crypto price Outcomes of real-world events" [ref=e140]:
+                - cell "Common use" [ref=e141]
+                - cell "Directional exposure to crypto price" [ref=e142]
+                - cell "Outcomes of real-world events" [ref=e143]
+              - row "Regulation CFTC-regulated CFTC-regulated" [ref=e144]:
+                - cell "Regulation" [ref=e145]
+                - cell "CFTC-regulated" [ref=e146]
+                - cell "CFTC-regulated" [ref=e147]
+      - generic [ref=e148]:
+        - generic [ref=e149]:
+          - paragraph [ref=e150]: 02Direction
+          - 'heading "The first decision: long or short" [level=2] [ref=e151]'
+          - paragraph [ref=e152]: Every Perpetuals trade starts with a direction — you are taking a side on which way the price will move.
+        - generic [ref=e153]:
+          - paragraph [ref=e154]:
+            - strong [ref=e155]: Long
+            - text: — you profit if the price rises. The closest equivalent to "buying," with leverage applied and no asset held.
+          - paragraph [ref=e156]:
+            - strong [ref=e157]: Short
+            - text: — you profit if the price falls. Not possible in standard spot trading, where gains require prices to rise.
+      - generic [ref=e158]:
+        - generic [ref=e159]:
+          - paragraph [ref=e160]: 03Sizing
+          - heading "Leverage & margin" [level=2] [ref=e161]
+          - paragraph [ref=e162]: Leverage determines how much exposure your collateral controls, which amplifies both potential gain and potential loss.
+        - paragraph [ref=e164]:
+          - text: To open a position, you deposit
+          - strong [ref=e165]: collateral
+          - text: (also called
+          - strong [ref=e166]: margin
+          - text: ). At
+          - strong [ref=e167]: 5×
+          - text: leverage,
+          - strong [ref=e168]: $1,000
+          - text: of margin controls a
+          - strong [ref=e169]: $5,000
+          - text: position — a
+          - strong [ref=e170]: 10%
+          - text: move in the asset becomes a
+          - strong [ref=e171]: 50%
+          - text: move in your collateral, in either direction.
+        - generic [ref=e172]:
+          - generic [ref=e173]:
+            - generic [ref=e174]: Leverage on $1,000 margin
+            - generic [ref=e175]: 5×
+          - slider "Leverage multiplier" [ref=e176] [cursor=pointer]: "5"
+          - generic [ref=e177]:
+            - generic [ref=e178]: 1×
+            - generic [ref=e179]: 2×
+            - generic [ref=e180]: 3×
+            - generic [ref=e181]: 4×
+            - generic [ref=e182]: 5×
+            - generic [ref=e183]: 6×
+            - generic [ref=e184]: 7×
+            - generic [ref=e185]: 8×
+            - generic [ref=e186]: 9×
+            - generic [ref=e187]: 10×
+          - generic [ref=e188]:
+            - generic [ref=e189]:
+              - generic [ref=e190]: Your margin
+              - generic [ref=e193]: $1,000
+            - generic [ref=e194]:
+              - generic [ref=e195]: Position size
+              - generic [ref=e198]: $5,000
+            - paragraph [ref=e199]:
+              - text: A
+              - strong [ref=e200]: 10%
+              - text: move in the asset changes your equity by
+              - generic [ref=e201]:
+                - strong [ref=e202]: ±$500
+                - generic [ref=e203]: (50% of your initial deposit)
+        - paragraph [ref=e204]: The leverage examples are mathematical in nature and are not intended to imply that customers have achieved or may achieve similar results.
+        - generic [ref=e205]:
+          - heading "Isolated margin" [level=3] [ref=e206]
+          - paragraph [ref=e207]:
+            - strong [ref=e208]: Isolated margin
+            - text: assigns collateral to one position. If that position is liquidated, only the assigned collateral is at risk — the rest of your account is unaffected.
+      - generic [ref=e209]:
+        - generic [ref=e210]:
+          - paragraph [ref=e211]: 04Controls
+          - heading "Risk controls" [level=2] [ref=e212]
+          - paragraph [ref=e213]: Two order types are most commonly used to keep a leveraged trade under control. Both are set when you open the position.
+        - generic [ref=e214]:
+          - heading "Take profit" [level=3] [ref=e215]
+          - paragraph [ref=e216]: A take profit closes your position automatically when the price reaches a specified gain target, locking in the gain so a subsequent reversal cannot give it back.
+        - generic [ref=e217]:
+          - img [ref=e218]:
+            - generic [ref=e219]: $60,000
+            - generic [ref=e220]: $50,000
+            - generic [ref=e221]: $40,000
+            - generic [ref=e222]: Take profit
+            - generic [ref=e223]: Entry
+            - generic [ref=e224]: Stop loss
+            - generic [ref=e229]: +$10,000
+          - paragraph [ref=e230]:
+            - text: Bitcoin rises from
+            - strong [ref=e231]: $50,000
+            - text: to
+            - strong [ref=e232]: $60,000
+            - text: . The position closes automatically at the take-profit level — gain locked at
+            - strong [ref=e233]: +$10,000
+            - text: .
+        - generic [ref=e234]:
+          - heading "Stop loss" [level=3] [ref=e235]
+          - paragraph [ref=e236]: A stop loss closes your position automatically if the price moves against you past a specified level, capping the most you can lose on the trade. Widely used on leveraged positions because losses compound faster than on unleveraged ones.
+        - generic [ref=e237]:
+          - img [ref=e238]:
+            - generic [ref=e239]: $60,000
+            - generic [ref=e240]: $50,000
+            - generic [ref=e241]: $40,000
+            - generic [ref=e242]: Take profit
+            - generic [ref=e243]: Entry
+            - generic [ref=e244]: Stop loss
+            - generic [ref=e249]: −$10,000
+          - paragraph [ref=e250]:
+            - text: Bitcoin falls from
+            - strong [ref=e251]: $50,000
+            - text: to
+            - strong [ref=e252]: $40,000
+            - text: . The position closes automatically at the stop-loss level — loss capped at
+            - strong [ref=e253]: −$10,000
+            - text: .
+        - paragraph [ref=e255]: Both can be set independently and modified while the position is open. Without them, a leveraged position can lose value faster than you can react in a volatile market.
+      - generic [ref=e256]:
+        - generic [ref=e257]:
+          - paragraph [ref=e258]: 05The mechanism
+          - heading "The funding rate" [level=2] [ref=e259]
+          - paragraph [ref=e260]: Because Perpetuals never expire, there is no settlement date to pull the contract price back toward the underlying asset. The funding rate does it — a payment between longs and shorts, charged every 8 hours.
+        - paragraph [ref=e262]: The payment direction depends on the gap between the Perpetuals price and the underlying market price.
+        - generic [ref=e263]:
+          - generic [ref=e264]:
+            - generic [ref=e266]: Premium
+            - generic [ref=e267]:
+              - generic [ref=e268]:
+                - generic [ref=e269]: Perpetuals price
+                - generic [ref=e270]: $101,000
+              - generic [ref=e271]:
+                - generic [ref=e272]: Bitcoin price
+                - generic [ref=e273]: $100,000
+            - generic [ref=e274]:
+              - generic [ref=e275]: Longs
+              - img [ref=e277]
+              - generic [ref=e279]: Shorts
+            - paragraph [ref=e280]:
+              - text: Perpetuals trade
+              - strong [ref=e281]: 1% above
+              - text: Bitcoin's market price. Longs pay shorts — if you hold a short, you receive the funding payment. Holding a long becomes slightly costlier, pulling the contract price back down.
+          - generic [ref=e282]:
+            - generic [ref=e284]: Discount
+            - generic [ref=e285]:
+              - generic [ref=e286]:
+                - generic [ref=e287]: Perpetuals price
+                - generic [ref=e288]: $99,000
+              - generic [ref=e289]:
+                - generic [ref=e290]: Bitcoin price
+                - generic [ref=e291]: $100,000
+            - generic [ref=e292]:
+              - generic [ref=e293]: Shorts
+              - img [ref=e295]
+              - generic [ref=e297]: Longs
+            - paragraph [ref=e298]:
+              - text: Perpetuals trade
+              - strong [ref=e299]: 1% below
+              - text: Bitcoin's market price. Shorts pay longs — if you hold a long, you receive the funding payment. Holding a short becomes slightly costlier, pulling the contract price back up.
+          - generic [ref=e300]:
+            - generic [ref=e302]: Aligned
+            - generic [ref=e303]:
+              - generic [ref=e304]:
+                - generic [ref=e305]: Perpetuals price
+                - generic [ref=e306]: $100,000
+              - generic [ref=e307]:
+                - generic [ref=e308]: Bitcoin price
+                - generic [ref=e309]: $100,000
+            - generic [ref=e311]: No payment
+            - paragraph [ref=e312]: Perpetuals and Bitcoin prices match. No funding payment between sides.
+        - paragraph [ref=e314]:
+          - text: On Kalshi, funding is charged
+          - strong [ref=e315]: every 8 hours
+          - text: and capped at
+          - strong [ref=e316]: ±2%
+          - text: per period.
+      - generic [ref=e317]:
+        - generic [ref=e318]:
+          - paragraph [ref=e319]: 06The risk
+          - heading "Liquidation" [level=2] [ref=e320]
+          - paragraph [ref=e321]: Liquidation is managed by your broker and occurs when losses on a position consume the collateral down to a minimum threshold — the maintenance margin. The broker closes the position automatically to prevent the account from going negative.
+        - paragraph [ref=e323]:
+          - text: The higher the leverage, the smaller the adverse price move required to trigger liquidation. At
+          - strong [ref=e324]: 5×
+          - text: leverage, that's roughly a
+          - strong [ref=e325]: 20%
+          - text: adverse move; at
+          - strong [ref=e326]: 10×
+          - text: ", roughly"
+          - strong [ref=e327]: 10%
+          - text: . Liquidation is calculated against the
+          - strong [ref=e328]: mark price
+          - text: — an aggregated reference drawn from multiple spot markets — which reduces the risk of liquidation from brief price spikes on a single exchange.
+        - generic [ref=e329]:
+          - generic [ref=e330]: Example scenario
+          - paragraph [ref=e331]:
+            - text: Assume a
+            - strong [ref=e332]: $1,000
+            - text: deposit at
+            - strong [ref=e333]: 5×
+            - text: leverage, opening a long with Bitcoin at
+            - strong [ref=e334]: $50,000
+            - text: . That gives you
+            - strong [ref=e335]: $5,000
+            - text: of exposure. If Bitcoin falls
+            - strong [ref=e336]: 20%
+            - text: to
+            - strong [ref=e337]: $40,000
+            - text: ", the collateral is consumed and the position is liquidated."
+        - generic [ref=e338]:
+          - paragraph [ref=e339]:
+            - text: Your
+            - strong [ref=e340]: $1,000
+            - text: deposit is your cushion. As Bitcoin falls, the cushion drains.
+          - generic [ref=e341]:
+            - generic [ref=e342]:
+              - generic [ref=e343]: Entry
+              - generic [ref=e344]: $50,000
+            - generic [ref=e346]:
+              - generic [ref=e347]: $1,000
+              - generic [ref=e348]: cushion
+          - generic [ref=e349]:
+            - generic [ref=e350]:
+              - generic [ref=e351]: −10%
+              - generic [ref=e352]: $45,000
+            - generic [ref=e354]:
+              - generic [ref=e355]: $500
+              - generic [ref=e356]: remaining
+          - generic [ref=e357]:
+            - generic [ref=e358]:
+              - generic [ref=e359]: −20%
+              - generic [ref=e360]: $40,000
+            - generic [ref=e362]:
+              - generic [ref=e363]: $0
+              - generic [ref=e364]: liquidated
+          - paragraph [ref=e365]:
+            - text: A
+            - strong [ref=e366]: 20%
+            - text: drop in Bitcoin on a
+            - strong [ref=e367]: 5×
+            - text: leveraged position equals a
+            - strong [ref=e368]: 100%
+            - text: loss of your deposit. The broker closes the position.
+        - paragraph [ref=e369]: The liquidation example is mathematical in nature and is not intended to imply that customers have achieved or may achieve similar results.
+        - paragraph [ref=e371]:
+          - text: Leverage does not change how the underlying market moves — it changes how much of your collateral is at stake with each move. With
+          - strong [ref=e372]: isolated margin
+          - text: ", the loss on a liquidated position is limited to the collateral assigned to that specific position."
+      - generic [ref=e373]:
+        - generic [ref=e374]:
+          - heading "What you can trade" [level=2] [ref=e375]
+          - paragraph [ref=e376]: Kalshi offers CFTC-approved Perpetuals across major cryptocurrencies, each with its own maximum leverage.
+        - generic [ref=e377]:
+          - generic [ref=e378]:
+            - generic [ref=e380]: Bitcoin
+            - generic [ref=e381]: BTC
+            - generic [ref=e382]: 5.8×
+          - generic [ref=e383]:
+            - generic [ref=e385]: Ethereum
+            - generic [ref=e386]: ETH
+            - generic [ref=e387]: 4.4×
+          - generic [ref=e388]:
+            - generic [ref=e390]: Litecoin
+            - generic [ref=e391]: LTC
+            - generic [ref=e392]: 3.6×
+          - generic [ref=e393]:
+            - generic [ref=e395]: Chainlink
+            - generic [ref=e396]: LINK
+            - generic [ref=e397]: 3.4×
+          - generic [ref=e398]:
+            - generic [ref=e400]: Bitcoin Cash
+            - generic [ref=e401]: BCH
+            - generic [ref=e402]: 3.0×
+          - generic [ref=e403]:
+            - generic [ref=e405]: XRP
+            - generic [ref=e406]: XRP
+            - generic [ref=e407]: 2.7×
+          - generic [ref=e408]:
+            - generic [ref=e410]: Dogecoin
+            - generic [ref=e411]: DOGE
+            - generic [ref=e412]: 2.7×
+          - generic [ref=e413]:
+            - generic [ref=e415]: Solana
+            - generic [ref=e416]: SOL
+            - generic [ref=e417]: 2.6×
+          - generic [ref=e418]:
+            - generic [ref=e420]: Sui
+            - generic [ref=e421]: SUI
+            - generic [ref=e422]: 2.4×
+          - generic [ref=e423]:
+            - generic [ref=e425]: Hyperliquid
+            - generic [ref=e426]: HYPE
+            - generic [ref=e427]: 2.1×
+          - generic [ref=e428]:
+            - generic [ref=e430]: Shiba Inu
+            - generic [ref=e431]: kSHIB
+            - generic [ref=e432]: 2.0×
+        - paragraph [ref=e433]: Leverage values reflect current API data and may change without notice.
+      - generic [ref=e434]:
+        - heading "Frequently asked" [level=2] [ref=e436]
+        - generic [ref=e437]:
+          - group [ref=e438]:
+            - generic "How are Perpetuals different from buying crypto? expand_more" [ref=e439] [cursor=pointer]:
+              - text: How are Perpetuals different from buying crypto?
+              - generic [ref=e440]: expand_more
+          - group [ref=e441]:
+            - generic "What is the difference between long and short? expand_more" [ref=e442] [cursor=pointer]:
+              - text: What is the difference between long and short?
+              - generic [ref=e443]: expand_more
+          - group [ref=e444]:
+            - generic "What is the funding rate? expand_more" [ref=e445] [cursor=pointer]:
+              - text: What is the funding rate?
+              - generic [ref=e446]: expand_more
+          - group [ref=e447]:
+            - generic "What is liquidation? expand_more" [ref=e448] [cursor=pointer]:
+              - text: What is liquidation?
+              - generic [ref=e449]: expand_more
+          - group [ref=e450]:
+            - generic "Can I lose more than I deposit? expand_more" [ref=e451] [cursor=pointer]:
+              - text: Can I lose more than I deposit?
+              - generic [ref=e452]: expand_more
+          - group [ref=e453]:
+            - generic "Are Kalshi's Perpetuals regulated? expand_more" [ref=e454] [cursor=pointer]:
+              - text: Are Kalshi's Perpetuals regulated?
+              - generic [ref=e455]: expand_more
+        - link "Have more questions? Visit our help center" [ref=e456] [cursor=pointer]:
+          - /url: https://help.kalshi.com/en/collections/19654073-perpetual-futures
+          - generic [ref=e457]: Have more questions? Visit our help center
+          - img [ref=e459]
+      - generic [ref=e461]:
+        - heading "Ready to trade Perpetuals?" [level=2] [ref=e462]
+        - paragraph [ref=e463]: Kalshi's crypto Perpetuals are live — regulated, onshore, with transparent funding rates and no expiry.
+        - link "Get Started" [ref=e465] [cursor=pointer]:
+          - /url: https://kalshi.com/perps
+          - generic [ref=e466]: Get Started
+          - img [ref=e468]
+      - generic [ref=e470]:
+        - generic [ref=e471]:
+          - img "Kalshi" [ref=e472]
+          - generic [ref=e475]: Learn
+        - paragraph [ref=e476]: Trading perpetual futures involves leverage, meaning gains and losses are amplified relative to your account balance. Auto-liquidation mechanisms are designed to limit losses by closing positions when margin thresholds are breached, but they do not function as a guaranteed stop-loss. Rapid or extreme market movements, including gaps in price or periods of illiquidity, may result in execution at prices significantly worse than the liquidation trigger, potentially producing a negative account balance.
+        - paragraph [ref=e477]: If your account balance becomes negative, you are liable for the outstanding amount and must deposit additional funds to bring your account to a zero or positive balance. Your open positions may be liquidated without prior notice at any time the Firm determines that your margin is insufficient. The Firm retains the right to terminate an account where a negative balance remains unresolved in accordance with the terms of your customer agreement. Withdrawal of funds may be restricted if you have outstanding obligations.
+        - paragraph [ref=e478]: Leveraged trading in perpetual futures is not suitable for all investors. You should carefully consider whether such trading is appropriate for you in light of your financial condition and risk tolerance.
+        - paragraph [ref=e479]: Stop prices are not guaranteed execution prices. Stop orders may be triggered by a short-lived, dramatic price change. Sell stop orders may exacerbate price declines during times of extreme volatility. Placing a "limit price" on a stop order may help manage some of these risks.
+        - paragraph [ref=e480]:
+          - text: For more risk information, please review
+          - link "Risk Disclosure" [ref=e481] [cursor=pointer]:
+            - /url: https://kalshi.com/kinetics
+          - text: .

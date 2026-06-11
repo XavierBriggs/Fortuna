@@ -1,0 +1,39 @@
+Market orders
+A market order executes immediately at the best available price in the order book. As long as there are matching bids, use a market order when you want to enter or exit a position right away and don't want to risk your order going unfilled.
+Fee: Market orders pay the taker fee.
+Note: In fast-moving markets, the price you receive on a market order may differ from the price you saw when placing it. This is called slippage.
+Limit orders
+A limit order rests in the order book at the price you specify. It will only execute if the market reaches your price. Use a limit order when you want to enter at a specific price and are willing to wait.
+Fee: Limit orders that rest in the book and are filled later pay the maker fee, which is lower than the taker fee.
+Note: A limit order is not guaranteed to fill. If the market does not reach your specified price, your order will remain open until you cancel it.
+Going long vs. short
+• Long: You open a buy position. You profit if the price goes up, and lose if it goes down.
+• Short: You open a sell position. You profit if the price goes down, and lose if it goes up.
+Leverage
+When placing an order, you select your leverage. Higher leverage means you control a larger notional position with less margin — but smaller adverse price moves can liquidate you.
+ | Leverage
+ | Margin needed for $1,000 exposure
+ | Approx. liquidation distance
+ | 1x
+ | $1,000
+ | ~100% adverse move
+ | 2x
+ | $500
+ | ~50% adverse move
+ | 3x
+ | $333
+ | ~33% adverse move
+ | 5x
+ | $200
+ | ~20% adverse move
+ | 6x
+ | $167
+ | ~17% adverse move
+Resting order constraints
+If you have an open resting limit order on a position, you cannot partially or fully close that position until the resting order is cancelled. To actively manage or close a position, cancel any resting orders on it first.
+Related Articles
+Limit Orders
+What Are Perpetual Futures?
+How Margin Works
+Take Profit and Stop Loss (TP/SL)
+Risks of Trading Perpetual Futures

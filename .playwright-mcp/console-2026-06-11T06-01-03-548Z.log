@@ -1,0 +1,20 @@
+[     574ms] [WARNING] [WEBSOCKETS] - Subscribing {params: Object, subscriber: bound wsHandlePosition} @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[     577ms] [WARNING] [WEBSOCKETS] - Subscribing {params: Object, subscriber: bound queueWsHandleTicker} @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[     577ms] [WARNING] [WEBSOCKETS] - Subscribing {params: Object, subscriber: bound wsHandleLifecycle} @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[    1195ms] [LOG] datadog init config.commitRef 524d22b4f1fb4261b0573a2789cee8938cd37dd2 @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[    1771ms] [WARNING] Identity value for 'other' is falsy (undefined). This value will be removed from the request. @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[    1779ms] [WARNING] Amplitude Logger [Warn]: Plugin with name gtm-library-enrichment already exists, skipping registration @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[    1792ms] [LOG] PS :: 23:1:5:340 Info: uapx Diagnostic - Host called API: Start With Config @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[    1794ms] [LOG] PS :: 23:1:5:341 Info: uapx Diagnostic - Host called API: Send Conversion @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[    1937ms] [LOG] PS :: 23:1:5:485 Info: Response: {} @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[    1937ms] [LOG] PS :: 23:1:5:485 Info: Server config success! @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[    1938ms] [LOG] PS :: 23:1:5:486 Info: uapx Diagnostic - Started SDK 1.8.0
+      published 1/5/2026, 5:57:54 PM @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[    1938ms] [LOG] PS :: 23:1:5:486 Info: uapx Diagnostic - The log level is set to Info @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[    2005ms] [LOG] PS :: 23:1:5:553 Info: Conversion success! @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[    4195ms] [WARNING] The resource https://kalshi.com/_next/static/chunks/0ji.9314.gi5..css was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ https://kalshi.com/regulatory/rulebook:0
+[    4731ms] [WARNING] The resource https://apps.rokt.com/icons/rokt-icons.woff was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ https://apps.rokt.com/wsdk/plugins/dcui/index.html:0
+[   14249ms] [WARNING] The resource https://kalshi.com/_next/static/chunks/0ji.9314.gi5..css was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ https://kalshi.com/regulatory/rulebook:0
+[   33725ms] [WARNING] The resource https://kalshi.com/_next/static/chunks/0ji.9314.gi5..css was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ https://kalshi.com/regulatory/rulebook:0
+[   64300ms] [WARNING] The resource https://kalshi.com/_next/static/chunks/0ji.9314.gi5..css was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ https://kalshi.com/regulatory/rulebook:0
+[   93932ms] [WARNING] The resource https://kalshi.com/_next/static/chunks/0ji.9314.gi5..css was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ https://kalshi.com/regulatory/rulebook:0

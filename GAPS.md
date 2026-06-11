@@ -88,7 +88,12 @@ DAEMON task — the next engineering build):
   fetches params + quality per scope and feeds SynthesisStrategy +
   set_calibration_quality).
 
-## Operator adjudication queue (operator actions; no code changes)
+## Operator adjudication queue — RESOLVED (signed off 2026-06-10)
+
+OPERATOR SIGN-OFF RECORDED: 2026-06-10, in-session, verbatim "I sign off",
+given in direct response to this queue (the four waive batches below).
+This converts every rule-based BLOCK from the protected-crate touches.
+The audit record stays below for the trail.
 
 - **Protected-crate waives (3 batches).** crates/fortuna-invariants/ was
   touched in Phases 1-3; each touch triggered the automatic BLOCK rule.
@@ -113,14 +118,18 @@ DAEMON task — the next engineering build):
 2. DONE (docs/reviews/system-0-4-egate-2026-06-10.md): full gate re-run
    at 1e3e5e7 — ACCEPT; all remaining gaps are in this file's operator
    sections.
-3. OPERATOR: adjudicate the protected-crate waives (queue above).
+3. DONE 2026-06-10: operator signed off on the protected-crate waives
+   (queue above, "I sign off" recorded in-session).
 4. OPERATOR: provision credentials (.env per README) — ANTHROPIC_API_KEY
    first, then the one-haiku-smoke-call under a tight CostBudget; Slack
    app token + allow-listed user ids (Socket Mode listener exercise);
    Kalshi credentials last (they unlock nothing alone by design — I7).
 5. OPERATOR: Kalshi demo-env fixture recording session (single session
    covers the 27-item checklist + websocket streams + voided market + fee
-   fields — details in the Kalshi section below). Then ENGINEERING:
+   fields — details in the Kalshi section below). STATUS 2026-06-10:
+   delegated to the agent; recorder tool BUILT and session attempted —
+   blocked on a demo key-id/PEM pairing mismatch (one operator step to
+   unblock; see the Kalshi section). Then ENGINEERING:
    venue-generic runner composition replaying recordings into PaperVenue
    (first post-fixture task), kill-switch KalshiVenue plug with its OWN
    FORTUNA_KILLSWITCH_* credentials.
@@ -134,6 +143,34 @@ DAEMON task — the next engineering build):
    is recorded.
 
 ## Operator-blocked: Kalshi fixtures (one recording session unblocks all)
+
+**SESSION STATUS 2026-06-10 (operator delegated the recording to the agent;
+attempted same day):** the recorder TOOL is built and committed —
+`crates/fortuna-venues/examples/record_kalshi_fixtures.rs`, demo-hosts-only,
+covers the 27-item checklist + both-flag-state WS captures + cleanup — and
+the session ran to the auth wall, where it is BLOCKED ON A CREDENTIAL
+PAIRING: the demo key id in .env (after repairing a stray leading character
+in the pasted value) IS recognized by the demo environment, but the only
+available private key (`~/keys/kalshi-demo.pem`, moved from
+`~/Downloads/kalshi-demo-key.txt`) does not pair with it — every signed
+request returns 401 `INCORRECT_API_KEY_SIGNATURE` under TWO independent
+signing implementations (the adapter's rsa crate and an openssl-CLI probe)
+across four message-format variants and both demo hosts; local clock skew
+was +0.8s. Conclusion: the PEM belongs to a different key (a second demo
+key, or the live key's download). UNBLOCK (operator, one step): either
+locate the PEM that pairs with the configured demo key id, or create a
+fresh demo API key at demo.kalshi.co (Account & security -> API Keys),
+save the download to `~/keys/kalshi-demo.pem` (chmod 600) and put its key
+id in `KALSHI_API_DEMO_KEY_ID`, then rerun:
+`set -a && source .env && set +a && cargo run -p fortuna-venues --example
+record_kalshi_fixtures`.
+Incidental findings already banked from the probes: (a) the wire 401 error
+envelope is NESTED — `{"error":{"code","message","details"}}` — not the
+flat `ErrorResponse` the OpenAPI spec documents (at minimum for the auth
+gateway; fixture the API-layer shape too); (b) unauthenticated GET /markets
+returns 200 on demo (checklist #5, demo half); (c) auth `details` strings
+observed so far: `INVALID_PARAMETER` (malformed key id) and
+`INCORRECT_API_KEY_SIGNATURE` (sig mismatch).
 
 - **Kalshi fixture recording + adapter clearance (T1.1).** The adapter is
   BUILT and tested against doc-derived samples (124 venues tests), but it
@@ -224,10 +261,28 @@ DAEMON task — the next engineering build):
   on PROD, or institutional preprod via firm onboarding; (d) fee reality
   CONFIRMED vs the 2026-06-09 research (taker 0.05 / maker -0.0125
   quadratic, banker's rounding); (e) sports-only listings today.
-  OPERATOR DECISION REQUIRED before any build: retail-prod recording vs
-  institutional onboarding vs shelve until the entity matures. The stub
-  refuses everything meanwhile; the cents-core conflict alone argues for
-  shelving (a price-tick type is a spec-level change).
+  OPERATOR DECISION RECORDED 2026-06-10: "polymarket should be after the
+  perptuals [sic]" — Polymarket US is SEQUENCED AFTER the Kinetics perps
+  module (shelved for now; the stub keeps refusing everything). Revisit
+  after perps lands; the cents-core conflict still requires a spec-level
+  price-tick decision before any build.
+
+## In flight: Kinetics perps module (operator-directed 2026-06-10)
+
+- **Phase A research is RUNNING** (background research loop, started
+  2026-06-10): docs/research/venue/kinetics-perps-2026-06-10/research.md —
+  contract specs, funding (8h/±2% claims to verify), margin/maintenance,
+  liquidation, fees, perps_openapi/perps_asyncapi API surface, CF
+  Benchmarks indices, and — load-bearing for sequencing — whether the DEMO
+  environment carries perps. Treated as a spec-governed extension: new
+  capability, ZERO changes to the invariant middle (every perps order
+  passes the same I1 gate pipeline; margin/liquidation semantics need a
+  gate-design pass because max-loss is no longer premium-bounded).
+- **Phase B (design then implement) is NOT enumerated yet:** the operator's
+  directive message was cut off mid-list ("Phase B — Design then implement,
+  in order:" with nothing after). A proposed order will be drafted from the
+  research findings for operator confirmation; nothing in Phase B builds
+  before that confirmation.
 
 ## Operator-blocked: spec maintenance
 

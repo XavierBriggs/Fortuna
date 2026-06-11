@@ -1,0 +1,24 @@
+Why is it a separate account?
+Kalshi operates prediction markets (DCM) and Kinetics facilitates perpetual futures trading (FCM). These are regulated differently, and funds are held separately. Your predictions balance and your margin account do not share funds and cannot affect each other.
+This means a liquidation event on a perps position will never touch your predictions account balance.
+How to fund your margin account
+You have two options:
+• Deposit directly to your margin account via ACH, wire, or other supported methods.
+• Transfer funds from your existing Kalshi predictions account balance in the Portfolio tab.
+Transferring between accounts
+You can move funds between your predictions balance and your margin account at any time through the Portfolio tab. Transfers are processed promptly. Margin allocated to open positions cannot be transferred until those positions are closed. Please note that credits, such as referrals, are non-transferable between your Predictions balance to your Perpetuals balance, and vice versa.
+Withdrawing from your margin account
+To withdraw funds, go to the Portfolio tab and select your perpetuals account. You can withdraw to your bank or transfer back to your predictions balance. Only funds not allocated to open positions are available for withdrawal.
+How your funds are protected
+Your margin is held in a customer-segregated account, separate from Kalshi's operating funds, as required by CFTC regulations. This means your margin cannot be used for Kalshi's business operations and is protected in the event of financial difficulty.
+Note: Your margin also earns interest while held at the clearinghouse. The current rate is approximately 3.25% APY, subject to market conditions. More information on APY can be found here.
+What happens during exchange maintenance?
+Kalshi performs scheduled maintenance on Thursdays from approximately 3:00 AM to 5:00 AM ET. During this window:
+• The exchange is offline and new orders cannot be placed or modified.
+• Existing open positions remain open and are not automatically closed.
+Related Articles
+What Are Perpetual Futures?
+How Margin Works
+Applying for Perpetuals Access
+Depositing, Transferring & Withdrawing
+Risks of Trading Perpetual Futures

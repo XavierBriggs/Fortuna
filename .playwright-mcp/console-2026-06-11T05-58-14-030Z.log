@@ -1,0 +1,19 @@
+[     391ms] [WARNING] [WEBSOCKETS] - Subscribing {params: Object, subscriber: bound wsHandlePosition} @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[     394ms] [WARNING] [WEBSOCKETS] - Subscribing {params: Object, subscriber: bound queueWsHandleTicker} @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[     394ms] [WARNING] [WEBSOCKETS] - Subscribing {params: Object, subscriber: bound wsHandleLifecycle} @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[     572ms] [LOG] datadog init config.commitRef 524d22b4f1fb4261b0573a2789cee8938cd37dd2 @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[    1966ms] [WARNING] Amplitude Logger [Warn]: Plugin with name gtm-library-enrichment already exists, skipping registration @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[    2315ms] [LOG] PS :: 22:58:16:345 Info: uapx Diagnostic - Host called API: Start With Config @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[    2317ms] [LOG] PS :: 22:58:16:347 Info: uapx Diagnostic - Host called API: Send Conversion @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[    2757ms] [LOG] PS :: 22:58:16:787 Info: Response: {} @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[    2757ms] [LOG] PS :: 22:58:16:787 Info: Server config success! @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[    2758ms] [LOG] PS :: 22:58:16:788 Info: uapx Diagnostic - Started SDK 1.8.0
+      published 1/5/2026, 5:57:54 PM @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[    2758ms] [LOG] PS :: 22:58:16:788 Info: uapx Diagnostic - The log level is set to Info @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[    2810ms] [WARNING] Identity value for 'other' is falsy (undefined). This value will be removed from the request. @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[    2810ms] [WARNING] There is no callback provided @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[    2814ms] [LOG] PS :: 22:58:16:843 Info: Conversion success! @ https://kalshi.com/_next/static/chunks/0q~3w5mbasf3y.js:3
+[    5609ms] [WARNING] The resource https://apps.rokt.com/icons/rokt-icons.woff was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ https://apps.rokt.com/wsdk/plugins/dcui/index.html:0
+[    6847ms] [WARNING] The resource https://kalshi.com/_next/static/chunks/0ji.9314.gi5..css was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ https://kalshi.com/fee-schedule:0
+[   15675ms] [WARNING] The resource https://kalshi.com/_next/static/chunks/0ji.9314.gi5..css was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ https://kalshi.com/fee-schedule:0
+[   35095ms] [WARNING] The resource https://kalshi.com/_next/static/chunks/0ji.9314.gi5..css was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ https://kalshi.com/fee-schedule:0

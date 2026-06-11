@@ -300,3 +300,31 @@ EXIT: the daemon runs for a continuous week in Sim with the real mind — belief
 calibrated/persisted/scored in Postgres, cost tracked against config budgets,
 digests and alerts landing in Slack, dead-man green — with zero unexplained
 halts and a clean operator-runnable shutdown/restart (boot reconciliation).
+
+## Phase 5 — Kinetics perps module (operator-directed 2026-06-10; spec-governed extension)
+
+Constraint quoted from the directive: "new capability, zero changes to the invariant
+middle." Every perps order passes the same I1 gate pipeline; the model stays
+propose-only (I6); promotion gates (I7) apply to any perps strategy unchanged. Margin
+changes the loss model (no longer premium-bounded) — gate design must precede adapter
+code.
+
+- [ ] T5.0 Phase A research (read-only, no code): ground Kinetics perps in fetched
+      truth — fee schedule, contract specs (sizes/tick/leverage per asset), funding
+      (interval/cap/index), margin + maintenance formulas, liquidation mechanics,
+      API auth + rate limits, WS channels, FIX existence, DEMO availability —
+      docs/research/venue/kinetics-perps-2026-06-10/research.md with sources,
+      retrieval dates, confidence per claim; live-account-only items to GAPS.md.
+      (2026-06-10: IN FLIGHT as a background research loop; tick only after the
+      doc lands and is reviewed.)
+- [ ] T5.B Phase B — design then implement. NOT ENUMERATED: the operator's directive
+      was truncated mid-list ("Phase B — Design then implement, in order:"). A
+      proposed order goes to the operator with the research summary; Phase B does
+      not build until the order is confirmed. Expected shape (PROPOSAL ONLY):
+      spec amendment (margin-aware loss bounds, funding cash flows, price-tick
+      domain) -> core types (signed positions, funding accrual, margin account
+      view) -> gate extensions (maintenance-margin headroom gate, liquidation-
+      distance gate, funding-cost-in-edge) -> kinetics venue adapter behind the
+      Venue trait (fixtures-gated like kalshi) -> paper engine margin semantics ->
+      strategy (funding/basis) behind I7 promotion -> ops (kill-switch coverage,
+      margin telemetry).
