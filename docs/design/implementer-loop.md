@@ -17,8 +17,9 @@ running-but-wrong.
 
 EACH ITERATION, do exactly ONE item, then commit and start the next iteration.
 
-1. PRIORITY ORDER: (a) new gate findings in GAPS.md — a BLOCK preempts
-   everything; (b) T4.1 composition daemon — NOTE its SHUTDOWN CONTRACT in
+1. PRIORITY ORDER: (a) new gate findings — check BOTH
+   docs/reviews/GATE-FINDINGS-LATEST.md (verifier-owned, race-free) AND
+   GAPS.md; a BLOCK preempts everything; (b) T4.1 composition daemon — NOTE its SHUTDOWN CONTRACT in
    BUILD_PLAN (SIGTERM handler == graceful shutdown, smoke-asserted; `fortuna
    stop` depends on it); (c) T4.3 ROTA — buildable STANDALONE per its amended
    design (capability-Option composition); if T4.1 blocks, proceed to T4.3
