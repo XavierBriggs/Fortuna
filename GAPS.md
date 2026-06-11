@@ -192,6 +192,34 @@ REMAINING (composition-wiring; T4.1 in progress — status 2026-06-11):
   feed these into SynthesisStrategy::new + set_calibration_quality —
   lands with the composition main / req-10 smoke.
 
+## T4.3 ROTA — slice progress (box unticked; in progress 2026-06-11)
+
+- Slice 1 (c3550f9): read-only rota router + Option-capability RotaState +
+  cursor-polled audit tail + gold/black shell (R1/R2/R3/R11/R12).
+- Slice 2 (this commit): daemon-side `fortuna_live::views::views_from`
+  populates DashboardSnapshot.views so the slice-1 handlers serve REAL data
+  instead of "unavailable". POPULATED: health (halt via the new pure
+  `SimRunner::active_halt()`; p90/p95/p99 — no p50 per R6; dead_man null per
+  gate note 6; venue errors) + settlement (limbo/overdue/voids/reversals)
+  fully; gates.total_rejections + streams.venue_api_errors_total scalars.
+  §5 per-view generated_at is passed in by the between-segments closure
+  (which holds the clock) so views_from stays pure/clock-free (lib invariant
+  preserved). Runner change is ONE pure read accessor (active_halt); zero
+  money-path change. The daemon→ops contract is covered by views.rs unit
+  tests (producer shape) + slice-1 populated_view_is_served_verbatim
+  (consumer; read_view is a literal views.get(name) passthrough) +
+  daemon_smoke (wiring) — no new dev-dep.
+- DEFERRED (capability-gated; keys ABSENT not faked-zero so a panel never
+  reads falsely "all clear"): money view (needs the new boards "account"
+  field, R6); cognition view (R7 — BeliefsRepo::recent + calibration-scope
+  enumeration, two new ledger queries); gates.rejections_by_check (needs a
+  runner read-path accessor — escapes only via Prometheus text today, which
+  R2 forbids parsing); recent_rejections / recent_watchdog_events (R5
+  dedicated audit pool); streams.recorder + per-venue book_age_ms (recorder
+  filesystem scan + new boards field); health.last_tick_age_ms (no last-tick
+  wall stamp tracked). Also remaining: R5 pool, cursor-pagination test,
+  Phase-3 shell/assets, R12 browser pass.
+
 ## SECURITY INCIDENT 2026-06-11 (gate finding F1, Critical) — keys were committed
 
 WHAT HAPPENED: both Kalshi PEM private keys (`.keys/fortuna-demo-v1.txt`

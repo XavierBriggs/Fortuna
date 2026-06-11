@@ -414,6 +414,33 @@ cursor-pagination test; R7 cognition panel (BeliefsRepo::recent +
 calibration scopes — needs the two new ledger queries); R12 browser pass
 (verifier-layer).
 
+SLICE 2 BUILT (2026-06-11): crates/fortuna-live/src/views.rs — `views_from`
+shapes the per-view JSON the slice-1 handlers serve (R2: the daemon shapes,
+fortuna-ops never depends on fortuna-runner). POPULATED: `health` (halt
+state via the NEW pure `SimRunner::active_halt()` accessor, fill-latency
+p90/p95/p99 per R6 — NO p50, dead_man null per gate note 6, venue error
+count) and `settlement` (limbo, overdue, voids, reversals) fully, plus the
+primary scalars of `gates` (total_rejections) and `streams`
+(venue_api_errors_total). Each view carries the §5 `generated_at`, passed
+in by the between-segments closure (which holds the clock) so `views_from`
+stays pure/clock-free and the lib never reads a clock. Wired into main's
+closure (builds views BEFORE the try_write, R8). 4 unit tests (shape, halt
+surfacing, settlement, scalars-present/arrays-deferred). The daemon→ops
+contract is covered end-to-end without a new dev-dep: the producer shape
+(views.rs tests), the consumer passthrough (slice-1 `populated_view_is_
+served_verbatim`, since read_view is a literal `views.get(name).cloned()`),
+and the live wiring (daemon_smoke runs the closure). DELIBERATELY DEFERRED
+(each needs a capability this slice lacks; faked values read as "all clear"
+to an operator, so the keys are ABSENT not zeroed): `money` (needs the new
+boards "account" field), `cognition` (R7 two ledger queries),
+gates.rejections_by_check (needs a runner read-path accessor — escapes only
+via Prometheus text today, which R2 forbids parsing), recent_rejections /
+recent_watchdog_events (R5 audit pool), streams.recorder + per-venue
+book_age_ms (filesystem scan + new boards field), health.last_tick_age_ms
+(no last-tick wall stamp tracked). REMAINING after slice 2: those deferred
+views/fields; R5 pool; cursor-pagination test; the streams fs-scan; the
+Phase-3 shell/assets; R12 browser pass.
+
 - V-1 PASS: serve_dashboard + the three routes present (dashboard.rs ~52-68;
   `route("/")`, `/metrics`, `/api/boards`); POST-405 loop at
   tests/dashboard.rs:74-80 exactly as cited.

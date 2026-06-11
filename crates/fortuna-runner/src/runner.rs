@@ -499,6 +499,14 @@ impl<J: IntentJournal + Send> SimRunner<J> {
         );
     }
 
+    /// The active global halt reason, if any — a pure read accessor for the
+    /// ROTA health view (the boards JSON exposes only the halt BOOL; the
+    /// SYSTEM-HALTED takeover needs the reason string). Read-path only; no
+    /// money-path effect.
+    pub fn active_halt(&self) -> Option<String> {
+        self.gates.halts().global_halted().map(|s| s.to_string())
+    }
+
     /// Take the belief drafts buffered since the last drain (req 6). The
     /// daemon persists them to BeliefsRepo (events upserted first for the
     /// FK); draining empties the buffer so a draft is persisted once.

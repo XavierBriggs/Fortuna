@@ -177,11 +177,19 @@ async fn main() -> Result<()> {
         60, // segment = 60 wakes (~30s at the 500ms poll): metrics refresh cadence
         &mut stop_rx,
         move |r, _seg| {
-            let registry = registry_from(r);
+            // Build everything BEFORE taking the write lock (R8: minimise
+            // time the snapshot is held). T4.3 ROTA slice 2: the daemon
+            // shapes the per-view JSON the rota handlers serve verbatim
+            // (R2 — fortuna-ops never depends on the runner).
+            let generated_at = fortuna_core::clock::Clock::now(r.clock.as_ref()).to_iso8601();
+            let metrics_text = registry_from(r).render_prometheus();
+            let boards = r.boards_json();
+            let views = fortuna_live::views::views_from(r, &generated_at);
             if let Ok(mut snap) = snapshot_for_segments.try_write() {
-                snap.generated_at = fortuna_core::clock::Clock::now(r.clock.as_ref()).to_iso8601();
-                snap.metrics_text = registry.render_prometheus();
-                snap.boards = r.boards_json();
+                snap.generated_at = generated_at;
+                snap.metrics_text = metrics_text;
+                snap.boards = boards;
+                snap.views = views;
             }
         },
         &mut scrape,

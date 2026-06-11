@@ -11,3 +11,4 @@ pub mod boot;
 pub mod compose;
 pub mod daemon;
 pub mod run_loop;
+pub mod views;
