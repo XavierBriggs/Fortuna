@@ -80,6 +80,25 @@ there by the independent e-gate:
 - Kelly sizing keys off legs[0] only (single-leg synthesis today; revisit
   with multi-leg).
 
+From the concurrent-legs + WS independent gates (docs/reviews/
+concurrent-legs-INDEPENDENT-gate-2026-06-10.md, ws-ingestion-INDEPENDENT-
+gate-2026-06-10.md; both ACCEPT-WITH-GAPS, 0 Critical/Major) — small
+test-debt batch, no behavior changes:
+- Seeded DST corpora drive single-leg groups only; add a multi-leg arm so
+  `submit_group_concurrent` sees randomized venue faults (today its chaos
+  coverage is deterministic-test-only).
+- Leg-order outcome journaling rests on join_all's structural guarantee;
+  pin it with a staggered-completion venue mock (legs completing in
+  non-input order must produce identical journal/audit streams).
+- Pin two scratch-verified refusals as committed tests: crossed assembled
+  book; non-array side in a snapshot.
+- `crates/fortuna-venues/src/stream.rs:159`: `current + delta_contracts`
+  unchecked i64 add (debug-profile overflow panic precedes its own
+  negative check) — use checked_add, fail closed.
+- Lenient envelope parsing (missing type => Ignored, missing sid/seq => 0)
+  degrades fail-closed but is unledgered — ledger or strict-reject.
+- Polymarket research source count: 95 archived files, not 96 as claimed.
+
 ## Operator adjudication queue (operator actions; no code changes)
 
 - **Protected-crate waives (3 batches).** crates/fortuna-invariants/ was
@@ -161,11 +180,21 @@ there by the independent e-gate:
 
 ## Operator-blocked: credentials
 
-- **Venue + Anthropic + Slack credentials (env vars).** Unblock: operator
-  provisions .env per README.
-  - ANTHROPIC_API_KEY: AnthropicMind is BUILT and mock-tested; the env-key
-    gate IS the feature flag. Recommended first exercise: one live smoke
-    call against claude-haiku-4-5 under a tight CostBudget.
+- **Venue + Anthropic + Slack credentials (env vars).** STATUS 2026-06-10:
+  PROVISIONED AND VERIFIED LIVE by the operator — DATABASE_URL (fortuna db
+  migrated, 23 relations owned by fortuna_app, connection verified as the
+  app role), ANTHROPIC_API_KEY (the recommended haiku smoke call returned
+  "FORTUNA smoke OK", 16in/8out tokens — the env-key cognition gate is now
+  ARMED), Slack bot `fortuna` (auth.test ok; test post landed in ALL FIVE
+  channels), FORTUNA_DEADMAN_URL set (deliberately not pinged yet: one
+  ping arms the monitor and the runtime is not running — expect a false
+  "down" page if armed before go-live). Remaining in this entry:
+  - Kalshi: a key id is set — CONFIRM it is the DEMO-environment key (the
+    fixture session needs demo; prod trading + the separate
+    FORTUNA_KILLSWITCH_* pair come later) and that KALSHI_PRIVATE_KEY_PATH
+    points at the downloaded .key PEM (chmod 600, outside the repo).
+  - (Historical note kept: AnthropicMind was built and mock-tested at
+    T2.5; the env-key gate IS the feature flag.)
   - Slack app token(s): send-side routing (config-driven channel router,
     Block Kit approval builder) is built and tested with a mock transport;
     the Socket Mode interactivity listener (button presses, slash-command
