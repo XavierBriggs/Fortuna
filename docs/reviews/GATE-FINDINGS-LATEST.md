@@ -13,15 +13,17 @@ with live test coverage. Battery green (716/0/0; DST at task-review
 default 2000 — read-path-only range; the 10000 bar stays for
 money-path/phase gates).
 
+Update 2026-06-11 ~23:20Z (cheap-tier gate, range 2e54c18..7e35f51,
+verified directly by the verification session — diffs read, targeted
+tests run): items 1 and 2 below are CLEARED. (1) scan_recorder now maps
+parse failure to unhealthy + null age (`.unwrap_or(0)` -> `.ok()`, None
+flows through; comment cites the finding; new test green — 11/11 rota).
+(2) /favicon.ico serves 204 through the live merged router, test-pinned
+(dashboard.rs:160). clippy -p fortuna-ops clean. Remaining items renumber
+below.
+
 Fix list (all Minor):
 
-1. [NEW, reproduced] scan_recorder fakes freshness on malformed
-   generated_at: `parse_iso8601(...).unwrap_or(0)` then `.max(0)` clamps
-   age to 0 => healthy:true on garbage input. Daemon-controlled input so
-   Minor, but it violates degraded-never-faked: flip to unhealthy/absent
-   on parse failure (one line) + test.
-2. [Carried] /favicon.ico still 404s (your own GAPS entry agrees) — asset
-   route or 204 stub; becomes an R12 pass/fail item at the T4.3 gate.
 3. [Carried] DailyScheduler restart-fire + cumulative-vs-daily labeling +
    missing drive()-level digest assertion — fix or ledger.
 4. [Carried] GAPS.md:142 "No ASSUMPTIONS exception is needed" contradicts
