@@ -1192,6 +1192,18 @@ crates/fortuna-venues/tests/kalshi_doc_samples/ are NOT recordings.
   recorded, and neither tool feeds the core event loop. Both crates keep
   their logic halves pure and unit-tested; only their capture loops touch
   the wall clock.
+- **ROTA audit-tail query is runtime sqlx, not compile-time `query!`**
+  (rota-slices gate F3, ledgered 2026-06-11): `fortuna_ops::rota::
+  audit_tail_page` uses `sqlx::query_as::<_, AuditRowTuple>(...)` (runtime)
+  rather than the compile-time-checked `query_as!`. Deliberate: this is the
+  ONE read-only dashboard query, its columns are pinned by the audit-table
+  migration (`audit_id, at, kind, actor, ref_id`), and it is now covered by a
+  live `#[sqlx::test]` (cursorless-latest + forward-pagination + empty). Going
+  compile-time would couple the whole crate's build to the sqlx-offline cache
+  (`.sqlx`) for a single path; the test + schema pin give the same safety
+  without that coupling. Revisit if ROTA grows more ledger queries (R7
+  cognition panel) — at that point an `ops -> ledger` dep with the ledger's
+  prepared queries (design §6) is the cleaner home.
 - **degrade_alerts / CalibrationParamsRepo.latest wiring status** (ledger-gate
   fix 1, 2026-06-11 — this entry was CLAIMED to exist by a GAPS line since the
   f-batch closure and never actually written until now; the GAPS line is

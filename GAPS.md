@@ -234,6 +234,27 @@ REMAINING (composition-wiring; T4.1 in progress — status 2026-06-11):
   first seconds after UTC midnight the new day's dir may be briefly empty while
   the recorder finishes the prior file — acceptable (the panel shows the new
   day), documented here.
+
+ROTA-SLICES GATE REMEDIATION (rota-slices-gate-2026-06-11.md, BLOCK narrow;
+6 findings — tracked here as they close):
+- F1 [MAJOR] audit-tail cursorless returned the OLDEST page: CLOSED (this
+  commit). audit_tail_page(pool, after, limit) extracted + tested: cursorless
+  => LATEST page (newest `limit` rows, ORDER BY audit_id DESC then re-sorted
+  ASC); present cursor => forward (`> cursor ASC`). Doc aligned. The owed
+  cursor-pagination test now exists and INCLUDES the absent-cursor case
+  (#[sqlx::test]) + empty-table. The shell already polls cursor-less, so it
+  now shows the live tail with no shell change.
+- F3 [Minor] runtime sqlx audit query: LEDGERED (ASSUMPTIONS) as a deliberate
+  choice for the single read-only dashboard query (schema-pinned by migration,
+  now #[sqlx::test]-covered; avoids sqlx-offline build coupling). Same edit as
+  F1 -> closed together.
+- STILL OPEN (next iterations): F2 favicon 404 (land an assets/rota favicon or
+  stub 204); F4 DailyScheduler boot-fire + digest cumulative-vs-day labeling +
+  no drive()-level digest assertion; F5 ASSUMPTIONS/GAPS dead-man contradiction
+  + stale "SystemTime::now post-RealClock-fix" wording; F6 [informational]
+  raw-JSON panels (Phase-3 presentation) + LIVE recorder risk_parameters stale-
+  on-boot (recorder/B0 capture-loop investigation — NOT a ROTA code fix; do
+  not touch the running recorder).
 - DEFERRED (capability-gated; keys ABSENT not faked-zero so a panel never
   reads falsely "all clear"): money view (needs the new boards "account"
   field, R6); cognition view (R7 — BeliefsRepo::recent + calibration-scope

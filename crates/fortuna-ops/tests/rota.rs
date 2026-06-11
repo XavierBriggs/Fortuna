@@ -5,7 +5,7 @@
 
 use fortuna_core::clock::UtcTimestamp;
 use fortuna_ops::dashboard::DashboardSnapshot;
-use fortuna_ops::rota::{rota_router, scan_recorder, RotaState};
+use fortuna_ops::rota::{audit_tail_page, rota_router, scan_recorder, RotaState};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -306,4 +306,70 @@ async fn streams_handler_omits_recorder_without_perishable_capability() {
         "no capability => no recorder key"
     );
     h.abort();
+}
+
+// ---- rota-slices gate F1 (MAJOR): audit-tail cursor pagination ----
+
+async fn insert_audit(pool: &sqlx::PgPool, audit_id: &str, kind: &str) {
+    sqlx::query(
+        "INSERT INTO audit (audit_id, at, kind, actor, ref_id, payload) \
+         VALUES ($1, $2, $3, NULL, NULL, '{}'::jsonb)",
+    )
+    .bind(audit_id)
+    .bind("2026-06-11T12:00:00.000Z")
+    .bind(kind)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn audit_tail_cursorless_returns_the_latest_page_not_the_oldest(pool: sqlx::PgPool) {
+    // Insert oldest -> newest (ULID audit_id == chronological).
+    for (id, kind) in [
+        ("01AAAAAAAAAAAAAAAAAAAAAAA0", "old1"),
+        ("01BBBBBBBBBBBBBBBBBBBBBBB0", "old2"),
+        ("01CCCCCCCCCCCCCCCCCCCCCCC0", "mid"),
+        ("01DDDDDDDDDDDDDDDDDDDDDDD0", "new1"),
+        ("01EEEEEEEEEEEEEEEEEEEEEEE0", "new2"),
+    ] {
+        insert_audit(&pool, id, kind).await;
+    }
+
+    // ABSENT CURSOR => the LATEST page (the tail's newest rows), chronological
+    // ASC — NOT the oldest rows ever (the F1 defect). This is the verdict's
+    // required absent-cursor coverage.
+    let page = audit_tail_page(&pool, None, 2).await.unwrap();
+    assert_eq!(page.len(), 2, "{page:?}");
+    assert_eq!(
+        page[0].0, "01DDDDDDDDDDDDDDDDDDDDDDD0",
+        "latest page is the NEWEST rows, returned ASC: {page:?}"
+    );
+    assert_eq!(page[1].0, "01EEEEEEEEEEEEEEEEEEEEEEE0");
+    // Regression guard: the F1 bug returned the OLDEST page (01AAA/01BBB).
+    assert_ne!(
+        page[0].0, "01AAAAAAAAAAAAAAAAAAAAAAA0",
+        "cursorless must NOT return the oldest page (gate F1)"
+    );
+
+    // PRESENT CURSOR => the next rows strictly after it (forward pagination).
+    let fwd = audit_tail_page(&pool, Some("01BBBBBBBBBBBBBBBBBBBBBBB0"), 2)
+        .await
+        .unwrap();
+    assert_eq!(fwd[0].0, "01CCCCCCCCCCCCCCCCCCCCCCC0", "{fwd:?}");
+    assert_eq!(fwd[1].0, "01DDDDDDDDDDDDDDDDDDDDDDD0");
+
+    // Empty cursorless page is fine when nothing is after the newest row.
+    let past_end = audit_tail_page(&pool, Some("01EEEEEEEEEEEEEEEEEEEEEEE0"), 2)
+        .await
+        .unwrap();
+    assert!(
+        past_end.is_empty(),
+        "nothing after the newest: {past_end:?}"
+    );
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn audit_tail_empty_table_is_an_empty_page_not_an_error(pool: sqlx::PgPool) {
+    assert!(audit_tail_page(&pool, None, 100).await.unwrap().is_empty());
 }

@@ -182,6 +182,59 @@ pub struct AuditQuery {
 /// Cursor-polled audit tail (R3): lossless, survives restarts, backed by
 /// the audit table's indexes. Degrades to an explicit empty page (HTTP
 /// 200) when the Postgres capability is absent — never a 500.
+/// One audit-tail row: (audit_id, at, kind, actor, ref_id).
+type AuditRowTuple = (String, String, String, Option<String>, Option<String>);
+
+/// One page of the append-only audit tail. ABSENT cursor => the LATEST page
+/// (the tail's newest `limit` rows, returned chronological/ASC); a PRESENT
+/// cursor => the next `limit` rows strictly AFTER it (forward pagination,
+/// ASC). The cursorless default is the TAIL, not the head: a live audit
+/// *tail* (design R3) must surface NEW rows, and ROTA_SHELL polls this
+/// endpoint cursor-less every 2s.
+///
+/// Gate F1 (2026-06-11, MAJOR): the prior `q.after.unwrap_or_default()` bound
+/// `audit_id > ''` into an ASC query and returned the OLDEST page (the first
+/// rows ever) — so once a live pool landed the panel would have frozen on the
+/// head, an audit tail that never shows new rows. Fixed here: cursorless
+/// fetches newest-first then re-sorts ASC.
+///
+/// Runtime sqlx (not compile-time `query!`) by deliberate choice — see
+/// ASSUMPTIONS: this single read-only dashboard query is schema-pinned by the
+/// migration, and keeping it runtime avoids coupling the whole crate's build
+/// to the sqlx-offline cache for one path. `limit` clamped to [1, 500].
+pub async fn audit_tail_page(
+    pool: &PgPool,
+    after: Option<&str>,
+    limit: i64,
+) -> Result<Vec<AuditRowTuple>, sqlx::Error> {
+    let limit = limit.clamp(1, 500);
+    match after {
+        Some(cursor) => {
+            sqlx::query_as::<_, AuditRowTuple>(
+                "SELECT audit_id, at, kind, actor, ref_id FROM audit \
+                 WHERE audit_id > $1 ORDER BY audit_id ASC LIMIT $2",
+            )
+            .bind(cursor)
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+        }
+        None => {
+            // Newest `limit` rows, then reverse to ASC so the page reads
+            // chronologically exactly like a forward page.
+            let mut rows = sqlx::query_as::<_, AuditRowTuple>(
+                "SELECT audit_id, at, kind, actor, ref_id FROM audit \
+                 ORDER BY audit_id DESC LIMIT $1",
+            )
+            .bind(limit)
+            .fetch_all(pool)
+            .await?;
+            rows.reverse();
+            Ok(rows)
+        }
+    }
+}
+
 async fn audit_tail(State(s): State<RotaState>, Query(q): Query<AuditQuery>) -> impl IntoResponse {
     let Some(pool) = s.pool.clone() else {
         return Json(json!({
@@ -191,19 +244,12 @@ async fn audit_tail(State(s): State<RotaState>, Query(q): Query<AuditQuery>) -> 
             "next_after": null,
         }));
     };
-    // Clamp the page; ascending audit_id (ULID == chronological).
-    let limit = q.limit.unwrap_or(100).clamp(1, 500);
-    let after = q.after.unwrap_or_default();
-    let rows = sqlx::query_as::<_, (String, String, String, Option<String>, Option<String>)>(
-        "SELECT audit_id, at, kind, actor, ref_id FROM audit \
-         WHERE audit_id > $1 ORDER BY audit_id ASC LIMIT $2",
-    )
-    .bind(&after)
-    .bind(limit)
-    .fetch_all(&pool)
-    .await;
-    match rows {
+    let limit = q.limit.unwrap_or(100);
+    match audit_tail_page(&pool, q.after.as_deref(), limit).await {
         Ok(rows) => {
+            // next_after = the newest id IN this page (rows are ASC), so a
+            // cursor-tracking client paginates forward into rows that arrive
+            // after this poll.
             let next_after = rows.last().map(|r| r.0.clone());
             let json_rows: Vec<Value> = rows
                 .into_iter()
