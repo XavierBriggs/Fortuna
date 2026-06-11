@@ -288,6 +288,11 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       row). Sim venue ONLY until fixtures clear (venue selection is config;
       kalshi refuses without fixture clearance). DST: a daemon-composition
       smoke (boot -> N ticks -> clean shutdown, deterministic under SimClock).
+      SHUTDOWN CONTRACT (CLI critique 2026-06-11, BINDING): install a SIGTERM
+      handler (tokio signal SignalKind::terminate, NOT ctrl_c-only) treated
+      IDENTICALLY to graceful shutdown; the smoke/DST must assert SIGTERM ->
+      cancel working orders + final audit row. `fortuna stop` (T4.4) depends
+      on this contract existing and being test-asserted.
       Verifier-gated like every batch.
 - [ ] T4.2 POST-FIXTURE tranche (blocked on the operator recording session):
       Kalshi WS dial (signed handshake, keep-alive, redial w/ resubscribe-on-gap),
@@ -296,20 +301,34 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       KalshiVenue plug (FORTUNA_KILLSWITCH_* creds), Slack Socket Mode listener
       (app token; kill REQUESTS only, re-arms stay CLI-only).
 - [ ] T4.3 ROTA — the operator dashboard (operator-directed 2026-06-11; design
-      brief AUTHORITATIVE at docs/design/rota-dashboard.md): read-only gold/black
-      operator console served by the T4.1 daemon — versioned /api/rota/v1 JSON
-      views + SSE stream + static SPA bundle; seven v1 surfaces (health wheel,
-      money, gates, cognition, settlement/watchdogs, venue/streams, audit tail);
-      cornucopia/wheel logo under assets/rota/. ZERO mutating endpoints (route-
-      table test); integration tests per the brief incl. the seeded-run
-      end-to-end chain and demo-fixture replay panels. Verifier-gated.
+      AUTHORITATIVE at docs/design/rota-dashboard.md INCLUDING its amendments
+      section): read-only gold/black operator console — server-rendered Rust
+      shell (NO SPA, no Node toolchain) + versioned /api/rota/v1 JSON views +
+      cursor-polled lossless audit tail (SSE cut per critique); capability-
+      Option composition: BUILDABLE STANDALONE off SimRunner snapshots — does
+      NOT wait for T4.1, which wires it in afterward; dedicated 2-connection
+      Pg pool (never the daemon's); structured snapshot views (no Prometheus-
+      text parsing); five surfaces first then cognition (two new ledger
+      queries owned here); cornucopia/wheel logo under assets/rota/. ZERO
+      mutating endpoints (route-table test); seeded-run chain, empty-DB,
+      Pg-down, cursor-pagination tests per the doc. Verifier-gated.
+- [ ] T4.4 Operator CLI lifecycle (operator-directed 2026-06-11; design
+      AUTHORITATIVE at docs/design/fortuna-cli.md INCLUDING its amendments
+      section): `fortuna start/stop/status/logs/config-check` extending
+      crates/fortuna-cli (start/stop naming binding; v1 cut to FOUR new
+      commands per critique — mode and db migrate-status dropped); pidfile +
+      SIGTERM with name-validated PIDs + atomic create_new claim; start
+      REFUSES on an unmanaged running fortuna-recorder; detach via
+      process_group(0) + append-mode logs; runtime dir data/runtime/
+      (gitignored), NOT /tmp; depends on the T4.1 SHUTDOWN CONTRACT above.
+      Verifier-gated.
 
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)
 with the Anthropic mind active under budgets, ROTA up locally, and the perps
 track as far through T5.B2-B6 as gate-clean work allows. Priority order for the
-implementer loop: gate findings in GAPS -> T4.1 -> T4.3 (ROTA) -> T4.2 -> T5.B
-tranche in order. The north star governs: work that has not survived an
+implementer loop: gate findings in GAPS -> T4.1 -> T4.3 (ROTA) -> T4.4 (CLI)
+-> T4.2 -> T5.B tranche in order. The north star governs: work that has not survived an
 independent gate counts as zero; demo-mode startup is itself gated on T4.1+T4.2
 clearance, and NOTHING here changes I1-I7, fixture-gating, or operator-only
 actions (promotions, re-arms, live capital stay with the operator).
