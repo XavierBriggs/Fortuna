@@ -218,6 +218,22 @@ REMAINING (composition-wiring; T4.1 in progress — status 2026-06-11):
   updated; new red-first test proves /rota serves the populated health view and
   that read-only survives the merge (POST -> 405). An operator running the
   daemon can now open /rota.
+- Slice 4 (this commit): the streams recorder filesystem-scan. scan_recorder
+  stats data/perishable/<today>/<stream>.jsonl (mtime->age, len->size_bytes,
+  healthy=age<120s); the /streams handler merges it when perishable_dir is
+  present. PERF CALL: metadata-only, NEVER a content read — bracket_quotes.jsonl
+  is ~1.3GB and a line-count on the 15s poll would be a self-inflicted DoS, so
+  §5's rows_today/key_count are DEFERRED (content-read optimisation; size_bytes
+  is the cheap proxy). Clock-free: now+today come from snapshot.generated_at.
+  Daemon main wires perishable_dir="data/perishable" (matches recorder default)
+  so the scan is live. 3 tests (scan fresh/stale/missing, handler merge/omit).
+  NOTE: perishable_dir is hardcoded to "data/perishable" in the daemon (matches
+  fortuna-recorder's default out_dir and the daemon's repo-root cwd assumption);
+  making it a DaemonToml field is a future nicety, not a blocker. Midnight-
+  rollover edge: the scan picks today's dir from generated_at's date; for ~the
+  first seconds after UTC midnight the new day's dir may be briefly empty while
+  the recorder finishes the prior file — acceptable (the panel shows the new
+  day), documented here.
 - DEFERRED (capability-gated; keys ABSENT not faked-zero so a panel never
   reads falsely "all clear"): money view (needs the new boards "account"
   field, R6); cognition view (R7 — BeliefsRepo::recent + calibration-scope

@@ -460,6 +460,28 @@ read-only doctrine survives the merge (POST/rota -> 405). NOW: an operator
 running the daemon can open /rota and watch live health/settlement/gates/
 streams. REMAINING unchanged from slice 2 minus the mounting.
 
+SLICE 4 BUILT (2026-06-11): the streams recorder filesystem-scan (§5
+recorder section). `fortuna_ops::rota::scan_recorder(perishable_dir,
+generated_at)` stats data/perishable/<today>/<stream>.jsonl and the
+/streams handler MERGES the result into the daemon-shaped venue view when
+ROTA holds the perishable_dir capability (standalone omits it — degraded,
+never faked). PERF-CRITICAL DESIGN CALL: the scan reads only file METADATA
+(mtime -> last_capture_age_secs, len -> size_bytes, healthy = age < 120s) —
+NEVER content. The §5 rows_today/key_count fields are DEFERRED because
+counting them means reading the whole file, and bracket_quotes.jsonl is
+~1.3GB today; a line-count on the 15s poll would be a self-inflicted DoS
+(exactly what the T-5 perf budget guards). size_bytes is the cheap
+growth proxy in their place. The scan is clock-free: "now" + today both
+come from the snapshot's generated_at (the daemon's last clock read), so
+fortuna-ops adds no wall read; deterministic under test (probe-file mtime
+drives the fixture dates). Daemon main now wires perishable_dir =
+"data/perishable" (matching fortuna-recorder's default --out-dir) so the
+scan is LIVE, not dead code. 3 tests: scan unit (fresh/stale/missing-dir),
+handler-merge (recorder present with capability), handler-omit (absent
+without). REMAINING: money + cognition views, audit-tail recents (R5 pool),
+gates.rejections_by_check, cursor-pagination test, rows_today/key_count
+(content-read optimisation), Phase-3 shell/assets, R12 browser pass.
+
 - V-1 PASS: serve_dashboard + the three routes present (dashboard.rs ~52-68;
   `route("/")`, `/metrics`, `/api/boards`); POST-405 loop at
   tests/dashboard.rs:74-80 exactly as cited.

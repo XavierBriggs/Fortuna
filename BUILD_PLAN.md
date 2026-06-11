@@ -339,12 +339,17 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       health + settlement views and gates/streams scalars from the runner's
       counters()/boards_json()/new active_halt(), wired into main's
       between-segments closure (4 view tests; daemon_smoke green);
-      slice 3 (this commit) = serve_dashboard MOUNTS rota_router (§6) so the
+      slice 3 (75f4782) = serve_dashboard MOUNTS rota_router (§6) so the
       running daemon actually serves /rota + /api/rota/v1/* (was wired into
       nothing); red-first merge test proves the populated view is served and
-      read-only survives. REMAINING: money/cognition views, audit-tail recents
-      (R5 pool), streams fs-scan, cursor-pagination test, Phase-3 shell/assets,
-      R12 browser pass.
+      read-only survives;
+      slice 4 (this commit) = streams recorder filesystem-scan (scan_recorder,
+      metadata-only — never a content read, dodging the 1.3GB line-count DoS;
+      §5 rows_today/key_count deferred), merged into /streams when
+      perishable_dir present; daemon wires perishable_dir="data/perishable".
+      REMAINING: money/cognition views, audit-tail recents (R5 pool),
+      gates.rejections_by_check, cursor-pagination test, rows_today/key_count,
+      Phase-3 shell/assets, R12 browser pass.
 - [ ] T4.4 Operator CLI lifecycle (operator-directed 2026-06-11; design
       AUTHORITATIVE at docs/design/fortuna-cli.md INCLUDING its amendments
       section): `fortuna start/stop/status/logs/config-check` extending

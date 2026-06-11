@@ -88,10 +88,15 @@ async fn main() -> Result<()> {
     let dash_state = snapshot.clone();
     tokio::spawn(async move {
         // ROTA mounts alongside the legacy boards off the same snapshot
-        // (T4.3). pool/perishable_dir stay None this slice — the views the
-        // operator watches need only the snapshot; the audit tail + recorder
-        // scan land in later slices.
-        let rota = fortuna_ops::rota::RotaState::standalone(dash_state);
+        // (T4.3). perishable_dir = the recorder's output base ("data/perishable",
+        // matching fortuna-recorder's default --out-dir) so the /streams panel
+        // shows recorder liveness; an absent dir degrades to an empty scan,
+        // never a 500. pool stays None until the R5 dedicated audit-pool slice.
+        let rota = fortuna_ops::rota::RotaState {
+            snapshot: dash_state,
+            pool: None,
+            perishable_dir: Some(Arc::new(std::path::PathBuf::from("data/perishable"))),
+        };
         if let Err(e) = serve_dashboard(listener, rota).await {
             eprintln!("fortuna-live: metrics endpoint died: {e}");
         }

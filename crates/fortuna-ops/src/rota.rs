@@ -22,10 +22,11 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse};
 use axum::routing::get;
 use axum::{Json, Router};
+use fortuna_core::clock::UtcTimestamp;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::PgPool;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -94,8 +95,80 @@ async fn view_gates(State(s): State<RotaState>) -> impl IntoResponse {
 async fn view_settlement(State(s): State<RotaState>) -> impl IntoResponse {
     Json(read_view(&s, "settlement").await)
 }
+/// Cheap liveness stat of the recorder's perishable JSONL streams (the
+/// /streams panel's `recorder` section). Reads only file METADATA (mtime +
+/// size) — NEVER content — so it is O(streams) and safe on the 15s poll even
+/// when a stream file is multiple GB (bracket_quotes.jsonl is ~1.3GB; a
+/// line-count would be a self-inflicted DoS). The freshness clock is the
+/// snapshot's `generated_at` (the daemon's last clock read): its date prefix
+/// selects today's dir and its instant is "now" for the age, so this stays
+/// clock-free and deterministic under test. `rows_today` / `key_count` (which
+/// need a content read) are deferred — see GAPS. `healthy = age < 120s` (two
+/// missed 30s recorder cycles). Absent/unreadable dir => empty array, never a
+/// panic (the panel degrades, never 500s).
+pub fn scan_recorder(perishable_dir: &Path, generated_at: &str) -> Value {
+    let now_ms = UtcTimestamp::parse_iso8601(generated_at)
+        .map(|t| t.epoch_millis())
+        .unwrap_or(0);
+    let today = generated_at.get(0..10).unwrap_or("");
+    let day_dir = perishable_dir.join(today);
+    let mut paths: Vec<PathBuf> = match std::fs::read_dir(&day_dir) {
+        Ok(rd) => rd
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().map(|x| x == "jsonl").unwrap_or(false))
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+    paths.sort();
+    let mut out: Vec<Value> = Vec::with_capacity(paths.len());
+    for path in paths {
+        let stream = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("?")
+            .to_string();
+        let entry = match std::fs::metadata(&path) {
+            Ok(md) => {
+                let age = md
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| ((now_ms - d.as_millis() as i64).max(0)) / 1000);
+                json!({
+                    "stream": stream,
+                    "last_capture_age_secs": age,
+                    "size_bytes": md.len(),
+                    "healthy": age.map(|a| a < 120).unwrap_or(false),
+                })
+            }
+            Err(_) => json!({
+                "stream": stream,
+                "last_capture_age_secs": Value::Null,
+                "size_bytes": Value::Null,
+                "healthy": false,
+            }),
+        };
+        out.push(entry);
+    }
+    Value::Array(out)
+}
+
 async fn view_streams(State(s): State<RotaState>) -> impl IntoResponse {
-    Json(read_view(&s, "streams").await)
+    let mut view = read_view(&s, "streams").await;
+    // Merge the recorder liveness scan ONLY when ROTA holds the
+    // perishable_dir capability (the daemon supplies it; standalone does
+    // not — then the panel degrades without the recorder section). "now" +
+    // today come from the snapshot's generated_at so the handler stays
+    // clock-free.
+    if let Some(dir) = &s.perishable_dir {
+        let generated_at = { s.snapshot.read().await.generated_at.clone() };
+        let recorder = scan_recorder(dir.as_path(), &generated_at);
+        if let Some(obj) = view.as_object_mut() {
+            obj.insert("recorder".to_string(), recorder);
+        }
+    }
+    Json(view)
 }
 
 #[derive(Debug, Deserialize)]

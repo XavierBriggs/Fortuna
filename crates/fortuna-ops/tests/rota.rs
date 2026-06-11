@@ -3,10 +3,47 @@
 //! when Postgres/recorder capabilities are absent and views are empty).
 //! Served against a real loopback listener — no daemon, no Postgres.
 
+use fortuna_core::clock::UtcTimestamp;
 use fortuna_ops::dashboard::DashboardSnapshot;
-use fortuna_ops::rota::{rota_router, RotaState};
+use fortuna_ops::rota::{rota_router, scan_recorder, RotaState};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
+
+/// File mtime in epoch ms — the recorder-scan's freshness clock is the file
+/// system, never the wall clock; the test reads the same metadata the scan
+/// reads so the asserted ages are exact.
+fn mtime_ms(p: &Path) -> i64 {
+    std::fs::metadata(p)
+        .unwrap()
+        .modified()
+        .unwrap()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64
+}
+
+/// Build a unique temp base with today/<stream>.jsonl files; returns
+/// (base, now_ms_probe, today). "today" is derived from a probe file's real
+/// mtime so the test is date-independent (deterministic except within ~200s
+/// before UTC midnight, which the production rollover handles separately).
+fn temp_perishable(tag: &str) -> (PathBuf, i64, String) {
+    let base = std::env::temp_dir().join(format!("fortuna-rota-{}-{}", tag, std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let probe = base.join("probe");
+    std::fs::write(&probe, b"x").unwrap();
+    let now_ms = mtime_ms(&probe);
+    let today = UtcTimestamp::from_epoch_millis(now_ms)
+        .unwrap()
+        .to_iso8601()[0..10]
+        .to_string();
+    let day = base.join(&today);
+    std::fs::create_dir_all(&day).unwrap();
+    std::fs::write(day.join("a_stream.jsonl"), b"l1\nl2\n").unwrap();
+    std::fs::write(day.join("b_stream.jsonl"), b"x\n").unwrap();
+    (base, now_ms, today)
+}
 
 fn empty_snapshot() -> Arc<RwLock<DashboardSnapshot>> {
     Arc::new(RwLock::new(DashboardSnapshot {
@@ -144,4 +181,129 @@ async fn shell_is_gold_on_black_html() {
     assert!(body.contains("#D4AF37"), "gold token present");
     assert!(body.contains("#0A0A0B"), "black background token present");
     assert!(body.contains("SYSTEM HALTED"), "halt takeover present");
+}
+
+// ---- T4.3 slice 4: the streams recorder filesystem-scan ----
+
+#[test]
+fn scan_recorder_stats_todays_streams_cheaply_and_flags_staleness() {
+    let (base, now_ms, _today) = temp_perishable("scan");
+
+    // FRESH: generated_at = now + 5s => ages ~5s, both streams healthy.
+    let gen_fresh = UtcTimestamp::from_epoch_millis(now_ms + 5_000)
+        .unwrap()
+        .to_iso8601();
+    let rec = scan_recorder(&base, &gen_fresh);
+    let arr = rec.as_array().expect("recorder is an array");
+    assert_eq!(arr.len(), 2, "one entry per jsonl stream: {rec}");
+    assert_eq!(arr[0]["stream"], "a_stream", "sorted by name");
+    assert_eq!(arr[1]["stream"], "b_stream");
+    assert_eq!(arr[0]["healthy"], true);
+    assert!(arr[0]["last_capture_age_secs"].as_i64().unwrap() < 120);
+    // size is a cheap metadata read (NOT a content line-count): the bytes on
+    // disk, exactly.
+    assert_eq!(arr[0]["size_bytes"], 6, "\"l1\\nl2\\n\" is 6 bytes: {rec}");
+    assert_eq!(arr[1]["size_bytes"], 2);
+    // rows_today / key_count are deliberately ABSENT — counting them means
+    // reading file CONTENT (a stream file is multi-GB); deferred, never faked.
+    assert!(arr[0].get("rows_today").is_none());
+    assert!(arr[0].get("key_count").is_none());
+
+    // STALE: generated_at = now + 200s => age >= 120 => unhealthy.
+    let gen_old = UtcTimestamp::from_epoch_millis(now_ms + 200_000)
+        .unwrap()
+        .to_iso8601();
+    let rec2 = scan_recorder(&base, &gen_old);
+    assert_eq!(rec2.as_array().unwrap()[0]["healthy"], false, "{rec2}");
+    assert!(
+        rec2.as_array().unwrap()[0]["last_capture_age_secs"]
+            .as_i64()
+            .unwrap()
+            >= 120
+    );
+
+    // MISSING today-dir => empty array, never a panic, never a 500.
+    let absent = base.join("no-such-base");
+    assert_eq!(
+        scan_recorder(&absent, &gen_fresh).as_array().unwrap().len(),
+        0
+    );
+
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[tokio::test]
+async fn streams_handler_merges_recorder_when_perishable_dir_present() {
+    let (base, now_ms, _today) = temp_perishable("handler");
+    let gen = UtcTimestamp::from_epoch_millis(now_ms + 5_000)
+        .unwrap()
+        .to_iso8601();
+
+    // The daemon-shaped venue half of the streams view (slice 2 shape).
+    let snap = Arc::new(RwLock::new(DashboardSnapshot {
+        generated_at: gen,
+        stage: "sim".to_string(),
+        metrics_text: String::new(),
+        boards: serde_json::json!({}),
+        views: serde_json::json!({ "streams": { "venue_api_errors_total": 4 } }),
+    }));
+    let state = RotaState {
+        snapshot: snap,
+        pool: None,
+        perishable_dir: Some(Arc::new(base.clone())),
+    };
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/streams"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    // The daemon-shaped venue scalar SURVIVES the merge...
+    assert_eq!(j["venue_api_errors_total"], 4, "{j}");
+    // ...and the recorder liveness array is merged in from the filesystem.
+    let rec = j["recorder"].as_array().expect("recorder merged");
+    assert_eq!(rec.len(), 2, "{j}");
+    assert_eq!(rec[0]["stream"], "a_stream");
+    assert_eq!(rec[0]["healthy"], true);
+
+    h.abort();
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[tokio::test]
+async fn streams_handler_omits_recorder_without_perishable_capability() {
+    // Standalone (no perishable_dir): the recorder array is ABSENT — the
+    // panel degrades, never fabricates a scan it cannot perform.
+    let snap = Arc::new(RwLock::new(DashboardSnapshot {
+        generated_at: "2026-06-11T12:00:00.000Z".to_string(),
+        stage: "sim".to_string(),
+        metrics_text: String::new(),
+        boards: serde_json::json!({}),
+        views: serde_json::json!({ "streams": { "venue_api_errors_total": 0 } }),
+    }));
+    let app = rota_router(RotaState::standalone(snap));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/streams"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(j["venue_api_errors_total"], 0);
+    assert!(
+        j.get("recorder").is_none(),
+        "no capability => no recorder key"
+    );
+    h.abort();
 }
