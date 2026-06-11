@@ -4,4 +4,4 @@
 config/fortuna.toml
 fixtures/**/*.secret.*
 .DS_Store
-.keys/**
+.keys/**data/
