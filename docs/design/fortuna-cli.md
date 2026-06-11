@@ -255,13 +255,45 @@ log before exit.
 
 ## 11. Fit-validation notes (implementer fills at iteration 0)
 
-```
-[ ] Each checklist item above: PASS/FAIL + evidence
-[ ] SIGTERM mechanism chosen: ____________
-[ ] MIGRATOR API call used: ____________
-[ ] GAPS entries created: ____________
-[ ] Bloat/misfit flags: ____________
-```
+Recorded 2026-06-11 (implementer loop iteration 3; validation only).
+Verdict: **BUILDABLE AS AMENDED** — all checklist items pass; A6's cuts
+moot item 6; no misfit beyond what the amendments already resolve.
+
+- 1 PASS: `cargo build -p fortuna-cli` exit 0 at HEAD.
+- 2 PASS: zero `clap` across all crate manifests.
+- 3 PASS: cli deps = core, gates, ledger only; killswitch absent from the
+  tree; `kill` is subprocess exec (`Command::new("fortuna-killswitch")`,
+  main.rs:116).
+- 4 PASS: `cargo tree -p fortuna-cli --depth 1` = core/gates/ledger;
+  fortuna-ops deps are core+gates (no cli), so adding ops is acyclic.
+- 5 PASS: `pub fn load_file(path: impl AsRef<Path>) -> Result<Self,
+  OpsError>` at ops/config.rs:140, exactly as cited.
+- 6 N/A by amendment A6 (db migrate-status CUT from v1; MIGRATOR API
+  question moot).
+- 7 PASS: `FORTUNA_RUNTIME_DIR` 0 hits (name free). A5 runtime dir
+  data/runtime/ is inside the gitignored data/ tree.
+- 8 DECIDED: `nix` is NOT in Cargo.lock -> SIGTERM mechanism is the
+  shell-out `kill -15 <pid>` fallback per this item's else-branch; GAPS
+  entry to be written WITH the build (not yet — nothing built).
+  Child::kill never used (SIGKILL).
+- 9 PASS: existing status DB queries live at main.rs:~154-175 (halts
+  print verified); byte-unchanged requirement noted for the build diff.
+- 10 PASS: `pub async fn append(&self, kind: &str, ...)` begins at
+  audit.rs:47 as cited.
+- 11 PASS: existing flags are --flatten/--journal/--operator/--reason
+  (+ bare --); --timeout-secs is free.
+- 12 PASS: recorder flags are --bracket-series/--interval-secs/--once/
+  --out-dir; NO --log-file, so `start` owns the redirect. A2 note: the
+  ABSOLUTE out-dir pin is expressible through the existing --out-dir.
+- MIGRATOR API call used: none (A6 cut).
+- GAPS entries created: none yet — the SIGTERM shell-out entry lands with
+  the build iteration per DoD.
+- Bloat/misfit flags: body §3 table still lists `mode` + `db
+  migrate-status` (6 new commands) and §2 names /tmp + 30s timeout — all
+  overridden by A5/A6/A7 (4 commands, data/runtime/, 60s); build to the
+  amendments. A1 ship-gate: `stop` cannot ship before T4.1's SIGTERM
+  smoke assertion exists — T4.1 currently has only the boot layer, so
+  CLI build order is config-check/status/logs/start first, stop LAST.
 
 ## 12. Files to create or modify
 
