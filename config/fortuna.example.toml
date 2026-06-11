@@ -79,6 +79,15 @@ daily_budget_cents = 1_500
 # mechanical-only.
 per_cycle_budget_cents = 50
 shadow_budget_cents = 500
+# Booting WITHOUT ANTHROPIC_API_KEY silently swaps in the stub mind; that
+# degrade must be opted into explicitly (T4.1 fail-closed boot).
+allow_stub_mind = false
 
 [deadman]
 ping_interval_secs = 60
+
+[daemon]                   # T4.1: the live composition daemon
+venue = "sim"              # the ONLY bootable venue until kalshi fixture clearance (T4.2)
+tick_interval_ms = 1000
+halt_poll_ms = 500         # ASSUMPTIONS pin: halt-state poll <= 500ms
+metrics_bind = "127.0.0.1:9187"   # GET-only Prometheus; wider exposure is operator config

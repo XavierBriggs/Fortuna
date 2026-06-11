@@ -620,6 +620,7 @@ dependencies = [
 name = "fortuna-live"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "serde",
  "thiserror",
  "toml",
@@ -663,7 +664,6 @@ name = "fortuna-recorder"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
  "reqwest",
  "serde_json",
  "tokio",
