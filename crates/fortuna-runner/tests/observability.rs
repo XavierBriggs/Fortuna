@@ -210,6 +210,7 @@ async fn dashboards_and_digest_render_from_sim_data() {
         stage: "sim".to_string(),
         metrics_text: text.clone(),
         boards: runner.boards_json(),
+        views: serde_json::json!({}),
     };
     let state = Arc::new(RwLock::new(snapshot));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

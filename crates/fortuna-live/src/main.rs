@@ -76,6 +76,7 @@ async fn main() -> Result<()> {
         stage: "sim".to_string(),
         metrics_text: String::new(),
         boards: serde_json::json!({}),
+        views: serde_json::json!({}),
     }));
     let listener = tokio::net::TcpListener::bind(&dcfg.daemon.metrics_bind)
         .await

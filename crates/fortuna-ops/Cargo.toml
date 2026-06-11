@@ -13,8 +13,10 @@ toml = { workspace = true }
 async-trait = { workspace = true }
 reqwest = { workspace = true }
 axum = { workspace = true }
+sqlx = { workspace = true }
 tokio = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
 futures = { workspace = true }
+reqwest = { workspace = true }

@@ -29,6 +29,7 @@ mod deadman;
 pub mod digest;
 pub mod export;
 pub mod metrics;
+pub mod rota;
 mod slack;
 
 pub use config::{

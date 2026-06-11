@@ -27,6 +27,14 @@ pub struct DashboardSnapshot {
     pub stage: String,
     pub metrics_text: String,
     pub boards: serde_json::Value,
+    /// Pre-shaped per-view JSON for ROTA (T4.3, R2): the composition
+    /// populates a `health`/`money`/… object from metrics_export plus
+    /// boards_json each refresh, and ROTA handlers read those objects
+    /// directly (no Prometheus-text parsing). It stays an empty object
+    /// until the composition fills it, and a handler then renders
+    /// "unavailable" rather than failing.
+    #[serde(default)]
+    pub views: serde_json::Value,
 }
 
 type Shared = Arc<RwLock<DashboardSnapshot>>;

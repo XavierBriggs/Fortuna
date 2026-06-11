@@ -20,6 +20,7 @@ fn snapshot() -> DashboardSnapshot {
             ],
             "ops": { "halts_active": 0, "discrepancies_open": 0 }
         }),
+        views: serde_json::json!({}),
     }
 }
 

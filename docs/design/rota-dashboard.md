@@ -386,6 +386,25 @@ Recorded 2026-06-11 (implementer loop iteration 2; validation only, no code).
 Verdict: **BUILDABLE AS AMENDED** — every V-check passes; the amendments
 resolve every misfit found in the body. Build to the amendments.
 
+SLICE 1 BUILT (2026-06-11): crates/fortuna-ops/src/rota.rs — RotaState
+(R1 Option-capability: only the snapshot arc is mandatory; pool +
+perishable_dir optional), rota_router (all v1 GET routes), five surfaces
+reading the new DashboardSnapshot.views field (R2; no Prometheus-text
+parsing) with explicit "unavailable" when a view is unpopulated, the
+cursor-polled audit tail (R3; raw sqlx ascending audit_id, degraded
+empty-page when pool absent — NOT SSE), and the gold-on-black shell
+(R11 single auto-fit grid line; R12 no JS toolchain). fortuna-ops gained
+sqlx (no fortuna-ledger dep yet — the audit query is raw sqlx, sidestepping
+the cycle entirely for now). 4 tests: route-table T-1 (GET 200 / mutating
+405 on every path), degraded surfaces (200 never 500), populated-view
+verbatim, shell tokens. NEXT SLICES: the composition populates
+snapshot.views from metrics_export()+boards_json() (the daemon between-
+segments hook) + the T-2 seeded-run chain; the streams surface reading
+data/perishable; R5 dedicated 2-conn pool when the daemon wires the pool;
+cursor-pagination test; R7 cognition panel (BeliefsRepo::recent +
+calibration scopes — needs the two new ledger queries); R12 browser pass
+(verifier-layer).
+
 - V-1 PASS: serve_dashboard + the three routes present (dashboard.rs ~52-68;
   `route("/")`, `/metrics`, `/api/boards`); POST-405 loop at
   tests/dashboard.rs:74-80 exactly as cited.
