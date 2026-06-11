@@ -6,4 +6,5 @@
 //! The BINARY (main.rs) is the only place that touches the real world, and
 //! it fails closed on anything the boot layer refuses.
 
+pub mod audit_bridge;
 pub mod boot;
