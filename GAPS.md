@@ -89,12 +89,19 @@ CLOSED at head (this commit):
   survived TWO gates unverified is exactly the defect class this ledger
   exists to prevent.]
 
-REMAINING (composition-wiring by nature; bound to the LIVE COMPOSITION
-DAEMON task — the next engineering build):
-- fortuna_ops::alerts::degrade_alerts needs its scrape-delta consumer.
-- CalibrationParamsRepo.latest needs its live call site (the composition
-  fetches params + quality per scope and feeds SynthesisStrategy +
-  set_calibration_quality).
+REMAINING (composition-wiring; T4.1 in progress — status 2026-06-11):
+- fortuna_ops::alerts::degrade_alerts scrape-delta consumer: the
+  consumer now EXISTS and is tested (fortuna-live compose::DegradeScrape
+  — saturating per-scrape deltas incl. restart-reset, 4 pinned
+  behaviors). STILL OPEN: the daemon main must call it each scrape and
+  route the alerts through SlackRouter (+ audit rows) — lands with the
+  composition main / req-10 smoke.
+- CalibrationParamsRepo.latest call site: compose::calibration_for_scope
+  now fetches latest + resolved_stats and builds CalibrationContext +
+  calibration_quality (fail-closed None / zero; corrupt params row
+  errors LOUDLY — all test-pinned). STILL OPEN: the daemon main must
+  feed these into SynthesisStrategy::new + set_calibration_quality —
+  lands with the composition main / req-10 smoke.
 
 ## SECURITY INCIDENT 2026-06-11 (gate finding F1, Critical) — keys were committed
 

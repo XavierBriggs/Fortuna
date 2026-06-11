@@ -621,10 +621,12 @@ name = "fortuna-live"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "fortuna-cognition",
  "fortuna-core",
  "fortuna-exec",
  "fortuna-gates",
  "fortuna-ledger",
+ "fortuna-ops",
  "fortuna-runner",
  "fortuna-state",
  "fortuna-venues",

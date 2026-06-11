@@ -8,4 +8,5 @@
 
 pub mod audit_bridge;
 pub mod boot;
+pub mod compose;
 pub mod run_loop;

@@ -6,8 +6,10 @@ edition = "2021"
 [dependencies]
 anyhow = { workspace = true }
 fortuna-core = { path = "../fortuna-core" }
+fortuna-cognition = { path = "../fortuna-cognition" }
 fortuna-exec = { path = "../fortuna-exec" }
 fortuna-ledger = { path = "../fortuna-ledger" }
+fortuna-ops = { path = "../fortuna-ops" }
 fortuna-runner = { path = "../fortuna-runner" }
 serde = { workspace = true }
 serde_json = { workspace = true }
