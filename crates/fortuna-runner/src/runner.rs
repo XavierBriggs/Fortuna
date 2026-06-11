@@ -22,9 +22,9 @@ use fortuna_core::ids::{IdGen, IntentGroupId, IntentId};
 use fortuna_core::market::{ClientOrderId, Contracts, MarketId, Side, StrategyId, VenueId};
 use fortuna_core::money::Cents;
 use fortuna_exec::{
-    decide_complete_or_unwind, CompleteOrUnwind, ExecError, ExecPolicy, GroupDecision,
-    GroupTracker, IntentJournal, IntentStatus, LegOutcome, MemoryJournal, OrderManager,
-    RemainingLeg, SubmitOutcome,
+    decide_complete_or_unwind, CancelOutcome, CompleteOrUnwind, ExecError, ExecPolicy,
+    GroupDecision, GroupTracker, IntentJournal, IntentStatus, LegOutcome, MemoryJournal,
+    OrderManager, RemainingLeg, SubmitOutcome,
 };
 use fortuna_gates::{CandidateOrder, GateConfig, GateInputs, GatePipeline, HaltScope};
 use fortuna_state::{
@@ -75,6 +75,18 @@ pub struct TickReport {
     pub fills_applied: usize,
     pub group_decisions: usize,
     pub halted: bool,
+}
+
+/// Outcome accounting for the graceful-shutdown contract (T4.1 req 8).
+/// `unacked` is the honest count of orders that COULD NOT be cancelled
+/// (submitted, never acked) — never folded into `cancelled`.
+#[derive(Debug, Default)]
+pub struct ShutdownReport {
+    pub working: usize,
+    pub cancelled: usize,
+    pub already_gone: usize,
+    pub unknown: usize,
+    pub unacked: usize,
 }
 
 #[derive(Debug)]
@@ -460,6 +472,49 @@ impl<J: IntentJournal + Send> SimRunner<J> {
 
     pub fn manager(&self) -> &OrderManager<J> {
         &self.manager
+    }
+
+    /// The graceful-shutdown contract (T4.1 req 8; operator-BINDING:
+    /// `fortuna stop` and the daemon's SIGTERM handler call exactly
+    /// this). Cancels every WORKING order through the journaled path,
+    /// releases reservations, and writes the final audit row. Idempotent:
+    /// a second call finds nothing working. Unacked orders (submitted,
+    /// no venue id yet) cannot be cancelled and are counted HONESTLY —
+    /// that window belongs to boot reconciliation and venue TTLs.
+    pub async fn shutdown(&mut self) -> Result<ShutdownReport, RunnerError> {
+        let working: Vec<IntentId> = self
+            .manager
+            .intents()
+            .iter()
+            .filter(|(_, rec)| rec.status.is_working())
+            .map(|(id, _)| **id)
+            .collect();
+        let mut report = ShutdownReport {
+            working: working.len(),
+            ..ShutdownReport::default()
+        };
+        for id in working {
+            match self.manager.cancel_intent(id, &self.venue).await {
+                Ok(CancelOutcome::Cancelled) => report.cancelled += 1,
+                Ok(CancelOutcome::AlreadyGone) => report.already_gone += 1,
+                Ok(CancelOutcome::Unknown) => report.unknown += 1,
+                Err(ExecError::Transition { .. }) => report.unacked += 1,
+                Err(_) => report.unknown += 1,
+            }
+            self.release_if_terminal(id)?;
+        }
+        self.audit(
+            "daemon_shutdown",
+            None,
+            serde_json::json!({
+                "working": report.working,
+                "cancelled": report.cancelled,
+                "already_gone": report.already_gone,
+                "unknown": report.unknown,
+                "unacked": report.unacked,
+            }),
+        );
+        Ok(report)
     }
 
     pub fn recording(&self) -> &Recording {
