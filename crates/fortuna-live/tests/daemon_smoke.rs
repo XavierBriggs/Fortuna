@@ -151,6 +151,21 @@ async fn daemon_smoke_boot_ticks_signal_shutdown(pool: PgPool) {
             .await
             .unwrap();
     assert_eq!(final_rows, 1, "exactly one final audit row");
+
+    // audit-tail-fix gate #3c: drive() emits AND AUDITS the daily digest on
+    // the UTC-day boundary (the first due() fires on boot). route_alerts writes
+    // the audit row even with no Slack router (spec 8: every outbound message
+    // is also an audit row), so the digest is durably in the trail exactly once.
+    let digest_rows: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit WHERE kind = 'alert' AND payload->>'message' LIKE 'FORTUNA digest%'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        digest_rows, 1,
+        "drive() emitted + audited exactly one digest"
+    );
 }
 
 #[sqlx::test(migrations = "../fortuna-ledger/migrations")]

@@ -5,11 +5,11 @@
 //! are counted loudly (the Slack alert rides the req-3 degrade wiring).
 //! Written red-first against a run_loop that did not exist.
 
-use fortuna_core::clock::{Clock, SimClock};
+use fortuna_core::clock::{Clock, SimClock, UtcTimestamp};
 use fortuna_ledger::PgIntentJournal;
 use fortuna_live::audit_bridge::PgAuditSink;
 use fortuna_live::run_loop::{run_loop, CadenceDriver, HaltPoller, LoopConfig};
-use fortuna_runner::SimRunner;
+use fortuna_runner::{AuditSink, RunnerError, SimRunner};
 use sqlx::PgPool;
 use std::sync::Arc;
 
@@ -255,4 +255,42 @@ fn daily_scheduler_fires_once_per_utc_day() {
     assert!(!s.due(day("2026-06-12T12:00:00.000Z")));
     // Two days later: due (no double-fire for the skipped day, by design).
     assert!(s.due(day("2026-06-14T06:00:00.000Z")));
+}
+
+#[tokio::test]
+async fn terse_daily_digest_labels_its_counters_honestly_as_since_boot() {
+    // audit-tail-fix gate finding #3(b): terse_daily_digest reports the
+    // runner's CUMULATIVE-since-boot counters; labeling them "the day's"
+    // overstates (across a multi-day run they are not a single day's
+    // activity). The label must say what it actually reports — true per-UTC-
+    // day deltas are the future RICH digest (ledgered in GAPS).
+    #[derive(Default)]
+    struct NullSink;
+    impl AuditSink for NullSink {
+        fn append(
+            &mut self,
+            _kind: &str,
+            _ref_id: Option<&str>,
+            _payload: serde_json::Value,
+        ) -> Result<(), RunnerError> {
+            Ok(())
+        }
+    }
+    let mut r =
+        SimRunner::new(runner_config(5), vec![strategy()], Box::new(NullSink), t0()).unwrap();
+    set_arb_books(&r);
+    for _ in 0..3 {
+        r.tick().await.unwrap();
+    }
+    let now = UtcTimestamp::parse_iso8601("2026-06-11T00:00:00.000Z").unwrap();
+    let line = fortuna_live::daemon::terse_daily_digest(&r, now);
+    assert!(line.contains("2026-06-11"), "carries the UTC date: {line}");
+    assert!(
+        line.contains("cumulative since boot"),
+        "honest about the counter window, never implying 'the day's': {line}"
+    );
+    assert!(
+        line.contains("ticks=3"),
+        "reports the since-boot ticks: {line}"
+    );
 }

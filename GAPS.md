@@ -263,14 +263,28 @@ VERIFIED). New/carried Minors:
   "now" are known, else None => unhealthy + null age (degraded-never-faked).
   Test: scan_recorder_rejects_a_malformed_generated_at_never_faking_healthy
   (valid date prefix + unparseable instant — the gate's exact vector).
-- #2 favicon: CLOSED (276e67a). #3 DailyScheduler + #4 GAPS/ASSUMPTIONS dead-man
-  contradiction carry into the open list below.
-- STILL OPEN (next iterations): F4 DailyScheduler boot-fire + digest cumulative-
-  vs-day labeling + no drive()-level digest assertion; F5 ASSUMPTIONS/GAPS
-  dead-man contradiction + stale "SystemTime::now post-RealClock-fix" wording;
-  F6 [informational] raw-JSON panels (Phase-3 presentation) + LIVE recorder
-  risk_parameters stale-on-boot (recorder/B0 capture-loop investigation — NOT a
-  ROTA code fix; do not touch the running recorder).
+- #2 favicon: CLOSED (276e67a). #1 scan_recorder malformed-clock: CLOSED (7e35f51).
+- #3 DailyScheduler/digest (3 sub-parts): CLOSED (this commit).
+  (a) fire-on-boot: LEDGERED as INTENDED — the digest fires on the first due()
+  (boot) and at each UTC-day rollover. A boot digest confirms the digest path is
+  live on startup and gives the boot day at least a partial line (no-fire-on-boot
+  would skip the boot day entirely). Honest now that the label says so (see b);
+  DailyScheduler.due() unchanged (its once-per-day test still holds).
+  (b) labeling: FIXED — terse_daily_digest now reads "FORTUNA digest <date>
+  (sim, cumulative since boot)" because RunCounters accrue for the runner
+  LIFETIME, not per UTC day; labeling them "the day's" overstated. True per-day
+  deltas (snapshot-at-boundary) are part of the RICH DigestInputs surface
+  (synthesis-in-main-blocked). Test: terse_daily_digest_labels_its_counters_
+  honestly_as_since_boot.
+  (c) drive()-level assertion: ADDED — daemon_smoke now asserts drive() emits AND
+  audits exactly one digest (kind 'alert', message LIKE 'FORTUNA digest%';
+  route_alerts audits even with no Slack router, spec 8).
+- STILL OPEN (next iteration): #4 ASSUMPTIONS/GAPS dead-man contradiction
+  (GAPS.md:142 "no exception needed" vs the ASSUMPTIONS SystemTime entry) +
+  stale "SystemTime::now post-RealClock-fix" wording — a doc reconcile.
+- INFORMATIONAL (not a ROTA code fix): raw-JSON panels (Phase-3 presentation);
+  LIVE recorder risk_parameters stale-on-boot (recorder/B0 capture-loop
+  investigation — do NOT touch the running recorder).
 - DEFERRED (capability-gated; keys ABSENT not faked-zero so a panel never
   reads falsely "all clear"): money view (needs the new boards "account"
   field, R6); cognition view (R7 — BeliefsRepo::recent + calibration-scope

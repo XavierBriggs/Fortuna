@@ -533,12 +533,15 @@ impl DailyScheduler {
     }
 }
 
-/// A terse end-of-day digest line (req 5): the date (00:00 UTC boundary),
-/// stage, and the day's headline counters. The RICH DigestInputs
-/// composition (per-strategy rows, veto accounting) and the weekly/
-/// monthly cognition reviews are the remaining req-5 surface — ledgered;
-/// they need belief/review data that flows only once synthesis is in the
-/// daemon (edge-source design-blocked).
+/// A terse digest line (req 5): the date (00:00 UTC boundary), stage, and the
+/// runner's headline counters. HONESTY (audit-tail-fix gate #3b): the counters
+/// are CUMULATIVE SINCE BOOT — `RunCounters` accrue for the runner's lifetime,
+/// not per UTC day — so the line says exactly that and never implies a single
+/// day's activity. True per-UTC-day deltas (snapshot-at-boundary) are part of
+/// the RICH DigestInputs composition (per-strategy rows, veto accounting) which,
+/// with the weekly/monthly cognition reviews, is the remaining req-5 surface —
+/// ledgered; it needs belief/review data that flows only once synthesis is in
+/// the daemon (edge-source design-blocked).
 pub fn terse_daily_digest<J: fortuna_exec::IntentJournal + Send>(
     runner: &SimRunner<J>,
     now: fortuna_core::clock::UtcTimestamp,
@@ -547,8 +550,8 @@ pub fn terse_daily_digest<J: fortuna_exec::IntentJournal + Send>(
     let date = iso.get(..10).unwrap_or(&iso);
     let c = runner.counters();
     format!(
-        "FORTUNA daily digest {date} (sim): ticks={} orders={} fills={} \
-         gate_rejections={} settlement_notices={} cognition_failures={}",
+        "FORTUNA digest {date} (sim, cumulative since boot): ticks={} orders={} \
+         fills={} gate_rejections={} settlement_notices={} cognition_failures={}",
         c.ticks,
         c.orders_submitted,
         c.fills_applied,
