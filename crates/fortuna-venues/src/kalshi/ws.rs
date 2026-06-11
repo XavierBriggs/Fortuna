@@ -90,7 +90,11 @@ impl KalshiWsParser {
         let frame: Value = serde_json::from_str(text).map_err(|e| VenueError::Invalid {
             reason: format!("websocket frame is not JSON: {e}"),
         })?;
-        let frame_type = frame["type"].as_str().unwrap_or("");
+        let Some(frame_type) = frame["type"].as_str().filter(|t| !t.is_empty()) else {
+            return Err(VenueError::Invalid {
+                reason: "websocket frame missing its type tag".to_string(),
+            });
+        };
         match frame_type {
             "subscribed" => Ok(KalshiWsEvent::Subscribed {
                 channel: frame["msg"]["channel"].as_str().unwrap_or("").to_string(),
@@ -105,8 +109,7 @@ impl KalshiWsParser {
                 message: frame["msg"]["msg"].as_str().unwrap_or("").to_string(),
             }),
             "orderbook_snapshot" => {
-                let sid = frame["sid"].as_u64().unwrap_or(0);
-                let seq = frame["seq"].as_u64().unwrap_or(0);
+                let (sid, seq) = sid_seq(&frame)?;
                 // A snapshot RESETS the sequence baseline for its sid.
                 self.seq_by_sid.insert(sid, seq);
                 let market = market_of(&frame)?;
@@ -125,8 +128,7 @@ impl KalshiWsParser {
                 }))
             }
             "orderbook_delta" => {
-                let sid = frame["sid"].as_u64().unwrap_or(0);
-                let seq = frame["seq"].as_u64().unwrap_or(0);
+                let (sid, seq) = sid_seq(&frame)?;
                 if let Some(prev) = self.seq_by_sid.get(&sid).copied() {
                     if seq != prev + 1 {
                         // Do NOT advance the baseline: every subsequent
@@ -185,6 +187,19 @@ impl KalshiWsParser {
                 frame_type: other.to_string(),
             }),
         }
+    }
+}
+
+/// Book frames MUST carry sid + seq (the consistency guarantee hangs on
+/// them); a frame without either is malformed, not seq-0 (strict-reject
+/// per the independent gate: lenient zeros could alias real sequence
+/// state).
+fn sid_seq(frame: &Value) -> Result<(u64, u64), VenueError> {
+    match (frame["sid"].as_u64(), frame["seq"].as_u64()) {
+        (Some(sid), Some(seq)) => Ok((sid, seq)),
+        _ => Err(VenueError::Invalid {
+            reason: "orderbook frame missing sid/seq".to_string(),
+        }),
     }
 }
 

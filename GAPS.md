@@ -60,57 +60,33 @@ evidence by the independent gate: docs/reviews/system-0-4-egate-2026-06-10.md
 (verdict ACCEPT). False documentation was corrected with the correction
 visible (ASSUMPTIONS.md, BUILD_PLAN.md T2.6 note), never erased.
 
-## Minor engineering residue (non-blocking; verified open by the independent
-## f-batch gate, docs/reviews/f-batch-INDEPENDENT-gate-2026-06-10.md)
+## Minor engineering residue: status (from the three INDEPENDENT batch gates)
 
-Fold these into the FIRST POST-FIXTURE composition task (path-to-production
-step 5) — three are composition-wiring by nature and two were already noted
-there by the independent e-gate:
-- `fortuna_ops::alerts::degrade_alerts` has zero non-test callers — the F1
-  alert rule is built and test-covered but undeliverable until a scrape
-  composition consumes it; ASSUMPTIONS overstates this as live.
-- `CalibrationParamsRepo.latest` has no live call site (e-gate note) —
-  must bind in the live composition.
-- `fortuna_mind_spend_today_cents` exported with `counter: true`
-  (runner.rs metrics_export, first tuple block) despite daily-reset gauge
-  semantics — fix the type flag before any Prometheus consumer applies
-  rate() to it.
-- `settlement_voids`/`settlement_reversals` counter increments are never
-  post-state asserted (settlement_loop.rs asserts only the ==0 pre-state).
-- Kelly sizing keys off legs[0] only (single-leg synthesis today; revisit
-  with multi-leg).
+CLOSED at head (this commit):
+- mind-spend gauge exported with the wrong type flag -> moved to the
+  gauge block (counter: false).
+- Unchecked i64 add in the assembler delta -> checked_add, fail closed.
+- Lenient envelope parsing -> STRICT: frames without a type tag refuse;
+  orderbook frames without sid/seq refuse (lenient zeros could alias
+  real sequence state); pinned by tests.
+- Crossed-assembled-book refusal + non-array-side refusal pinned as
+  committed tests (were gate-scratch-verified only).
+- Out-of-order leg completion pinned: a staggered mock completes legs in
+  REVERSE input order; outcomes and journals still land in leg order.
+- Multi-leg DST arm added (settlement_dst Arm::MultiLegGroup): two-leg
+  groups drive submit_group_concurrent under seeded ack-delay/api-error/
+  reject faults; 400-scenario shakeout green, all 11 arms hit.
+- settlement_voids / settlement_reversals counters post-state asserted.
+- Kelly legs[0] design constraint + degrade_alerts/CalibrationParamsRepo
+  not-yet-live overstatements corrected in ASSUMPTIONS; Polymarket source
+  count corrected to 95 (erratum in the research doc).
 
-From the concurrent-legs + WS independent gates (docs/reviews/
-concurrent-legs-INDEPENDENT-gate-2026-06-10.md, ws-ingestion-INDEPENDENT-
-gate-2026-06-10.md; both ACCEPT-WITH-GAPS, 0 Critical/Major) — small
-test-debt batch, no behavior changes:
-- Seeded DST corpora drive single-leg groups only; add a multi-leg arm so
-  `submit_group_concurrent` sees randomized venue faults (today its chaos
-  coverage is deterministic-test-only).
-- Leg-order outcome journaling rests on join_all's structural guarantee;
-  pin it with a staggered-completion venue mock (legs completing in
-  non-input order must produce identical journal/audit streams).
-- Pin two scratch-verified refusals as committed tests: crossed assembled
-  book; non-array side in a snapshot.
-- `crates/fortuna-venues/src/stream.rs:159`: `current + delta_contracts`
-  unchecked i64 add (debug-profile overflow panic precedes its own
-  negative check) — use checked_add, fail closed.
-- Lenient envelope parsing (missing type => Ignored, missing sid/seq => 0)
-  degrades fail-closed but is unledgered — ledger or strict-reject.
-- Polymarket research source count: 95 archived files, not 96 as claimed.
-
-## Engineering test debts (Minor; from the two INDEPENDENT batch gates)
-
-Both independent gates (docs/reviews/concurrent-legs-INDEPENDENT-gate +
-ws-ingestion-INDEPENDENT-gate, 2026-06-10) returned ACCEPT-WITH-GAPS with
-zero Majors and these Minor test debts, ledgered here until closed:
-- No seeded DST arm drives MULTI-LEG (>1) groups through the concurrent
-  submission path (composed tests cover it; the chaos battery does not).
-- No test exercises legs COMPLETING in non-input order (join_all
-  preserves order by construction; an adversarial mock should pin it).
-- Two behaviors verified by gate scratch tests but unpinned by committed
-  tests (assembled-book crossed refusal via render->validate; one gap-
-  persistence sub-case) — port the gate's scratch probes into the suite.
+REMAINING (composition-wiring by nature; bound to the LIVE COMPOSITION
+DAEMON task — the next engineering build):
+- fortuna_ops::alerts::degrade_alerts needs its scrape-delta consumer.
+- CalibrationParamsRepo.latest needs its live call site (the composition
+  fetches params + quality per scope and feeds SynthesisStrategy +
+  set_calibration_quality).
 
 ## Operator adjudication queue (operator actions; no code changes)
 
@@ -238,8 +214,8 @@ zero Majors and these Minor test debts, ledgered here until closed:
 
 - **Polymarket US adapter is a fixtures-gated STUB (T3.4); RESEARCH NOW
   DONE (2026-06-10, operator-authorized this session):**
-  docs/research/venue/polymarket-us-2026-06-10/research.md (829 lines, 96
-  archived sources). Material findings that reshape the build decision:
+  docs/research/venue/polymarket-us-2026-06-10/research.md (829 lines, 95
+  archived sources (the doc header said 96; the independent gate counted 95 — erratum noted in the doc)). Material findings that reshape the build decision:
   (a) retail API has NO CLIENT ORDER ID — FORTUNA's crash-resubmission
   idempotency model does not transfer (institutional stack has clordId);
   (b) SUB-CENT TICKS ARE LIVE (0.5c, 0.25c preprod) + decimal quantities

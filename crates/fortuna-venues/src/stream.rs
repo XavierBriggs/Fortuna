@@ -157,7 +157,14 @@ impl BookAssembler {
                 // Check BEFORE inserting: an overdraw must not leave a
                 // phantom zero-quantity level behind (gate finding).
                 let current = book_side.get(&yes_price.raw()).copied().unwrap_or(0);
-                let next = current + delta_contracts;
+                let Some(next) = current.checked_add(delta_contracts) else {
+                    return Err(VenueError::Invalid {
+                        reason: format!(
+                            "stream delta overflows {market} {side:?}@{yes_price} \
+                             ({current} + {delta_contracts}); torn state; resync"
+                        ),
+                    });
+                };
                 if next < 0 {
                     return Err(VenueError::Invalid {
                         reason: format!(

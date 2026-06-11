@@ -929,4 +929,107 @@ mod concurrent {
             "the refused leg never reached the venue"
         );
     }
+
+    /// Legs completing in REVERSE order must still journal and report in
+    /// INPUT order (the determinism claim must not rest on join_all's
+    /// structural guarantee alone — this mock forces M1 to finish LAST).
+    struct StaggeredVenue {
+        inner: OverlapVenue,
+    }
+
+    #[async_trait::async_trait]
+    impl Venue for StaggeredVenue {
+        fn id(&self) -> VenueId {
+            self.inner.id()
+        }
+        async fn markets(
+            &self,
+            f: fortuna_venues::MarketFilter,
+        ) -> Result<Vec<Market>, VenueError> {
+            self.inner.markets(f).await
+        }
+        async fn book(&self, m: &MarketId) -> Result<OrderBook, VenueError> {
+            self.inner.book(m).await
+        }
+        async fn place(
+            &self,
+            order: fortuna_gates::GatedOrder,
+        ) -> Result<fortuna_core::market::VenueOrderId, VenueError> {
+            // M1 yields most, M3 least: completion order M3, M2, M1.
+            let yields = match order.market().as_str() {
+                "M1" => 6,
+                "M2" => 3,
+                _ => 1,
+            };
+            for _ in 0..yields {
+                YieldOnce(false).await;
+            }
+            self.inner.place(order).await
+        }
+        async fn cancel(&self, id: &fortuna_core::market::VenueOrderId) -> Result<(), VenueError> {
+            self.inner.cancel(id).await
+        }
+        async fn positions(&self) -> Result<Vec<VenuePosition>, VenueError> {
+            self.inner.positions().await
+        }
+        async fn open_orders(&self) -> Result<Vec<OpenOrder>, VenueError> {
+            self.inner.open_orders().await
+        }
+        async fn balance(&self) -> Result<Cents, VenueError> {
+            self.inner.balance().await
+        }
+        async fn fills_since(&self, c: Cursor) -> Result<FillPage, VenueError> {
+            self.inner.fills_since(c).await
+        }
+        async fn settlements_since(&self, c: Cursor) -> Result<SettlementPage, VenueError> {
+            self.inner.settlements_since(c).await
+        }
+        fn fee_model(&self) -> &dyn FeeModel {
+            self.inner.fee_model()
+        }
+    }
+
+    #[test]
+    fn out_of_order_completion_still_reports_and_journals_in_leg_order() {
+        let clock = Arc::new(SimClock::new(t0()));
+        let venue = StaggeredVenue {
+            inner: OverlapVenue::new(),
+        };
+        let mut m = manager(clock.clone());
+
+        let orders = vec![
+            gate(candidate(41, "M1", 50, 5), &clock),
+            gate(candidate(42, "M2", 50, 5), &clock),
+            gate(candidate(43, "M3", 50, 5), &clock),
+        ];
+        let intents: Vec<IntentId> = orders.iter().map(|o| o.intent_id()).collect();
+
+        let outcomes =
+            futures::executor::block_on(m.submit_group_concurrent(orders, None, &venue)).unwrap();
+
+        // Completion order was M3, M2, M1 — the venue ids prove it
+        // (ov-0 went to the FIRST completer). Outcomes still align to
+        // INPUT order and every intent journals Acked.
+        let venue_ids: Vec<String> = outcomes
+            .iter()
+            .map(|o| match o {
+                LegOutcome::Submitted(SubmitOutcome::Acked { venue_order_id }) => {
+                    venue_order_id.to_string()
+                }
+                other => panic!("expected ack, got {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            venue_ids,
+            vec!["ov-2", "ov-1", "ov-0"],
+            "M3 completed first (ov-0), M1 last (ov-2) — yet slots are in leg order"
+        );
+        for intent in intents {
+            assert_eq!(m.intent(intent).unwrap().status, IntentStatus::Acked);
+        }
+        // (Max in-flight here reads lower because the stagger yields sit
+        // BEFORE the counted section — full-overlap proof is the sibling
+        // test's job; this one pins ordering under skewed completion.)
+        assert!(venue.inner.max_seen() >= 2, "placements overlapped");
+    }
 }

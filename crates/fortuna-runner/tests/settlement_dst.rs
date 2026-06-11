@@ -201,6 +201,70 @@ impl Strategy for DstBuyer {
     }
 }
 
+/// Proposes ONE two-leg group (KXS + KXS2) once both books are seen —
+/// drives submit_group_concurrent under the arm's seeded venue faults.
+struct GroupBuyer {
+    seen: std::collections::BTreeSet<MarketId>,
+    proposed: bool,
+    metrics: StrategyMetrics,
+}
+
+#[async_trait::async_trait]
+impl Strategy for GroupBuyer {
+    fn id(&self) -> StrategyId {
+        StrategyId::new("dst_buyer").unwrap()
+    }
+    fn kind(&self) -> StrategyKind {
+        StrategyKind::Mechanical
+    }
+    fn stage(&self) -> Stage {
+        Stage::Sim
+    }
+    async fn on_event(
+        &mut self,
+        ev: &BusEvent,
+        _core: &CoreHandle<'_>,
+    ) -> Result<Vec<Proposal>, RunnerError> {
+        self.metrics.events_seen += 1;
+        if self.proposed {
+            return Ok(Vec::new());
+        }
+        let EventPayload::BookSnapshot { book, .. } = &ev.payload else {
+            return Ok(Vec::new());
+        };
+        if !book.yes_asks.is_empty() {
+            self.seen.insert(book.market.clone());
+        }
+        if self.seen.len() < 2 {
+            return Ok(Vec::new());
+        }
+        self.proposed = true;
+        let leg = |m: &str| ProposedLeg {
+            market: mkt(m),
+            side: Side::Yes,
+            action: Action::Buy,
+            limit_price: Cents::new(60),
+            fair_value: Cents::new(66),
+            calibrated_p: None,
+        };
+        Ok(vec![Proposal {
+            legs: vec![leg("KXS"), leg("KXS2")],
+            group_policy: Some(fortuna_exec::GroupPolicy {
+                max_unhedged_notional: Cents::new(5_000),
+                max_leg_open_ms: 60_000,
+                value_per_set: Cents::new(100),
+                min_completion_edge_bps: 1,
+            }),
+            urgency: Urgency::Taker,
+            manifest_hash: None,
+            thesis: "dst group buyer".into(),
+        }])
+    }
+    fn metrics(&self) -> StrategyMetrics {
+        self.metrics
+    }
+}
+
 fn runner_config(seed: u64) -> RunnerConfig {
     RunnerConfig {
         seed,
@@ -209,7 +273,7 @@ fn runner_config(seed: u64) -> RunnerConfig {
         envelopes: BTreeMap::from([("dst_buyer".to_string(), Cents::new(100_000))]),
         max_daily_loss: Cents::new(500_000),
         fee_model: fee_model(),
-        markets: vec![settle_market("KXS")],
+        markets: vec![settle_market("KXS"), settle_market("KXS2")],
         starting_cash: Cents::new(1_000_000),
         faults: FaultConfig::none(seed),
         mark_policy: MarkPolicy {
@@ -237,9 +301,13 @@ enum Arm {
     AuditDeath,
     WideBook,
     Overdue,
+    /// Two-leg group through submit_group_concurrent under seeded venue
+    /// faults (concurrent-legs gate residue: the chaos battery must
+    /// exercise the concurrent path, not only composed tests).
+    MultiLegGroup,
 }
 
-const ARMS: [Arm; 10] = [
+const ARMS: [Arm; 11] = [
     Arm::SettleClean,
     Arm::SettleThenCorrect,
     Arm::Void,
@@ -250,6 +318,7 @@ const ARMS: [Arm; 10] = [
     Arm::AuditDeath,
     Arm::WideBook,
     Arm::Overdue,
+    Arm::MultiLegGroup,
 ];
 
 struct ScenarioResult {
@@ -268,6 +337,15 @@ fn run_scenario(seed: u64) -> Result<ScenarioResult, String> {
     let mut rng = SplitMix64::new(seed);
     let arm = ARMS[(rng.next_u64() % ARMS.len() as u64) as usize];
 
+    // The multi-leg arm seeds venue faults so the CONCURRENT submission
+    // path sees ack delays, transient API errors, and rejects.
+    let mut faults = FaultConfig::none(seed);
+    if arm == Arm::MultiLegGroup {
+        faults.ack_delay_pm = (rng.next_u64() % 300) as u32;
+        faults.api_error_pm = (rng.next_u64() % 150) as u32;
+        faults.place_reject_pm = (rng.next_u64() % 150) as u32;
+    }
+
     // Audit death plants a fuse early enough to fire mid-run.
     let audit = match arm {
         Arm::AuditDeath => {
@@ -275,20 +353,30 @@ fn run_scenario(seed: u64) -> Result<ScenarioResult, String> {
         }
         _ => SharedAuditSink::default(),
     };
-    let mut runner = SimRunner::new(
-        runner_config(seed),
-        vec![Box::new(DstBuyer {
+    let strategy: Box<dyn Strategy> = if arm == Arm::MultiLegGroup {
+        Box::new(GroupBuyer {
+            seen: std::collections::BTreeSet::new(),
             proposed: false,
             metrics: StrategyMetrics::default(),
-        })],
-        Box::new(audit.clone()),
-        t0(),
-    )
-    .map_err(|e| format!("construction: {e}"))?;
+        })
+    } else {
+        Box::new(DstBuyer {
+            proposed: false,
+            metrics: StrategyMetrics::default(),
+        })
+    };
+    let mut config = runner_config(seed);
+    config.faults = faults;
+    let mut runner = SimRunner::new(config, vec![strategy], Box::new(audit.clone()), t0())
+        .map_err(|e| format!("construction: {e}"))?;
 
     runner
         .venue()
         .set_book(&mkt("KXS"), vec![lvl(55, 50)], vec![lvl(60, 50)])
+        .map_err(|e| e.to_string())?;
+    runner
+        .venue()
+        .set_book(&mkt("KXS2"), vec![lvl(55, 50)], vec![lvl(60, 50)])
         .map_err(|e| e.to_string())?;
 
     // Tick 1: the buyer fills (except under early audit death, where the
@@ -364,6 +452,12 @@ fn run_scenario(seed: u64) -> Result<ScenarioResult, String> {
                 .advance_millis(4 * 3_600_000)
                 .map_err(|e| e.to_string())?;
         }
+        Arm::MultiLegGroup => {
+            // The faults ARE the arm; ticks below drive the group's
+            // concurrent submission, fills, and TTL machinery. Process
+            // any ack-delayed orders at the venue between ticks.
+            runner.venue().tick().map_err(|e| e.to_string())?;
+        }
     }
 
     // Settle-side processing + watchdogs need a few ticks (mismatch
@@ -374,7 +468,22 @@ fn run_scenario(seed: u64) -> Result<ScenarioResult, String> {
             .clock
             .advance_millis(500 + rng.next_u64() % 1_500)
             .map_err(|e| e.to_string())?;
+        if arm == Arm::MultiLegGroup {
+            runner.venue().tick().map_err(|e| e.to_string())?;
+        }
         tick(&mut runner)?;
+    }
+    if arm == Arm::MultiLegGroup {
+        // Whatever the fault dice did, accounting must reconcile: orders
+        // never exceed the two proposed legs, and the money plane holds
+        // (checked via report() below like every arm).
+        let c = runner.counters();
+        if c.orders_submitted > 2 {
+            return Err(format!(
+                "group of 2 legs submitted {} orders",
+                c.orders_submitted
+            ));
+        }
     }
 
     let counters = runner.counters();

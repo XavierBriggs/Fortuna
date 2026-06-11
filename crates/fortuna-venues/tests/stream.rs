@@ -480,3 +480,63 @@ fn non_positive_trade_counts_are_refused() {
         )
         .is_err());
 }
+
+// ---- f-batch independent gate residue: strictness pins ----
+
+#[test]
+fn frames_without_type_or_book_ids_are_refused() {
+    let mut parser = KalshiWsParser::new();
+    assert!(
+        parser.parse_frame(r#"{ "sid": 1, "msg": {} }"#).is_err(),
+        "no type"
+    );
+    assert!(
+        parser.parse_frame(r#"{ "type": "", "msg": {} }"#).is_err(),
+        "empty type"
+    );
+    assert!(
+        parser
+            .parse_frame(
+                r#"{ "type": "orderbook_delta",
+                     "msg": { "market_ticker": "KX-A", "price_dollars": "0.500",
+                              "delta_fp": "1.00", "side": "yes" } }"#,
+            )
+            .is_err(),
+        "book frame without sid/seq"
+    );
+}
+
+#[test]
+fn crossed_assembled_books_and_non_array_sides_are_refused() {
+    use fortuna_core::clock::UtcTimestamp;
+    let at = UtcTimestamp::parse_iso8601("2026-06-11T12:00:00.000Z").unwrap();
+
+    // Crossed: bid 60 / ask 55 — render-validate refuses.
+    let mut asm = BookAssembler::new();
+    assert!(asm
+        .apply(
+            StreamEvent::BookSnapshot {
+                market: mkt("KX-X"),
+                yes_bids: vec![fortuna_venues::PriceLevel {
+                    price: Cents::new(60),
+                    qty: fortuna_core::market::Contracts::new(5),
+                }],
+                yes_asks: vec![fortuna_venues::PriceLevel {
+                    price: Cents::new(55),
+                    qty: fortuna_core::market::Contracts::new(5),
+                }],
+            },
+            at,
+        )
+        .is_err());
+
+    // Present-but-non-array side refuses (absent stays legal).
+    let mut parser = KalshiWsParser::new();
+    assert!(parser
+        .parse_frame(
+            r#"{ "type": "orderbook_snapshot", "sid": 1, "seq": 1,
+                 "msg": { "market_ticker": "KX-A",
+                          "yes_dollars_fp": "not-an-array" } }"#,
+        )
+        .is_err());
+}

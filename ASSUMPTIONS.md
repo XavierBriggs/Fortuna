@@ -130,6 +130,9 @@ conservative option, and the spec section it interprets.
   quote mid only (a negation/composite prior could poison the shrinkage
   target); no Direct quote => prior 0.5. Calibrated p REPLACES belief.p;
   p_raw is preserved for scoring.
+- **Kelly sizing keys off legs[0]** (synthesis proposals are single-leg
+  by construction today; a multi-leg synthesis proposal would need
+  per-leg probabilities — revisit with any multi-leg synthesis design).
 - **Synthesis sizing = min(haircut-Kelly, affordability).** EdgeCandidate
   and ProposedLeg carry the calibrated win-probability of the candidate
   side (NO-side candidates carry 1 - p). The runner computes fraction =

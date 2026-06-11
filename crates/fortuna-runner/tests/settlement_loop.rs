@@ -333,6 +333,11 @@ fn a_venue_correction_reverses_and_resettles_to_the_cent() {
         .reverse_settlement(&mkt("KXS"), Side::No)
         .unwrap();
     tick(&mut w);
+    assert_eq!(
+        w.runner.counters().settlement_reversals,
+        1,
+        "the processed correction is COUNTED"
+    );
 
     let pos = w.runner.positions().position(&mkt("KXS")).unwrap();
     assert_eq!(
@@ -366,9 +371,13 @@ fn a_void_refunds_basis_and_leaves_realized_pnl_untouched() {
         .fees_paid;
 
     w.runner.venue().void_market(&mkt("KXS")).unwrap();
-    let voids_before = w.runner.counters().settlement_voids;
-    assert_eq!(voids_before, 0, "void not yet processed");
+    assert_eq!(w.runner.counters().settlement_voids, 0, "not yet processed");
     tick(&mut w);
+    assert_eq!(
+        w.runner.counters().settlement_voids,
+        1,
+        "the processed void is COUNTED (f-batch residue: post-state asserted)"
+    );
 
     let pos = w.runner.positions().position(&mkt("KXS")).unwrap();
     assert_eq!(pos.yes.qty, 0, "voided lots clear");

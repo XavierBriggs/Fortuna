@@ -1918,11 +1918,6 @@ impl SimRunner {
                 c.cognition_cost_cents,
             ),
             (
-                "fortuna_mind_spend_today_cents",
-                "Budget-true mind spend today incl. failed-call burn (cents)",
-                c.mind_spend_today_cents,
-            ),
-            (
                 "fortuna_order_ack_latency_ms_sum",
                 "Total submit->ack latency (ms; mean = sum/count)",
                 c.ack_latency.sum_ms,
@@ -1942,6 +1937,11 @@ impl SimRunner {
             });
         }
         for (name, help, value) in [
+            (
+                "fortuna_mind_spend_today_cents",
+                "Budget-true mind spend today incl. failed-call burn (cents; resets 00:00 UTC)",
+                c.mind_spend_today_cents,
+            ),
             (
                 "fortuna_order_ack_latency_ms_max",
                 "Max submit->ack latency (ms)",
