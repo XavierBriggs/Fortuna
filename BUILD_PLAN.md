@@ -321,14 +321,32 @@ code.
       DEMO CARRIES PERPS with mock funds — the perps fixture session rides the
       same demo-key unblock as the event-API session. Phase B proposal:
       docs/design/kinetics-perps-module-plan.md, operator confirmation pending.)
-- [ ] T5.B Phase B — design then implement. NOT ENUMERATED: the operator's directive
-      was truncated mid-list ("Phase B — Design then implement, in order:"). A
-      proposed order goes to the operator with the research summary; Phase B does
-      not build until the order is confirmed. Expected shape (PROPOSAL ONLY):
-      spec amendment (margin-aware loss bounds, funding cash flows, price-tick
-      domain) -> core types (signed positions, funding accrual, margin account
-      view) -> gate extensions (maintenance-margin headroom gate, liquidation-
-      distance gate, funding-cost-in-edge) -> kinetics venue adapter behind the
-      Venue trait (fixtures-gated like kalshi) -> paper engine margin semantics ->
-      strategy (funding/basis) behind I7 promotion -> ops (kill-switch coverage,
-      margin telemetry).
+  Phase B CONFIRMED by the operator 2026-06-11 (B1-B8 + amendments A/B/C +
+  original-list merge; docs/design/kinetics-perps-module-plan.md is authoritative):
+
+- [ ] T5.B0 Perishable-data recorder (amendment A; FIRST and standalone): public
+      perps books + spreads, KXBTC15M bracket quotes paired per capture cycle,
+      intraday funding estimates/marks; JSONL persistence; runs continuously.
+- [ ] T5.B1 Spec v0.9 amendment: 5.15 perps domain (InstrumentKind, PerpPrice,
+      portfolio-margin exposure stance + dedicated margin envelope, liquidation-
+      distance floor + leverage caps, funding cash-flow entries, liquidation-fill
+      lifecycle, fee-trap rule, funding_carry data-only) + stale 5.2 fee touch-up.
+- [ ] T5.B2 Core perps types: PerpPrice, signed PerpPosition, FundingAccrual,
+      MarginAccountView w/ conservative marking; property tests on conversions.
+- [ ] T5.B3 Gate extensions: margin headroom, liquidation-distance floor,
+      per-asset leverage caps, funding-drag-in-edge, notional caps; worst case =
+      liquidation loss. Invariant-crate ADDITIONS only (I2 extension tests).
+- [ ] T5.B4 Kinetics adapter (own credentials; dedicated 5.14 envelope):
+      REST+WS from the archived specs, doc-derived samples, FIXTURES-GATED vs
+      fixtures/kinetics-perps/ (18-item list, research section 12).
+- [ ] T5.B5 Paper engine margin semantics: funding accrual on SimClock,
+      liquidation sim from recorded risk curves, mark-based PnL.
+- [ ] T5.B6 DST arms: funding-tick chaos, liquidation under ack-delay/api-error,
+      system-fill ingestion, margin-call sequences, demo-divergence confusion.
+- [ ] T5.B7 Strategies rung 0: perp_event_basis (Sim), funding_forecast
+      (zero-capital scalar claims), funding_carry DATA-ONLY until >=60d regime
+      evidence (amendment B). FEE-TRAP RULE (amendment C): edge floors at assumed
+      post-promo fees (5-12 bps until fee_tiers is real); Sim gates re-run when
+      fees activate; promo-$0 never justifies GO. I7 unchanged.
+- [ ] T5.B8 Ops: kill-switch perps flatten (reduce_only IOC + cancel-all),
+      margin/funding telemetry, funding-regime dashboard panel.
