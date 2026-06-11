@@ -621,8 +621,18 @@ name = "fortuna-live"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "fortuna-core",
+ "fortuna-exec",
+ "fortuna-gates",
+ "fortuna-ledger",
+ "fortuna-runner",
+ "fortuna-state",
+ "fortuna-venues",
+ "futures",
  "serde",
+ "sqlx",
  "thiserror",
+ "tokio",
  "toml",
 ]
 

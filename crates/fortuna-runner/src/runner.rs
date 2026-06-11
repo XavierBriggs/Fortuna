@@ -23,8 +23,8 @@ use fortuna_core::market::{ClientOrderId, Contracts, MarketId, Side, StrategyId,
 use fortuna_core::money::Cents;
 use fortuna_exec::{
     decide_complete_or_unwind, CompleteOrUnwind, ExecError, ExecPolicy, GroupDecision,
-    GroupTracker, IntentStatus, LegOutcome, MemoryJournal, OrderManager, RemainingLeg,
-    SubmitOutcome,
+    GroupTracker, IntentJournal, IntentStatus, LegOutcome, MemoryJournal, OrderManager,
+    RemainingLeg, SubmitOutcome,
 };
 use fortuna_gates::{CandidateOrder, GateConfig, GateInputs, GatePipeline, HaltScope};
 use fortuna_state::{
@@ -85,13 +85,16 @@ pub struct RunnerReport {
     pub fees_paid: Cents,
 }
 
-/// The Phase 0 composition over the sim venue.
-pub struct SimRunner {
+/// The Phase 0 composition over the sim venue. Journal-generic since
+/// T4.1: the daemon composes the SAME runner over `PgIntentJournal`
+/// (durable intents in Postgres); everything else defaults to
+/// `MemoryJournal` and is byte-identical to the pre-widening behavior.
+pub struct SimRunner<J: IntentJournal + Send = MemoryJournal> {
     pub clock: Arc<SimClock>,
     bus: EventBus,
     venue: SimVenue,
     gates: GatePipeline,
-    manager: OrderManager<MemoryJournal>,
+    manager: OrderManager<J>,
     positions: PositionBook,
     reservations: ReservationLedger,
     drawdown: DrawdownMonitor,
@@ -283,12 +286,39 @@ const OVERDUE_GRACE_MS: i64 = 3_600_000;
 const MISMATCH_STREAK_LIMIT: u32 = 3;
 
 impl SimRunner {
+    /// The historical constructor: in-memory journal (Sim/DST default).
     pub fn new(
         config: RunnerConfig,
         strategies: Vec<Box<dyn Strategy>>,
         audit: Box<dyn AuditSink>,
         start: UtcTimestamp,
     ) -> Result<SimRunner, RunnerError> {
+        // block_on is safe HERE only because MemoryJournal::recover never
+        // touches IO; a journal that does (PgIntentJournal) must come in
+        // through the async constructor or it deadlocks the runtime.
+        futures::executor::block_on(SimRunner::new_with_journal(
+            config,
+            strategies,
+            audit,
+            start,
+            MemoryJournal::default(),
+        ))
+    }
+}
+
+impl<J: IntentJournal + Send> SimRunner<J> {
+    /// The daemon constructor (T4.1): same composition, caller-supplied
+    /// durable journal. Journal-before-network is the exec contract;
+    /// supplying `PgIntentJournal` makes the trail survive a crash.
+    /// ASYNC because recovery reads the journal (real IO for Postgres) —
+    /// a blocking wrapper here deadlocks tokio (learned the hard way).
+    pub async fn new_with_journal(
+        config: RunnerConfig,
+        strategies: Vec<Box<dyn Strategy>>,
+        audit: Box<dyn AuditSink>,
+        start: UtcTimestamp,
+        journal: J,
+    ) -> Result<SimRunner<J>, RunnerError> {
         // I7 sliver: a Sim runner accepts only Sim-staged strategies.
         for s in &strategies {
             if s.stage() != Stage::Sim {
@@ -330,11 +360,7 @@ impl SimRunner {
             market_ids.push(m.id.clone());
             market_meta.insert(m.id.clone(), m.clone());
         }
-        let manager = futures::executor::block_on(OrderManager::recover(
-            MemoryJournal::default(),
-            clock.clone(),
-            config.exec_policy,
-        ))?;
+        let manager = OrderManager::recover(journal, clock.clone(), config.exec_policy).await?;
         // Fail closed on a nonsensical base fraction: NaN/negative/>1
         // collapses to 0.0 (synthesis sizes nothing) rather than erroring
         // the whole composition.
@@ -432,7 +458,7 @@ impl SimRunner {
         &self.positions
     }
 
-    pub fn manager(&self) -> &OrderManager<MemoryJournal> {
+    pub fn manager(&self) -> &OrderManager<J> {
         &self.manager
     }
 
