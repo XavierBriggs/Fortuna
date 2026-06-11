@@ -20,3 +20,6 @@ cargo test -p fortuna-core --test dst -- --nocapture --seeds "$N"
 SYNTH_DST_SCENARIOS="$N" cargo test -p fortuna-runner --test synthesis_dst -- --nocapture
 # E4: the settlement/watchdog plane under seeded chaos.
 SETTLE_DST_SCENARIOS="$N" cargo test -p fortuna-runner --test settlement_dst -- --nocapture
+# T4.1 req 10: the daemon-composition smoke (boot -> ticks -> stop signal
+# -> graceful shutdown, deterministic under SimClock, vs the example config).
+cargo test -p fortuna-live --test daemon_smoke -- --nocapture

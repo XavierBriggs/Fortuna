@@ -488,6 +488,17 @@ impl<J: IntentJournal + Send> SimRunner<J> {
         );
     }
 
+    /// Record an externally-raised ALERT (non-halting) on the audit
+    /// trail — the daemon's degrade-scrape alerts ride this until Slack
+    /// routing lands. Spec 8: every alert is also an audit row.
+    pub fn apply_external_alert(&mut self, kind: &str, message: &str) {
+        self.audit(
+            "alert",
+            None,
+            serde_json::json!({ "source": "daemon", "kind": kind, "message": message }),
+        );
+    }
+
     /// The graceful-shutdown contract (T4.1 req 8; operator-BINDING:
     /// `fortuna stop` and the daemon's SIGTERM handler call exactly
     /// this). Cancels every WORKING order through the journaled path,

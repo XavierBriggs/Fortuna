@@ -91,3 +91,6 @@ venue = "sim"              # the ONLY bootable venue until kalshi fixture cleara
 tick_interval_ms = 1000
 halt_poll_ms = 500         # ASSUMPTIONS pin: halt-state poll <= 500ms
 metrics_bind = "127.0.0.1:9187"   # GET-only Prometheus; wider exposure is operator config
+
+[sim]                      # the Sim venue's market world (venue = "sim" requires it)
+bracket_sets = [["SIM-BKT-LO", "SIM-BKT-MID", "SIM-BKT-HI"]]

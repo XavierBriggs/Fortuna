@@ -79,7 +79,8 @@ async fn loop_ticks_at_cadence_and_polls_halts_at_500ms(pool: PgPool) {
 
     // Ten loop wakes at the 500ms poll cadence = 5 simulated seconds:
     // five ticks, ten polls, zero failures.
-    let stats = run_loop(&mut r, &mut cadence, &mut poller, &cfg, Some(10))
+    let (_tx, mut stop) = tokio::sync::oneshot::channel::<()>();
+    let stats = run_loop(&mut r, &mut cadence, &mut poller, &cfg, Some(10), &mut stop)
         .await
         .unwrap();
     assert_eq!(stats.halt_polls, 10, "{stats:?}");
@@ -104,7 +105,8 @@ async fn polled_halt_applies_to_the_gates_and_audits(pool: PgPool) {
         halt_poll_ms: 500,
     };
 
-    let stats = run_loop(&mut r, &mut cadence, &mut poller, &cfg, Some(8))
+    let (_tx, mut stop) = tokio::sync::oneshot::channel::<()>();
+    let stats = run_loop(&mut r, &mut cadence, &mut poller, &cfg, Some(8), &mut stop)
         .await
         .unwrap();
     assert_eq!(stats.halts_applied, 1, "{stats:?}");
@@ -137,7 +139,8 @@ async fn poll_failure_is_counted_never_silent_never_fatal(pool: PgPool) {
         halt_poll_ms: 500,
     };
 
-    let stats = run_loop(&mut r, &mut cadence, &mut poller, &cfg, Some(6))
+    let (_tx, mut stop) = tokio::sync::oneshot::channel::<()>();
+    let stats = run_loop(&mut r, &mut cadence, &mut poller, &cfg, Some(6), &mut stop)
         .await
         .unwrap();
     assert_eq!(stats.poll_failures, 1, "{stats:?}");

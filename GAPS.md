@@ -89,6 +89,21 @@ CLOSED at head (this commit):
   survived TWO gates unverified is exactly the defect class this ledger
   exists to prevent.]
 
+T4.1 DAEMON STATUS (2026-06-11, post-composition-main): fortuna-live now
+BOOTS AND RUNS — boot-validated config (incl. the committed example) ->
+Postgres connect+migrate -> composed SimRunner (mech_structural over the
+[sim] world, Pg journal + Pg audit) -> run loop (HaltsRepo poll <=500ms,
+ticks on the injected clock; wall time enters ONLY at the binary edge +
+cadence driver) -> SIGTERM/SIGINT -> graceful shutdown (cancel + final
+audit row; smoke-asserted via the same stop channel, req-10 smoke in
+run-dst.sh stage 5) -> GET-only metrics endpoint from config. HONESTLY
+STILL OPEN before the T4.1 tick: Slack routing of degrade alerts (they
+land as 'alert' audit rows + stderr today), the SYNTHESIS strategy in
+the daemon main (compose::calibration_for_scope tested but not yet fed
+into a booted SynthesisStrategy), belief persistence (req 6), the
+scheduled daily/weekly loops (req 5 tail), and the dead-man pinger
+(deliberately unwired — first ping arms the external monitor).
+
 REMAINING (composition-wiring; T4.1 in progress — status 2026-06-11):
 - fortuna_ops::alerts::degrade_alerts scrape-delta consumer: the
   consumer now EXISTS and is tested (fortuna-live compose::DegradeScrape

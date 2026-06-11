@@ -11,17 +11,18 @@ fortuna-exec = { path = "../fortuna-exec" }
 fortuna-ledger = { path = "../fortuna-ledger" }
 fortuna-ops = { path = "../fortuna-ops" }
 fortuna-runner = { path = "../fortuna-runner" }
+fortuna-state = { path = "../fortuna-state" }
+fortuna-venues = { path = "../fortuna-venues" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 toml = { workspace = true }
+dotenvy = "0.15.7"
 
 [dev-dependencies]
 fortuna-gates = { path = "../fortuna-gates" }
-fortuna-state = { path = "../fortuna-state" }
-fortuna-venues = { path = "../fortuna-venues" }
 futures = { workspace = true }
 
 [[bin]]

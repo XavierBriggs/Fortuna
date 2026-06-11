@@ -42,12 +42,22 @@ pub trait CadenceDriver {
     fn sleep_ms(&mut self, ms: u64) -> impl std::future::Future<Output = ()> + Send;
 }
 
-/// Wall-clock cadence for the real daemon.
-pub struct RealCadence;
+/// Wall-clock cadence for the real daemon: sleeps wall time, then
+/// ADVANCES the composition's SimClock by the slept amount — wall time
+/// enters the system ONLY here, at the edge; everything inside still
+/// reads the injected clock (the kickoff's "RealClock at the edges,
+/// SimClock semantics preserved").
+pub struct RealCadence {
+    pub clock: std::sync::Arc<fortuna_core::clock::SimClock>,
+}
 
 impl CadenceDriver for RealCadence {
     async fn sleep_ms(&mut self, ms: u64) {
         tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+        // Advance failure means the sim timestamp would overflow — at
+        // which point refusing to advance (and thus to tick) is the
+        // conservative behavior; the halt poll keeps running.
+        let _ = self.clock.advance_millis(ms);
     }
 }
 
@@ -66,6 +76,7 @@ pub async fn run_loop<J, C, P>(
     poller: &mut P,
     cfg: &LoopConfig,
     max_wakes: Option<u64>,
+    stop: &mut tokio::sync::oneshot::Receiver<()>,
 ) -> Result<LoopStats, RunnerError>
 where
     J: IntentJournal + Send,
@@ -81,7 +92,14 @@ where
                 break;
             }
         }
-        cadence.sleep_ms(cfg.halt_poll_ms).await;
+        // The stop signal (SIGTERM in main; a fired oneshot in the
+        // smoke) wins the race against the next wake: the loop exits and
+        // the CALLER runs SimRunner::shutdown — one path, signal or not.
+        tokio::select! {
+            biased;
+            _ = &mut *stop => break,
+            _ = cadence.sleep_ms(cfg.halt_poll_ms) => {}
+        }
         wakes += 1;
 
         stats.halt_polls += 1;

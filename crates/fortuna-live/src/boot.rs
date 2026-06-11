@@ -145,10 +145,21 @@ pub struct CognitionSection {
     pub allow_stub_mind: bool,
 }
 
+/// The `[sim]` section: the synthetic market world the Sim-venue daemon
+/// trades (the EXIT criterion's continuous week runs over these).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SimSection {
+    /// Bracket sets for mech_structural; every named market is created
+    /// on the sim venue as a weather-category $1-payout bracket.
+    pub bracket_sets: Vec<Vec<String>>,
+}
+
 #[derive(Debug, Deserialize)]
 struct RawToml {
     daemon: Option<DaemonSection>,
     cognition: Option<CognitionSection>,
+    sim: Option<SimSection>,
 }
 
 /// The parsed daemon-relevant config.
@@ -156,6 +167,7 @@ struct RawToml {
 pub struct DaemonToml {
     pub daemon: DaemonSection,
     pub cognition: CognitionSection,
+    pub sim: Option<SimSection>,
 }
 
 impl DaemonToml {
@@ -175,13 +187,30 @@ impl DaemonToml {
                      per_cycle_budget_cents are required)"
                 .to_string(),
         })?;
-        Ok(DaemonToml { daemon, cognition })
+        Ok(DaemonToml {
+            daemon,
+            cognition,
+            sim: raw.sim,
+        })
     }
 
     /// Boot checks beyond parsing: venue gating and operational pins.
     pub fn validate_bootable(&self) -> Result<(), BootError> {
         match self.daemon.venue.as_str() {
-            "sim" => {}
+            "sim" => {
+                let empty = self
+                    .sim
+                    .as_ref()
+                    .map(|s| s.bracket_sets.is_empty() || s.bracket_sets.iter().any(Vec::is_empty))
+                    .unwrap_or(true);
+                if empty {
+                    return Err(BootError::BadConfig {
+                        reason: "venue = \"sim\" requires a [sim] section with non-empty \
+                                 bracket_sets (the market world the daemon trades)"
+                            .to_string(),
+                    });
+                }
+            }
             "kalshi" => {
                 return Err(BootError::VenueNotBootable {
                     venue: "kalshi".to_string(),

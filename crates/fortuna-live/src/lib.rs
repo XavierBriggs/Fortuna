@@ -9,4 +9,5 @@
 pub mod audit_bridge;
 pub mod boot;
 pub mod compose;
+pub mod daemon;
 pub mod run_loop;
