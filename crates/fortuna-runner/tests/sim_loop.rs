@@ -10,7 +10,8 @@ use fortuna_exec::ExecPolicy;
 use fortuna_gates::{GateConfig, HaltScope};
 use fortuna_runner::mech_structural::{MechStructural, MechStructuralConfig};
 use fortuna_runner::{
-    MemoryAuditSink, RunnerConfig, SimRunner, Stage, Strategy, StrategyKind, StrategyMetrics,
+    LatencyStat, MemoryAuditSink, RunnerConfig, SimRunner, Stage, Strategy, StrategyKind,
+    StrategyMetrics,
 };
 use fortuna_state::MarkPolicy;
 use fortuna_venues::fees::{FeeSchedule, ScheduleFeeModel};
@@ -328,6 +329,98 @@ fn audit_sink_failure_halts_trading() {
     assert!(jsonl.contains("audit_failure_halt"));
 }
 
+// ---- Section 8 telemetry surface ----
+
+#[test]
+fn section_8_metric_surface_is_present() {
+    let mut r = SimRunner::new(
+        runner_config(99),
+        vec![strategy()],
+        Box::new(MemoryAuditSink::default()),
+        t0(),
+    )
+    .unwrap();
+    set_arb_books(&r);
+    futures::executor::block_on(r.tick()).unwrap();
+
+    let names: std::collections::BTreeSet<&'static str> =
+        r.metrics_export().iter().map(|s| s.name).collect();
+    for required in [
+        "fortuna_ticks_total",
+        "fortuna_fill_latency_ms_count",
+        "fortuna_fill_latency_ms_p99",
+        "fortuna_order_ack_latency_ms_bucket",
+        "fortuna_venue_api_errors_total",
+        "fortuna_settlement_voids_total",
+        "fortuna_settlement_reversals_total",
+        "fortuna_capital_in_limbo_cents",
+        "fortuna_envelope_utilization_bps",
+        "fortuna_cognition_cost_cents_total",
+        "fortuna_budget_breaches_total",
+        "fortuna_cognition_failures_total",
+    ] {
+        assert!(names.contains(required), "missing metric: {required}");
+    }
+    // Envelope utilization carries the strategy label.
+    assert!(r
+        .metrics_export()
+        .iter()
+        .any(|s| s.name == "fortuna_envelope_utilization_bps"
+            && s.labels.iter().any(|(k, _)| k == "strategy")));
+
+    // Section 8 "gate rejection counts by reason": provoke a rejection
+    // (contract floor above the sized quantity) and find it attributed
+    // to its check.
+    let mut cfg = runner_config(98);
+    cfg.gate_config = toml::from_str(
+        r#"
+        [global]
+        max_total_exposure_cents = 800000
+        max_daily_loss_cents = 50000
+        min_order_contracts = 500
+        max_order_contracts = 1000
+        price_band_cents = 45
+        max_cross_cents = 10
+        per_market_exposure_cents = 100000
+        per_event_exposure_cents = 150000
+        require_event_mapping = false
+
+        [per_strategy.mech_structural]
+        max_exposure_cents = 200000
+        max_order_notional_cents = 10000
+        min_net_edge_bps = 100
+
+        [rate.sim]
+        burst = 100
+        sustained_per_min = 600
+        market_burst = 50
+        market_sustained_per_min = 300
+        "#,
+    )
+    .unwrap();
+    let mut r2 = SimRunner::new(
+        cfg,
+        vec![strategy()],
+        Box::new(MemoryAuditSink::default()),
+        t0(),
+    )
+    .unwrap();
+    set_arb_books(&r2);
+    let report = futures::executor::block_on(r2.tick()).unwrap();
+    assert!(report.gate_rejections >= 1, "the floor must reject");
+    let by_check: Vec<_> = r2
+        .metrics_export()
+        .into_iter()
+        .filter(|s| s.name == "fortuna_gate_rejections_by_check_total")
+        .collect();
+    assert!(
+        by_check
+            .iter()
+            .any(|s| s.value >= 1 && s.labels.iter().any(|(k, _)| k == "check")),
+        "rejections attributed by check: {by_check:?}"
+    );
+}
+
 // ---- I7 sliver: stage guard ----
 
 struct LiveStrategy;
@@ -460,6 +553,54 @@ fn fill_latency_is_measured_from_submit_to_execution() {
     assert!(samples
         .iter()
         .any(|s| s.name == "fortuna_order_ack_latency_ms_count"));
+
+    // Percentiles: conservative upper-edge estimates from fixed buckets.
+    // Every fill here took ~500ms, so p50/p90/p99 all land on the 500ms
+    // bucket edge — and the estimate must never UNDERSTATE latency.
+    for q in [0.50, 0.90, 0.95, 0.99] {
+        let est = c.fill_latency.quantile_ms(q).expect("quantile defined");
+        assert!(
+            est >= 500,
+            "p{} estimate {est} understates the ~500ms truth",
+            (q * 100.0) as u32
+        );
+        assert!(
+            est <= c.fill_latency.max_ms.max(1_000),
+            "p{q} wildly high: {est}"
+        );
+    }
+    assert!(c.fill_latency.quantile_ms(0.5).is_some());
+    assert_eq!(LatencyStat::default().quantile_ms(0.5), None, "empty: None");
+
+    // Prometheus histogram export: cumulative buckets with le labels and
+    // a +Inf bucket equal to the count; direct p90/95/99 gauges for the
+    // dashboard.
+    let buckets: Vec<_> = samples
+        .iter()
+        .filter(|s| s.name == "fortuna_fill_latency_ms_bucket")
+        .collect();
+    assert!(!buckets.is_empty(), "bucket series exported");
+    let inf = buckets
+        .iter()
+        .find(|s| s.labels.iter().any(|(k, v)| k == "le" && v == "+Inf"))
+        .expect("+Inf bucket");
+    assert_eq!(inf.value as u64, c.fill_latency.count);
+    let mut prev = 0i64;
+    for b in &buckets {
+        assert!(b.value >= prev, "buckets are cumulative");
+        prev = b.value;
+    }
+    for name in [
+        "fortuna_fill_latency_ms_p90",
+        "fortuna_fill_latency_ms_p95",
+        "fortuna_fill_latency_ms_p99",
+        "fortuna_order_ack_latency_ms_p99",
+    ] {
+        assert!(
+            samples.iter().any(|s| s.name == name),
+            "{name} exported for the boards"
+        );
+    }
 
     // Deterministic: the same seed reproduces the same latency stats.
     let mut cfg2 = runner_config(77);

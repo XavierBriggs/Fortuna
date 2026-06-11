@@ -32,7 +32,10 @@ mod runner;
 pub mod synth_events;
 pub mod synthesis;
 
-pub use runner::{MetricSample, RunCounters, RunnerConfig, RunnerReport, SimRunner, TickReport};
+pub use runner::{
+    LatencyStat, MetricSample, RunCounters, RunnerConfig, RunnerReport, SimRunner, TickReport,
+    LATENCY_BUCKETS_MS,
+};
 
 use async_trait::async_trait;
 use fortuna_core::book::{FeeModel, OrderBook};
@@ -104,6 +107,8 @@ pub struct StrategyMetrics {
     /// Model-emitted ProposalDrafts the cycle discarded (the harness
     /// derives its own candidates; the discard is counted, never silent).
     pub model_proposals_discarded: u64,
+    /// Cognition spend attributed to this strategy (cents).
+    pub cognition_cost_cents: i64,
 }
 
 /// One degraded-cognition event for the audit log (F1: degrade is never

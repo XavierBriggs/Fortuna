@@ -144,6 +144,8 @@ pub struct SimRunner {
     /// Submit timestamps by client order id (epoch ms), for fill-latency
     /// measurement; pruned when the intent reaches a terminal state.
     submit_times: BTreeMap<String, i64>,
+    /// Section 8 "gate rejection counts by reason": per-check tallies.
+    gate_rejections_by_check: BTreeMap<String, u64>,
     /// Markets with a defined next processor (fresh open belief OR a
     /// mechanical owner), fed by the composition. None = the coverage
     /// view is not wired and the orphan watchdog stays silent.
@@ -168,7 +170,20 @@ pub struct LatencyStat {
     pub count: u64,
     pub sum_ms: i64,
     pub max_ms: i64,
+    /// Per-bucket counts for LATENCY_BUCKETS_MS, plus the overflow
+    /// bucket at the end. Fixed bounds keep the histogram deterministic
+    /// and Copy; quantiles estimate from bucket UPPER edges
+    /// (conservative: never understates latency).
+    pub bucket_counts: [u64; LATENCY_BUCKETS_MS.len() + 1],
 }
+
+/// Histogram bucket upper bounds in ms. Chosen for a maker system whose
+/// latency budget is seconds: sub-100ms resolution for venue RTTs,
+/// coarse tail to a minute. Changing bounds is a config-style decision —
+/// recorded in ASSUMPTIONS.
+pub const LATENCY_BUCKETS_MS: [i64; 14] = [
+    1, 5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 15_000, 30_000, 60_000,
+];
 
 impl LatencyStat {
     fn observe(&mut self, ms: i64) {
@@ -176,6 +191,34 @@ impl LatencyStat {
         self.count += 1;
         self.sum_ms = self.sum_ms.saturating_add(ms);
         self.max_ms = self.max_ms.max(ms);
+        let idx = LATENCY_BUCKETS_MS
+            .iter()
+            .position(|bound| ms <= *bound)
+            .unwrap_or(LATENCY_BUCKETS_MS.len());
+        self.bucket_counts[idx] += 1;
+    }
+
+    /// Conservative quantile estimate: the UPPER edge of the first
+    /// bucket whose cumulative count reaches q x count (the overflow
+    /// bucket reports the observed max). None when nothing was observed
+    /// or q is not a probability.
+    pub fn quantile_ms(&self, q: f64) -> Option<i64> {
+        if self.count == 0 || !(0.0..=1.0).contains(&q) || !q.is_finite() {
+            return None;
+        }
+        let target = (q * self.count as f64).ceil().max(1.0) as u64;
+        let mut cumulative = 0u64;
+        for (idx, n) in self.bucket_counts.iter().enumerate() {
+            cumulative += n;
+            if cumulative >= target {
+                return Some(if idx < LATENCY_BUCKETS_MS.len() {
+                    LATENCY_BUCKETS_MS[idx]
+                } else {
+                    self.max_ms
+                });
+            }
+        }
+        Some(self.max_ms)
     }
 }
 
@@ -203,6 +246,16 @@ pub struct RunCounters {
     /// breach alerts). Counted at the audit drain, once per degraded
     /// cycle.
     pub budget_breaches: u64,
+    /// Venue API failures observed by the polling loops (outages on
+    /// fills/settlements/positions). Section 8 "venue API error rates".
+    pub venue_api_errors: u64,
+    /// Settlement lifecycle outcomes (Section 8 lifecycle metrics).
+    pub settlement_voids: u64,
+    pub settlement_reversals: u64,
+    /// Cognition spend, merged from strategy metrics (Section 8 "model
+    /// cost per day and per decision" — per-decision rides in the
+    /// cognition audit rows; this is the running total).
+    pub cognition_cost_cents: i64,
 }
 
 /// One exported metric sample (plain data: the ops layer maps these into
@@ -322,6 +375,7 @@ impl SimRunner {
             calibration_quality: BTreeMap::new(),
             kelly_fraction: config_kelly_fraction,
             submit_times: BTreeMap::new(),
+            gate_rejections_by_check: BTreeMap::new(),
             position_coverage: None,
             orphan_flagged: std::collections::BTreeSet::new(),
             counters: RunCounters::default(),
@@ -486,8 +540,7 @@ impl SimRunner {
                 "event_id": record.event_id,
                 "degrade": record.degrade,
             });
-            if let (Some(obj), Some(extra)) = (payload.as_object_mut(), record.detail.as_object())
-            {
+            if let (Some(obj), Some(extra)) = (payload.as_object_mut(), record.detail.as_object()) {
                 for (k, v) in extra {
                     obj.insert(k.clone(), v.clone());
                 }
@@ -685,6 +738,10 @@ impl SimRunner {
                 Err(rejection) => {
                     report.gate_rejections += 1;
                     self.counters.gate_rejections += 1;
+                    *self
+                        .gate_rejections_by_check
+                        .entry(format!("{:?}", rejection.check))
+                        .or_insert(0) += 1;
                     self.bus.publish_external(EventPayload::Raw {
                         kind: "gate_reject".into(),
                         data: serde_json::json!({
@@ -970,7 +1027,10 @@ impl SimRunner {
         for _ in 0..1_000 {
             let page = match self.venue.fills_since(self.cursor.clone()).await {
                 Ok(p) => p,
-                Err(fortuna_venues::VenueError::Outage { .. }) => break, // next tick
+                Err(fortuna_venues::VenueError::Outage { .. }) => {
+                    self.counters.venue_api_errors += 1;
+                    break; // next tick
+                }
                 Err(e) => return Err(e.into()),
             };
             let advanced = page.next_cursor != self.cursor;
@@ -1277,7 +1337,10 @@ impl SimRunner {
                 .await
             {
                 Ok(p) => p,
-                Err(fortuna_venues::VenueError::Outage { .. }) => break, // next tick
+                Err(fortuna_venues::VenueError::Outage { .. }) => {
+                    self.counters.venue_api_errors += 1;
+                    break; // next tick
+                }
                 Err(e) => return Err(e.into()),
             };
             let advanced = page.next_cursor != self.settle_cursor;
@@ -1452,6 +1515,7 @@ impl SimRunner {
         corrected_winner: fortuna_core::market::Side,
         notice: &SettlementNotice,
     ) -> Result<(), RunnerError> {
+        self.counters.settlement_reversals += 1;
         // A corrected outcome re-checks against canonical truth: the
         // correction may introduce OR resolve a divergence.
         self.check_settlement_divergence(market, corrected_winner);
@@ -1503,6 +1567,7 @@ impl SimRunner {
         market: &MarketId,
         notice: &SettlementNotice,
     ) -> Result<(), RunnerError> {
+        self.counters.settlement_voids += 1;
         self.abandon_vetoes_on_void(market);
         let held = self
             .positions
@@ -1627,7 +1692,10 @@ impl SimRunner {
                         .map(|vp| (vp.market.clone(), (vp.yes, vp.no)))
                         .collect(),
                 ),
-                Err(_) => None, // outage: venue-dependent checks wait
+                Err(_) => {
+                    self.counters.venue_api_errors += 1;
+                    None // outage: venue-dependent checks wait
+                }
             };
 
         // Confirm step (venue-dependent): a Posted entry confirms when the
@@ -1808,6 +1876,11 @@ impl SimRunner {
         let c = self.counters();
         for (name, help, value) in [
             (
+                "fortuna_cognition_cost_cents_total",
+                "Cognition spend in cents (running total)",
+                c.cognition_cost_cents,
+            ),
+            (
                 "fortuna_order_ack_latency_ms_sum",
                 "Total submit->ack latency (ms; mean = sum/count)",
                 c.ack_latency.sum_ms,
@@ -1845,6 +1918,60 @@ impl SimRunner {
                 labels: Vec::new(),
                 value,
             });
+        }
+        // Histogram buckets (Prometheus convention: cumulative, le
+        // labels, +Inf == count) and direct conservative percentile
+        // gauges for the boards.
+        for (base, stat) in [
+            ("fortuna_order_ack_latency_ms", &c.ack_latency),
+            ("fortuna_fill_latency_ms", &c.fill_latency),
+        ] {
+            let mut cumulative = 0u64;
+            for (idx, bound) in LATENCY_BUCKETS_MS.iter().enumerate() {
+                cumulative += stat.bucket_counts[idx];
+                samples.push(MetricSample {
+                    name: match base {
+                        "fortuna_order_ack_latency_ms" => "fortuna_order_ack_latency_ms_bucket",
+                        _ => "fortuna_fill_latency_ms_bucket",
+                    },
+                    help: "Latency histogram bucket (cumulative)",
+                    counter: true,
+                    labels: vec![("le".to_string(), bound.to_string())],
+                    value: cumulative as i64,
+                });
+            }
+            samples.push(MetricSample {
+                name: match base {
+                    "fortuna_order_ack_latency_ms" => "fortuna_order_ack_latency_ms_bucket",
+                    _ => "fortuna_fill_latency_ms_bucket",
+                },
+                help: "Latency histogram bucket (cumulative)",
+                counter: true,
+                labels: vec![("le".to_string(), "+Inf".to_string())],
+                value: stat.count as i64,
+            });
+            for (suffix, q) in [("_p90", 0.90), ("_p95", 0.95), ("_p99", 0.99)] {
+                samples.push(MetricSample {
+                    name: match (base, suffix) {
+                        ("fortuna_order_ack_latency_ms", "_p90") => {
+                            "fortuna_order_ack_latency_ms_p90"
+                        }
+                        ("fortuna_order_ack_latency_ms", "_p95") => {
+                            "fortuna_order_ack_latency_ms_p95"
+                        }
+                        ("fortuna_order_ack_latency_ms", "_p99") => {
+                            "fortuna_order_ack_latency_ms_p99"
+                        }
+                        ("fortuna_fill_latency_ms", "_p90") => "fortuna_fill_latency_ms_p90",
+                        ("fortuna_fill_latency_ms", "_p95") => "fortuna_fill_latency_ms_p95",
+                        (_, _) => "fortuna_fill_latency_ms_p99",
+                    },
+                    help: "Conservative percentile estimate (bucket upper edge)",
+                    counter: false,
+                    labels: Vec::new(),
+                    value: stat.quantile_ms(q).unwrap_or(0),
+                });
+            }
         }
         for (name, help, value) in [
             ("fortuna_ticks_total", "Loop heartbeats", c.ticks),
@@ -1907,6 +2034,21 @@ impl SimRunner {
                 "fortuna_budget_breaches_total",
                 "Cycles degraded by a cost-budget breach (each one alerts)",
                 c.budget_breaches,
+            ),
+            (
+                "fortuna_venue_api_errors_total",
+                "Venue API failures seen by the polling loops",
+                c.venue_api_errors,
+            ),
+            (
+                "fortuna_settlement_voids_total",
+                "Voided-market settlements processed",
+                c.settlement_voids,
+            ),
+            (
+                "fortuna_settlement_reversals_total",
+                "Settlement corrections (reversals) processed",
+                c.settlement_reversals,
             ),
             (
                 "fortuna_order_ack_latency_ms_count",
@@ -1978,6 +2120,31 @@ impl SimRunner {
                 labels: vec![("strategy".to_string(), name.clone())],
                 value: self.reservations.active_total(name).raw(),
             });
+            // Section 8 "envelope reservation utilization": reserved
+            // fraction of the configured envelope, in bps.
+            let active = self.reservations.active_total(name).raw();
+            if let Ok(headroom) = self.reservations.headroom(name) {
+                let envelope = headroom.raw().saturating_add(active);
+                if envelope > 0 {
+                    samples.push(MetricSample {
+                        name: "fortuna_envelope_utilization_bps",
+                        help: "Reserved fraction of the strategy envelope (bps)",
+                        counter: false,
+                        labels: vec![("strategy".to_string(), name.clone())],
+                        value: active.saturating_mul(10_000) / envelope,
+                    });
+                }
+            }
+        }
+        // Section 8 "gate rejection counts by reason".
+        for (check, count) in &self.gate_rejections_by_check {
+            samples.push(MetricSample {
+                name: "fortuna_gate_rejections_by_check_total",
+                help: "Gate rejections attributed to the refusing check",
+                counter: true,
+                labels: vec![("check".to_string(), check.clone())],
+                value: *count as i64,
+            });
         }
         samples.push(MetricSample {
             name: "fortuna_capital_in_limbo_cents",
@@ -2048,6 +2215,7 @@ impl SimRunner {
             counters.shadow_cycles += m.shadow_cycles;
             counters.beliefs_drafted += m.beliefs_drafted;
             counters.model_proposals_discarded += m.model_proposals_discarded;
+            counters.cognition_cost_cents += m.cognition_cost_cents;
         }
         counters
     }

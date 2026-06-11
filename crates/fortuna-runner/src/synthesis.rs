@@ -180,16 +180,14 @@ impl Strategy for SynthesisStrategy {
                         scope,
                         spent_cents,
                         cap_cents,
-                    }) => {
-                        (
-                            "budget_exhausted",
-                            serde_json::json!({
-                                "scope": scope,
-                                "spent_cents": spent_cents,
-                                "cap_cents": cap_cents,
-                            }),
-                        )
-                    }
+                    }) => (
+                        "budget_exhausted",
+                        serde_json::json!({
+                            "scope": scope,
+                            "spent_cents": spent_cents,
+                            "cap_cents": cap_cents,
+                        }),
+                    ),
                     CycleError::Mind(MindError::Provider { reason }) => {
                         ("provider", serde_json::json!({ "reason": reason }))
                     }
@@ -217,6 +215,7 @@ impl Strategy for SynthesisStrategy {
         }
         self.metrics.beliefs_drafted += outcome.beliefs.len() as u64;
         self.metrics.model_proposals_discarded += outcome.discarded_model_proposals as u64;
+        self.metrics.cognition_cost_cents += outcome.cost_cents;
         if outcome.discarded_model_proposals > 0 {
             // F3: a cycle whose model output is discarded leaves a trace.
             self.pending_degrades.push(DegradeRecord {

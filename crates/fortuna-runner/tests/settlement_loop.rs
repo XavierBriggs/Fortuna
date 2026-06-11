@@ -366,6 +366,8 @@ fn a_void_refunds_basis_and_leaves_realized_pnl_untouched() {
         .fees_paid;
 
     w.runner.venue().void_market(&mkt("KXS")).unwrap();
+    let voids_before = w.runner.counters().settlement_voids;
+    assert_eq!(voids_before, 0, "void not yet processed");
     tick(&mut w);
 
     let pos = w.runner.positions().position(&mkt("KXS")).unwrap();

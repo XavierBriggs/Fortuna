@@ -3,6 +3,38 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## F1-F3 + telemetry hardening (operator-prompted, post-independent-gate)
+
+- **Degrade is never silent (F1):** strategies buffer typed
+  DegradeRecords (budget_exhausted w/ scope+spent+cap, provider,
+  schema_invalid, refused, context, model_proposals_discarded); the
+  runner drains them each tick into 'cognition' audit rows + bus events;
+  budget breaches count once AT THE DRAIN (no double count with strategy
+  metrics). The ops alert rule (fortuna-ops alerts module) works over
+  scrape DELTAS: every budget breach alerts (one message per scrape with
+  the count — page storms help nobody); failure bursts alert at a config
+  threshold; quiet scrapes are silent. The live composition diffs
+  counters per scrape and routes through SlackRouter.
+- **Latency percentiles are CONSERVATIVE bucket estimates:** fixed
+  bounds (1ms..60s, 14 buckets + overflow) keep the histogram
+  deterministic and Copy; quantile_ms(q) reports the UPPER edge of the
+  first bucket reaching q x count (overflow reports observed max) — the
+  estimate never understates latency. Exported both as Prometheus
+  cumulative buckets (le labels, +Inf == count) for PromQL and as direct
+  p90/p95/p99 gauges for the boards. Changing bucket bounds is a
+  config-style decision.
+- **Section 8 surface completed where cheaply derivable from runner
+  state:** gate rejections BY CHECK (labeled), venue API error counter
+  (polling-loop outages), settlement voids/reversals counters,
+  envelope utilization bps per strategy (active/envelope from the
+  reservation ledger), cognition cost cents (merged from strategy
+  metrics; per-decision cost rides in the cognition audit rows).
+  Capital-in-limbo and overdue gauges already existed (T1.5). NOT
+  runtime metrics by design: triage recall/precision, rolling Brier,
+  calibration curves (weekly-review artifacts from the ledger);
+  context token usage (cost cents is the operative control; token
+  counters can ride the same path when wanted).
+
 ## Order/fill latency metrics (spec Section 8; operator-prompted)
 
 - **Measurement points:** ack latency = clock delta across the awaited
