@@ -295,6 +295,24 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       strategies, kalshi adapter paper/live clearance vs fixtures, kill-switch
       KalshiVenue plug (FORTUNA_KILLSWITCH_* creds), Slack Socket Mode listener
       (app token; kill REQUESTS only, re-arms stay CLI-only).
+- [ ] T4.3 ROTA — the operator dashboard (operator-directed 2026-06-11; design
+      brief AUTHORITATIVE at docs/design/rota-dashboard.md): read-only gold/black
+      operator console served by the T4.1 daemon — versioned /api/rota/v1 JSON
+      views + SSE stream + static SPA bundle; seven v1 surfaces (health wheel,
+      money, gates, cognition, settlement/watchdogs, venue/streams, audit tail);
+      cornucopia/wheel logo under assets/rota/. ZERO mutating endpoints (route-
+      table test); integration tests per the brief incl. the seeded-run
+      end-to-end chain and demo-fixture replay panels. Verifier-gated.
+
+OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
+morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)
+with the Anthropic mind active under budgets, ROTA up locally, and the perps
+track as far through T5.B2-B6 as gate-clean work allows. Priority order for the
+implementer loop: gate findings in GAPS -> T4.1 -> T4.3 (ROTA) -> T4.2 -> T5.B
+tranche in order. The north star governs: work that has not survived an
+independent gate counts as zero; demo-mode startup is itself gated on T4.1+T4.2
+clearance, and NOTHING here changes I1-I7, fixture-gating, or operator-only
+actions (promotions, re-arms, live capital stay with the operator).
 
 EXIT: the daemon runs for a continuous week in Sim with the real mind — beliefs
 calibrated/persisted/scored in Postgres, cost tracked against config budgets,
