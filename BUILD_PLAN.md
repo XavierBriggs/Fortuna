@@ -367,10 +367,13 @@ code.
       (DONE 2026-06-11: crates/fortuna-recorder, 8 unit tests, RUNNING since
       06:52 UTC — series KXBTC15M,KXBTC,KXBTCD; restart cmd in data/recorder.log
       header; survives session end, NOT reboot — launchd plist on request.)
-- [ ] T5.B1 Spec v0.9 amendment: 5.15 perps domain (InstrumentKind, PerpPrice,
+- [x] T5.B1 Spec v0.9 amendment: 5.15 perps domain (InstrumentKind, PerpPrice,
       portfolio-margin exposure stance + dedicated margin envelope, liquidation-
       distance floor + leverage caps, funding cash-flow entries, liquidation-fill
       lifecycle, fee-trap rule, funding_carry data-only) + stale 5.2 fee touch-up.
+      (DONE: spec commit 213e41f [post-rewrite hash]; graded faithful on all
+      C3 criteria by the batch gate; tick released by the remediation ACCEPT
+      addendum, docs/reviews/perps-b0-b1-remediation-regate-2026-06-11.md.)
 - [ ] T5.B2 Core perps types: PerpPrice, signed PerpPosition, FundingAccrual,
       MarginAccountView w/ conservative marking; property tests on conversions.
 - [ ] T5.B3 Gate extensions: margin headroom, liquidation-distance floor,
