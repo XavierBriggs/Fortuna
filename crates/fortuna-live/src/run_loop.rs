@@ -7,9 +7,9 @@
 //! wall time itself).
 //!
 //! Poll-failure posture: counted in `LoopStats` and never silent — but
-//! NOT fatal and NOT a local halt (the pin says alert; the Slack alert
-//! rides the requirement-3 degrade wiring when the composition lands).
-//! Trading continues on the last-known halt state.
+//! NOT fatal and NOT a local halt (the pin says alert; `drive` routes an
+//! Ops alert on the failure transition — see daemon.rs). Trading
+//! continues on the last-known halt state.
 //!
 //! Scope note (honest): loop termination here is `max_wakes`; the
 //! binary's SIGTERM handler interrupts the loop at the EDGE and then
@@ -70,6 +70,14 @@ pub trait HaltPoller {
 /// Drive the composed runner: poll halts every wake, tick when due.
 /// `max_wakes` bounds the loop (tests and the DST smoke); the daemon
 /// passes a large bound per run-segment and re-enters.
+///
+/// `last_halt` is the dedup state for the standing-halt apply+audit — it
+/// is OWNED BY THE CALLER and threaded across segments (a persistent
+/// halt re-applied every 500ms poll, OR re-applied once per ~30s segment
+/// because the dedup reset on re-entry, would flood the I5 audit table;
+/// gate finding 2026-06-11 — the per-segment reset was the second-gate
+/// scope bug). The gates stay halted regardless of whether we re-audit.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_loop<J, C, P>(
     runner: &mut SimRunner<J>,
     cadence: &mut C,
@@ -77,6 +85,7 @@ pub async fn run_loop<J, C, P>(
     cfg: &LoopConfig,
     max_wakes: Option<u64>,
     stop: &mut tokio::sync::oneshot::Receiver<()>,
+    last_halt: &mut Option<String>,
 ) -> Result<LoopStats, RunnerError>
 where
     J: IntentJournal + Send,
@@ -86,12 +95,6 @@ where
     let mut stats = LoopStats::default();
     let mut last_tick_ms = runner.clock.now().epoch_millis();
     let mut wakes: u64 = 0;
-    // Apply + audit a standing halt ONCE per identity (gate finding,
-    // 2026-06-11): a persistent halt re-applied every 500ms poll would
-    // flood the I5 audit table (~172k rows/day for one halt) and drown
-    // replay. Re-apply only when the active halt reason CHANGES (or
-    // clears and returns); the gates stay halted regardless.
-    let mut last_halt: Option<String> = None;
     loop {
         if let Some(max) = max_wakes {
             if wakes >= max {
@@ -111,18 +114,19 @@ where
         stats.halt_polls += 1;
         match poller.poll().await {
             Ok(Some(reason)) => {
-                // Dedup on identity: apply+audit only when the standing
-                // halt first appears or its reason changes.
+                // Dedup on identity (caller-owned across segments): apply
+                // +audit only when the standing halt first appears or its
+                // reason changes.
                 if last_halt.as_deref() != Some(reason.as_str()) {
                     runner.apply_external_halt(&reason);
                     stats.halts_applied += 1;
-                    last_halt = Some(reason);
+                    *last_halt = Some(reason);
                 }
             }
             Ok(None) => {
                 // The halt cleared out-of-band (operator re-arm); a later
                 // halt with the same reason is a NEW event to audit.
-                last_halt = None;
+                *last_halt = None;
             }
             Err(_store) => {
                 // The halt store is unreachable: count it AND alert via

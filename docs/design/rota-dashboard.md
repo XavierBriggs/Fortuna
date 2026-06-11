@@ -230,8 +230,17 @@ account-view + book-age fields in boards_json(). Zero money-path changes.
   "venues": [ { "id": "sim", "healthy": true, "api_error_count": 0 } ] }
 ```
 last_tick_age_ms = now - DashboardSnapshot.generated_at (loop-deadness proxy);
-halt_reason from HaltsRepo::active (null when none); dead-man age via a new
-`last_ping_at: Arc<AtomicI64>` on DeadmanPinger (deadman.rs:1-70).
+halt_reason from HaltsRepo::active (null when none).
+
+DEAD-MAN AGE — CONTRACT RECONCILED 2026-06-11 (remediation2 gate note 6):
+the daemon's dead-man pinger landed as an INDEPENDENT spawned task with a
+closure-owned `DeadmanPinger` (daemon::deadman_tick) — there is no
+`last_ping_at: Arc<AtomicI64>` seam, and adding one now would reach into
+the running task. ROTA v1 therefore reports `dead_man_last_ping_age_secs:
+null` (capability absent — the health panel shows "dead-man: external"
+and defers to the external monitor's own page). If a live age is wanted
+later, the pinger gains a shared `Arc<AtomicI64>` last-ping stamp the
+task writes and RotaState reads — a small follow-up, not a v1 blocker.
 
 ### /api/rota/v1/money
 ```json

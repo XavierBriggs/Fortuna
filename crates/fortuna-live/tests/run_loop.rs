@@ -88,9 +88,18 @@ async fn loop_ticks_at_cadence_and_polls_halts_at_500ms(pool: PgPool) {
     // Ten loop wakes at the 500ms poll cadence = 5 simulated seconds:
     // five ticks, ten polls, zero failures.
     let (_tx, mut stop) = tokio::sync::oneshot::channel::<()>();
-    let stats = run_loop(&mut r, &mut cadence, &mut poller, &cfg, Some(10), &mut stop)
-        .await
-        .unwrap();
+    let mut last_halt = None;
+    let stats = run_loop(
+        &mut r,
+        &mut cadence,
+        &mut poller,
+        &cfg,
+        Some(10),
+        &mut stop,
+        &mut last_halt,
+    )
+    .await
+    .unwrap();
     assert_eq!(stats.halt_polls, 10, "{stats:?}");
     assert_eq!(stats.ticks, 5, "tick fires every second wake: {stats:?}");
     assert_eq!(stats.poll_failures, 0);
@@ -114,9 +123,18 @@ async fn polled_halt_applies_to_the_gates_and_audits(pool: PgPool) {
     };
 
     let (_tx, mut stop) = tokio::sync::oneshot::channel::<()>();
-    let stats = run_loop(&mut r, &mut cadence, &mut poller, &cfg, Some(8), &mut stop)
-        .await
-        .unwrap();
+    let mut last_halt = None;
+    let stats = run_loop(
+        &mut r,
+        &mut cadence,
+        &mut poller,
+        &cfg,
+        Some(8),
+        &mut stop,
+        &mut last_halt,
+    )
+    .await
+    .unwrap();
     assert_eq!(stats.halts_applied, 1, "{stats:?}");
 
     // The halt is on the GATES (ticks after it submit nothing) and on
@@ -133,10 +151,13 @@ async fn polled_halt_applies_to_the_gates_and_audits(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../fortuna-ledger/migrations")]
-async fn a_standing_halt_audits_exactly_once_over_many_polls(pool: PgPool) {
-    // Gate finding (2026-06-11): a persistent halt re-applied every poll
-    // floods the audit table. A standing halt across 20 polls must yield
-    // exactly ONE application + ONE halt audit row.
+async fn a_standing_halt_audits_exactly_once_across_segment_boundaries(pool: PgPool) {
+    // Gate finding 2026-06-11 (SECOND gate — the per-segment scope bug):
+    // a standing halt must apply ONCE even though `drive` re-enters
+    // run_loop every segment. This test CROSSES THE BOUNDARY: caller-owned
+    // `last_halt` is threaded across THREE separate run_loop calls (= three
+    // ~segments). The earlier single-call test never crossed the boundary,
+    // which is exactly how the partial fix looked complete.
     let mut r = compose(&pool).await;
     let mut cadence = SimCadence {
         clock: r.clock.clone(),
@@ -150,13 +171,25 @@ async fn a_standing_halt_audits_exactly_once_over_many_polls(pool: PgPool) {
         halt_poll_ms: 500,
     };
     let (_tx, mut stop) = tokio::sync::oneshot::channel::<()>();
-    let stats = run_loop(&mut r, &mut cadence, &mut poller, &cfg, Some(20), &mut stop)
+    let mut last_halt: Option<String> = None;
+    let mut applied = 0u64;
+    for _segment in 0..3 {
+        let stats = run_loop(
+            &mut r,
+            &mut cadence,
+            &mut poller,
+            &cfg,
+            Some(5),
+            &mut stop,
+            &mut last_halt,
+        )
         .await
         .unwrap();
-    assert_eq!(stats.halt_polls, 20, "polled every wake: {stats:?}");
+        applied += stats.halts_applied;
+    }
     assert_eq!(
-        stats.halts_applied, 1,
-        "a standing halt applies ONCE, not per poll: {stats:?}"
+        applied, 1,
+        "a standing halt applies ONCE across 3 segments, not once per segment"
     );
     let halt_rows: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM audit WHERE kind = 'halt' AND payload->>'source' = 'halt_poll'",
@@ -166,7 +199,7 @@ async fn a_standing_halt_audits_exactly_once_over_many_polls(pool: PgPool) {
     .unwrap();
     assert_eq!(
         halt_rows, 1,
-        "exactly one halt audit row for the standing halt"
+        "exactly one halt audit row for the standing halt across segments"
     );
 }
 
@@ -186,9 +219,18 @@ async fn poll_failure_is_counted_never_silent_never_fatal(pool: PgPool) {
     };
 
     let (_tx, mut stop) = tokio::sync::oneshot::channel::<()>();
-    let stats = run_loop(&mut r, &mut cadence, &mut poller, &cfg, Some(6), &mut stop)
-        .await
-        .unwrap();
+    let mut last_halt = None;
+    let stats = run_loop(
+        &mut r,
+        &mut cadence,
+        &mut poller,
+        &cfg,
+        Some(6),
+        &mut stop,
+        &mut last_halt,
+    )
+    .await
+    .unwrap();
     assert_eq!(stats.poll_failures, 1, "{stats:?}");
     assert_eq!(
         stats.halt_polls, 6,

@@ -9,13 +9,43 @@ use fortuna_core::clock::UtcTimestamp;
 use fortuna_core::money::Cents;
 use fortuna_live::daemon::route_alerts;
 use fortuna_ops::{MessageKind, OpsError, SlackConfig, SlackRouter, SlackTransport};
-use fortuna_runner::{MemoryAuditSink, RunnerConfig, SimRunner};
+use fortuna_runner::{AuditSink, RunnerConfig, RunnerError, SimRunner};
 use fortuna_state::MarkPolicy;
 use fortuna_venues::fees::{FeeSchedule, ScheduleFeeModel};
 use fortuna_venues::sim::FaultConfig;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
+
+/// Shared-handle audit sink so the test can inspect the rows
+/// `apply_external_alert` writes AFTER the runner consumes the box —
+/// the audit half of "route AND audit" (spec 8).
+#[derive(Clone, Default)]
+struct SharedSink(Arc<Mutex<Vec<(String, serde_json::Value)>>>);
+
+impl SharedSink {
+    fn alert_rows(&self) -> Vec<serde_json::Value> {
+        self.0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(k, _)| k == "alert")
+            .map(|(_, p)| p.clone())
+            .collect()
+    }
+}
+
+impl AuditSink for SharedSink {
+    fn append(
+        &mut self,
+        kind: &str,
+        _ref_id: Option<&str>,
+        payload: serde_json::Value,
+    ) -> Result<(), RunnerError> {
+        self.0.lock().unwrap().push((kind.to_string(), payload));
+        Ok(())
+    }
+}
 
 fn t0() -> UtcTimestamp {
     UtcTimestamp::parse_iso8601("2026-06-11T12:00:00.000Z").unwrap()
@@ -69,7 +99,7 @@ fn fee_model() -> ScheduleFeeModel {
     ScheduleFeeModel::new(vec![s]).unwrap()
 }
 
-fn runner() -> SimRunner {
+fn runner_with(sink: SharedSink) -> SimRunner {
     let config = RunnerConfig {
         seed: 1,
         gate_config: toml::from_str(
@@ -92,14 +122,15 @@ fn runner() -> SimRunner {
         veto_mind: None,
         veto_strategies: Vec::new(),
     };
-    SimRunner::new(config, vec![], Box::new(MemoryAuditSink::default()), t0()).unwrap()
+    SimRunner::new(config, vec![], Box::new(sink), t0()).unwrap()
 }
 
 #[tokio::test]
 async fn alerts_route_to_slack_and_audit() {
     let mock = MockTransport::default();
     let r = router(mock.clone());
-    let mut runner = runner();
+    let sink = SharedSink::default();
+    let mut runner = runner_with(sink.clone());
     let alerts = vec![
         (MessageKind::Alert, "budget breach x2".to_string()),
         (MessageKind::Ops, "cognition failures x6".to_string()),
@@ -111,15 +142,31 @@ async fn alerts_route_to_slack_and_audit() {
         2,
         "both alerts posted to Slack"
     );
+    // The AUDIT half (spec 8): each routed alert also wrote an audit row
+    // carrying its message + the slack ts marker.
+    let rows = sink.alert_rows();
+    assert_eq!(rows.len(), 2, "both alerts audited");
+    assert!(
+        rows.iter()
+            .any(|p| p["message"].as_str().unwrap_or("").contains("slack ts")),
+        "routed-ok alert records the slack ts"
+    );
 }
 
 #[tokio::test]
 async fn no_router_still_audits_zero_posts() {
-    let mut runner = runner();
+    let sink = SharedSink::default();
+    let mut runner = runner_with(sink.clone());
     let alerts = vec![(MessageKind::Alert, "x".to_string())];
-    // No panic, no network; the audit row is the only effect.
+    // No router => no network; the audit row is the ONLY effect (the
+    // operator still sees the alert in the trail).
     let failures = route_alerts(None, &mut runner, &alerts).await;
     assert_eq!(failures, 0);
+    assert_eq!(
+        sink.alert_rows().len(),
+        1,
+        "the alert is audited with no router"
+    );
 }
 
 #[tokio::test]
@@ -129,7 +176,8 @@ async fn slack_send_failure_is_counted_never_silent() {
         ..MockTransport::default()
     };
     let r = router(mock.clone());
-    let mut runner = runner();
+    let sink = SharedSink::default();
+    let mut runner = runner_with(sink.clone());
     let alerts = vec![(MessageKind::Alert, "breach".to_string())];
     let failures = route_alerts(Some(&r), &mut runner, &alerts).await;
     assert_eq!(
@@ -140,6 +188,17 @@ async fn slack_send_failure_is_counted_never_silent() {
         mock.calls.lock().unwrap().len(),
         1,
         "the post was attempted"
+    );
+    // Even a FAILED send is audited (never silently dropped) — with the
+    // failure recorded in the row.
+    let rows = sink.alert_rows();
+    assert_eq!(rows.len(), 1, "the failed-send alert is audited");
+    assert!(
+        rows[0]["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("SLACK SEND FAILED"),
+        "the audit row records the send failure"
     );
 }
 

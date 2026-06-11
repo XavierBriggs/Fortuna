@@ -216,6 +216,14 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     daily: &mut DailyScheduler,
 ) -> Result<(LoopStats, fortuna_runner::ShutdownReport), DaemonError> {
     let mut total = LoopStats::default();
+    // Dedup state OWNED ACROSS SEGMENTS (gate finding 2026-06-11: keeping
+    // these inside run_loop reset them every ~30s segment, so one standing
+    // halt / sustained poll-outage still flooded once per segment). The
+    // halt re-applies only on identity change; the poll-failure alert
+    // fires only on the TRANSITION into the failing state.
+    let mut last_halt: Option<String> = None;
+    let mut poll_failing = false;
+    let mut total_send_failures = 0usize;
     loop {
         let stats = run_loop(
             runner,
@@ -224,6 +232,7 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
             loop_cfg,
             Some(wakes_per_segment),
             stop,
+            &mut last_halt,
         )
         .await?;
         total.ticks += stats.ticks;
@@ -236,21 +245,21 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
         // send failure is audited, never silent.
         let counters = runner.counters();
         let mut alerts = scrape.scrape(counters.budget_breaches, counters.cognition_failures);
-        // Halt-poll FAILURE alert (T4.1 req 5 pin: poll failures alert):
-        // a segment that could not reach the halt store at all is an Ops
-        // alert — trading continues on last-known halt state, but the
-        // operator must know the halt rail went blind.
-        if stats.poll_failures > 0 {
+        // Halt-poll FAILURE alert (T4.1 req 5 pin), deduped on the
+        // failing->ok TRANSITION so a sustained outage alerts ONCE, not
+        // once per segment: the operator learns the halt rail went blind,
+        // and learns again only after it recovers and fails anew.
+        if stats.poll_failures > 0 && !poll_failing {
+            poll_failing = true;
             alerts.push((
                 fortuna_ops::MessageKind::Ops,
-                format!(
-                    "halt-state poll failed {} time(s) this segment — halt rail blind, \
-                     trading on last-known state",
-                    stats.poll_failures
-                ),
+                "halt-state poll FAILING — halt rail blind, trading on last-known state"
+                    .to_string(),
             ));
+        } else if stats.poll_failures == 0 {
+            poll_failing = false;
         }
-        let _send_failures = route_alerts(slack, runner, &alerts).await;
+        total_send_failures += route_alerts(slack, runner, &alerts).await;
 
         // Daily boundary (req 5 tail): on each new UTC day, emit the
         // end-of-day digest to #fortuna-digest + an audit row. The daily
@@ -259,7 +268,8 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
         let now = Clock::now(runner.clock.as_ref());
         if daily.due(now) {
             let digest = terse_daily_digest(runner, now);
-            route_alerts(slack, runner, &[(fortuna_ops::MessageKind::Digest, digest)]).await;
+            total_send_failures +=
+                route_alerts(slack, runner, &[(fortuna_ops::MessageKind::Digest, digest)]).await;
         }
 
         between_segments(runner, &stats);
@@ -272,6 +282,15 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
         if stop.try_recv().is_ok() {
             break;
         }
+    }
+    // Surface the total Slack send-failure count on the final shutdown
+    // audit's surrounding log path (never silently discarded): a daemon
+    // that could not deliver N alerts to Slack is itself an ops signal.
+    if total_send_failures > 0 {
+        runner.apply_external_alert(
+            "Ops",
+            &format!("{total_send_failures} Slack alert send(s) failed over this run"),
+        );
     }
     let report = runner.shutdown().await?;
     Ok((total, report))
@@ -466,11 +485,13 @@ pub fn build_slack_router(
 }
 
 /// One dead-man heartbeat tick (T4.1 req): if a ping is DUE at `now`,
-/// send it; record success, or hand the typed error to `on_failure` for
-/// escalation (the daemon audits + Ops-alerts it — a dead-man ping that
-/// cannot reach the monitor is exactly what the operator must learn). The
-/// pinger NEVER touches the real URL in tests: the test supplies a mock
-/// PingTransport. Returns true iff a ping was attempted this tick.
+/// send it; record success, or hand the typed error to the CALLER-SUPPLIED
+/// `on_failure` closure (the escalation policy lives at the call site —
+/// main currently logs to stderr; the external monitor's own silence-page
+/// is the escalation of record). A failed ping does NOT record, so the
+/// next tick retries rather than backing off silent. The pinger NEVER
+/// touches the real URL in tests: the test supplies a mock PingTransport.
+/// Returns true iff a ping was attempted this tick.
 pub async fn deadman_tick(
     pinger: &mut fortuna_ops::DeadmanPinger,
     now: fortuna_core::clock::UtcTimestamp,

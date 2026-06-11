@@ -97,22 +97,34 @@ ticks on the injected clock; wall time enters ONLY at the binary edge +
 cadence driver) -> SIGTERM/SIGINT -> graceful shutdown (cancel + final
 audit row; smoke-asserted via the same stop channel, req-10 smoke in
 run-dst.sh stage 5) -> GET-only metrics endpoint from config -> degrade
-alerts routed to Slack (env-built router) + audited every segment.
-HONESTLY STILL OPEN before the T4.1 tick: the SYNTHESIS strategy in the
-daemon main (compose::calibration_for_scope + persist_beliefs tested but
-not yet fed into a daemon-booted SynthesisStrategy — BLOCKED on the
-edge-source design: where the daemon's synthesis edges come from
-[EdgesRepo load vs config vs the discovery loop] is a deliberate design
-call, not a guess), the scheduled daily/weekly loops (req 5 tail), and
-the dead-man pinger (deliberately unwired — first ping arms the external
-monitor). Belief persistence (req 6): the PATH now exists
-and is tested — strategies drain belief drafts (Strategy::drain_beliefs,
-default empty; SynthesisStrategy buffers outcome.beliefs), the runner
-collects them (drain_pending_beliefs), and daemon::persist_beliefs
-upserts events + inserts beliefs (FK-correct, idempotent on the event).
-STILL OPEN: the daemon main drains+persists each segment ONLY once a
-belief-producing strategy is in the composition (today's mech_structural
-holds none) — lands with synthesis-in-main.
+alerts routed to Slack (env-built router) + audited every segment ->
+dead-man heartbeat (independent task, WIRED) -> daily-boundary scheduler
+-> #fortuna-digest. [UPDATED 2026-06-11 per remediation2 gate: this
+block formerly listed the dead-man pinger and scheduled loops as open
+AFTER they were wired — a claim-vs-reality stale-ledger defect; corrected
+here. The dfb849f commit MESSAGE claimed a GAPS dead-man flip that the
+commit did not contain; the flip landed shortly after — recorded for the
+trail since commit messages cannot be edited.]
+HONESTLY STILL OPEN before the T4.1 tick (the box stays unticked): the
+SYNTHESIS strategy in the daemon main (compose::calibration_for_scope +
+persist_beliefs tested but not fed into a daemon-booted
+SynthesisStrategy — BLOCKED on the edge-source design: where the
+daemon's synthesis edges come from [EdgesRepo load vs config vs the
+discovery loop] is a deliberate design call, not a guess); the
+mech_extremes-WITH-VETO strategy binding (the daemon composes only
+mech_structural today — mech_extremes + its reduce-only model veto is
+unwired); the mind_from_env / CostBudget binding into the daemon (the
+allow_stub_mind gate exists, but no AnthropicMind is actually composed
+into a booted strategy — it has no consumer until synthesis-in-main);
+the RICH daily digest + daily reconciliation re-run + weekly/monthly
+cognition reviews (need belief/review data, synthesis-blocked). Belief
+persistence (req 6): the PATH exists + is tested (Strategy::drain_beliefs
+-> runner.drain_pending_beliefs -> daemon::persist_beliefs, FK-correct,
+idempotent); the daemon drains+persists once a belief-producing strategy
+is composed (mech_structural holds none) — lands with synthesis-in-main.
+Slack send-failure count is now SURFACED (drive sums total_send_failures
+and audits a final Ops alert if >0) — the earlier "_send_failures
+discarded" is fixed.
 
 T41-DAEMON-GATE FIXES (2026-06-11, the daemon gate's BLOCK):
 - F1 clippy-red (drive too_many_args at 77588c5/817d2e7): FIXED at

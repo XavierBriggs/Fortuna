@@ -1205,3 +1205,11 @@ crates/fortuna-venues/tests/kalshi_doc_samples/ are NOT recordings.
   the day files. Nothing enforces this today beyond operator discipline; the
   T4.4 CLI `start` refusal on an unmanaged recorder process (design A2) is the
   planned enforcement. Until then: never start a second instance.
+- **The dead-man pinger task reads SystemTime::now() at the IO edge**
+  (gate finding 2026-06-11, minor 4): main's spawned heartbeat stamps each
+  ping with wall time. The injected-Clock rule governs the deterministic
+  core (bus/audit/replay); the dead-man heartbeat is a wall-clock liveness
+  signal to an EXTERNAL monitor — its timestamps ARE wall time by
+  definition, and it feeds nothing deterministic. Same justified exception
+  as the recorder/fixture tools. The deadman_tick LOGIC is clock-injected
+  and mock-tested; only the main-spawned task reads the wall clock.
