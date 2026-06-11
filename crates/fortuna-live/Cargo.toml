@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = { workspace = true }
 fortuna-core = { path = "../fortuna-core" }
+fortuna-exec = { path = "../fortuna-exec" }
 fortuna-ledger = { path = "../fortuna-ledger" }
 fortuna-runner = { path = "../fortuna-runner" }
 serde = { workspace = true }
@@ -16,7 +17,6 @@ tokio = { workspace = true }
 toml = { workspace = true }
 
 [dev-dependencies]
-fortuna-exec = { path = "../fortuna-exec" }
 fortuna-gates = { path = "../fortuna-gates" }
 fortuna-state = { path = "../fortuna-state" }
 fortuna-venues = { path = "../fortuna-venues" }

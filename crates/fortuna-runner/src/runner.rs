@@ -474,6 +474,20 @@ impl<J: IntentJournal + Send> SimRunner<J> {
         &self.manager
     }
 
+    /// Apply a halt learned from OUTSIDE the composition (the daemon's
+    /// durable halt-state poll, T4.1 req 5): sets the global gate halt
+    /// and writes the audit row. Re-arms stay CLI-only out-of-band (I2)
+    /// — nothing here or anywhere in the daemon clears a halt.
+    pub fn apply_external_halt(&mut self, reason: &str) {
+        self.gates
+            .set_halt(HaltScope::Global, format!("halt poll: {reason}"));
+        self.audit(
+            "halt",
+            None,
+            serde_json::json!({ "source": "halt_poll", "reason": reason }),
+        );
+    }
+
     /// The graceful-shutdown contract (T4.1 req 8; operator-BINDING:
     /// `fortuna stop` and the daemon's SIGTERM handler call exactly
     /// this). Cancels every WORKING order through the journaled path,
