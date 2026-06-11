@@ -1,0 +1,17 @@
+# Workspace-level cargo environment defaults.
+#
+# DATABASE_URL: sqlx's #[sqlx::test] harness resolves DATABASE_URL through
+# dotenvy, which falls back to the repo-root .env — the OPERATOR's file,
+# whose fortuna_app role (correctly) cannot CREATE DATABASE. Discovered
+# 2026-06-11 when i5_audit_append_only failed with 42501 the moment the
+# operator's .env landed. This default routes every cargo-launched process
+# at the LOCAL DEV database instead (sqlx tests create throwaway
+# _sqlx_test_* databases on that server), honoring the repo rule: tests
+# never touch the operator database.
+#
+# force = false: a real environment variable still wins, so the operator's
+# `set -a && source .env` (or a systemd EnvironmentFile) overrides this for
+# live processes. A binary launched bare (`cargo run`) sees the dev URL —
+# and fails closed at boot anyway, because its OTHER secrets are absent.
+[env]
+DATABASE_URL = { value = "postgres://localhost/fortuna_dev", force = false }
