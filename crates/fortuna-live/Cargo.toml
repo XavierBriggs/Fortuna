@@ -22,6 +22,7 @@ toml = { workspace = true }
 dotenvy = "0.15.7"
 
 [dev-dependencies]
+async-trait.workspace = true
 fortuna-gates = { path = "../fortuna-gates" }
 futures = { workspace = true }
 

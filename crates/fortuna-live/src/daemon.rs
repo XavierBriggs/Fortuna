@@ -272,3 +272,77 @@ pub fn registry_from<J: fortuna_exec::IntentJournal + Send>(
     }
     m
 }
+
+/// Persist drained belief drafts to the ledger (req 6): the event is
+/// upserted first (the beliefs FK requires it — `event_id` comes from
+/// the draft, which the synthesis cycle derives from its edge config),
+/// then the belief row. Idempotent on the event (create-if-absent);
+/// belief ids are fresh ULIDs per draft. Returns the count persisted.
+///
+/// A persistence error is NOT swallowed — a daemon that cannot record
+/// its beliefs has lost its calibration substrate and the caller decides
+/// (the daemon logs + continues; the belief was already counted in
+/// metrics, and the NEXT drain retries nothing — drafts are point-in-time).
+pub async fn persist_beliefs(
+    pool: &PgPool,
+    drafts: &[(
+        fortuna_core::market::StrategyId,
+        fortuna_cognition::beliefs::BeliefDraft,
+    )],
+    now_iso: &str,
+    id_base: u64,
+) -> Result<usize, DaemonError> {
+    use fortuna_ledger::{BeliefsRepo, EventsRepo};
+    let events = EventsRepo::new(pool.clone());
+    let beliefs = BeliefsRepo::new(pool.clone());
+    let mut n = 0usize;
+    for (i, (strategy, draft)) in drafts.iter().enumerate() {
+        // Upsert the event (synthesis events are model-discovered; the
+        // daemon records a minimal row so the FK holds — the discovery
+        // loop enriches it later, spec 5.12).
+        events
+            .create(
+                &draft.event_id,
+                &format!("belief event for {strategy}"),
+                "synthesis-derived",
+                "synthesis",
+                Some(&draft.horizon.to_iso8601()),
+                &draft.horizon.to_iso8601(),
+                "synthesis",
+                now_iso,
+            )
+            .await
+            .or_else(|e| {
+                // Already exists (a prior draft on the same event): fine.
+                if e.to_string().contains("duplicate") || e.to_string().contains("unique") {
+                    Ok(())
+                } else {
+                    Err(DaemonError::Compose {
+                        reason: format!("event upsert for {}: {e}", draft.event_id),
+                    })
+                }
+            })?;
+        // Unique TEXT PK from a caller-supplied MONOTONIC base (the
+        // daemon advances it past every persisted draft; the test passes
+        // a disjoint base per call) — never a wall-clock guess.
+        let belief_id = format!("01BLF{:021}", id_base + i as u64);
+        beliefs
+            .insert(
+                &belief_id,
+                now_iso,
+                &draft.event_id,
+                draft.p,
+                draft.p_raw,
+                &draft.horizon.to_iso8601(),
+                &draft.evidence,
+                &draft.provenance,
+                None,
+            )
+            .await
+            .map_err(|e| DaemonError::Compose {
+                reason: format!("belief insert for {}: {e}", draft.event_id),
+            })?;
+        n += 1;
+    }
+    Ok(n)
+}

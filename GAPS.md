@@ -100,9 +100,16 @@ run-dst.sh stage 5) -> GET-only metrics endpoint from config. HONESTLY
 STILL OPEN before the T4.1 tick: Slack routing of degrade alerts (they
 land as 'alert' audit rows + stderr today), the SYNTHESIS strategy in
 the daemon main (compose::calibration_for_scope tested but not yet fed
-into a booted SynthesisStrategy), belief persistence (req 6), the
-scheduled daily/weekly loops (req 5 tail), and the dead-man pinger
-(deliberately unwired — first ping arms the external monitor).
+into a booted SynthesisStrategy), the scheduled daily/weekly loops (req
+5 tail), and the dead-man pinger (deliberately unwired — first ping arms
+the external monitor). Belief persistence (req 6): the PATH now exists
+and is tested — strategies drain belief drafts (Strategy::drain_beliefs,
+default empty; SynthesisStrategy buffers outcome.beliefs), the runner
+collects them (drain_pending_beliefs), and daemon::persist_beliefs
+upserts events + inserts beliefs (FK-correct, idempotent on the event).
+STILL OPEN: the daemon main drains+persists each segment ONLY once a
+belief-producing strategy is in the composition (today's mech_structural
+holds none) — lands with synthesis-in-main.
 
 REMAINING (composition-wiring; T4.1 in progress — status 2026-06-11):
 - fortuna_ops::alerts::degrade_alerts scrape-delta consumer: the

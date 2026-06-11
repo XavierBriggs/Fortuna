@@ -63,6 +63,10 @@ pub struct SynthesisStrategy {
     metrics: StrategyMetrics,
     stage: Stage,
     pending_degrades: Vec<DegradeRecord>,
+    /// Belief drafts produced since the last drain (T4.1 req 6). The
+    /// runner drains and the composition persists them to BeliefsRepo;
+    /// counted in `metrics.beliefs_drafted` regardless of persistence.
+    pending_beliefs: Vec<fortuna_cognition::beliefs::BeliefDraft>,
 }
 
 impl SynthesisStrategy {
@@ -83,6 +87,7 @@ impl SynthesisStrategy {
             metrics: StrategyMetrics::default(),
             stage: config.stage,
             pending_degrades: Vec::new(),
+            pending_beliefs: Vec::new(),
         }
     }
 
@@ -214,6 +219,11 @@ impl Strategy for SynthesisStrategy {
             self.metrics.shadow_cycles += 1;
         }
         self.metrics.beliefs_drafted += outcome.beliefs.len() as u64;
+        // Buffer the drafts for the runner to drain and the composition
+        // to persist (req 6); a shadow cycle's beliefs are scored, not
+        // traded, but they ARE persisted (the belief ledger is the
+        // calibration substrate).
+        self.pending_beliefs.extend(outcome.beliefs.iter().cloned());
         self.metrics.model_proposals_discarded += outcome.discarded_model_proposals as u64;
         self.metrics.cognition_cost_cents += outcome.cost_cents;
         if outcome.discarded_model_proposals > 0 {
@@ -267,5 +277,8 @@ impl Strategy for SynthesisStrategy {
 
     fn drain_degrades(&mut self) -> Vec<DegradeRecord> {
         std::mem::take(&mut self.pending_degrades)
+    }
+    fn drain_beliefs(&mut self) -> Vec<fortuna_cognition::beliefs::BeliefDraft> {
+        std::mem::take(&mut self.pending_beliefs)
     }
 }

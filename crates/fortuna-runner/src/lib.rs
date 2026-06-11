@@ -193,6 +193,12 @@ pub trait Strategy: Send {
     fn drain_degrades(&mut self) -> Vec<DegradeRecord> {
         Vec::new()
     }
+    /// Belief drafts produced since the last drain (T4.1 req 6). The
+    /// runner collects them; the composition persists them to
+    /// BeliefsRepo. Mechanical strategies hold no beliefs.
+    fn drain_beliefs(&mut self) -> Vec<fortuna_cognition::beliefs::BeliefDraft> {
+        Vec::new()
+    }
 }
 
 /// Where audit records go. The Postgres-backed writer satisfies this in the

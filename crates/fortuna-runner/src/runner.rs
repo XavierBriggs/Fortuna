@@ -124,6 +124,10 @@ pub struct SimRunner<J: IntentJournal + Send = MemoryJournal> {
     max_sets_per_proposal: i64,
     /// Set when the audit sink dies: hard stop beyond the gate halt.
     audit_dead: bool,
+    /// Belief drafts drained from strategies, awaiting composition-side
+    /// persistence (req 6). The runner never writes them (Pg-agnostic);
+    /// the daemon drains via `drain_pending_beliefs`.
+    pending_beliefs: Vec<(StrategyId, fortuna_cognition::beliefs::BeliefDraft)>,
     veto_mind: Option<Arc<dyn VetoMind>>,
     veto_strategies: std::collections::BTreeSet<StrategyId>,
     /// Vetoed-away quantity awaiting its market's settlement for
@@ -403,6 +407,7 @@ impl<J: IntentJournal + Send> SimRunner<J> {
             max_sets_per_proposal: config.max_sets_per_proposal,
             clock,
             audit_dead: false,
+            pending_beliefs: Vec::new(),
             veto_mind: config.veto_mind,
             veto_strategies: config.veto_strategies.into_iter().collect(),
             open_vetoes: Vec::new(),
@@ -486,6 +491,15 @@ impl<J: IntentJournal + Send> SimRunner<J> {
             None,
             serde_json::json!({ "source": "halt_poll", "reason": reason }),
         );
+    }
+
+    /// Take the belief drafts buffered since the last drain (req 6). The
+    /// daemon persists them to BeliefsRepo (events upserted first for the
+    /// FK); draining empties the buffer so a draft is persisted once.
+    pub fn drain_pending_beliefs(
+        &mut self,
+    ) -> Vec<(StrategyId, fortuna_cognition::beliefs::BeliefDraft)> {
+        std::mem::take(&mut self.pending_beliefs)
     }
 
     /// Record an externally-raised ALERT (non-halting) on the audit
@@ -641,6 +655,12 @@ impl<J: IntentJournal + Send> SimRunner<J> {
             let id = strategy.id();
             for record in strategy.drain_degrades() {
                 degrades.push((id.clone(), record));
+            }
+            // Belief drafts (req 6): buffered on the runner for the
+            // composition to persist (the runner is Pg-agnostic; the
+            // daemon owns BeliefsRepo). A draft per (strategy, draft).
+            for belief in strategy.drain_beliefs() {
+                self.pending_beliefs.push((id.clone(), belief));
             }
         }
         for (strategy_id, record) in degrades {
