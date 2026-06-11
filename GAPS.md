@@ -248,13 +248,17 @@ ROTA-SLICES GATE REMEDIATION (rota-slices-gate-2026-06-11.md, BLOCK narrow;
   choice for the single read-only dashboard query (schema-pinned by migration,
   now #[sqlx::test]-covered; avoids sqlx-offline build coupling). Same edit as
   F1 -> closed together.
-- STILL OPEN (next iterations): F2 favicon 404 (land an assets/rota favicon or
-  stub 204); F4 DailyScheduler boot-fire + digest cumulative-vs-day labeling +
-  no drive()-level digest assertion; F5 ASSUMPTIONS/GAPS dead-man contradiction
-  + stale "SystemTime::now post-RealClock-fix" wording; F6 [informational]
-  raw-JSON panels (Phase-3 presentation) + LIVE recorder risk_parameters stale-
-  on-boot (recorder/B0 capture-loop investigation — NOT a ROTA code fix; do
-  not touch the running recorder).
+- F2 [Minor] /favicon.ico 404 (the only live-browser console error, an R12
+  criterion): CLOSED (this commit). rota_router serves /favicon.ico => 204 No
+  Content (stub; the real Section 9 cornucopia/wheel mark lands in the Phase-3
+  asset slice). Tested standalone (favicon_is_a_204_not_a_404, + POST 405) AND
+  through the live merged serve_dashboard tree (the dashboard mount test).
+- STILL OPEN (next iterations): F4 DailyScheduler boot-fire + digest cumulative-
+  vs-day labeling + no drive()-level digest assertion; F5 ASSUMPTIONS/GAPS
+  dead-man contradiction + stale "SystemTime::now post-RealClock-fix" wording;
+  F6 [informational] raw-JSON panels (Phase-3 presentation) + LIVE recorder
+  risk_parameters stale-on-boot (recorder/B0 capture-loop investigation — NOT a
+  ROTA code fix; do not touch the running recorder).
 - DEFERRED (capability-gated; keys ABSENT not faked-zero so a panel never
   reads falsely "all clear"): money view (needs the new boards "account"
   field, R6); cognition view (R7 — BeliefsRepo::recent + calibration-scope

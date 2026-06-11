@@ -56,6 +56,7 @@ impl RotaState {
 pub fn rota_router(state: RotaState) -> Router {
     Router::new()
         .route("/rota", get(shell))
+        .route("/favicon.ico", get(favicon))
         .route("/api/rota/v1/health", get(view_health))
         .route("/api/rota/v1/money", get(view_money))
         .route("/api/rota/v1/gates", get(view_gates))
@@ -271,6 +272,15 @@ async fn audit_tail(State(s): State<RotaState>, Query(q): Query<AuditQuery>) -> 
 
 async fn shell() -> impl IntoResponse {
     (StatusCode::OK, Html(ROTA_SHELL))
+}
+
+/// Favicon: a 204 No Content stub (rota-slices gate F2). The browser's
+/// automatic /favicon.ico probe otherwise 404s — the only console error in
+/// the live browser pass, and an R12 pass criterion. 204 clears it with no
+/// asset dependency; the real Section 9 cornucopia/wheel mark replaces this in
+/// the Phase-3 asset slice.
+async fn favicon() -> impl IntoResponse {
+    StatusCode::NO_CONTENT
 }
 
 /// The gold-on-black instrument shell (operator tokens, Section 2):

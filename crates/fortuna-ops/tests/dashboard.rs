@@ -156,5 +156,15 @@ async fn serve_dashboard_mounts_the_rota_console_alongside_the_instrument() {
             .unwrap();
         assert_eq!(resp.status(), 405, "POST {path} must be refused");
     }
+
+    // rota-slices gate F2: /favicon.ico is served 204 through the LIVE merged
+    // tree (the browser pass found it 404ing) — no console error.
+    let fav = client
+        .get(format!("{base}/favicon.ico"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(fav.status(), 204, "favicon 204 through serve_dashboard");
+
     server.abort();
 }

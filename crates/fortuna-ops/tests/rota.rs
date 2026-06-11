@@ -373,3 +373,28 @@ async fn audit_tail_cursorless_returns_the_latest_page_not_the_oldest(pool: sqlx
 async fn audit_tail_empty_table_is_an_empty_page_not_an_error(pool: sqlx::PgPool) {
     assert!(audit_tail_page(&pool, None, 100).await.unwrap().is_empty());
 }
+
+// ---- rota-slices gate F2: /favicon.ico must not 404 ----
+
+#[tokio::test]
+async fn favicon_is_a_204_not_a_404() {
+    // F2: /favicon.ico 404 was the only live-browser console error (an R12
+    // pass criterion). A 204 (No Content) clears it with no asset dependency;
+    // the real §9 cornucopia/wheel mark lands in the Phase-3 asset slice.
+    let (base, _h) = serve().await;
+    let resp = reqwest::get(format!("{base}/favicon.ico")).await.unwrap();
+    assert_eq!(resp.status(), 204, "favicon stubbed 204, never 404");
+
+    // The read-only doctrine holds for this route too.
+    let post = reqwest::Client::new()
+        .post(format!("{base}/favicon.ico"))
+        .body("x")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        post.status(),
+        405,
+        "POST /favicon.ico must be 405 (read-only)"
+    );
+}
