@@ -27,8 +27,13 @@ conservative option, and the spec section it interprets.
   state:** gate rejections BY CHECK (labeled), venue API error counter
   (polling-loop outages), settlement voids/reversals counters,
   envelope utilization bps per strategy (active/envelope from the
-  reservation ledger), cognition cost cents (merged from strategy
-  metrics; per-decision cost rides in the cognition audit rows).
+  reservation ledger), cognition cost cents (completed decisions,
+  merged from strategy metrics; PER-DECISION cost rides in belief
+  PROVENANCE — the f-batch gate caught this entry claiming it rode in
+  the cognition audit rows, which carry degrade events, not costs) and
+  fortuna_mind_spend_today_cents, the budget-true day total including
+  failed-call burn (gate finding: the completed-decision counter alone
+  undercounts spend; the mind's own budget is the authoritative source).
   Capital-in-limbo and overdue gauges already existed (T1.5). NOT
   runtime metrics by design: triage recall/precision, rolling Brier,
   calibration curves (weekly-review artifacts from the ledger);

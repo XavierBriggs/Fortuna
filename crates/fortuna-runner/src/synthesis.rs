@@ -260,7 +260,9 @@ impl Strategy for SynthesisStrategy {
     }
 
     fn metrics(&self) -> StrategyMetrics {
-        self.metrics
+        let mut m = self.metrics;
+        m.mind_spend_today_cents = self.mind.spent_today_cents();
+        m
     }
 
     fn drain_degrades(&mut self) -> Vec<DegradeRecord> {

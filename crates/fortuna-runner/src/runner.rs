@@ -252,10 +252,15 @@ pub struct RunCounters {
     /// Settlement lifecycle outcomes (Section 8 lifecycle metrics).
     pub settlement_voids: u64,
     pub settlement_reversals: u64,
-    /// Cognition spend, merged from strategy metrics (Section 8 "model
-    /// cost per day and per decision" — per-decision rides in the
-    /// cognition audit rows; this is the running total).
+    /// Cognition spend accrued by COMPLETED decisions, merged from
+    /// strategy metrics. Per-decision cost rides in belief provenance;
+    /// the budget-true day total (including failed-call burn) is
+    /// `mind_spend_today_cents`.
     pub cognition_cost_cents: i64,
+    /// Budget-true mind spend today, summed across strategies (each
+    /// synthesis strategy owns its mind; a shared-mind composition would
+    /// double-count and must export per-strategy instead).
+    pub mind_spend_today_cents: i64,
 }
 
 /// One exported metric sample (plain data: the ops layer maps these into
@@ -1877,8 +1882,13 @@ impl SimRunner {
         for (name, help, value) in [
             (
                 "fortuna_cognition_cost_cents_total",
-                "Cognition spend in cents (running total)",
+                "Cognition spend accrued by completed decisions (cents)",
                 c.cognition_cost_cents,
+            ),
+            (
+                "fortuna_mind_spend_today_cents",
+                "Budget-true mind spend today incl. failed-call burn (cents)",
+                c.mind_spend_today_cents,
             ),
             (
                 "fortuna_order_ack_latency_ms_sum",
@@ -2216,6 +2226,7 @@ impl SimRunner {
             counters.beliefs_drafted += m.beliefs_drafted;
             counters.model_proposals_discarded += m.model_proposals_discarded;
             counters.cognition_cost_cents += m.cognition_cost_cents;
+            counters.mind_spend_today_cents += m.mind_spend_today_cents;
         }
         counters
     }

@@ -13,30 +13,29 @@ with executed evidence, regression battery clean (630 tests, three-stage
 system-0-4-egate-INDEPENDENT-2026-06-10.md, blind to the first e-gate
 verdict, fresh seeds) corroborated all five E-closures on their ledgered
 close criteria — and found ONE new Major (F1 below) plus two Minors that
-the first e-gate missed. F1 is the only open engineering item; everything
-else below is an OPERATOR action. One Minor stays disclosed: the
+the first e-gate missed. F1-F3 were closed and re-gated (f-batch-gate, ACCEPT-WITH-GAPS; its three
+Minors closed at head). Everything below is an OPERATOR action. One Minor stays disclosed: the
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
-## Engineering item F1: OPEN (found by the independent e-gate)
+## Engineering items F1-F3: CLOSED (gate-verified)
 
-- **F1. Budget-breach / cognition-failure degrade is SILENT (Major).**
-  Spec line 238 ("budget breach degrades to mechanical-only AND ALERTS");
-  the E3 fix-spec itself required an audit row on degrade. Current:
-  crates/fortuna-runner/src/synthesis.rs:168-173 swallows the error kind
-  (`Err(_failure)`) into `metrics.cognition_failures += 1` — no audit row
-  kind exists for cognition/budget degrade, and fortuna-ops has zero
-  `cognition_failures` references (no alert rule), so a permanently
-  budget-starved or failing mind is invisible except to someone reading
-  the metrics endpoint. Fix spec: preserve the failure kind; write an
-  audit row per degraded cycle (kind, scope, spent/cap when BudgetExhausted);
-  add an ops alert rule (threshold or every-breach for budget). Companion
-  Minors from the same gate: (F2) BUILD_PLAN T2.8 DONE note never received
-  its visible correction; (F3) a cycle whose model output is wholly
-  discarded leaves no audit trace (same family — fold into the F1 fix).
-  Close criterion: test asserting a BudgetExhausted cycle writes the audit
-  row + an ops-layer rule referencing the signal; then a targeted re-gate
-  of this item alone.
+Found OPEN by the independent e-gate; closed by b4c839f (F1: degrade
+kind preserved + drained to 'cognition' audit rows + bus events, budget
+breaches counted once at the drain and exported; ops alerts module —
+every breach alerts with the scrape count, failure bursts threshold-
+gated; F2: BUILD_PLAN T2.8 visible correction; F3: wholly-discarded
+output writes a model_proposals_discarded trace) and graded CLOSED by
+the targeted re-gate (docs/reviews/f-batch-gate-2026-06-10.md,
+ACCEPT-WITH-GAPS). That gate's three Minors closed at the head commit:
+the settlement_dst aggregate coverage asserts now gate on a 100-scenario
+floor (a 20-scenario draw can legitimately miss the halting arms — a
+coverage assert that intermittently reds healthy code erodes trust in
+real reds; repro master 1781139292562 now passes), the cost-metric
+undercount gained the budget-true surface (fortuna_mind_spend_today_cents
+includes failed-call burn, test-asserted on a schema-invalid call), and
+the false "cost rides in cognition audit rows" doc line was corrected
+visibly in ASSUMPTIONS (per-decision cost rides in belief provenance).
 
 Verification record: five verdicts in docs/reviews/ (phase-1, phase-2,
 system-0-1-2, phase-3, system-0-3-final, all 2026-06-10). The phase-3 gate

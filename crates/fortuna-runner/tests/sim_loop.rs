@@ -356,6 +356,7 @@ fn section_8_metric_surface_is_present() {
         "fortuna_capital_in_limbo_cents",
         "fortuna_envelope_utilization_bps",
         "fortuna_cognition_cost_cents_total",
+        "fortuna_mind_spend_today_cents",
         "fortuna_budget_breaches_total",
         "fortuna_cognition_failures_total",
     ] {

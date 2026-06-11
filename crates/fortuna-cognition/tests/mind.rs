@@ -438,6 +438,36 @@ async fn mind_from_env_gates_on_the_key() {
     std::env::remove_var(ENV_ANTHROPIC_API_KEY);
 }
 
+// ---- failed-call burn is visible (f-batch gate Minor 3) ----
+
+#[tokio::test]
+async fn failed_calls_burn_into_spent_today() {
+    use fortuna_cognition::mind::Mind;
+    use fortuna_core::clock::SimClock;
+    use std::sync::Arc;
+
+    // The model returns prose: schema-invalid, REJECTED — but the tokens
+    // were spent, and the budget-true surface must show it.
+    let prose = json!({
+        "id": "msg", "type": "message", "model": "claude-fable-5",
+        "stop_reason": "end_turn",
+        "content": [{"type": "text", "text": "I think YES looks good!"}],
+        "usage": {"input_tokens": 2_000, "output_tokens": 400}
+    });
+    let transport = MockTransport::new(vec![(200, prose)]);
+    let clock = Arc::new(SimClock::new(t("2026-06-11T12:00:00.000Z")));
+    let mind = AnthropicMind::new(config(), transport, CostBudget::new(100, 1_000), clock);
+    let dyn_mind: &dyn Mind = &mind;
+
+    assert_eq!(dyn_mind.spent_today_cents(), 0);
+    let err = dyn_mind.decide(&ctx()).await.unwrap_err();
+    assert!(matches!(err, MindError::SchemaInvalid { .. }));
+    assert!(
+        dyn_mind.spent_today_cents() > 0,
+        "rejected output still burned tokens; the spend must be visible"
+    );
+}
+
 // ---- E3: the per-cycle cap actually BINDS ----
 
 #[test]

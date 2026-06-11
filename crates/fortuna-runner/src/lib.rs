@@ -107,8 +107,13 @@ pub struct StrategyMetrics {
     /// Model-emitted ProposalDrafts the cycle discarded (the harness
     /// derives its own candidates; the discard is counted, never silent).
     pub model_proposals_discarded: u64,
-    /// Cognition spend attributed to this strategy (cents).
+    /// Cognition spend accrued by COMPLETED decisions (cents). Failed
+    /// calls also burn tokens; the budget-true total including them is
+    /// `mind_spend_today_cents`.
     pub cognition_cost_cents: i64,
+    /// The mind's own running spend today (budget-true: includes failed
+    /// calls). Gauge semantics; resets at the mind's 00:00 UTC roll.
+    pub mind_spend_today_cents: i64,
 }
 
 /// One degraded-cognition event for the audit log (F1: degrade is never

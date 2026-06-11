@@ -158,6 +158,13 @@ pub trait Mind: Send + Sync {
     /// cap spans all calls of one cycle (a retry shares the allowance).
     /// Free-running minds (stub) need no notion of a cycle.
     fn begin_cycle(&self) {}
+    /// The mind's own running spend today, in cents — the BUDGET-TRUE
+    /// number, which includes tokens consumed by failed calls (refusals,
+    /// schema-invalid outputs) that never produced a usable decision.
+    /// Stub minds spend nothing.
+    fn spent_today_cents(&self) -> i64 {
+        0
+    }
 }
 
 /// Deterministic scripted mind (DST and Phase 2 exit). Outputs replay in
@@ -583,6 +590,13 @@ impl<T: MindTransport> Mind for AnthropicMind<T> {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .begin_cycle();
+    }
+
+    fn spent_today_cents(&self) -> i64 {
+        self.budget
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .spent_today_cents()
     }
 
     /// The spec 5.9 trait boundary: budget checked BEFORE the call,
