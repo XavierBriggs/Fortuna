@@ -268,3 +268,35 @@ EXIT MET (2026-06-10): every checklist item DONE or OPERATOR-BLOCKED with exact
 unblock steps — see FINAL_REPORT.md Section 4 for the per-item disposition and
 GAPS.md for the blocked set (Kalshi fixtures, credentials, Aeolus export,
 Polymarket research+fixtures, spec v0.9 touch-up).
+
+## Phase 4 — Live composition (post-acceptance; operator-directed)
+
+- [ ] T4.1 The composition daemon (`fortuna-live` binary in fortuna-runner or its own
+      crate): config load (fortuna.toml + env secrets, fail-closed on missing),
+      Postgres-backed repos + AuditWriter (no audit, no trading), SimRunner-based
+      tick loop on a real-time cadence (RealClock at the edges, SimClock semantics
+      preserved for replay), mind_from_env (AnthropicMind w/ CostBudget from
+      [cognition] config), strategies from config (mech_structural, mech_extremes
+      w/ veto, synth_events w/ CalibrationParamsRepo.latest + resolved_stats ->
+      CalibrationContext + set_calibration_quality — closes the residue binding),
+      scheduled loops (decision cadence; daily reconciliation 00:00 UTC; weekly/
+      monthly reviews -> digest channel), Slack routing (every message also an
+      audit row) + degrade_alerts scrape consumer (closes the other residue
+      binding), dead-man pinger (FORTUNA_DEADMAN_URL, every minute), metrics HTTP
+      endpoint (GET-only, Tailscale-bound per spec), halt-state poll <= 500ms w/
+      poll-failure alert, graceful shutdown (cancel working orders, final audit
+      row). Sim venue ONLY until fixtures clear (venue selection is config;
+      kalshi refuses without fixture clearance). DST: a daemon-composition
+      smoke (boot -> N ticks -> clean shutdown, deterministic under SimClock).
+      Verifier-gated like every batch.
+- [ ] T4.2 POST-FIXTURE tranche (blocked on the operator recording session):
+      Kalshi WS dial (signed handshake, keep-alive, redial w/ resubscribe-on-gap),
+      venue-generic recorded-stream replay into PaperVenue under both mech
+      strategies, kalshi adapter paper/live clearance vs fixtures, kill-switch
+      KalshiVenue plug (FORTUNA_KILLSWITCH_* creds), Slack Socket Mode listener
+      (app token; kill REQUESTS only, re-arms stay CLI-only).
+
+EXIT: the daemon runs for a continuous week in Sim with the real mind — beliefs
+calibrated/persisted/scored in Postgres, cost tracked against config budgets,
+digests and alerts landing in Slack, dead-man green — with zero unexplained
+halts and a clean operator-runnable shutdown/restart (boot reconciliation).
