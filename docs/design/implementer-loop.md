@@ -49,6 +49,10 @@ EACH ITERATION, do exactly ONE item, then commit and start the next iteration.
    scripts/run-dst.sh ALL green; new failure modes become DST scenarios;
    GAPS.md/ASSUMPTIONS.md updated for anything assumed or deferred; BUILD_PLAN
    box ticked with a one-line note + commit hash.
+   THE BATTERY IS A COMMIT-GATE (added after clippy shipped red at TWO
+   consecutive gates): run the FULL battery in the SAME iteration as the
+   commit; if any step is red, the commit DOES NOT HAPPEN this iteration —
+   fix or stash. An unbatteried commit is a ledger lie in commit form.
 
 5. BOUNDARIES (absolute):
    - crates/fortuna-invariants/: pure ADDITIONS only, and avoid touching it at

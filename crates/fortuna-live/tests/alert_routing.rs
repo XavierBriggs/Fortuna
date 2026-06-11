@@ -142,3 +142,81 @@ async fn slack_send_failure_is_counted_never_silent() {
         "the post was attempted"
     );
 }
+
+#[test]
+fn build_router_none_token_is_slack_disabled_not_an_error() {
+    use fortuna_live::daemon::build_slack_router;
+    let cfg = SlackConfig {
+        channels: ["trading", "alerts", "review", "digest", "ops"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+    };
+    let r = build_slack_router(
+        &cfg,
+        None,
+        BTreeMap::new(),
+        Box::new(MockTransport::default()),
+    )
+    .unwrap();
+    assert!(
+        r.is_none(),
+        "no bot token => Slack disabled (alerts still audit)"
+    );
+}
+
+#[test]
+fn build_router_with_token_and_ids_succeeds() {
+    use fortuna_live::daemon::build_slack_router;
+    let cfg = SlackConfig {
+        channels: ["trading", "alerts", "review", "digest", "ops"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+    };
+    let ids: BTreeMap<String, String> = [
+        ("trading", "C0TRADING"),
+        ("alerts", "C0ALERTS"),
+        ("review", "C0REVIEW"),
+        ("digest", "C0DIGEST"),
+        ("ops", "C0OPS"),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
+    let r = build_slack_router(
+        &cfg,
+        Some("xoxb-x"),
+        ids,
+        Box::new(MockTransport::default()),
+    )
+    .unwrap();
+    assert!(r.is_some());
+}
+
+#[test]
+fn build_router_missing_channel_id_is_loud_not_silent_none() {
+    use fortuna_live::daemon::build_slack_router;
+    let cfg = SlackConfig {
+        channels: ["trading", "alerts", "review", "digest", "ops"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+    };
+    // Token present but the env lacks a channel id the config names: a
+    // half-configured Slack must NOT look like "Slack off".
+    let partial: BTreeMap<String, String> = [("trading", "C0TRADING")]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    let r = build_slack_router(
+        &cfg,
+        Some("xoxb-x"),
+        partial,
+        Box::new(MockTransport::default()),
+    );
+    assert!(
+        r.is_err(),
+        "missing channel id with a token present is a loud error"
+    );
+}

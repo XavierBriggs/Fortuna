@@ -96,13 +96,16 @@ Postgres connect+migrate -> composed SimRunner (mech_structural over the
 ticks on the injected clock; wall time enters ONLY at the binary edge +
 cadence driver) -> SIGTERM/SIGINT -> graceful shutdown (cancel + final
 audit row; smoke-asserted via the same stop channel, req-10 smoke in
-run-dst.sh stage 5) -> GET-only metrics endpoint from config. HONESTLY
-STILL OPEN before the T4.1 tick: Slack routing of degrade alerts (they
-land as 'alert' audit rows + stderr today), the SYNTHESIS strategy in
-the daemon main (compose::calibration_for_scope tested but not yet fed
-into a booted SynthesisStrategy), the scheduled daily/weekly loops (req
-5 tail), and the dead-man pinger (deliberately unwired — first ping arms
-the external monitor). Belief persistence (req 6): the PATH now exists
+run-dst.sh stage 5) -> GET-only metrics endpoint from config -> degrade
+alerts routed to Slack (env-built router) + audited every segment.
+HONESTLY STILL OPEN before the T4.1 tick: the SYNTHESIS strategy in the
+daemon main (compose::calibration_for_scope + persist_beliefs tested but
+not yet fed into a daemon-booted SynthesisStrategy — BLOCKED on the
+edge-source design: where the daemon's synthesis edges come from
+[EdgesRepo load vs config vs the discovery loop] is a deliberate design
+call, not a guess), the scheduled daily/weekly loops (req 5 tail), and
+the dead-man pinger (deliberately unwired — first ping arms the external
+monitor). Belief persistence (req 6): the PATH now exists
 and is tested — strategies drain belief drafts (Strategy::drain_beliefs,
 default empty; SynthesisStrategy buffers outcome.beliefs), the runner
 collects them (drain_pending_beliefs), and daemon::persist_beliefs
@@ -111,16 +114,48 @@ STILL OPEN: the daemon main drains+persists each segment ONLY once a
 belief-producing strategy is in the composition (today's mech_structural
 holds none) — lands with synthesis-in-main.
 
+T41-DAEMON-GATE FIXES (2026-06-11, the daemon gate's BLOCK):
+- F1 clippy-red (drive too_many_args at 77588c5/817d2e7): FIXED at
+  871c339 (#[allow] — the args are distinct composition inputs);
+  CLIPPY_EXIT=0 verified at head with a real exit code. PROCESS FIX: the
+  battery is captured with `; echo EXIT=$?`, never `| tail -1` (the pipe
+  masked clippy's exit and let two red commits through — the gate caught
+  exactly that).
+- F2 halt re-audit flood (Major): FIXED — run_loop dedups on halt
+  identity (apply+audit once per reason; re-audit on change; clears on
+  out-of-band re-arm). Test: a standing halt over 20 polls = 1 audit row.
+- F3 SIGTERM-with-working-orders (Major): FIXED — daemon_smoke gains
+  signal_with_working_orders_cancels_them_and_audits (thin books leave
+  resting orders; the stop channel = main's SIGTERM channel; asserts
+  cancelled>=1 + journaled cancels + one final audit row). REAL OS-signal
+  delivery is not asserted in-repo (the handler routes the same channel;
+  ledgered as the untestable seam).
+- F4 poll-failure alert: IMPLEMENTED — drive routes an Ops alert when a
+  segment had halt-poll failures (halt rail blind).
+- F5/F6 comments + reservation assertion: shutdown.rs comment corrected
+  (handler exists); audit_death_staging now asserts reserved_total==0 on
+  every abort fail-point. DST-ARM DECISION: the audit-death-mid-staging
+  failure mode is covered by the audit_death_staging SWEEP (~40
+  deterministic sub-cases/run) rather than a randomized settlement_dst
+  arm — the vector is the staging boundary, not a venue-fault timeline,
+  so an exhaustive sweep pins it better than seeded sampling.
+- F7 belief tidy: error-string dup detection REPLACED with a checked
+  EXISTS query; belief ids are caller-monotonic sortable TEXT (NOT full
+  ULIDs — daemon does not thread the runner IdGen; uniqueness+sort is all
+  the PK needs); the append-only beliefs table IS the persistence record
+  (no separate audit row by design); not-called-from-main stays ledgered
+  (synthesis-in-main is edge-source-design-blocked).
+
 REMAINING (composition-wiring; T4.1 in progress — status 2026-06-11):
-- fortuna_ops::alerts::degrade_alerts scrape-delta consumer: WIRED. The
-  daemon drive loop scrapes per segment and routes via
-  daemon::route_alerts — Slack send when a router is configured + an
-  audit row ALWAYS (spec 8), send failures counted for dead-man
-  escalation, never silent (3 pinned tests with a mock transport).
-  REMAINING SLIVER: main passes None for the router until the env-built
-  SlackRouter (bot token + channel ids over the reqwest transport) is
-  constructed in main — bounded next step; alerts route to audit rows
-  meanwhile.
+- fortuna_ops::alerts::degrade_alerts scrape-delta consumer: FULLY
+  WIRED. The daemon drive loop scrapes per segment and routes via
+  daemon::route_alerts (Slack send + audit row always, spec 8; send
+  failures counted, never silent); MAIN now builds the SlackRouter from
+  the validated env via daemon::build_slack_router over the reqwest
+  transport (token present => Some; a config-named channel id absent in
+  env is a LOUD boot error, never silent-None). 6 pinned tests (mock
+  transport: route+audit, no-router, failed-send-counted, build none/
+  some/loud-missing-id). No remaining sliver on this residue line.
 - CalibrationParamsRepo.latest call site: compose::calibration_for_scope
   now fetches latest + resolved_stats and builds CalibrationContext +
   calibration_quality (fail-closed None / zero; corrupt params row

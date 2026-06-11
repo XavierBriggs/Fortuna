@@ -86,6 +86,12 @@ where
     let mut stats = LoopStats::default();
     let mut last_tick_ms = runner.clock.now().epoch_millis();
     let mut wakes: u64 = 0;
+    // Apply + audit a standing halt ONCE per identity (gate finding,
+    // 2026-06-11): a persistent halt re-applied every 500ms poll would
+    // flood the I5 audit table (~172k rows/day for one halt) and drown
+    // replay. Re-apply only when the active halt reason CHANGES (or
+    // clears and returns); the gates stay halted regardless.
+    let mut last_halt: Option<String> = None;
     loop {
         if let Some(max) = max_wakes {
             if wakes >= max {
@@ -105,12 +111,22 @@ where
         stats.halt_polls += 1;
         match poller.poll().await {
             Ok(Some(reason)) => {
-                runner.apply_external_halt(&reason);
-                stats.halts_applied += 1;
+                // Dedup on identity: apply+audit only when the standing
+                // halt first appears or its reason changes.
+                if last_halt.as_deref() != Some(reason.as_str()) {
+                    runner.apply_external_halt(&reason);
+                    stats.halts_applied += 1;
+                    last_halt = Some(reason);
+                }
             }
-            Ok(None) => {}
-            Err(_unreachable_store) => {
-                // Counted, surfaced by the composition's metrics/alerts;
+            Ok(None) => {
+                // The halt cleared out-of-band (operator re-arm); a later
+                // halt with the same reason is a NEW event to audit.
+                last_halt = None;
+            }
+            Err(_store) => {
+                // The halt store is unreachable: count it AND alert via
+                // the run loop's poll-failure signal (drive routes it);
                 // last-known halt state governs until the store answers.
                 stats.poll_failures += 1;
             }

@@ -241,5 +241,13 @@ fn audit_death_before_any_venue_contact_means_zero_venue_contact() {
             report.halted,
             "audit death must surface as the global halt (fail point {fail_after})"
         );
+        // Reservations made while staging MUST be released on the abort
+        // (gate finding: the probe verified release; the test now does
+        // too) — a leaked reservation permanently locks envelope capital.
+        assert_eq!(
+            r.reserved_total("mech_structural").raw(),
+            0,
+            "staged reservations released on the audit-death abort (fail point {fail_after})"
+        );
     }
 }

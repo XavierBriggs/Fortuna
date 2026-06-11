@@ -11,15 +11,19 @@
 //! stop signal -> SimRunner::shutdown (cancel working orders + final
 //! audit row).
 //!
-//! Degrade alerts ROUTE to Slack via route_alerts when a router is
-//! configured (audit row always; send failure counted, never silent);
-//! main passes None until the env-built router lands (ledgered).
+//! Degrade alerts ROUTE to Slack via route_alerts (audit row always;
+//! send failure counted, never silent); main builds the router from the
+//! validated env via build_slack_router over the reqwest transport.
+//!
+//! Belief persistence (persist_beliefs) + the drain path exist and are
+//! tested; the daemon main persists them once a belief-producing
+//! strategy is composed (mech_structural holds none today).
 //!
 //! HONESTLY NOT HERE YET (ledgered in GAPS; claims must match code):
-//! the env-built SlackRouter in main, the synthesis strategy in main
-//! (compose::calibration_for_scope is wired in tests, not yet fed into
-//! a daemon-booted SynthesisStrategy), belief persistence, and the
-//! scheduled daily/weekly loops.
+//! the synthesis strategy in main (compose::calibration_for_scope +
+//! persist_beliefs are tested, not yet fed into a daemon-booted
+//! SynthesisStrategy — edge-source design-blocked), and the scheduled
+//! daily/weekly loops.
 
 use crate::audit_bridge::PgAuditSink;
 use crate::boot::{BootError, DaemonToml};
@@ -223,7 +227,21 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
         // configured) and ALWAYS land as audit rows (spec 8). A Slack
         // send failure is audited, never silent.
         let counters = runner.counters();
-        let alerts = scrape.scrape(counters.budget_breaches, counters.cognition_failures);
+        let mut alerts = scrape.scrape(counters.budget_breaches, counters.cognition_failures);
+        // Halt-poll FAILURE alert (T4.1 req 5 pin: poll failures alert):
+        // a segment that could not reach the halt store at all is an Ops
+        // alert — trading continues on last-known halt state, but the
+        // operator must know the halt rail went blind.
+        if stats.poll_failures > 0 {
+            alerts.push((
+                fortuna_ops::MessageKind::Ops,
+                format!(
+                    "halt-state poll failed {} time(s) this segment — halt rail blind, \
+                     trading on last-known state",
+                    stats.poll_failures
+                ),
+            ));
+        }
         let _send_failures = route_alerts(slack, runner, &alerts).await;
 
         between_segments(runner, &stats);
@@ -278,10 +296,18 @@ pub fn registry_from<J: fortuna_exec::IntentJournal + Send>(
 }
 
 /// Persist drained belief drafts to the ledger (req 6): the event is
-/// upserted first (the beliefs FK requires it — `event_id` comes from
+/// created IF ABSENT (the beliefs FK requires it — `event_id` comes from
 /// the draft, which the synthesis cycle derives from its edge config),
-/// then the belief row. Idempotent on the event (create-if-absent);
-/// belief ids are fresh ULIDs per draft. Returns the count persisted.
+/// then the belief row. Returns the count persisted.
+///
+/// Idempotency on the event uses a checked EXISTS query, NOT error-string
+/// sniffing (gate finding: string-matching DB errors is brittle). The
+/// belief row in the append-only `beliefs` table IS the persistence
+/// record — there is no separate audit row, by design (the belief ledger
+/// is itself the auditable substrate; see GAPS req-6 note). Belief ids
+/// are unique sortable TEXT PKs from a caller-monotonic base (NOT full
+/// ULIDs — the daemon does not thread the runner's IdGen; uniqueness +
+/// sort order is all the PK needs; ledgered).
 ///
 /// A persistence error is NOT swallowed — a daemon that cannot record
 /// its beliefs has lost its calibration substrate and the caller decides
@@ -301,34 +327,36 @@ pub async fn persist_beliefs(
     let beliefs = BeliefsRepo::new(pool.clone());
     let mut n = 0usize;
     for (i, (strategy, draft)) in drafts.iter().enumerate() {
-        // Upsert the event (synthesis events are model-discovered; the
-        // daemon records a minimal row so the FK holds — the discovery
-        // loop enriches it later, spec 5.12).
-        events
-            .create(
-                &draft.event_id,
-                &format!("belief event for {strategy}"),
-                "synthesis-derived",
-                "synthesis",
-                Some(&draft.horizon.to_iso8601()),
-                &draft.horizon.to_iso8601(),
-                "synthesis",
-                now_iso,
-            )
-            .await
-            .or_else(|e| {
-                // Already exists (a prior draft on the same event): fine.
-                if e.to_string().contains("duplicate") || e.to_string().contains("unique") {
-                    Ok(())
-                } else {
-                    Err(DaemonError::Compose {
-                        reason: format!("event upsert for {}: {e}", draft.event_id),
-                    })
-                }
-            })?;
-        // Unique TEXT PK from a caller-supplied MONOTONIC base (the
-        // daemon advances it past every persisted draft; the test passes
-        // a disjoint base per call) — never a wall-clock guess.
+        // Create the event only if absent (checked existence, not
+        // error-string sniffing). The daemon records a minimal row so
+        // the FK holds; the discovery loop enriches it later (spec 5.12).
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM events WHERE event_id = $1)")
+                .bind(&draft.event_id)
+                .fetch_one(pool)
+                .await
+                .map_err(|e| DaemonError::Compose {
+                    reason: format!("event existence check for {}: {e}", draft.event_id),
+                })?;
+        if !exists {
+            events
+                .create(
+                    &draft.event_id,
+                    &format!("belief event for {strategy}"),
+                    "synthesis-derived",
+                    "synthesis",
+                    Some(&draft.horizon.to_iso8601()),
+                    &draft.horizon.to_iso8601(),
+                    "synthesis",
+                    now_iso,
+                )
+                .await
+                .map_err(|e| DaemonError::Compose {
+                    reason: format!("event create for {}: {e}", draft.event_id),
+                })?;
+        }
+        // Unique sortable TEXT PK from a caller-MONOTONIC base — never a
+        // wall-clock guess; not a full ULID (ledgered, req-6 note).
         let belief_id = format!("01BLF{:021}", id_base + i as u64);
         beliefs
             .insert(
@@ -391,4 +419,30 @@ pub async fn route_alerts<J: fortuna_exec::IntentJournal + Send>(
         }
     }
     send_failures
+}
+
+/// Build the Slack router from the validated env (req 3 sliver): the
+/// bot token + the per-channel ids (FORTUNA_SLACK_CHANNEL_<NAME>, already
+/// validated present) over the supplied transport. `None` ONLY when no
+/// bot token is configured (Slack disabled — alerts still audit); any
+/// OTHER construction failure (a channel id the config names but env
+/// lacks) is a LOUD error, never a silent None — a half-configured Slack
+/// must not look like "Slack off".
+pub fn build_slack_router(
+    slack_cfg: &fortuna_ops::SlackConfig,
+    bot_token: Option<&str>,
+    channel_ids: std::collections::BTreeMap<String, String>,
+    transport: Box<dyn fortuna_ops::SlackTransport>,
+) -> Result<Option<fortuna_ops::SlackRouter>, DaemonError> {
+    let token = match bot_token {
+        None => return Ok(None),
+        Some(t) => t.to_string(),
+    };
+    let router =
+        fortuna_ops::SlackRouter::new(slack_cfg, channel_ids, token, transport).map_err(|e| {
+            DaemonError::Compose {
+                reason: format!("slack router construction: {e}"),
+            }
+        })?;
+    Ok(Some(router))
 }

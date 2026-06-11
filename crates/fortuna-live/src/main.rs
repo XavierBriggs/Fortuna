@@ -124,6 +124,22 @@ async fn main() -> Result<()> {
     };
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
 
+    // Slack router from the validated env over the real reqwest transport.
+    // The bot token validated present => Some(router); a channel id the
+    // config names but env lacks is a LOUD boot error (validate_env
+    // already required all five, so this only fails on a config/env
+    // mismatch). Routed alerts each write an audit row (spec 8).
+    let slack_router = fortuna_live::daemon::build_slack_router(
+        &full.slack,
+        Some(validated.slack_bot_token.expose()),
+        validated.slack_channels.clone(),
+        Box::new(fortuna_ops::ReqwestTransport::new().context("slack transport")?),
+    )
+    .context("slack router")?;
+    if slack_router.is_some() {
+        eprintln!("fortuna-live: Slack routing active (alerts -> #fortuna-alerts/#fortuna-ops)");
+    }
+
     let snapshot_for_segments = snapshot.clone();
     let (stats, shutdown) = drive(
         &mut runner,
@@ -141,10 +157,7 @@ async fn main() -> Result<()> {
             }
         },
         &mut scrape,
-        // Slack routing: the router builds from the validated bot token +
-        // channel ids over the real reqwest transport. Until that build is
-        // wired here (ledgered next step), alerts route to audit rows only.
-        None,
+        slack_router.as_ref(),
     )
     .await
     .context("daemon loop")?;

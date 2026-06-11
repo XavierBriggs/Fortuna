@@ -29,10 +29,13 @@ impl CadenceDriver for SimCadence {
 }
 
 /// Scripted halt poller: counts calls; yields a halt or an error when told.
+/// `standing_from_call` returns the SAME halt on every poll at/after it
+/// (a persistent operator halt — the re-audit-flood vector).
 #[derive(Default)]
 struct ScriptedPoller {
     calls: u64,
     halt_at_call: Option<u64>,
+    standing_from_call: Option<u64>,
     fail_at_call: Option<u64>,
 }
 
@@ -41,6 +44,11 @@ impl HaltPoller for ScriptedPoller {
         self.calls += 1;
         if Some(self.calls) == self.fail_at_call {
             return Err("halt store unreachable (scripted)".to_string());
+        }
+        if let Some(from) = self.standing_from_call {
+            if self.calls >= from {
+                return Ok(Some("operator halt (standing)".to_string()));
+            }
         }
         if Some(self.calls) == self.halt_at_call {
             return Ok(Some("operator halt (scripted)".to_string()));
@@ -122,6 +130,44 @@ async fn polled_halt_applies_to_the_gates_and_audits(pool: PgPool) {
     .await
     .unwrap();
     assert_eq!(halt_rows, 1, "the polled halt is audited");
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn a_standing_halt_audits_exactly_once_over_many_polls(pool: PgPool) {
+    // Gate finding (2026-06-11): a persistent halt re-applied every poll
+    // floods the audit table. A standing halt across 20 polls must yield
+    // exactly ONE application + ONE halt audit row.
+    let mut r = compose(&pool).await;
+    let mut cadence = SimCadence {
+        clock: r.clock.clone(),
+    };
+    let mut poller = ScriptedPoller {
+        standing_from_call: Some(2),
+        ..ScriptedPoller::default()
+    };
+    let cfg = LoopConfig {
+        tick_interval_ms: 1000,
+        halt_poll_ms: 500,
+    };
+    let (_tx, mut stop) = tokio::sync::oneshot::channel::<()>();
+    let stats = run_loop(&mut r, &mut cadence, &mut poller, &cfg, Some(20), &mut stop)
+        .await
+        .unwrap();
+    assert_eq!(stats.halt_polls, 20, "polled every wake: {stats:?}");
+    assert_eq!(
+        stats.halts_applied, 1,
+        "a standing halt applies ONCE, not per poll: {stats:?}"
+    );
+    let halt_rows: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit WHERE kind = 'halt' AND payload->>'source' = 'halt_poll'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        halt_rows, 1,
+        "exactly one halt audit row for the standing halt"
+    );
 }
 
 #[sqlx::test(migrations = "../fortuna-ledger/migrations")]

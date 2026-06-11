@@ -54,6 +54,12 @@ impl HaltPoller for NeverHalted {
 }
 
 fn arb_books(r: &SimRunner<PgIntentJournal>) {
+    books(r, 80);
+}
+
+/// `ask_depth` = 1 leaves a RESTING remainder per leg (working orders at
+/// stop) — the SIGTERM-contract vector (cancel working orders on signal).
+fn books(r: &SimRunner<PgIntentJournal>, ask_depth: i64) {
     let lvl = |p: i64, q: i64| PriceLevel {
         price: Cents::new(p),
         qty: Contracts::new(q),
@@ -67,7 +73,7 @@ fn arb_books(r: &SimRunner<PgIntentJournal>) {
             .set_book(
                 &MarketId::new(m).unwrap(),
                 vec![lvl(bid, 80)],
-                vec![lvl(ask, 80)],
+                vec![lvl(ask, ask_depth)],
             )
             .unwrap();
     }
@@ -143,4 +149,72 @@ async fn daemon_smoke_boot_ticks_signal_shutdown(pool: PgPool) {
             .await
             .unwrap();
     assert_eq!(final_rows, 1, "exactly one final audit row");
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn signal_with_working_orders_cancels_them_and_audits(pool: PgPool) {
+    // Gate finding (2026-06-11): the SIGTERM contract is "cancel WORKING
+    // orders + final audit row" — the happy smoke had none at stop.
+    // Thin asks leave resting remainders working at signal time; the
+    // stop channel is the exact channel main's SIGTERM handler fires.
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let dcfg = DaemonToml::parse(&text).unwrap();
+    let full = FortunaConfig::load_file(example_path).unwrap();
+    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 7)
+        .await
+        .unwrap();
+    books(&runner, 1); // depth 1 => partial fill, remainder rests working
+
+    let (tx, mut stop) = tokio::sync::oneshot::channel::<()>();
+    let mut cadence = StopAtCadence {
+        clock: runner.clock.clone(),
+        sleeps: 0,
+        fire_at: 4,
+        tx: Some(tx),
+    };
+    let mut poller = NeverHalted;
+    let loop_cfg = LoopConfig {
+        tick_interval_ms: 1000,
+        halt_poll_ms: 500,
+    };
+    let mut scrape = DegradeScrape::new(default_degrade_thresholds());
+
+    let (_stats, shutdown) = drive(
+        &mut runner,
+        &mut cadence,
+        &mut poller,
+        &loop_cfg,
+        8,
+        &mut stop,
+        |_r, _s| {},
+        &mut scrape,
+        None,
+    )
+    .await
+    .expect("daemon drive");
+
+    assert!(
+        shutdown.cancelled >= 1,
+        "the signal cancelled working orders (got {shutdown:?})"
+    );
+    let cancel_events: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM intent_events WHERE event->>'kind' IN ('cancel_requested', 'cancelled')",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        cancel_events >= 1,
+        "cancels journaled on signal ({cancel_events})"
+    );
+    let final_rows: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM audit WHERE kind = 'daemon_shutdown'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(final_rows, 1, "exactly one final audit row on signal");
 }

@@ -475,6 +475,12 @@ impl<J: IntentJournal + Send> SimRunner<J> {
         &self.positions
     }
 
+    /// Active reserved capital for a strategy (read-only; tests assert
+    /// reservations release on abort paths — spec 5.14).
+    pub fn reserved_total(&self, strategy: &str) -> Cents {
+        self.reservations.active_total(strategy)
+    }
+
     pub fn manager(&self) -> &OrderManager<J> {
         &self.manager
     }
