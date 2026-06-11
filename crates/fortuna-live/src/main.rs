@@ -109,10 +109,41 @@ async fn main() -> Result<()> {
         let _ = stop_tx.send(());
     });
 
-    // NOTE (ledgered): the dead-man pinger arms the external monitor on
-    // its FIRST ping — it activates here, in the real daemon, only.
-    // Wiring it is part of the ops tail with Slack routing; until then
-    // the operator must not expect dead-man coverage from this binary.
+    // Dead-man heartbeat: an INDEPENDENT spawned task (it must keep
+    // beating even if a trading segment stalls). It arms the external
+    // monitor on its first ping — so it runs ONLY in this real binary,
+    // NEVER in tests (daemon::deadman_tick is tested with a mock
+    // transport). A ping failure is logged here; the monitor itself is
+    // the escalation of record (silence => it pages the operator).
+    {
+        let mut pinger = fortuna_ops::DeadmanPinger::new(
+            validated.deadman_url.expose().to_string(),
+            &full.deadman,
+            Box::new(fortuna_ops::ReqwestPing::new().context("deadman transport")?),
+        )
+        .context("deadman pinger")?;
+        let interval = std::time::Duration::from_secs(full.deadman.ping_interval_secs.max(1));
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(interval);
+            loop {
+                ticker.tick().await;
+                let now = fortuna_core::clock::UtcTimestamp::from_epoch_millis(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis() as i64)
+                        .unwrap_or(0),
+                )
+                .unwrap_or_else(|_| {
+                    fortuna_core::clock::UtcTimestamp::from_epoch_millis(0).unwrap()
+                });
+                fortuna_live::daemon::deadman_tick(&mut pinger, now, |e| {
+                    eprintln!("fortuna-live: dead-man ping FAILED: {e}");
+                })
+                .await;
+            }
+        });
+        eprintln!("fortuna-live: dead-man heartbeat armed (pings the monitor every interval)");
+    }
 
     let mut cadence = RealCadence {
         clock: runner.clock.clone(),

@@ -19,6 +19,9 @@
 //! tested; the daemon main persists them once a belief-producing
 //! strategy is composed (mech_structural holds none today).
 //!
+//! The dead-man heartbeat runs as an independent spawned task in main
+//! (deadman_tick, mock-tested; real pings only in the binary).
+//!
 //! HONESTLY NOT HERE YET (ledgered in GAPS; claims must match code):
 //! the synthesis strategy in main (compose::calibration_for_scope +
 //! persist_beliefs are tested, not yet fed into a daemon-booted
@@ -445,4 +448,25 @@ pub fn build_slack_router(
             }
         })?;
     Ok(Some(router))
+}
+
+/// One dead-man heartbeat tick (T4.1 req): if a ping is DUE at `now`,
+/// send it; record success, or hand the typed error to `on_failure` for
+/// escalation (the daemon audits + Ops-alerts it — a dead-man ping that
+/// cannot reach the monitor is exactly what the operator must learn). The
+/// pinger NEVER touches the real URL in tests: the test supplies a mock
+/// PingTransport. Returns true iff a ping was attempted this tick.
+pub async fn deadman_tick(
+    pinger: &mut fortuna_ops::DeadmanPinger,
+    now: fortuna_core::clock::UtcTimestamp,
+    mut on_failure: impl FnMut(String),
+) -> bool {
+    if !pinger.due(now) {
+        return false;
+    }
+    match pinger.ping().await {
+        Ok(()) => pinger.record_ping(now),
+        Err(e) => on_failure(e.to_string()),
+    }
+    true
 }
