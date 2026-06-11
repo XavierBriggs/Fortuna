@@ -1,0 +1,675 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "Positions API",
+    "version": "v1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://api.prod.polymarketexchange.com"
+    }
+  ],
+  "tags": [
+    {
+      "name": "PositionAPI"
+    }
+  ],
+  "paths": {
+    "/v1/positions": {
+      "get": {
+        "tags": [
+          "Positions"
+        ],
+        "summary": "List account positions",
+        "description": "Lists all positions within an account",
+        "operationId": "PositionAPI_ListAccountPositions",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Fully qualified resource name of the account."
+          },
+          {
+            "name": "symbol",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Symbol to filter (optional)."
+          },
+          {
+            "name": "as_of_time",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Query positions as of this timestamp (RFC3339 format, e.g., 2026-01-02T17:00:00Z). Returns historical positions instead of current. Mutually exclusive with as_of_date."
+          },
+          {
+            "name": "as_of_date.year",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Year for end-of-trading-day position query (e.g., 2026). Use with as_of_date.month and as_of_date.day."
+          },
+          {
+            "name": "as_of_date.month",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 12
+            },
+            "description": "Month (1-12) for end-of-trading-day position query."
+          },
+          {
+            "name": "as_of_date.day",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 31
+            },
+            "description": "Day (1-31) for end-of-trading-day position query."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAccountPositionsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/positions/balance": {
+      "post": {
+        "tags": [
+          "Positions"
+        ],
+        "summary": "Get account balance",
+        "description": "Gets the balance for a currency in an account",
+        "operationId": "PositionAPI_GetAccountBalance",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetAccountBalanceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetAccountBalanceResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/positions/balances": {
+      "post": {
+        "tags": [
+          "Positions"
+        ],
+        "summary": "List account balances",
+        "description": "Lists all currency balances in an account",
+        "operationId": "PositionAPI_ListAccountBalances",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ListAccountBalancesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAccountBalancesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/positions/ledger": {
+      "get": {
+        "tags": [
+          "Positions"
+        ],
+        "summary": "Get position ledger",
+        "description": "Returns historical position changes for an account.",
+        "operationId": "PositionAPI_GetPositionLedger",
+        "parameters": [
+          {
+            "name": "account",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Required. Fully qualified resource name of the account. Example: `firms/ISV-Alice/accounts/alice-trading`."
+          },
+          {
+            "name": "symbol",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional. Filter by instrument symbol."
+          },
+          {
+            "name": "start_time",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Optional. Inclusive lower bound on `update_time` (RFC3339). Clamped upstream to `2026-05-01T00:00:00Z`."
+          },
+          {
+            "name": "end_time",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Optional. Inclusive upper bound on `update_time` (RFC3339)."
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "maximum": 1000
+            },
+            "description": "Optional. Maximum entries to return per page (max 1000). Values above 1000 return `InvalidArgument`."
+          },
+          {
+            "name": "page_token",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional. Pagination token from a previous response's `nextPageToken` field. Omit for the first request."
+          },
+          {
+            "name": "newest_first",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "Optional. If `true`, return entries in descending `update_time` order. Default is `false` (oldest first)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetPositionLedgerResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/positions/ledger/download": {
+      "get": {
+        "tags": [
+          "Positions"
+        ],
+        "summary": "Download position ledger as CSV",
+        "description": "Streams position ledger as CSV.",
+        "operationId": "PositionAPI_DownloadPositionLedger",
+        "parameters": [
+          {
+            "name": "account",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Required. Fully qualified resource name of the account."
+          },
+          {
+            "name": "symbol",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional. Filter by instrument symbol."
+          },
+          {
+            "name": "start_time",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Optional. Inclusive lower bound on `update_time`. Clamped to `2026-05-01T00:00:00Z`."
+          },
+          {
+            "name": "end_time",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Optional. Inclusive upper bound on `update_time`."
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "maximum": 1000
+            },
+            "description": "Optional. Maximum entries per page (max 1000). Values above 1000 return `InvalidArgument`."
+          },
+          {
+            "name": "page_token",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional. Resume token from a previous download."
+          },
+          {
+            "name": "newest_first",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "Optional. If `true`, rows are emitted in descending `update_time` order."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A successful response (streaming).",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string",
+                  "description": "CSV file stream containing position ledger entries."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "SecurityEntry": {
+        "type": "object",
+        "properties": {
+          "balance": {
+            "type": "string"
+          },
+          "marketValue": {
+            "type": "string"
+          },
+          "haircut": {
+            "type": "string",
+            "format": "int64"
+          },
+          "notionalValue": {
+            "type": "string"
+          },
+          "availableValue": {
+            "type": "string"
+          }
+        },
+        "description": "SecurityEntry describes the valuation of a security."
+      },
+      "CreatePositionSubscriptionRequest": {
+        "type": "object",
+        "properties": {
+          "accounts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "A set of fully qualified resource names of the accounts to filter upon."
+          }
+        },
+        "description": "Request to start a position subscription."
+      },
+      "CreatePositionSubscriptionResponse": {
+        "type": "object",
+        "properties": {
+          "heartbeat": {
+            "$ref": "#/components/schemas/Heartbeat"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/CreatePositionSubscriptionResponseSnapshot"
+          },
+          "update": {
+            "$ref": "#/components/schemas/CreatePositionSubscriptionResponseUpdate"
+          }
+        },
+        "description": "Response for position subscription (streaming)."
+      },
+      "CreatePositionSubscriptionResponseSnapshot": {
+        "type": "object",
+        "properties": {
+          "positions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "$ref": "#/components/schemas/Position"
+            }
+          }
+        },
+        "description": "Snapshot is the current state of positions."
+      },
+      "CreatePositionSubscriptionResponseUpdate": {
+        "type": "object",
+        "properties": {
+          "positions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "$ref": "#/components/schemas/Position"
+            }
+          }
+        },
+        "description": "Update contains position updates."
+      },
+      "GetAccountBalanceRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Fully qualified resource name of the account."
+          },
+          "currency": {
+            "type": "string",
+            "description": "ISO currency code (e.g., \"USD\")."
+          }
+        },
+        "description": "Request to get the balance of an account in a currency."
+      },
+      "GetAccountBalanceResponse": {
+        "type": "object",
+        "properties": {
+          "balance": {
+            "type": "string"
+          },
+          "capitalRequirement": {
+            "type": "string"
+          },
+          "excessCapital": {
+            "type": "string"
+          },
+          "buyingPower": {
+            "type": "string"
+          },
+          "securities": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SecurityEntry"
+            }
+          },
+          "totalSecurityNotionalValue": {
+            "type": "string"
+          },
+          "totalSecurityAvailableValue": {
+            "type": "string"
+          },
+          "openOrders": {
+            "type": "string"
+          },
+          "alternateCapitalRequirementCurrency": {
+            "type": "string"
+          },
+          "alternateCapitalRequirement": {
+            "type": "string"
+          },
+          "unsettledFunds": {
+            "type": "string"
+          },
+          "marginRequirement": {
+            "type": "string"
+          },
+          "updateTime": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "description": "Response with account balance details."
+      },
+      "Heartbeat": {
+        "type": "object",
+        "description": "Heartbeat can be sent on a streaming RPC call to keep the line open."
+      },
+      "ListAccountBalancesRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Fully qualified resource name of the account."
+          }
+        },
+        "description": "Request to list all balances in an account."
+      },
+      "ListAccountBalancesResponse": {
+        "type": "object",
+        "properties": {
+          "balances": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/GetAccountBalanceResponse"
+            }
+          }
+        },
+        "description": "Response with all account balances by currency."
+      },
+      "ListAccountPositionsRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Fully qualified resource name of the account."
+          },
+          "symbol": {
+            "type": "string",
+            "description": "Symbol to filter (optional)."
+          }
+        },
+        "description": "Request to list positions in an account."
+      },
+      "ListAccountPositionsResponse": {
+        "type": "object",
+        "properties": {
+          "positions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "$ref": "#/components/schemas/Position"
+            }
+          },
+          "availablePosition": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "int64"
+            }
+          }
+        },
+        "description": "Response with account positions."
+      },
+      "Position": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "netPosition": {
+            "type": "string",
+            "format": "int64"
+          },
+          "qtyBought": {
+            "type": "string",
+            "format": "int64"
+          },
+          "qtySold": {
+            "type": "string",
+            "format": "int64"
+          },
+          "cost": {
+            "type": "string",
+            "format": "int64"
+          },
+          "realized": {
+            "type": "string",
+            "format": "int64"
+          },
+          "bodPosition": {
+            "type": "string",
+            "format": "int64"
+          },
+          "expired": {
+            "type": "boolean"
+          },
+          "updateTime": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PositionLedgerEntry": {
+        "type": "object",
+        "description": "A single position ledger entry. Each entry represents a transition between two position snapshots, with the change fields derived from the exchange's before/after snapshots: `quantityChange = after.netPosition - before.netPosition`, `costChange = after.cost - before.cost`, `realizedChange = after.realized - before.realized`. The cumulative fields (`netPosition`, `cost`, `realized`) reflect the state immediately after this change.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique entry identifier."
+          },
+          "account": {
+            "type": "string",
+            "description": "Account this entry belongs to."
+          },
+          "symbol": {
+            "type": "string",
+            "description": "Instrument symbol."
+          },
+          "quantityChange": {
+            "type": "string",
+            "format": "int64",
+            "description": "Change in net position quantity (after - before)."
+          },
+          "costChange": {
+            "type": "string",
+            "format": "int64",
+            "description": "Change in cost basis (after - before)."
+          },
+          "realizedChange": {
+            "type": "string",
+            "format": "int64",
+            "description": "Change in realized P&L (after - before)."
+          },
+          "netPosition": {
+            "type": "string",
+            "format": "int64",
+            "description": "Net position quantity after this change."
+          },
+          "cost": {
+            "type": "string",
+            "format": "int64",
+            "description": "Cost basis after this change."
+          },
+          "realized": {
+            "type": "string",
+            "format": "int64",
+            "description": "Cumulative realized P&L after this change."
+          },
+          "updateTime": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp of the position change."
+          },
+          "updateBusinessDate": {
+            "type": "string",
+            "description": "Business date for this change in `YYYY-MM-DD` format."
+          },
+          "description": {
+            "type": "string",
+            "description": "Human-readable reason for the change (e.g., trade fill, expiry, correction)."
+          }
+        }
+      },
+      "GetPositionLedgerResponse": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PositionLedgerEntry"
+            },
+            "description": "Position ledger entries for the requested account / time window."
+          },
+          "nextPageToken": {
+            "type": "string",
+            "description": "Pagination token to fetch the next page. Empty when there are no more results."
+          },
+          "eof": {
+            "type": "boolean",
+            "description": "`true` when this response contains the final page of results."
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,1455 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "protos/gateway/market/v1/market.proto",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://gateway.polymarket.us",
+      "description": "Production server"
+    }
+  ],
+  "tags": [
+    {
+      "name": "MarketService"
+    }
+  ],
+  "paths": {
+    "/v1/market/id/{id}": {
+      "get": {
+        "summary": "Get Market By ID",
+        "description": "Retrieve a specific market by its ID",
+        "operationId": "MarketService_GetMarketsByID",
+        "responses": {
+          "200": {
+            "description": "Market details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/v1GetMarketsByIDResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Market not found",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "description": "Market ID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "tags": [
+          "Markets"
+        ]
+      }
+    },
+    "/v1/market/slug/{slug}": {
+      "get": {
+        "summary": "Get Market By Slug",
+        "description": "Retrieve a specific market by its slug",
+        "operationId": "MarketService_GetMarketBySlug",
+        "responses": {
+          "200": {
+            "description": "Market details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/v1GetMarketBySlugResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Market not found",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "slug",
+            "description": "Market slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "tags": [
+          "Markets"
+        ]
+      }
+    },
+    "/v1/markets": {
+      "get": {
+        "summary": "Get Markets",
+        "description": "Retrieve all markets",
+        "operationId": "MarketService_GetMarkets",
+        "responses": {
+          "200": {
+            "description": "List of markets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/v1GetMarketsResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "limit",
+            "description": "Page size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "offset",
+            "description": "Page offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "orderBy",
+            "description": "Order by fields",
+            "in": "query",
+            "required": false,
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "orderDirection",
+            "description": "Order direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "description": "Market IDs",
+            "in": "query",
+            "required": false,
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "format": "int32"
+              }
+            }
+          },
+          {
+            "name": "slug",
+            "description": "Market slugs",
+            "in": "query",
+            "required": false,
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "archived",
+            "description": "Whether market is archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "active",
+            "description": "Whether market is active",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "closed",
+            "description": "Whether market is closed",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "volumeNumMin",
+            "description": "Minimum volume number",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          {
+            "name": "volumeNumMax",
+            "description": "Maximum volume number",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          {
+            "name": "startDateMin",
+            "description": "Minimum start date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "startDateMax",
+            "description": "Maximum start date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "endDateMin",
+            "description": "Minimum end date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "endDateMax",
+            "description": "Maximum end date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "relatedTags",
+            "description": "Whether related tags are enabled",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "gameId",
+            "description": "Game ID",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sportsMarketTypes",
+            "description": "Sports market types",
+            "in": "query",
+            "required": false,
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "SPORTS_MARKET_TYPE_MONEYLINE",
+                  "SPORTS_MARKET_TYPE_SPREAD",
+                  "SPORTS_MARKET_TYPE_TOTAL",
+                  "SPORTS_MARKET_TYPE_PROP",
+                  "SPORTS_MARKET_TYPE_FUTURE",
+                  "SPORTS_MARKET_TYPE_DRAWABLE_OUTCOME"
+                ]
+              }
+            }
+          },
+          {
+            "name": "includeTag",
+            "description": "Whether to include tag",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "categories",
+            "description": "Categories",
+            "in": "query",
+            "required": false,
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "marketTypes",
+            "description": "Market types",
+            "in": "query",
+            "required": false,
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "includeHidden",
+            "description": "Include hidden markets (default: false)",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "tagIds",
+            "description": "Tag IDs",
+            "in": "query",
+            "required": false,
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "format": "int32"
+              }
+            }
+          }
+        ],
+        "tags": [
+          "Markets"
+        ]
+      }
+    },
+    "/v1/markets/{slug}/bbo": {
+      "get": {
+        "summary": "Get Market BBO",
+        "description": "Retrieve current market data (best bid/offer, stats) for a specific market by its slug in a lightweight format",
+        "operationId": "MarketService_GetMarketBBO",
+        "responses": {
+          "200": {
+            "description": "Market data lite including best bid/offer and stats",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/v1GetMarketBBOResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Market not found",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "slug",
+            "description": "Market slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "tags": [
+          "Markets"
+        ]
+      }
+    },
+    "/v1/markets/{slug}/book": {
+      "get": {
+        "summary": "Get Market Book",
+        "description": "Retrieve current market data (order book, stats) for a specific market by its slug",
+        "operationId": "MarketService_GetMarketBook",
+        "responses": {
+          "200": {
+            "description": "Market data including order book and stats",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/v1GetMarketBookResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Market not found",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "slug",
+            "description": "Market slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "tags": [
+          "Markets"
+        ]
+      }
+    },
+    "/v1/markets/{slug}/settlement": {
+      "get": {
+        "summary": "Get Market Settlement",
+        "description": "Retrieve the settlement price for a specific market by its slug",
+        "operationId": "MarketService_GetMarketSettlement",
+        "responses": {
+          "200": {
+            "description": "Market settlement details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/v1GetMarketSettlementResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Market not found or not settled",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "slug",
+            "description": "Market slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fromEp3",
+            "description": "Whether to get settlement from EP3",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "tags": [
+          "Markets"
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "tagsv1Tag": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique tag identifier"
+          },
+          "label": {
+            "type": "string",
+            "description": "Tag label",
+            "nullable": true
+          },
+          "slug": {
+            "type": "string",
+            "description": "Tag slug for URL",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "Creation timestamp",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "description": "Last update timestamp",
+            "nullable": true
+          },
+          "image": {
+            "type": "string",
+            "description": "Tag image URL",
+            "nullable": true
+          },
+          "tradable": {
+            "type": "boolean",
+            "description": "Whether the tag is tradable",
+            "nullable": true
+          },
+          "league": {
+            "$ref": "#/components/schemas/v1TagLeague"
+          },
+          "sport": {
+            "$ref": "#/components/schemas/v1TagSport"
+          },
+          "parentId": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Parent tag ID",
+            "nullable": true
+          },
+          "subtags": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Nested object (recursive)"
+            },
+            "description": "Child subtags"
+          }
+        }
+      },
+      "v1Amount": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "format": "decimal",
+            "example": 123.45,
+            "description": "The amount as a decimal string."
+          },
+          "currency": {
+            "type": "string",
+            "description": "The currency code"
+          }
+        },
+        "description": "Represents a monetary amount with its currency.",
+        "required": [
+          "value",
+          "currency"
+        ]
+      },
+      "v1BookEntry": {
+        "type": "object",
+        "properties": {
+          "px": {
+            "$ref": "#/components/schemas/v1Amount"
+          },
+          "qty": {
+            "type": "string"
+          }
+        }
+      },
+      "v1GetMarketBBOResponse": {
+        "type": "object",
+        "properties": {
+          "marketData": {
+            "$ref": "#/components/schemas/v1MarketDataLite"
+          }
+        },
+        "description": "Response containing market BBO data in a lightweight format"
+      },
+      "v1GetMarketBookResponse": {
+        "type": "object",
+        "properties": {
+          "marketData": {
+            "$ref": "#/components/schemas/v1MarketData"
+          }
+        },
+        "description": "Response containing market book data including order book and stats"
+      },
+      "v1GetMarketBySlugResponse": {
+        "type": "object",
+        "properties": {
+          "market": {
+            "$ref": "#/components/schemas/v1Market"
+          }
+        },
+        "description": "Response containing market details"
+      },
+      "v1GetMarketSettlementResponse": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Market slug"
+          },
+          "settlement": {
+            "type": "number",
+            "format": "decimal",
+            "description": "Settlement price"
+          }
+        },
+        "description": "Response containing market settlement details"
+      },
+      "v1GetMarketsByIDResponse": {
+        "type": "object",
+        "properties": {
+          "market": {
+            "$ref": "#/components/schemas/v1Market"
+          }
+        },
+        "description": "Response containing market details"
+      },
+      "v1GetMarketsResponse": {
+        "type": "object",
+        "properties": {
+          "markets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/v1Market"
+            },
+            "description": "List of markets"
+          }
+        },
+        "description": "Response containing list of markets"
+      },
+      "v1Market": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique market identifier"
+          },
+          "question": {
+            "type": "string",
+            "description": "Market question",
+            "nullable": true
+          },
+          "slug": {
+            "type": "string",
+            "description": "Market slug for URL",
+            "nullable": true
+          },
+          "endDate": {
+            "type": "string",
+            "description": "Market end date",
+            "nullable": true
+          },
+          "category": {
+            "type": "string",
+            "description": "Market category",
+            "nullable": true
+          },
+          "startDate": {
+            "type": "string",
+            "description": "Market start date",
+            "nullable": true
+          },
+          "image": {
+            "type": "string",
+            "description": "Market image URL",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "description": "Market description",
+            "nullable": true
+          },
+          "active": {
+            "type": "boolean",
+            "description": "Whether market is active",
+            "nullable": true
+          },
+          "marketType": {
+            "type": "string",
+            "description": "Type of market",
+            "nullable": true
+          },
+          "closed": {
+            "type": "boolean",
+            "description": "Whether market is closed",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "Creation timestamp",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "description": "Last update timestamp",
+            "nullable": true
+          },
+          "archived": {
+            "type": "boolean",
+            "description": "Whether market is archived",
+            "nullable": true
+          },
+          "orderPriceMinTickSize": {
+            "type": "number",
+            "format": "decimal",
+            "description": "Minimum tick size for order price",
+            "nullable": true
+          },
+          "gameStartTime": {
+            "type": "string",
+            "description": "Game start time",
+            "nullable": true
+          },
+          "bestBid": {
+            "type": "number",
+            "format": "decimal",
+            "description": "Best bid price",
+            "nullable": true
+          },
+          "bestAsk": {
+            "type": "number",
+            "format": "decimal",
+            "description": "Best ask price",
+            "nullable": true
+          },
+          "manualActivation": {
+            "type": "boolean",
+            "description": "Whether manual activation is required",
+            "nullable": true
+          },
+          "sportsMarketType": {
+            "type": "string",
+            "description": "Sports market type",
+            "nullable": true
+          },
+          "line": {
+            "type": "number",
+            "format": "decimal",
+            "description": "Line value",
+            "nullable": true
+          },
+          "marketSides": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/v1MarketSide"
+            },
+            "description": "Market sides"
+          },
+          "outcomes": {
+            "type": "string",
+            "description": "Outcomes JSON",
+            "nullable": true
+          },
+          "outcomePrices": {
+            "type": "string",
+            "description": "Outcome prices JSON",
+            "nullable": true
+          },
+          "ep3Status": {
+            "type": "string",
+            "description": "EP3 status",
+            "nullable": true
+          },
+          "sportsMarketTypeV2": {
+            "$ref": "#/components/schemas/v1SportsMarketType"
+          },
+          "hidden": {
+            "type": "boolean",
+            "description": "Whether market is hidden",
+            "nullable": true
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/tagsv1Tag"
+            },
+            "description": "Associated tags"
+          },
+          "title": {
+            "type": "string",
+            "description": "Market title",
+            "nullable": true
+          },
+          "subtitle": {
+            "type": "string",
+            "description": "Market subtitle",
+            "nullable": true
+          },
+          "color": {
+            "type": "string",
+            "description": "Market color",
+            "nullable": true
+          },
+          "darkColor": {
+            "type": "string",
+            "description": "Market dark mode color",
+            "nullable": true
+          },
+          "subjectId": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Subject ID",
+            "nullable": true
+          },
+          "subject": {
+            "$ref": "#/components/schemas/v1Subject"
+          },
+          "feeCoefficient": {
+            "type": "number",
+            "format": "decimal",
+            "description": "Fee coefficient",
+            "nullable": true
+          },
+          "spreadTotalSuffix": {
+            "type": "string",
+            "description": "Spread/total suffix for UI display (e.g. points, goals, runs)",
+            "nullable": true
+          },
+          "minimumTradeQty": {
+            "type": "number",
+            "format": "decimal",
+            "description": "Minimum order quantity in contracts (e.g. 0.01 = 1% of a contract, 1.0 = one whole contract).",
+            "nullable": true
+          }
+        },
+        "description": "Market information and configuration"
+      },
+      "v1MarketData": {
+        "type": "object",
+        "properties": {
+          "marketSlug": {
+            "type": "string"
+          },
+          "bids": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/v1BookEntry"
+            }
+          },
+          "offers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/v1BookEntry"
+            }
+          },
+          "state": {
+            "$ref": "#/components/schemas/v1MarketState"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/v1MarketStats"
+          },
+          "transactTime": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "v1MarketDataLite": {
+        "type": "object",
+        "properties": {
+          "marketSlug": {
+            "type": "string"
+          },
+          "currentPx": {
+            "$ref": "#/components/schemas/v1Amount"
+          },
+          "lastTradePx": {
+            "$ref": "#/components/schemas/v1Amount"
+          },
+          "settlementPx": {
+            "$ref": "#/components/schemas/v1Amount"
+          },
+          "sharesTraded": {
+            "type": "string"
+          },
+          "openInterest": {
+            "type": "string"
+          },
+          "bestAsk": {
+            "$ref": "#/components/schemas/v1Amount"
+          },
+          "bestBid": {
+            "$ref": "#/components/schemas/v1Amount"
+          },
+          "askDepth": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "bidDepth": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "lastPriceSample": {
+            "$ref": "#/components/schemas/v1PriceSample"
+          }
+        }
+      },
+      "v1MarketSide": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Market side ID"
+          },
+          "marketSideType": {
+            "$ref": "#/components/schemas/v1MarketSideType"
+          },
+          "identifier": {
+            "type": "string",
+            "description": "Market side identifier",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "Creation timestamp",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "description": "Last update timestamp",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "description": "Market side description",
+            "nullable": true
+          },
+          "price": {
+            "type": "string",
+            "description": "Market side price",
+            "nullable": true
+          },
+          "marketId": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Market ID"
+          },
+          "long": {
+            "type": "boolean",
+            "description": "Whether market side is the long or short side of the market",
+            "nullable": true
+          },
+          "teamId": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Team ID - deprecated",
+            "nullable": true,
+            "deprecated": true
+          },
+          "team": {
+            "$ref": "#/components/schemas/v1Team",
+            "description": "Team information - deprecated, use participant instead",
+            "deprecated": true
+          },
+          "participantId": {
+            "type": "string",
+            "description": "Participant ID (references participant on the event)",
+            "nullable": true
+          }
+        },
+        "description": "Market position information"
+      },
+      "v1MarketSideType": {
+        "type": "string",
+        "enum": [
+          "MARKET_SIDE_TYPE_ERC1155",
+          "MARKET_SIDE_TYPE_INSTRUMENT"
+        ]
+      },
+      "v1MarketState": {
+        "type": "string",
+        "enum": [
+          "MARKET_STATE_OPEN",
+          "MARKET_STATE_PREOPEN",
+          "MARKET_STATE_SUSPENDED",
+          "MARKET_STATE_EXPIRED",
+          "MARKET_STATE_TERMINATED",
+          "MARKET_STATE_HALTED",
+          "MARKET_STATE_MATCH_AND_CLOSE_AUCTION"
+        ]
+      },
+      "v1MarketStats": {
+        "type": "object",
+        "properties": {
+          "openPx": {
+            "$ref": "#/components/schemas/v1Amount"
+          },
+          "closePx": {
+            "$ref": "#/components/schemas/v1Amount"
+          },
+          "lowPx": {
+            "$ref": "#/components/schemas/v1Amount"
+          },
+          "highPx": {
+            "$ref": "#/components/schemas/v1Amount"
+          },
+          "lastTradePx": {
+            "$ref": "#/components/schemas/v1Amount"
+          },
+          "indicativeOpenPx": {
+            "$ref": "#/components/schemas/v1Amount"
+          },
+          "settlementPx": {
+            "$ref": "#/components/schemas/v1Amount"
+          },
+          "sharesTraded": {
+            "type": "string"
+          },
+          "notionalTraded": {
+            "$ref": "#/components/schemas/v1Amount"
+          },
+          "lastTradeQty": {
+            "type": "string"
+          },
+          "openInterest": {
+            "type": "string"
+          },
+          "settlementPreliminaryFlag": {
+            "type": "boolean"
+          },
+          "openSetTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "closeSetTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "highSetTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lowSetTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastTradeSetTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "indicativeOpenSetTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "settlementSetTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "openInterestSetTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "notionalSetTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "settlementPriceCalculationMethod": {
+            "$ref": "#/components/schemas/v1SettlementPriceCalculationMethod"
+          },
+          "tradingReferencePx": {
+            "$ref": "#/components/schemas/v1Amount"
+          },
+          "tradingReferenceSetTime": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Time at which the trading reference price was set."
+          },
+          "currentPx": {
+            "$ref": "#/components/schemas/v1Amount"
+          },
+          "lastPriceSample": {
+            "$ref": "#/components/schemas/v1PriceSample"
+          }
+        },
+        "description": "MarketStats are a collection of stats on an instrument."
+      },
+      "v1PriceSample": {
+        "type": "object",
+        "properties": {
+          "longPx": {
+            "$ref": "#/components/schemas/v1Amount"
+          },
+          "shortPx": {
+            "$ref": "#/components/schemas/v1Amount"
+          },
+          "ts": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "v1Provider": {
+        "type": "string",
+        "enum": [
+          "PROVIDER_SPORTSDATAIO",
+          "PROVIDER_SPORTRADAR"
+        ]
+      },
+      "v1SettlementPriceCalculationMethod": {
+        "type": "string",
+        "enum": [
+          "SETTLEMENT_PRICE_CALCULATION_METHOD_VWAP_TIER_1",
+          "SETTLEMENT_PRICE_CALCULATION_METHOD_VWAP_TIER_2_RULE_1",
+          "SETTLEMENT_PRICE_CALCULATION_METHOD_VWAP_TIER_2_RULE_2",
+          "SETTLEMENT_PRICE_CALCULATION_METHOD_VWAP_TIER_2_RULE_3",
+          "SETTLEMENT_PRICE_CALCULATION_METHOD_VWAP_TIER_2_RULE_4",
+          "SETTLEMENT_PRICE_CALCULATION_METHOD_EVENT_TIER_1",
+          "SETTLEMENT_PRICE_CALCULATION_METHOD_EVENT_TIER_2",
+          "SETTLEMENT_PRICE_CALCULATION_METHOD_EVENT_TIER_3",
+          "SETTLEMENT_PRICE_CALCULATION_METHOD_EVENT_TIER_4",
+          "SETTLEMENT_PRICE_CALCULATION_METHOD_OVERRIDE",
+          "SETTLEMENT_PRICE_CALCULATION_METHOD_VWAP_TIER_2_RULE_5",
+          "SETTLEMENT_PRICE_CALCULATION_METHOD_VWAP_TIER_2_RULE_6",
+          "SETTLEMENT_PRICE_CALCULATION_METHOD_VWAP_TIER_2_RULE_7",
+          "SETTLEMENT_PRICE_CALCULATION_METHOD_VWAP_TIER_2_RULE_8"
+        ],
+        "description": "SettlementPriceCalculationMethod indicates the settlement price calculation method of the book.\n\n - SETTLEMENT_PRICE_CALCULATION_METHOD_VWAP_TIER_1: If using the VWAP Settlement Price Logic, indicates that there were enough trades to calculate the settlement price using Volume Weighted Average Price\n - SETTLEMENT_PRICE_CALCULATION_METHOD_VWAP_TIER_2_RULE_1: If using the VWAP Settlement Price Logic, indicates that there weren't enough trades to calculate the settlement price using VWAP, and the Best Bid / Best Ask / Last Trade / Previous Settlement logic was used instead, with Best Bid / Best Ask / Last Trade existing.\n - SETTLEMENT_PRICE_CALCULATION_METHOD_VWAP_TIER_2_RULE_2: If using the VWAP Settlement Price Logic, indicates that there weren't enough trades to calculate the settlement price using VWAP, and the Best Bid / Best Ask / Last Trade / Previous Settlement logic was used instead, with Best Bid / Best Ask existing and Last Trade not existing.\n - SETTLEMENT_PRICE_CALCULATION_METHOD_VWAP_TIER_2_RULE_3: If using the VWAP Settlement Price Logic, indicates that there weren't enough trades to calculate the settlement price using VWAP, and the Best Bid / Best Ask / Last Trade / Previous Settlement logic was used instead, with Best Bid / Last Trade existing and Best Ask not existing.\n - SETTLEMENT_PRICE_CALCULATION_METHOD_VWAP_TIER_2_RULE_4: If using the VWAP Settlement Price Logic, indicates that there weren't enough trades to calculate the settlement price using VWAP, and the Best Bid / Best Ask / Last Trade / Previous Settlement logic was used instead, with Best Bid existing and Best Ask / Last Trade not existing.\n - SETTLEMENT_PRICE_CALCULATION_METHOD_EVENT_TIER_1: Indicates that the settlement price was set as a result of \"PerformResolution\".  In addition, settlement prices that have this calculation method are considered final and will no longer be updated by the Settlement Price Module.\n - SETTLEMENT_PRICE_CALCULATION_METHOD_EVENT_TIER_2: If using the EVENT Settlement Price Logic, indicates that the settlement price was set to the price of the trading day's latest trade for the Opposing Side = \"As Defined\" sub type\n - SETTLEMENT_PRICE_CALCULATION_METHOD_EVENT_TIER_3: If using the EVENT Settlement Price Logic, indicates that at the market close no trades for the Opposing Side = \"As Defined\" sub type during the trade day, and therefore the settlement price was set to the current settlement price\n - SETTLEMENT_PRICE_CALCULATION_METHOD_EVENT_TIER_4: If using the EVENT Settlement Price Logic, indicates that there were no trades for the Opposing Side = \"As Defined\" sub type during the trade day, nor current settlement price, and therefore the settlement price was set to 0\n - SETTLEMENT_PRICE_CALCULATION_METHOD_OVERRIDE: Indicates the calculated settlement price was overridden by the exchange\n - SETTLEMENT_PRICE_CALCULATION_METHOD_VWAP_TIER_2_RULE_5: If using the VWAP Settlement Price Logic, indicates that there weren't enough trades to calculate the settlement price using VWAP, and the Best Bid / Best Ask / Last Trade / Previous Settlement logic was used instead, with Best Ask / Last Trade existing and Best Bid not existing.\n - SETTLEMENT_PRICE_CALCULATION_METHOD_VWAP_TIER_2_RULE_6: If using the VWAP Settlement Price Logic, indicates that there weren't enough trades to calculate the settlement price using VWAP, and the Best Bid / Best Ask / Last Trade / Previous Settlement logic was used instead, with Best Ask existing and Best Bid / Last Trade not existing.\n - SETTLEMENT_PRICE_CALCULATION_METHOD_VWAP_TIER_2_RULE_7: If using the VWAP Settlement Price Logic, indicates that there weren't enough trades to calculate the settlement price using VWAP, and the Best Bid / Best Ask / Last Trade / Previous Settlement logic was used instead, with Last Trade existing and Best Bid / Best Ask not existing.\n - SETTLEMENT_PRICE_CALCULATION_METHOD_VWAP_TIER_2_RULE_8: If using the VWAP Settlement Price Logic, indicates that there weren't enough trades to calculate the settlement price using VWAP, and the Best Bid / Best Ask / Last Trade / Previous Settlement logic was used instead, with Best Bid / Best Ask / Last Trade not existing."
+      },
+      "v1SportsMarketType": {
+        "type": "string",
+        "enum": [
+          "SPORTS_MARKET_TYPE_MONEYLINE",
+          "SPORTS_MARKET_TYPE_SPREAD",
+          "SPORTS_MARKET_TYPE_TOTAL",
+          "SPORTS_MARKET_TYPE_PROP",
+          "SPORTS_MARKET_TYPE_FUTURE",
+          "SPORTS_MARKET_TYPE_DRAWABLE_OUTCOME"
+        ]
+      },
+      "v1SportsTeamProvider": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "$ref": "#/components/schemas/v1Provider"
+          },
+          "providerId": {
+            "type": "string",
+            "description": "The provider id"
+          }
+        }
+      },
+      "v1Subject": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Subject ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Subject name"
+          },
+          "displayName": {
+            "type": "string",
+            "description": "Subject display name",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "description": "Subject description",
+            "nullable": true
+          },
+          "subjectType": {
+            "type": "string",
+            "description": "Subject type (nominee, player, team, candidate, golf_player)"
+          },
+          "image": {
+            "type": "string",
+            "description": "Subject image URL",
+            "nullable": true
+          },
+          "color": {
+            "type": "string",
+            "description": "Subject color",
+            "nullable": true
+          },
+          "darkColor": {
+            "type": "string",
+            "description": "Subject dark mode color",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "Creation timestamp",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "description": "Last update timestamp",
+            "nullable": true
+          },
+          "slug": {
+            "type": "string",
+            "description": "Subject slug for URL",
+            "nullable": true
+          }
+        },
+        "description": "Subject information"
+      },
+      "v1TagLeague": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sportId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tagId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "image": {
+            "type": "string",
+            "nullable": true
+          },
+          "resolution": {
+            "type": "string",
+            "nullable": true
+          },
+          "ordering": {
+            "type": "string",
+            "nullable": true
+          },
+          "activeSeriesId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "isOperational": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "automaticResolution": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "slug": {
+            "type": "string"
+          },
+          "abbreviation": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "v1TagSport": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "name": {
+            "type": "string"
+          },
+          "tagId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "slug": {
+            "type": "string"
+          },
+          "image": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "v1Team": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "name": {
+            "type": "string"
+          },
+          "abbreviation": {
+            "type": "string"
+          },
+          "league": {
+            "type": "string"
+          },
+          "record": {
+            "type": "string"
+          },
+          "logo": {
+            "type": "string"
+          },
+          "alias": {
+            "type": "string"
+          },
+          "safeName": {
+            "type": "string"
+          },
+          "homeIcon": {
+            "type": "string",
+            "nullable": true
+          },
+          "awayIcon": {
+            "type": "string",
+            "nullable": true
+          },
+          "colorPrimary": {
+            "type": "string",
+            "nullable": true
+          },
+          "providerId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "ordering": {
+            "type": "string",
+            "nullable": true
+          },
+          "longIcon": {
+            "type": "string",
+            "nullable": true
+          },
+          "shortIcon": {
+            "type": "string",
+            "nullable": true
+          },
+          "displayAbbreviation": {
+            "type": "string",
+            "nullable": true
+          },
+          "ranking": {
+            "type": "string",
+            "format": "int64",
+            "nullable": true
+          },
+          "conference": {
+            "type": "string",
+            "nullable": true
+          },
+          "providerIds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/v1SportsTeamProvider"
+            }
+          },
+          "longIconDark": {
+            "type": "string",
+            "nullable": true
+          },
+          "shortIconDark": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      }
+    }
+  }
+}

@@ -33,5 +33,5 @@ pub use group::{
 pub use journal::{IntentEvent, IntentJournal, JournalRow, MemoryJournal, OrderSnapshot};
 pub use manager::{
     BootReport, CancelOutcome, ExecError, ExecPolicy, FillApplication, IntentRecord, IntentStatus,
-    IntentView, OrderManager, SubmitOutcome,
+    IntentView, LegOutcome, OrderManager, SubmitOutcome,
 };

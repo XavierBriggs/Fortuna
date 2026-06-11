@@ -1,0 +1,1189 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "Trading API",
+    "version": "v1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://api.prod.polymarketexchange.com"
+    }
+  ],
+  "tags": [
+    {
+      "name": "OrderEntryAPI"
+    }
+  ],
+  "paths": {
+    "/v1/trading/orders": {
+      "post": {
+        "tags": [
+          "Trading"
+        ],
+        "summary": "Insert order",
+        "description": "Inserts an order into the exchange",
+        "operationId": "OrderEntryAPI_InsertOrder",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InsertOrderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InsertOrderResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trading/orders/cancel": {
+      "post": {
+        "tags": [
+          "Trading"
+        ],
+        "summary": "Cancel order",
+        "description": "Requests cancellation of a working order",
+        "operationId": "OrderEntryAPI_CancelOrder",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelOrderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelOrderResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trading/orders/cancel/list": {
+      "post": {
+        "tags": [
+          "Trading"
+        ],
+        "summary": "Cancel order list",
+        "description": "Requests cancellation of multiple working orders. Maximum batch size is 20 orders; requests exceeding this limit will be rejected.",
+        "operationId": "OrderEntryAPI_CancelOrderList",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelOrderListRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelOrderListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trading/orders/cross": {
+      "post": {
+        "tags": [
+          "Trading"
+        ],
+        "summary": "Insert order cross",
+        "description": "Creates a new order cross",
+        "operationId": "OrderEntryAPI_InsertOrderCross",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InsertOrderCrossRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InsertOrderCrossResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trading/orders/list": {
+      "post": {
+        "tags": [
+          "Trading"
+        ],
+        "summary": "Insert order list",
+        "description": "Inserts multiple orders into the exchange. Maximum batch size is 20 orders; requests exceeding this limit will be rejected.",
+        "operationId": "OrderEntryAPI_InsertOrderList",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InsertOrderListRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InsertOrderListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trading/orders/open": {
+      "get": {
+        "tags": [
+          "Trading"
+        ],
+        "summary": "Get open orders",
+        "description": "Returns a snapshot of working orders",
+        "operationId": "OrderEntryAPI_GetOpenOrders",
+        "parameters": [
+          {
+            "name": "symbols",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array"
+            }
+          },
+          {
+            "name": "accounts",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetOpenOrdersResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trading/orders/preview": {
+      "post": {
+        "tags": [
+          "Trading"
+        ],
+        "summary": "Preview order",
+        "description": "Creates an order preview without inserting it",
+        "operationId": "OrderEntryAPI_PreviewOrder",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewOrderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewOrderResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trading/orders/replace": {
+      "post": {
+        "tags": [
+          "Trading"
+        ],
+        "summary": "Cancel replace order",
+        "description": "Requests modification of a working order",
+        "operationId": "OrderEntryAPI_CancelReplaceOrder",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelReplaceOrderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelReplaceOrderResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trading/orders/replace/list": {
+      "post": {
+        "tags": [
+          "Trading"
+        ],
+        "summary": "Cancel replace order list",
+        "description": "Requests modification of multiple working orders. Maximum batch size is 20 orders; requests exceeding this limit will be rejected.",
+        "operationId": "OrderEntryAPI_CancelReplaceOrderList",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelReplaceOrderListRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelReplaceOrderListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CancelOrderListRequest": {
+        "type": "object",
+        "properties": {
+          "requests": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "$ref": "#/components/schemas/CancelOrderRequest"
+            }
+          }
+        }
+      },
+      "CancelOrderListResponse": {
+        "type": "object",
+        "properties": {
+          "responses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "$ref": "#/components/schemas/CancelOrderResponse"
+            }
+          }
+        }
+      },
+      "CancelOrderRequest": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string"
+          },
+          "clordId": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          }
+        }
+      },
+      "CancelOrderResponse": {
+        "type": "object"
+      },
+      "CancelReject": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "title": "Maps to exchange assigned ID for the order that could not be canceled or replaced"
+          },
+          "rejectReason": {
+            "$ref": "#/components/schemas/CxlRejReason",
+            "title": "Reason for the cancel or cancel reject"
+          },
+          "text": {
+            "type": "string",
+            "title": "Free format text"
+          },
+          "isReplace": {
+            "type": "boolean",
+            "title": "Set if this cancel reject was for a replace or not"
+          },
+          "clordId": {
+            "type": "string",
+            "title": "Client assigned ID for the order"
+          },
+          "transactTime": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "description": "CancelReject denotes a cancel or replace request that was rejected.\nWire-compatible with Connamara EP3 CancelReject."
+      },
+      "CancelReplaceOrderListRequest": {
+        "type": "object",
+        "properties": {
+          "requests": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "$ref": "#/components/schemas/CancelReplaceOrderRequest"
+            }
+          }
+        }
+      },
+      "CancelReplaceOrderListResponse": {
+        "type": "object",
+        "properties": {
+          "responses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "$ref": "#/components/schemas/CancelReplaceOrderResponse"
+            }
+          }
+        }
+      },
+      "CancelReplaceOrderRequest": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string"
+          },
+          "clordId": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "price": {
+            "type": "string",
+            "format": "int64"
+          },
+          "orderQty": {
+            "type": "string",
+            "format": "int64"
+          },
+          "timeInForce": {
+            "$ref": "#/components/schemas/TimeInForce"
+          },
+          "stopPrice": {
+            "type": "string",
+            "format": "int64"
+          },
+          "minQty": {
+            "type": "string",
+            "format": "int64"
+          },
+          "allOrNone": {
+            "type": "boolean"
+          },
+          "participateDontInitiate": {
+            "type": "boolean"
+          },
+          "strictLimit": {
+            "type": "boolean"
+          },
+          "goodTillTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "bestLimit": {
+            "type": "boolean"
+          },
+          "immediatelyExecutableLimit": {
+            "type": "boolean"
+          },
+          "manualOrderIndicator": {
+            "$ref": "#/components/schemas/ManualOrderIndicator"
+          }
+        }
+      },
+      "CancelReplaceOrderResponse": {
+        "type": "object"
+      },
+      "CreateOrderSubscriptionRequest": {
+        "type": "object",
+        "properties": {
+          "symbols": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "accounts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "snapshotOnly": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CreateOrderSubscriptionResponse": {
+        "type": "object",
+        "properties": {
+          "heartbeat": {
+            "$ref": "#/components/schemas/Heartbeat"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/CreateOrderSubscriptionResponseSnapshot"
+          },
+          "update": {
+            "$ref": "#/components/schemas/CreateOrderSubscriptionResponseUpdate"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "processedSentTime": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CreateOrderSubscriptionResponseSnapshot": {
+        "type": "object",
+        "properties": {
+          "orders": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "$ref": "#/components/schemas/Order"
+            }
+          }
+        }
+      },
+      "CreateOrderSubscriptionResponseUpdate": {
+        "type": "object",
+        "properties": {
+          "executions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "$ref": "#/components/schemas/Execution"
+            }
+          },
+          "cancelReject": {
+            "$ref": "#/components/schemas/CancelReject"
+          }
+        }
+      },
+      "CrossType": {
+        "type": "string",
+        "enum": [
+          "CROSS_TYPE_ALL_OR_NONE"
+        ],
+        "description": "CrossType specifies the type of order cross."
+      },
+      "CxlRejReason": {
+        "type": "string",
+        "enum": [
+          "CXL_REJ_REASON_UNKNOWN_ORDER",
+          "CXL_REJ_REASON_EXCHANGE_CLOSED",
+          "CXL_REJ_REASON_INCORRECT_QUANTITY",
+          "CXL_REJ_REASON_INVALID_PRICE_INCREMENT",
+          "CXL_REJ_REASON_PRICE_OUT_OF_BOUNDS"
+        ],
+        "description": "CxlRejReason is a code to identify the reason for cancel rejection."
+      },
+      "Date": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "month": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "day": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "description": "Date represents a calendar date."
+      },
+      "Execution": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Exchange assigned ID for this execution"
+          },
+          "order": {
+            "$ref": "#/components/schemas/Order",
+            "title": "The Order at the time of this execution"
+          },
+          "lastShares": {
+            "type": "string",
+            "format": "int64"
+          },
+          "lastPx": {
+            "type": "string",
+            "format": "int64"
+          },
+          "type": {
+            "$ref": "#/components/schemas/ExecutionType"
+          },
+          "text": {
+            "type": "string",
+            "title": "Free format text"
+          },
+          "orderRejectReason": {
+            "$ref": "#/components/schemas/OrdRejectReason",
+            "title": "For optional use if exec type is rejected"
+          },
+          "transactTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "legPrices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "$ref": "#/components/schemas/LegPrice"
+            },
+            "title": "If a fill on a multi leg instrument, contains the derived leg prices"
+          },
+          "tradeId": {
+            "type": "string",
+            "title": "If a fill, the trade id for this transaction"
+          },
+          "aggressor": {
+            "type": "boolean",
+            "title": "If a fill, true if this execution belongs to aggressor order"
+          },
+          "commissionNotionalCollected": {
+            "type": "string",
+            "format": "int64",
+            "title": "The notional value of commissions collected as part of the execution"
+          },
+          "unsolicitedCancelReason": {
+            "$ref": "#/components/schemas/UnsolicitedCxlReason",
+            "title": "For optional use if exec type is canceled and a reason is provided"
+          },
+          "traceId": {
+            "type": "string",
+            "title": "If present, contains the exchange trace identifier"
+          },
+          "commissionSpreadPx": {
+            "type": "string",
+            "format": "int64",
+            "title": "The price at which a commission spread order filled at"
+          },
+          "transactTradeDate": {
+            "$ref": "#/components/schemas/Date",
+            "title": "The trade date when this transactional event occurred"
+          }
+        },
+        "description": "Execution denotes a state change for an order in the exchange.\nWire-compatible with Connamara EP3 Execution."
+      },
+      "ExecutionType": {
+        "type": "string",
+        "enum": [
+          "EXECUTION_TYPE_PARTIAL_FILL",
+          "EXECUTION_TYPE_FILL",
+          "EXECUTION_TYPE_CANCELED",
+          "EXECUTION_TYPE_REPLACE",
+          "EXECUTION_TYPE_REJECTED",
+          "EXECUTION_TYPE_EXPIRED",
+          "EXECUTION_TYPE_DONE_FOR_DAY"
+        ],
+        "description": "ExecutionType denotes the execution type."
+      },
+      "GetOpenOrdersRequest": {
+        "type": "object",
+        "properties": {
+          "symbols": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "accounts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "GetOpenOrdersResponse": {
+        "type": "object",
+        "properties": {
+          "orders": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "$ref": "#/components/schemas/Order"
+            }
+          }
+        }
+      },
+      "Heartbeat": {
+        "type": "object",
+        "description": "Heartbeat can be sent on a streaming RPC call to keep the line open."
+      },
+      "InsertOrderCrossRequest": {
+        "type": "object",
+        "properties": {
+          "requests": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "$ref": "#/components/schemas/InsertOrderRequest"
+            }
+          },
+          "crossType": {
+            "$ref": "#/components/schemas/CrossType"
+          },
+          "crossId": {
+            "type": "string"
+          },
+          "crossPrioritizedSide": {
+            "$ref": "#/components/schemas/Side"
+          }
+        }
+      },
+      "InsertOrderCrossResponse": {
+        "type": "object",
+        "properties": {
+          "responses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "$ref": "#/components/schemas/InsertOrderResponse"
+            }
+          }
+        }
+      },
+      "InsertOrderListRequest": {
+        "type": "object",
+        "properties": {
+          "requests": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "$ref": "#/components/schemas/InsertOrderRequest"
+            }
+          }
+        }
+      },
+      "InsertOrderListResponse": {
+        "type": "object",
+        "properties": {
+          "responses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "$ref": "#/components/schemas/InsertOrderResponse"
+            }
+          }
+        }
+      },
+      "InsertOrderRequest": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/OrderType"
+          },
+          "side": {
+            "$ref": "#/components/schemas/Side"
+          },
+          "orderQty": {
+            "type": "string",
+            "format": "int64"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "price": {
+            "type": "string",
+            "format": "int64"
+          },
+          "timeInForce": {
+            "$ref": "#/components/schemas/TimeInForce"
+          },
+          "clordId": {
+            "type": "string"
+          },
+          "account": {
+            "type": "string"
+          },
+          "stopPrice": {
+            "type": "string",
+            "format": "int64"
+          },
+          "minQty": {
+            "type": "string",
+            "format": "int64"
+          },
+          "selfMatchPreventionId": {
+            "type": "string"
+          },
+          "quote": {
+            "type": "string"
+          },
+          "allOrNone": {
+            "type": "boolean"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "user": {
+            "type": "string"
+          },
+          "clientAccountId": {
+            "type": "string"
+          },
+          "clientParticipantId": {
+            "type": "string"
+          },
+          "participateDontInitiate": {
+            "type": "boolean"
+          },
+          "cashOrderQty": {
+            "type": "string",
+            "format": "int64"
+          },
+          "strictLimit": {
+            "type": "boolean",
+            "description": "Set if this particular order must be filled at the exact limit price."
+          },
+          "goodTillTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "bestLimit": {
+            "type": "boolean",
+            "description": "A flag for best limit pricing. Sets the limit order's price to the top of the book on the same side as the order."
+          },
+          "immediatelyExecutableLimit": {
+            "type": "boolean",
+            "description": "A flag for immediately executable limit pricing. Sets the price to the top of the book on the opposing side, so it can immediately match."
+          },
+          "selfMatchPreventionInstruction": {
+            "$ref": "#/components/schemas/SelfMatchPreventionInstruction"
+          },
+          "orderCapacity": {
+            "$ref": "#/components/schemas/OrderCapacity"
+          },
+          "ignorePriceValidityChecks": {
+            "type": "boolean"
+          },
+          "manualOrderIndicator": {
+            "$ref": "#/components/schemas/ManualOrderIndicator"
+          }
+        }
+      },
+      "InsertOrderResponse": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string"
+          }
+        }
+      },
+      "LegPrice": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "The symbol of the leg"
+          },
+          "anchor": {
+            "type": "boolean",
+            "title": "Indicates that this entry is used as the anchor price"
+          },
+          "px": {
+            "type": "string",
+            "format": "int64",
+            "title": "The price of the leg"
+          },
+          "qty": {
+            "type": "string",
+            "format": "int64",
+            "title": "The quantity of the leg"
+          },
+          "side": {
+            "type": "string",
+            "title": "The side of the leg"
+          },
+          "referencePx": {
+            "type": "string",
+            "format": "int64",
+            "title": "The reference price of the leg used in the calculation of the derived price"
+          }
+        },
+        "description": "LegPrice indicates a price for a leg as part of a multi leg instrument."
+      },
+      "ManualOrderIndicator": {
+        "type": "string",
+        "enum": [
+          "MANUAL_ORDER_INDICATOR_MANUAL",
+          "MANUAL_ORDER_INDICATOR_AUTOMATED"
+        ],
+        "description": "ManualOrderIndicator designates the manual or automated nature of an order."
+      },
+      "OrdRejectReason": {
+        "type": "string",
+        "enum": [
+          "ORD_REJECT_REASON_UNKNOWN_SYMBOL",
+          "ORD_REJECT_REASON_EXCHANGE_CLOSED",
+          "ORD_REJECT_REASON_INCORRECT_QUANTITY",
+          "ORD_REJECT_REASON_INVALID_PRICE_INCREMENT",
+          "ORD_REJECT_REASON_INCORRECT_ORDER_TYPE",
+          "ORD_REJECT_REASON_PRICE_OUT_OF_BOUNDS",
+          "ORD_REJECT_REASON_NO_LIQUIDITY"
+        ],
+        "description": "OrdRejectReason is the code to identify reason for order rejection."
+      },
+      "Order": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Exchange assigned ID for the order"
+          },
+          "type": {
+            "$ref": "#/components/schemas/OrderType"
+          },
+          "side": {
+            "$ref": "#/components/schemas/Side"
+          },
+          "orderQty": {
+            "type": "string",
+            "format": "int64"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "clordId": {
+            "type": "string",
+            "title": "Client assigned ID for the order"
+          },
+          "timeInForce": {
+            "$ref": "#/components/schemas/TimeInForce",
+            "title": "Absence of this field is interpreted as DAY"
+          },
+          "account": {
+            "type": "string",
+            "title": "Account is the trading account for this order"
+          },
+          "cumQty": {
+            "type": "string",
+            "format": "int64",
+            "title": "Cumulative filled order qty"
+          },
+          "avgPx": {
+            "type": "string",
+            "format": "int64",
+            "title": "Average fill price"
+          },
+          "leavesQty": {
+            "type": "string",
+            "format": "int64",
+            "title": "Remaining working qty"
+          },
+          "state": {
+            "$ref": "#/components/schemas/OrderState"
+          },
+          "participant": {
+            "type": "string",
+            "title": "Participant that placed this order"
+          },
+          "price": {
+            "type": "string",
+            "format": "int64",
+            "title": "Integer price representation (for limit, stop limit)"
+          },
+          "insertTime": {
+            "type": "string",
+            "format": "date-time",
+            "title": "The time this order was inserted into the book"
+          },
+          "stopPrice": {
+            "type": "string",
+            "format": "int64",
+            "title": "Integer stop price representation (for stop, stop limit)"
+          },
+          "minQty": {
+            "type": "string",
+            "format": "int64",
+            "title": "Minimum quantity (optional for IOC time in force)"
+          },
+          "createTime": {
+            "type": "string",
+            "format": "date-time",
+            "title": "The time this order was created"
+          },
+          "allOrNone": {
+            "type": "boolean",
+            "title": "Set if all or none of the order qty should be filled"
+          },
+          "crossId": {
+            "type": "string",
+            "title": "Client assigned Order Cross ID"
+          },
+          "hostCrossId": {
+            "type": "string",
+            "title": "Exchange generated Host Cross ID"
+          },
+          "submittingParticipant": {
+            "type": "string",
+            "title": "If this order is being submitted on behalf of another entity"
+          },
+          "clientAccountId": {
+            "type": "string",
+            "title": "Client assigned free-form account ID for the order"
+          },
+          "clientParticipantId": {
+            "type": "string",
+            "title": "Client assigned free-form participant ID for the order"
+          },
+          "parentOrderId": {
+            "type": "string",
+            "title": "The parent order this order is the child of"
+          },
+          "commissionsBasisPoints": {
+            "type": "string",
+            "title": "The total basis points associated with all commissions on this order"
+          },
+          "participateDontInitiate": {
+            "type": "boolean",
+            "title": "Set if immediate match is not desired"
+          },
+          "cashOrderQty": {
+            "type": "string",
+            "format": "int64",
+            "title": "Fixed point decimal representation of the total cash order qty"
+          },
+          "strictLimit": {
+            "type": "boolean",
+            "title": "Set if this particular order must be filled at the exact limit price"
+          },
+          "goodTillTime": {
+            "type": "string",
+            "format": "date-time",
+            "title": "The time at which this order shall expire if the time in force is GOOD_TILL_TIME"
+          },
+          "bestLimit": {
+            "type": "boolean",
+            "title": "Context may contain additional meta data regarding the order (reserved)\norders.v1beta1.OrderContext context = 35;\nA flag for best limit pricing"
+          },
+          "immediatelyExecutableLimit": {
+            "type": "boolean",
+            "title": "A flag for immediately executable limit pricing"
+          },
+          "lastTradeId": {
+            "type": "string",
+            "title": "Set to the last, most recent trade ID that this order was party to"
+          },
+          "commissionNotionalTotalCollected": {
+            "type": "string",
+            "format": "int64",
+            "title": "The total notional value of all commissions collected on the order so far"
+          },
+          "selfMatchPreventionInstruction": {
+            "$ref": "#/components/schemas/SelfMatchPreventionInstruction",
+            "title": "If present, determines the behavior for order self match prevention"
+          },
+          "orderCapacity": {
+            "$ref": "#/components/schemas/OrderCapacity",
+            "title": "If present, designates the order capacity"
+          },
+          "ignorePriceValidityChecks": {
+            "type": "boolean",
+            "title": "A flag indicating order is exempt from price validity checks"
+          },
+          "lastTransactTime": {
+            "type": "string",
+            "format": "date-time",
+            "title": "The most recent time this order was updated in any capacity"
+          },
+          "makerCommissionsBasisPoints": {
+            "type": "string",
+            "title": "The total basis points for maker commissions"
+          },
+          "manualOrderIndicator": {
+            "$ref": "#/components/schemas/ManualOrderIndicator",
+            "title": "If present, designates the manual order indicator"
+          },
+          "fractionalQuantityScale": {
+            "type": "string",
+            "format": "int64",
+            "title": "Fractional quantity scale, copied from the instrument at order creation time. Divide raw integer quantities by this value for proper scale."
+          },
+          "priceToQuantityFilled": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "format": "int64"
+            },
+            "title": "Quantity filled at each price point over the life of the order. Key is the price, value is the quantity filled at that price."
+          }
+        }
+      },
+      "OrderCapacity": {
+        "type": "string",
+        "enum": [
+          "ORDER_CAPACITY_AGENCY",
+          "ORDER_CAPACITY_PRINCIPAL",
+          "ORDER_CAPACITY_PROPRIETARY",
+          "ORDER_CAPACITY_INDIVIDUAL",
+          "ORDER_CAPACITY_RISKLESS_PRINCIPAL",
+          "ORDER_CAPACITY_AGENT_FOR_OTHER_MEMBER"
+        ],
+        "description": "OrderCapacity designates the capacity of the party placing an order."
+      },
+      "OrderState": {
+        "type": "string",
+        "enum": [
+          "ORDER_STATE_PARTIALLY_FILLED",
+          "ORDER_STATE_FILLED",
+          "ORDER_STATE_CANCELED",
+          "ORDER_STATE_REPLACED",
+          "ORDER_STATE_REJECTED",
+          "ORDER_STATE_EXPIRED",
+          "ORDER_STATE_PENDING_NEW",
+          "ORDER_STATE_PENDING_REPLACE",
+          "ORDER_STATE_PENDING_CANCEL",
+          "ORDER_STATE_PENDING_RISK"
+        ],
+        "description": "OrderState denotes the current order state."
+      },
+      "OrderType": {
+        "type": "string",
+        "enum": [
+          "ORDER_TYPE_MARKET_TO_LIMIT",
+          "ORDER_TYPE_LIMIT",
+          "ORDER_TYPE_STOP",
+          "ORDER_TYPE_STOP_LIMIT"
+        ],
+        "description": "OrderType indicates the type of an order."
+      },
+      "PreviewOrderRequest": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "$ref": "#/components/schemas/InsertOrderRequest"
+          }
+        }
+      },
+      "PreviewOrderResponse": {
+        "type": "object",
+        "properties": {
+          "previewOrder": {
+            "$ref": "#/components/schemas/Order"
+          }
+        }
+      },
+      "SelfMatchPreventionInstruction": {
+        "type": "string",
+        "enum": [
+          "SELF_MATCH_PREVENTION_INSTRUCTION_REJECT_AGGRESSOR",
+          "SELF_MATCH_PREVENTION_INSTRUCTION_CANCEL_RESTING",
+          "SELF_MATCH_PREVENTION_INSTRUCTION_REMOVE_BOTH"
+        ],
+        "description": "SelfMatchPreventionInstruction is the methodology used to handle self match prevention."
+      },
+      "Side": {
+        "type": "string",
+        "enum": [
+          "SIDE_BUY",
+          "SIDE_SELL"
+        ],
+        "description": "Side indicates the side of an Order."
+      },
+      "TimeInForce": {
+        "type": "string",
+        "enum": [
+          "TIME_IN_FORCE_DAY",
+          "TIME_IN_FORCE_GOOD_TILL_CANCEL",
+          "TIME_IN_FORCE_IMMEDIATE_OR_CANCEL",
+          "TIME_IN_FORCE_GOOD_TILL_TIME",
+          "TIME_IN_FORCE_FILL_OR_KILL"
+        ],
+        "description": "TimeInForce specifies how long the order remains in effect."
+      },
+      "UnsolicitedCxlReason": {
+        "type": "string",
+        "enum": [
+          "UNSOLICITED_CXL_REASON_CONNECTION_LOSS",
+          "UNSOLICITED_CXL_REASON_LOGOUT",
+          "UNSOLICITED_CXL_REASON_EXCHANGE_OPTION",
+          "UNSOLICITED_CXL_REASON_OTHER"
+        ],
+        "description": "UnsolicitedCxlReason is a code to identify the reason for an unsolicited cancellation."
+      }
+    }
+  }
+}

@@ -1,0 +1,193 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "Accounts API",
+    "version": "v1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://api.prod.polymarketexchange.com"
+    }
+  ],
+  "tags": [
+    {
+      "name": "AccountsAPI"
+    }
+  ],
+  "paths": {
+    "/v1/accounts": {
+      "get": {
+        "tags": [
+          "Accounts"
+        ],
+        "summary": "List accounts",
+        "description": "Returns the accounts that the user may use to trade",
+        "operationId": "AccountsAPI_ListAccounts",
+        "parameters": [
+          {
+            "name": "user",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAccountsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/users": {
+      "get": {
+        "tags": [
+          "Accounts"
+        ],
+        "summary": "List users",
+        "description": "Returns the users that the caller may trade on behalf of",
+        "operationId": "AccountsAPI_ListUsers",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListUsersResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/whoami": {
+      "get": {
+        "tags": [
+          "Accounts"
+        ],
+        "summary": "Get who am I",
+        "description": "Returns the user information of the caller",
+        "operationId": "AccountsAPI_GetWhoAmI",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetWhoAmIResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "FirmType": {
+        "type": "string",
+        "enum": [
+          "FIRM_TYPE_PARTICIPANT",
+          "FIRM_TYPE_SUPERVISOR",
+          "FIRM_TYPE_CLEARING_MEMBER",
+          "FIRM_TYPE_CLEARING_HOUSE",
+          "FIRM_TYPE_AGENT"
+        ],
+        "description": "FirmType indicates the type of firm.\nMatches Connamara firms.v1beta1.FirmType for wire compatibility."
+      },
+      "GetWhoAmIRequest": {
+        "type": "object"
+      },
+      "GetWhoAmIResponse": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "type": "string"
+          },
+          "userDisplayName": {
+            "type": "string"
+          },
+          "firm": {
+            "type": "string"
+          },
+          "firmDisplayName": {
+            "type": "string"
+          },
+          "audience": {
+            "type": "string"
+          },
+          "firmType": {
+            "$ref": "#/components/schemas/FirmType"
+          }
+        }
+      },
+      "ListAccountsRequest": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "type": "string"
+          }
+        }
+      },
+      "ListAccountsResponse": {
+        "type": "object",
+        "properties": {
+          "accounts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "displayNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ListUsersRequest": {
+        "type": "object"
+      },
+      "ListUsersResponse": {
+        "type": "object",
+        "properties": {
+          "users": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "displayNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "firms": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "firmsDisplayNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

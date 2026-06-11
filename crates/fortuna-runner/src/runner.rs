@@ -23,7 +23,8 @@ use fortuna_core::market::{ClientOrderId, Contracts, MarketId, Side, StrategyId,
 use fortuna_core::money::Cents;
 use fortuna_exec::{
     decide_complete_or_unwind, CompleteOrUnwind, ExecError, ExecPolicy, GroupDecision,
-    GroupTracker, IntentStatus, MemoryJournal, OrderManager, RemainingLeg, SubmitOutcome,
+    GroupTracker, IntentStatus, LegOutcome, MemoryJournal, OrderManager, RemainingLeg,
+    SubmitOutcome,
 };
 use fortuna_gates::{CandidateOrder, GateConfig, GateInputs, GatePipeline, HaltScope};
 use fortuna_state::{
@@ -715,8 +716,16 @@ impl SimRunner {
         } else {
             None
         };
-        let mut group_legs = Vec::new();
 
+        // Phase A (sequential, deterministic): gate every leg and reserve
+        // its capital BEFORE any network call. The phase split upgrades
+        // all-or-nothing: ANY pre-submission gate rejection on a
+        // multi-leg group aborts the WHOLE group (reservations released)
+        // — the old interleaved path could strand an imbalance for the
+        // unwind machinery when a later leg rejected after an earlier
+        // one had already submitted.
+        let mut staged: Vec<(IntentId, fortuna_gates::GatedOrder)> = Vec::new();
+        let mut group_rejected = false;
         for leg in &proposal.legs {
             let intent = IntentId::new(self.ids.next(self.clock.now())?);
             let candidate = CandidateOrder {
@@ -755,14 +764,10 @@ impl SimRunner {
                             "reason": rejection.reason,
                         }),
                     });
-                    // All-or-nothing groups: drop remaining legs (none
-                    // submitted yet for this proposal if the FIRST leg
-                    // rejects; if a later leg rejects, the group policy
-                    // unwind machinery handles the imbalance).
-                    if group.is_some() && group_legs.is_empty() {
+                    if group.is_some() {
+                        group_rejected = true;
                         break;
                     }
-                    continue;
                 }
                 Ok(gated) => {
                     // Reserve BEFORE submission (spec 5.14: reserve at gate
@@ -775,50 +780,77 @@ impl SimRunner {
                     )?;
                     self.reservations
                         .reserve(strategy_id.as_str(), intent, leg_cost)?;
-                    let submitted_at_ms = self.clock.now().epoch_millis();
-                    let submit = self.manager.submit_grouped(gated, group, &self.venue).await;
-                    match submit {
-                        Ok(SubmitOutcome::Acked { .. }) => {
-                            report.orders_submitted += 1;
-                            self.counters.orders_submitted += 1;
-                            self.counters
-                                .ack_latency
-                                .observe(self.clock.now().epoch_millis() - submitted_at_ms);
-                            self.submit_times.insert(
-                                ClientOrderId::from_intent(intent).as_str().to_string(),
-                                submitted_at_ms,
-                            );
-                            group_legs.push(intent);
-                        }
-                        Ok(SubmitOutcome::Rejected { reason }) => {
-                            let _ = self.reservations.release(intent)?;
-                            self.audit(
-                                "order",
-                                Some(&intent.to_string()),
-                                serde_json::json!({ "venue_rejected": reason }),
-                            );
-                        }
-                        Ok(SubmitOutcome::Unknown { error }) => {
-                            // Reservation stays (the order may be live);
-                            // reconciliation resolves it. Latency still
-                            // measures from here if fills arrive.
-                            report.orders_submitted += 1;
-                            self.submit_times.insert(
-                                ClientOrderId::from_intent(intent).as_str().to_string(),
-                                submitted_at_ms,
-                            );
-                            group_legs.push(intent);
-                            self.audit(
-                                "order",
-                                Some(&intent.to_string()),
-                                serde_json::json!({ "submit_unknown": error }),
-                            );
-                        }
-                        Err(ExecError::WorkingOrderExists { .. }) => {
-                            let _ = self.reservations.release(intent)?;
-                        }
-                        Err(e) => return Err(e.into()),
+                    staged.push((intent, gated));
+                }
+            }
+        }
+        if group_rejected {
+            // All-or-nothing: nothing was submitted; release what was
+            // reserved and walk away clean.
+            for (intent, _) in &staged {
+                let _ = self.reservations.release(*intent)?;
+            }
+            return Ok(());
+        }
+
+        // Phase B (concurrent): all legs hit the venue together — a
+        // multi-leg entry costs ~1 venue RTT instead of N sequential
+        // RTTs. Outcomes come back in LEG ORDER (deterministic
+        // processing over concurrent IO).
+        let mut group_legs: Vec<IntentId> = Vec::new();
+        if !staged.is_empty() {
+            let submitted_at_ms = self.clock.now().epoch_millis();
+            let intents: Vec<IntentId> = staged.iter().map(|(i, _)| *i).collect();
+            let orders: Vec<fortuna_gates::GatedOrder> =
+                staged.into_iter().map(|(_, o)| o).collect();
+            let outcomes = self
+                .manager
+                .submit_group_concurrent(orders, group, &self.venue)
+                .await?;
+
+            // Phase C (sequential, leg order): account each outcome.
+            for (intent, leg_outcome) in intents.into_iter().zip(outcomes) {
+                match leg_outcome {
+                    LegOutcome::Submitted(SubmitOutcome::Acked { .. }) => {
+                        report.orders_submitted += 1;
+                        self.counters.orders_submitted += 1;
+                        self.counters
+                            .ack_latency
+                            .observe(self.clock.now().epoch_millis() - submitted_at_ms);
+                        self.submit_times.insert(
+                            ClientOrderId::from_intent(intent).as_str().to_string(),
+                            submitted_at_ms,
+                        );
+                        group_legs.push(intent);
                     }
+                    LegOutcome::Submitted(SubmitOutcome::Rejected { reason }) => {
+                        let _ = self.reservations.release(intent)?;
+                        self.audit(
+                            "order",
+                            Some(&intent.to_string()),
+                            serde_json::json!({ "venue_rejected": reason }),
+                        );
+                    }
+                    LegOutcome::Submitted(SubmitOutcome::Unknown { error }) => {
+                        // Reservation stays (the order may be live);
+                        // reconciliation resolves it. Latency still
+                        // measures from here if fills arrive.
+                        report.orders_submitted += 1;
+                        self.submit_times.insert(
+                            ClientOrderId::from_intent(intent).as_str().to_string(),
+                            submitted_at_ms,
+                        );
+                        group_legs.push(intent);
+                        self.audit(
+                            "order",
+                            Some(&intent.to_string()),
+                            serde_json::json!({ "submit_unknown": error }),
+                        );
+                    }
+                    LegOutcome::NotSubmitted(ExecError::WorkingOrderExists { .. }) => {
+                        let _ = self.reservations.release(intent)?;
+                    }
+                    LegOutcome::NotSubmitted(e) => return Err(e.into()),
                 }
             }
         }

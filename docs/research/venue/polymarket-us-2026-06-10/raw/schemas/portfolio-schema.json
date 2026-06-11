@@ -1,0 +1,700 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "Portfolio API",
+    "description": "Portfolio and activity endpoints for tracking positions and trading history. All endpoints require Ed25519 signature authentication.",
+    "version": "v1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://api.polymarket.us"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Portfolio"
+    },
+    {
+      "name": "Account"
+    }
+  ],
+  "security": [
+    {
+      "X-PM-Access-Key": [],
+      "X-PM-Timestamp": [],
+      "X-PM-Signature": []
+    }
+  ],
+  "paths": {
+    "/v1/portfolio/positions": {
+      "get": {
+        "tags": [
+          "Portfolio"
+        ],
+        "summary": "Get User Positions",
+        "description": "Get user's trading positions across all markets or filtered by specific market",
+        "operationId": "PortfolioService_GetUserPositions",
+        "parameters": [
+          {
+            "name": "market",
+            "in": "query",
+            "description": "Filter positions by a specific market slug. When provided, returns only the position for that market. Example: `will-team-a-win`",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of positions to return per page. Use with `cursor` for pagination. Default: `100`. Example: `50`",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Pagination cursor from a previous response's `nextCursor` field. Use to fetch the next page of results. Omit for the first request",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of user positions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetUserPositionsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing API key"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/portfolio/activities": {
+      "get": {
+        "tags": [
+          "Portfolio"
+        ],
+        "summary": "Get Activities",
+        "description": "Get activities for a user including trades, position resolutions, and account balance changes",
+        "operationId": "PortfolioService_GetActivities",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of activities to return per page. Use with `cursor` for pagination. Default: `100`. Example: `50`",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Pagination cursor from a previous response's `nextCursor` field. Use to fetch the next page of results. Omit for the first request",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "marketSlug",
+            "in": "query",
+            "description": "Filter activities by a specific market slug. Returns only activities (trades, resolutions) related to that market. Example: `will-team-a-win`",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "types",
+            "in": "query",
+            "description": "Filter by activity types. When specified, only returns activities of the selected types. TRADE (order executions), POSITION_RESOLUTION (market settlements), ACCOUNT_DEPOSIT/WITHDRAWAL (fund transfers)",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "ACTIVITY_TYPE_TRADE",
+                  "ACTIVITY_TYPE_POSITION_RESOLUTION",
+                  "ACTIVITY_TYPE_ACCOUNT_DEPOSIT",
+                  "ACTIVITY_TYPE_ACCOUNT_ADVANCED_DEPOSIT",
+                  "ACTIVITY_TYPE_ACCOUNT_WITHDRAWAL",
+                  "ACTIVITY_TYPE_REFERRAL_BONUS",
+                  "ACTIVITY_TYPE_TRANSFER",
+                  "ACTIVITY_TYPE_TAKER_FEE_REBATE",
+                  "ACTIVITY_TYPE_LIQUIDITY_PROGRAM"
+                ]
+              }
+            }
+          },
+          {
+            "name": "sortOrder",
+            "in": "query",
+            "description": "Sort order for activities by timestamp. DESCENDING returns newest first (default), ASCENDING returns oldest first",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "SORT_ORDER_DESCENDING",
+                "SORT_ORDER_ASCENDING"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of activities",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetActivitiesResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing API key"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/account/balances": {
+      "get": {
+        "tags": [
+          "Account"
+        ],
+        "summary": "Get Account Balances",
+        "description": "Get user's current account balances including buying power, asset values, and pending transactions",
+        "operationId": "AccountService_GetAccountBalances",
+        "responses": {
+          "200": {
+            "description": "User's current account balances",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetAccountBalancesResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing API key"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Amount": {
+        "type": "object",
+        "required": [
+          "value",
+          "currency"
+        ],
+        "properties": {
+          "value": {
+            "type": "string",
+            "format": "decimal",
+            "example": "123.45",
+            "description": "The amount as a decimal string"
+          },
+          "currency": {
+            "type": "string",
+            "description": "The currency code"
+          }
+        },
+        "description": "Represents a monetary amount with its currency"
+      },
+      "MarketMetadata": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Market slug"
+          },
+          "icon": {
+            "type": "string",
+            "description": "Market image URL"
+          },
+          "title": {
+            "type": "string",
+            "description": "Market title"
+          },
+          "outcome": {
+            "type": "string",
+            "description": "Market outcome"
+          },
+          "eventSlug": {
+            "type": "string",
+            "description": "Event slug"
+          }
+        }
+      },
+      "UserPosition": {
+        "type": "object",
+        "properties": {
+          "netPosition": {
+            "type": "string",
+            "format": "int64",
+            "description": "Net position quantity rounded to a whole number - deprecated, use netPositionDecimal",
+            "deprecated": true
+          },
+          "qtyBought": {
+            "type": "string",
+            "format": "int64",
+            "description": "Total quantity bought rounded to a whole number - deprecated, use qtyBoughtDecimal",
+            "deprecated": true
+          },
+          "qtySold": {
+            "type": "string",
+            "format": "int64",
+            "description": "Total quantity sold rounded to a whole number - deprecated, use qtySoldDecimal",
+            "deprecated": true
+          },
+          "cost": {
+            "$ref": "#/components/schemas/Amount",
+            "description": "Total cost basis"
+          },
+          "realized": {
+            "$ref": "#/components/schemas/Amount",
+            "description": "Realized profit/loss"
+          },
+          "bodPosition": {
+            "type": "string",
+            "format": "int64",
+            "description": "Beginning of day position rounded to a whole number - deprecated, use bodPositionDecimal",
+            "deprecated": true
+          },
+          "expired": {
+            "type": "boolean",
+            "description": "Whether the position has expired"
+          },
+          "updateTime": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Last update timestamp"
+          },
+          "marketMetadata": {
+            "$ref": "#/components/schemas/MarketMetadata"
+          },
+          "cashValue": {
+            "$ref": "#/components/schemas/Amount",
+            "description": "Unrealized PnL for the position"
+          },
+          "qtyAvailable": {
+            "type": "string",
+            "format": "int64",
+            "nullable": true,
+            "description": "Quantity available to trade rounded to a whole number - deprecated, use qtyAvailableDecimal",
+            "deprecated": true
+          },
+          "netPositionDecimal": {
+            "type": "string",
+            "format": "decimal",
+            "description": "Net position quantity as a decimal string"
+          },
+          "qtyBoughtDecimal": {
+            "type": "string",
+            "format": "decimal",
+            "description": "Total quantity bought as a decimal string"
+          },
+          "qtySoldDecimal": {
+            "type": "string",
+            "format": "decimal",
+            "description": "Total quantity sold as a decimal string"
+          },
+          "bodPositionDecimal": {
+            "type": "string",
+            "format": "decimal",
+            "description": "Beginning of day position as a decimal string"
+          },
+          "qtyAvailableDecimal": {
+            "type": "string",
+            "format": "decimal",
+            "nullable": true,
+            "description": "Quantity available to trade as a decimal string"
+          }
+        },
+        "description": "User's trading position information"
+      },
+      "GetUserPositionsResponse": {
+        "type": "object",
+        "properties": {
+          "positions": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/UserPosition"
+            },
+            "description": "Map of market slug to position"
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "Next cursor for pagination"
+          },
+          "eof": {
+            "type": "boolean",
+            "description": "True if this is the last page"
+          },
+          "availablePositions": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "int64"
+            },
+            "description": "Available position quantities factoring in open orders",
+            "deprecated": true
+          }
+        }
+      },
+      "ActivityType": {
+        "type": "string",
+        "enum": [
+          "ACTIVITY_TYPE_TRADE",
+          "ACTIVITY_TYPE_POSITION_RESOLUTION",
+          "ACTIVITY_TYPE_ACCOUNT_DEPOSIT",
+          "ACTIVITY_TYPE_ACCOUNT_ADVANCED_DEPOSIT",
+          "ACTIVITY_TYPE_ACCOUNT_WITHDRAWAL",
+          "ACTIVITY_TYPE_REFERRAL_BONUS",
+          "ACTIVITY_TYPE_TRANSFER",
+          "ACTIVITY_TYPE_TAKER_FEE_REBATE",
+          "ACTIVITY_TYPE_LIQUIDITY_PROGRAM"
+        ],
+        "description": "Type of activity"
+      },
+      "Activity": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/ActivityType"
+          },
+          "trade": {
+            "$ref": "#/components/schemas/Trade"
+          },
+          "positionResolution": {
+            "$ref": "#/components/schemas/PositionResolution"
+          },
+          "accountBalanceChange": {
+            "$ref": "#/components/schemas/AccountBalanceChange"
+          }
+        },
+        "description": "Activity record"
+      },
+      "Trade": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Exchange-assigned trade ID"
+          },
+          "marketSlug": {
+            "type": "string",
+            "description": "Market slug"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "TRADE_STATE_NEW",
+              "TRADE_STATE_CLEARED",
+              "TRADE_STATE_BUSTED",
+              "TRADE_STATE_INFLIGHT",
+              "TRADE_STATE_PENDING_RISK",
+              "TRADE_STATE_PENDING_CLEARED",
+              "TRADE_STATE_REJECTED"
+            ],
+            "description": "State of the trade"
+          },
+          "createTime": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Creation timestamp"
+          },
+          "updateTime": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Last update timestamp"
+          },
+          "price": {
+            "$ref": "#/components/schemas/Amount",
+            "description": "Trade price"
+          },
+          "qty": {
+            "type": "string",
+            "description": "Trade quantity rounded to a whole number - deprecated, use qtyDecimal",
+            "deprecated": true
+          },
+          "isAggressor": {
+            "type": "boolean",
+            "description": "True if user's order was the taker"
+          },
+          "costBasis": {
+            "$ref": "#/components/schemas/Amount",
+            "nullable": true,
+            "description": "Cost basis for the trade"
+          },
+          "realizedPnl": {
+            "$ref": "#/components/schemas/Amount",
+            "nullable": true,
+            "description": "Realized profit and loss"
+          },
+          "qtyDecimal": {
+            "type": "string",
+            "format": "decimal",
+            "description": "Trade quantity as a decimal string"
+          }
+        }
+      },
+      "PositionResolution": {
+        "type": "object",
+        "properties": {
+          "marketSlug": {
+            "type": "string",
+            "description": "Market slug"
+          },
+          "beforePosition": {
+            "$ref": "#/components/schemas/UserPosition",
+            "description": "Position before resolution"
+          },
+          "afterPosition": {
+            "$ref": "#/components/schemas/UserPosition",
+            "description": "Position after resolution"
+          },
+          "updateTime": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Resolution timestamp"
+          },
+          "tradeId": {
+            "type": "string",
+            "description": "Associated trade ID"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "POSITION_RESOLUTION_SIDE_LONG",
+              "POSITION_RESOLUTION_SIDE_SHORT",
+              "POSITION_RESOLUTION_SIDE_NEUTRAL"
+            ],
+            "description": "Side of resolution"
+          }
+        }
+      },
+      "AccountBalanceChange": {
+        "type": "object",
+        "properties": {
+          "transactionId": {
+            "type": "string",
+            "description": "Transaction ID"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACCOUNT_BALANCE_CHANGE_STATUS_PENDING",
+              "ACCOUNT_BALANCE_CHANGE_STATUS_COMPLETED",
+              "ACCOUNT_BALANCE_CHANGE_STATUS_PARTIALLY_REFUNDED",
+              "ACCOUNT_BALANCE_CHANGE_STATUS_REJECTED"
+            ],
+            "description": "Status of the balance change"
+          },
+          "amount": {
+            "$ref": "#/components/schemas/Amount",
+            "description": "Amount of the balance change"
+          },
+          "updateTime": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Last update time"
+          },
+          "createTime": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Creation time"
+          }
+        }
+      },
+      "GetActivitiesResponse": {
+        "type": "object",
+        "properties": {
+          "activities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Activity"
+            },
+            "description": "List of activities"
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "Pagination cursor for next page"
+          },
+          "eof": {
+            "type": "boolean",
+            "description": "True if this is the last page"
+          }
+        }
+      },
+      "UserBalance": {
+        "type": "object",
+        "properties": {
+          "currentBalance": {
+            "type": "number",
+            "format": "decimal",
+            "description": "Current fiat currency balance, not including security values"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency for this balance (e.g., USD)"
+          },
+          "lastUpdated": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Time of last balance change"
+          },
+          "buyingPower": {
+            "type": "number",
+            "format": "decimal",
+            "description": "Unencumbered capital available for trading, factoring in all security valuations and open orders"
+          },
+          "assetNotional": {
+            "type": "number",
+            "format": "decimal",
+            "description": "Aggregate notional value of all securities"
+          },
+          "assetAvailable": {
+            "type": "number",
+            "format": "decimal",
+            "description": "Aggregate available collateral value of all securities"
+          },
+          "pendingCredit": {
+            "type": "number",
+            "format": "decimal",
+            "description": "Aggregate value of all pending credits"
+          },
+          "openOrders": {
+            "type": "number",
+            "format": "decimal",
+            "description": "Aggregate total notional value of open orders"
+          },
+          "unsettledFunds": {
+            "type": "number",
+            "format": "decimal",
+            "description": "Aggregate total notional value of unsettled funds not yet available to trade"
+          },
+          "pendingWithdrawals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PendingWithdrawal"
+            },
+            "description": "List of active pending withdrawals"
+          },
+          "marginRequirement": {
+            "type": "number",
+            "format": "decimal",
+            "description": "Aggregate margin requirement for event instrument positions"
+          },
+          "balanceReservation": {
+            "type": "number",
+            "format": "decimal",
+            "nullable": true,
+            "description": "Aggregate total notional value of balance reservations"
+          }
+        },
+        "description": "User's account balance information"
+      },
+      "PendingWithdrawal": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier for the withdrawal"
+          },
+          "name": {
+            "type": "string",
+            "description": "Account name"
+          },
+          "balance": {
+            "type": "number",
+            "format": "decimal",
+            "description": "Balance to withdraw"
+          },
+          "description": {
+            "type": "string",
+            "description": "Description for the withdrawal request"
+          },
+          "acknowledged": {
+            "type": "boolean",
+            "description": "Whether the pending withdrawal has been acknowledged"
+          },
+          "bankId": {
+            "type": "string",
+            "description": "Bank ID of the recipient"
+          },
+          "creationTime": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Time the pending withdrawal was created"
+          },
+          "destinationAccountName": {
+            "type": "string",
+            "description": "Destination account name for the deposit"
+          }
+        },
+        "description": "Pending withdrawal information"
+      },
+      "GetAccountBalancesResponse": {
+        "type": "object",
+        "properties": {
+          "balances": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UserBalance"
+            },
+            "description": "List of account balances by currency"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "X-PM-Access-Key": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-PM-Access-Key",
+        "description": "Your API key ID (UUID). Generate at [polymarket.us/developer](https://polymarket.us/developer)."
+      },
+      "X-PM-Timestamp": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-PM-Timestamp",
+        "description": "Unix timestamp in milliseconds. Must be within 30 seconds of server time."
+      },
+      "X-PM-Signature": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-PM-Signature",
+        "description": "Base64-encoded Ed25519 signature of `timestamp + method + path`. See [Authentication](/api/authentication) for details."
+      }
+    }
+  }
+}

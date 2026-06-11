@@ -22,6 +22,8 @@ pub enum ExecError {
     UnknownIntent { intent: IntentId },
     #[error("intent {intent} already journaled")]
     DuplicateIntent { intent: IntentId },
+    #[error("exec internal invariant violated: {reason}")]
+    Internal { reason: String },
     #[error("a working order already exists for ({strategy}, {market}, {side:?}): {existing}")]
     WorkingOrderExists {
         strategy: StrategyId,
@@ -147,6 +149,15 @@ pub struct BootReport {
     pub fills_applied: usize,
     pub orphan_fills: Vec<String>,
     pub discrepancies: Vec<String>,
+}
+
+/// Per-leg result of a concurrent group submission, aligned to input
+/// order. `NotSubmitted` legs were refused PRE-NETWORK (duplicate or
+/// working-order collision); the venue never saw them.
+#[derive(Debug)]
+pub enum LegOutcome {
+    Submitted(SubmitOutcome),
+    NotSubmitted(ExecError),
 }
 
 /// Execution policy knobs (spec 5.4): TTL + one-working-order rule.
@@ -384,6 +395,166 @@ impl<J: IntentJournal> OrderManager<J> {
                 })
             }
         }
+    }
+
+    /// Phase-split CONCURRENT group submission: every leg's intent is
+    /// journal-persisted (Created + SubmitAttempted) BEFORE any network
+    /// call (spec 5.4), then all venue placements fly concurrently, then
+    /// outcomes are journaled in LEG ORDER — deterministic processing
+    /// over concurrent IO, so a multi-leg group's entry costs ~1 venue
+    /// RTT instead of N. Legs refused pre-network (duplicates,
+    /// working-order collisions) come back `NotSubmitted` in their slot;
+    /// the others proceed. Hard journal failures abort the whole call
+    /// (no journal, no trading).
+    pub async fn submit_group_concurrent(
+        &mut self,
+        orders: Vec<fortuna_gates::GatedOrder>,
+        group: Option<IntentGroupId>,
+        venue: &dyn Venue,
+    ) -> Result<Vec<LegOutcome>, ExecError> {
+        // Phase 0 (sequential, deterministic): pre-checks + journal.
+        let mut slots: Vec<Option<LegOutcome>> = Vec::with_capacity(orders.len());
+        let mut staged: Vec<(usize, fortuna_gates::GatedOrder)> = Vec::new();
+        for (idx, order) in orders.into_iter().enumerate() {
+            slots.push(None);
+            let snapshot = OrderSnapshot::from(&order);
+            let intent = snapshot.intent_id;
+            let is_resubmission = match self.intents.get(&intent) {
+                None => false,
+                Some(existing) => {
+                    if let Some(vid) = &existing.venue_order_id {
+                        slots[idx] = Some(LegOutcome::Submitted(SubmitOutcome::Acked {
+                            venue_order_id: vid.clone(),
+                        }));
+                        continue;
+                    }
+                    match existing.status {
+                        IntentStatus::Created | IntentStatus::Submitted => true,
+                        _ => {
+                            slots[idx] =
+                                Some(LegOutcome::NotSubmitted(ExecError::DuplicateIntent {
+                                    intent,
+                                }));
+                            continue;
+                        }
+                    }
+                }
+            };
+            if !is_resubmission {
+                if !self.policy.laddering.contains(snapshot.strategy.as_str()) {
+                    if let Some(existing) =
+                        self.working_order(&snapshot.strategy, &snapshot.market, snapshot.side)
+                    {
+                        slots[idx] =
+                            Some(LegOutcome::NotSubmitted(ExecError::WorkingOrderExists {
+                                strategy: snapshot.strategy.clone(),
+                                market: snapshot.market.clone(),
+                                side: snapshot.side,
+                                existing,
+                            }));
+                        continue;
+                    }
+                }
+                self.append(
+                    intent,
+                    IntentEvent::Created {
+                        order: snapshot.clone(),
+                        group,
+                        at: self.clock.now(),
+                    },
+                )
+                .await?;
+            }
+            self.append(
+                intent,
+                IntentEvent::SubmitAttempted {
+                    at: self.clock.now(),
+                },
+            )
+            .await?;
+            staged.push((idx, order));
+        }
+
+        // Phase 1 (concurrent): the network. join_all preserves input
+        // order, so results align to `staged` deterministically whatever
+        // the completion order was.
+        let placements =
+            futures::future::join_all(staged.iter().map(|(_, order)| venue.place(order.clone())))
+                .await;
+
+        // Phase 2 (sequential, leg order): journal the outcomes.
+        for ((idx, order), placed) in staged.into_iter().zip(placements) {
+            let intent = order.intent_id();
+            let outcome = match placed {
+                Ok(venue_order_id) => {
+                    self.append(
+                        intent,
+                        IntentEvent::Acked {
+                            venue_order_id: venue_order_id.clone(),
+                            at: self.clock.now(),
+                        },
+                    )
+                    .await?;
+                    SubmitOutcome::Acked { venue_order_id }
+                }
+                Err(VenueError::AlreadyExists { existing }) => {
+                    self.append(
+                        intent,
+                        IntentEvent::Acked {
+                            venue_order_id: existing.clone(),
+                            at: self.clock.now(),
+                        },
+                    )
+                    .await?;
+                    SubmitOutcome::Acked {
+                        venue_order_id: existing,
+                    }
+                }
+                Err(VenueError::Rejected { reason }) | Err(VenueError::Invalid { reason }) => {
+                    self.append(
+                        intent,
+                        IntentEvent::Rejected {
+                            reason: reason.clone(),
+                            at: self.clock.now(),
+                        },
+                    )
+                    .await?;
+                    SubmitOutcome::Rejected { reason }
+                }
+                Err(VenueError::NotFound { what }) => {
+                    self.append(
+                        intent,
+                        IntentEvent::Rejected {
+                            reason: format!("venue: not found: {what}"),
+                            at: self.clock.now(),
+                        },
+                    )
+                    .await?;
+                    SubmitOutcome::Rejected {
+                        reason: format!("not found: {what}"),
+                    }
+                }
+                Err(ambiguous) => SubmitOutcome::Unknown {
+                    error: ambiguous.to_string(),
+                },
+            };
+            slots[idx] = Some(LegOutcome::Submitted(outcome));
+        }
+
+        // Every slot is filled by construction (pre-check fills or phase
+        // 2 fills); an empty slot is a structural bug and fails LOUD.
+        let mut out = Vec::with_capacity(slots.len());
+        for (idx, slot) in slots.into_iter().enumerate() {
+            match slot {
+                Some(outcome) => out.push(outcome),
+                None => {
+                    return Err(ExecError::Internal {
+                        reason: format!("group submission left leg {idx} undecided"),
+                    })
+                }
+            }
+        }
+        Ok(out)
     }
 
     /// Ingest one fill (at-least-once delivery; dedup by fill id).

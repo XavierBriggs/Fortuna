@@ -706,3 +706,227 @@ fn fill_after_boot_close_is_applied_and_flagged() {
     assert_eq!(m2.intent(intent).unwrap().status, IntentStatus::BootClosed);
     assert_eq!(m2.intent(intent).unwrap().cum_filled.raw(), 5);
 }
+
+// ---- concurrent group submission (multi-leg: ~1 RTT instead of N) ----
+
+mod concurrent {
+    use super::*;
+    use fortuna_core::book::{FeeModel, OrderBook};
+    use fortuna_exec::LegOutcome;
+    use fortuna_venues::{FillPage, OpenOrder, SettlementPage, VenueError, VenuePosition};
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::atomic::{AtomicI64, Ordering};
+    use std::task::{Context, Poll};
+
+    /// Yields once so sibling futures interleave on a single-threaded
+    /// executor (the determinism-preserving concurrency we claim).
+    struct YieldOnce(bool);
+    impl Future for YieldOnce {
+        type Output = ();
+        fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+            if self.0 {
+                Poll::Ready(())
+            } else {
+                self.0 = true;
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+        }
+    }
+
+    /// A venue whose `place` yields before completing and tracks how many
+    /// placements were in flight SIMULTANEOUSLY. Markets named "REJ-*"
+    /// reject; everything else acks.
+    struct OverlapVenue {
+        fees: ScheduleFeeModel,
+        in_flight: AtomicI64,
+        max_in_flight: AtomicI64,
+        ids: AtomicI64,
+    }
+
+    impl OverlapVenue {
+        fn new() -> Self {
+            OverlapVenue {
+                fees: fee_model(),
+                in_flight: AtomicI64::new(0),
+                max_in_flight: AtomicI64::new(0),
+                ids: AtomicI64::new(0),
+            }
+        }
+        fn max_seen(&self) -> i64 {
+            self.max_in_flight.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Venue for OverlapVenue {
+        fn id(&self) -> VenueId {
+            VenueId::new("overlap").unwrap()
+        }
+        async fn markets(
+            &self,
+            _f: fortuna_venues::MarketFilter,
+        ) -> Result<Vec<Market>, VenueError> {
+            Ok(Vec::new())
+        }
+        async fn book(&self, _m: &MarketId) -> Result<OrderBook, VenueError> {
+            Err(VenueError::NotFound {
+                what: "book".into(),
+            })
+        }
+        async fn place(
+            &self,
+            order: fortuna_gates::GatedOrder,
+        ) -> Result<fortuna_core::market::VenueOrderId, VenueError> {
+            let now = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+            self.max_in_flight.fetch_max(now, Ordering::SeqCst);
+            // Yield twice: every sibling must get polled before ANY
+            // placement completes.
+            YieldOnce(false).await;
+            YieldOnce(false).await;
+            self.in_flight.fetch_sub(1, Ordering::SeqCst);
+            if order.market().as_str().starts_with("REJ") {
+                return Err(VenueError::Rejected {
+                    reason: "scripted rejection".into(),
+                });
+            }
+            let n = self.ids.fetch_add(1, Ordering::SeqCst);
+            fortuna_core::market::VenueOrderId::new(format!("ov-{n}")).map_err(|e| {
+                VenueError::Invalid {
+                    reason: e.to_string(),
+                }
+            })
+        }
+        async fn cancel(&self, _id: &fortuna_core::market::VenueOrderId) -> Result<(), VenueError> {
+            Ok(())
+        }
+        async fn positions(&self) -> Result<Vec<VenuePosition>, VenueError> {
+            Ok(Vec::new())
+        }
+        async fn open_orders(&self) -> Result<Vec<OpenOrder>, VenueError> {
+            Ok(Vec::new())
+        }
+        async fn balance(&self) -> Result<Cents, VenueError> {
+            Ok(Cents::ZERO)
+        }
+        async fn fills_since(&self, cursor: Cursor) -> Result<FillPage, VenueError> {
+            Ok(FillPage {
+                fills: Vec::new(),
+                next_cursor: cursor,
+            })
+        }
+        async fn settlements_since(&self, cursor: Cursor) -> Result<SettlementPage, VenueError> {
+            Ok(SettlementPage {
+                notices: Vec::new(),
+                next_cursor: cursor,
+            })
+        }
+        fn fee_model(&self) -> &dyn FeeModel {
+            &self.fees
+        }
+    }
+
+    #[test]
+    fn group_legs_place_concurrently_and_outcomes_keep_leg_order() {
+        let clock = Arc::new(SimClock::new(t0()));
+        let venue = OverlapVenue::new();
+        let mut m = manager(clock.clone());
+
+        // Three legs on distinct markets (one-working-order is per
+        // (strategy, market, side)).
+        let orders = vec![
+            gate(candidate(11, "M1", 50, 5), &clock),
+            gate(candidate(12, "M2", 50, 5), &clock),
+            gate(candidate(13, "M3", 50, 5), &clock),
+        ];
+        let intents: Vec<IntentId> = orders.iter().map(|o| o.intent_id()).collect();
+
+        let outcomes =
+            futures::executor::block_on(m.submit_group_concurrent(orders, None, &venue)).unwrap();
+
+        // CONCURRENT: all three placements were in flight at once — the
+        // group entry costs ~1 venue RTT, not 3.
+        assert_eq!(venue.max_seen(), 3, "legs must overlap at the venue");
+
+        // Outcomes align to leg order and every intent is journaled
+        // through to Acked (journal writes happened BEFORE any network
+        // call by construction; the ack records land in leg order).
+        assert_eq!(outcomes.len(), 3);
+        for (i, out) in outcomes.iter().enumerate() {
+            assert!(
+                matches!(out, LegOutcome::Submitted(SubmitOutcome::Acked { .. })),
+                "leg {i}: {out:?}"
+            );
+            let rec = m.intent(intents[i]).expect("journaled");
+            assert_eq!(rec.status, IntentStatus::Acked);
+        }
+    }
+
+    #[test]
+    fn a_rejected_leg_keeps_its_slot_and_its_siblings_ack() {
+        let clock = Arc::new(SimClock::new(t0()));
+        let venue = OverlapVenue::new();
+        let mut m = manager(clock.clone());
+
+        let orders = vec![
+            gate(candidate(21, "M1", 50, 5), &clock),
+            gate(candidate(22, "REJ-X", 50, 5), &clock),
+            gate(candidate(23, "M3", 50, 5), &clock),
+        ];
+        let rejected_intent = orders[1].intent_id();
+
+        let outcomes =
+            futures::executor::block_on(m.submit_group_concurrent(orders, None, &venue)).unwrap();
+        assert!(matches!(
+            outcomes[0],
+            LegOutcome::Submitted(SubmitOutcome::Acked { .. })
+        ));
+        assert!(matches!(
+            &outcomes[1],
+            LegOutcome::Submitted(SubmitOutcome::Rejected { .. })
+        ));
+        assert!(matches!(
+            outcomes[2],
+            LegOutcome::Submitted(SubmitOutcome::Acked { .. })
+        ));
+        assert_eq!(
+            m.intent(rejected_intent).unwrap().status,
+            IntentStatus::Rejected,
+            "the rejection is journaled on the right intent"
+        );
+    }
+
+    #[test]
+    fn working_order_collisions_refuse_the_leg_without_touching_the_venue() {
+        let clock = Arc::new(SimClock::new(t0()));
+        let venue = OverlapVenue::new();
+        let mut m = manager(clock.clone());
+
+        // Two legs on the SAME (strategy, market, side): the second must
+        // be refused pre-network (one-working-order rule).
+        let orders = vec![
+            gate(candidate(31, "M1", 50, 5), &clock),
+            gate(candidate(32, "M1", 50, 5), &clock),
+        ];
+        let outcomes =
+            futures::executor::block_on(m.submit_group_concurrent(orders, None, &venue)).unwrap();
+        assert!(matches!(
+            outcomes[0],
+            LegOutcome::Submitted(SubmitOutcome::Acked { .. })
+        ));
+        assert!(
+            matches!(
+                &outcomes[1],
+                LegOutcome::NotSubmitted(ExecError::WorkingOrderExists { .. })
+            ),
+            "{:?}",
+            outcomes[1]
+        );
+        assert_eq!(
+            venue.max_seen(),
+            1,
+            "the refused leg never reached the venue"
+        );
+    }
+}
