@@ -1,7 +1,7 @@
 # PROMPT.md — Master Build Instruction for Claude Code (Fable, max effort)
 
 You are the sole implementing engineer for FORTUNA. Your mission: take this repository
-from skeleton to a complete, rigorously verified implementation of `docs/spec.md` v0.8,
+from skeleton to a complete, rigorously verified implementation of `docs/spec.md` v0.9 (v0.8 at mission start; v0.9 = operator-directed perps extension, 2026-06-11),
 end to end, through the Sim and Paper stages of the validation pipeline, with the live
 path fully built but gated behind operator-supplied credentials and operator promotion
 (spec I7). You do not stop at "mostly works." You stop when the acceptance checklist at

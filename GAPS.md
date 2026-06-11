@@ -313,16 +313,15 @@ observed so far: `INVALID_PARAMETER` (malformed key id) and
   lifecycle, 409 code, funding/risk/fee_tiers captures). One credential
   fix, two recording sessions, ideally back-to-back.
 
-## Operator-blocked: spec maintenance
+## Spec maintenance: RESOLVED by v0.9 (2026-06-11)
 
-- **Spec 5.2 fee claims are stale** (documented drift, not a code gap):
-  "Polymarket Intl mostly zero" and "Polymarket US flat 10bp taker"
-  describe superseded regimes. Current reality (researched 2026-06-09,
-  docs/research/venue/): Intl per-category quadratic taker 0.03-0.07 +
-  maker rebates; US quadratic taker 0.05 / maker -0.0125 with banker's
-  rounding. The fee engine supports all of it via config. Unblock:
-  operator issues a spec v0.9 touch-up (spec changes require a version
-  bump, Section 3 preamble).
+- **Spec 5.2 fee claims** (stale "Intl mostly zero" / "US flat 10bp")
+  were corrected — not erased — in the operator-directed v0.9 amendment
+  (B1, confirmed in-session 2026-06-11: "Proceed with B1 (spec v0.9
+  amendment)"), which also added the 5.15 perpetual-futures domain. The
+  perps fee model (notional-fraction maker/taker via fee_tiers) entered
+  5.2 alongside the corrections; the Kalshi event quadratic x0.07 is now
+  marked fixture-confirmed (real demo fill, 2026-06-11).
 
 ## Disputed invariant tests
 (none)

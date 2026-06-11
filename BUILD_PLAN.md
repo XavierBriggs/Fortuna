@@ -324,9 +324,12 @@ code.
   Phase B CONFIRMED by the operator 2026-06-11 (B1-B8 + amendments A/B/C +
   original-list merge; docs/design/kinetics-perps-module-plan.md is authoritative):
 
-- [ ] T5.B0 Perishable-data recorder (amendment A; FIRST and standalone): public
+- [x] T5.B0 Perishable-data recorder (amendment A; FIRST and standalone): public
       perps books + spreads, KXBTC15M bracket quotes paired per capture cycle,
       intraday funding estimates/marks; JSONL persistence; runs continuously.
+      (DONE 2026-06-11: crates/fortuna-recorder, 8 unit tests, RUNNING since
+      06:52 UTC — series KXBTC15M,KXBTC,KXBTCD; restart cmd in data/recorder.log
+      header; survives session end, NOT reboot — launchd plist on request.)
 - [ ] T5.B1 Spec v0.9 amendment: 5.15 perps domain (InstrumentKind, PerpPrice,
       portfolio-margin exposure stance + dedicated margin envelope, liquidation-
       distance floor + leverage caps, funding cash-flow entries, liquidation-fill

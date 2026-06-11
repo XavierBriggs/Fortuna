@@ -1,7 +1,7 @@
 # FORTUNA — Repository Constitution
 
 You are building FORTUNA, a model-driven autonomous trading system. The authoritative
-design document is `docs/spec.md` (v0.8). When this file and the spec disagree, the spec
+design document is `docs/spec.md` (v0.9). When this file and the spec disagree, the spec
 wins. When the spec is silent, record the gap in `GAPS.md` and choose the conservative
 option. The master build instructions live in `PROMPT.md`; the phased task list lives in
 `BUILD_PLAN.md`.

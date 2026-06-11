@@ -5,7 +5,7 @@ description: Project knowledge for building FORTUNA, the model-driven autonomous
 
 # FORTUNA project skill
 
-Authority chain: docs/spec.md (v0.8) > CLAUDE.md > this skill. PROMPT.md is the mission;
+Authority chain: docs/spec.md (v0.9) > CLAUDE.md > this skill. PROMPT.md is the mission;
 BUILD_PLAN.md is the task list.
 
 ## Crate map (what lives where)
