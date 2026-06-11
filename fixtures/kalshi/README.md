@@ -17,7 +17,7 @@ at session time; also the settlement seed).
 
 | # | Finding | Fixture |
 |---|---|---|
-| 1 | **Error envelope is NESTED**: `{"error":{"code","message","details"?,"service"?}}` — the OpenAPI's FLAT `ErrorResponse` does not occur on the wire (auth layer AND API layer). Adapter must parse the nested shape. | every 4xx capture |
+| 1 | **THREE error-body shapes observed on the wire** (corrected 2026-06-11 — the original "nested everywhere, flat never occurs" claim was falsified by this set's own captures, gate finding F2): (a) NESTED `{"error":{"code","message","details"?,"service"?}}` — 17 of 19 4xx captures (auth + order/exchange errors); (b) the FLAT OpenAPI `{"code","message","details"}` shape — JSON-decode 400s (orders__numeric_field_types: `code:"bad_request"`, Go-unmarshal details); (c) bare `{"msg":"…"}` — parameter-validation 400s (markets__limit_over_max). The adapter must parse ALL THREE and refuse none. | all 4xx captures; counterexamples named |
 | 2 | Timestamp skew tolerance: ±5s accepted, −30s and ±5min rejected → window is >5s and <30s | auth__skew_* |
 | 3 | Duplicate `client_order_id` → 409 code string **`order_already_exists`** | orders__duplicate_client_order_id |
 | 4 | A CANCELED order's client_order_id does NOT free up (409 on reuse) — client ids are permanent per account | orders__reuse_canceled_client_id |
@@ -32,8 +32,13 @@ at session time; also the settlement seed).
 | 13 | WS: signed handshake on `/trade-api/ws/v2` accepted (101) on both flag states; server pings ~10s cadence (8 in 90s) | ws__orderbook_trade_yes/.meta, _noleg |
 | 14 | Insufficient balance → 400 (body recorded) | orders__insufficient_balance |
 | 15 | Both demo hosts accept the same signature (path-only signing confirmed) | auth__balance_alt_host |
+| 16 | **Cancel-ack vs read-surface STALE RACE, captured live** (ledgered 2026-06-11, gate finding F3 — this is checklist #15's "cancel-reconcile race" caught on the wire): DELETE acked 200 `reduced_by:"1.00"` at ts_ms 1781159364112; GET ~360ms later returned `status:"resting"`, `remaining_count_fp:"1.00"`, last_update_time UNCHANGED from creation; a second DELETE 404'd (the cancel surface knew the order was dead while the read surface said resting). ADAPTER REQUIREMENT: never trust a single post-cancel GET — reconcile by polling until terminal with bounded backoff, and treat 404-on-recancel as proof-of-canceled. | orders__cancel_v2 + orders__get_after_cancel + orders__cancel_already_canceled (bodies + meta timestamps) |
 
 ## Known gaps left open by this session (tracked in GAPS.md)
+
+Coverage statement (corrected 2026-06-11, gate finding F4): the session
+covered the 27-item checklist EXCEPT the items below — "covered" without
+this list was an overstatement.
 
 - Settlement record: seed position placed (orders__settlement_seed); re-poll
   `GET /portfolio/settlements` after the market closes and add the capture.
@@ -46,6 +51,14 @@ at session time; also the settlement seed).
 - WS capture is from a quiet market (5–7 frames: subscribed + snapshot +
   deltas). Contract shapes confirmed; a busy-market capture lands with the
   perps session.
+- Checklist #11: only `self_trade_prevention_type = taker_at_cross` was
+  exercised; the `maker` mode (cancel-the-resting-order semantics) is
+  UNOBSERVED — capture in the next session.
+- Checklist #20 (REST orderbook no-leg pricing): orderbook__base captured
+  an EMPTY book (`{"orderbook":{}}`) — vacuously confirms nothing about
+  level pricing; re-capture on a two-sided market next session.
+- Checklist #17 sub-items: cursor stability across inserts and
+  expired-cursor behavior were not exercised (garbage cursor was).
 
 `crates/fortuna-venues/tests/kalshi_doc_samples/` remains the DOC-DERIVED
 set used to build the adapter pre-fixtures; retire entries only as adapter

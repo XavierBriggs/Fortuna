@@ -1184,3 +1184,11 @@ crates/fortuna-venues/tests/kalshi_doc_samples/ are NOT recordings.
   within one millisecond is an error, never a silent wrap. Erroring over wrapping
   is conservative: a wrap would silently break id ordering, which downstream
   consumers (audit, journal) are allowed to rely on.
+- **Capture tools use wall-clock time at the IO edge** (gate finding F6,
+  ledgered 2026-06-11): `fortuna-recorder` (B0) and the
+  `record_kalshi_fixtures` example call `SystemTime::now()`/`Instant::now()`
+  directly. The injected-Clock rule exists for the deterministic core
+  (bus/audit/replay); a live-capture tool's timestamps ARE the data being
+  recorded, and neither tool feeds the core event loop. Both crates keep
+  their logic halves pure and unit-tested; only their capture loops touch
+  the wall clock.

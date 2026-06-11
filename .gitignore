@@ -4,5 +4,6 @@
 config/fortuna.toml
 fixtures/**/*.secret.*
 .DS_Store
-.keys/**data/
+.keys/
 data/
+.playwright-mcp/

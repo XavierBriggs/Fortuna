@@ -88,6 +88,33 @@ DAEMON task — the next engineering build):
   fetches params + quality per scope and feeds SynthesisStrategy +
   set_calibration_quality).
 
+## SECURITY INCIDENT 2026-06-11 (gate finding F1, Critical) — keys were committed
+
+WHAT HAPPENED: both Kalshi PEM private keys (`.keys/fortuna-demo-v1.txt`
+and `.keys/fortuna-key.txt` — the latter mapped by .env to BOTH
+KALSHI_PRIVATE_KEY_PATH and FORTUNA_KILLSWITCH_KALSHI_PRIVATE_KEY_PATH)
+were tracked in git from the B0 commit until the same-day remediation.
+ROOT CAUSE: an agent `echo "data/" >> .gitignore` onto a file whose last
+line `.keys/**` had no trailing newline corrupted the pattern to
+`.keys/**data/`, un-ignoring `.keys/`; the next `git add -A` swept the
+keys in. EXPOSURE BOUND: this repository has NEVER been pushed — the key
+material never left this machine; it existed only in local git objects.
+REMEDIATION (engineering, done same day): .gitignore repaired (`.keys/`
+restored, trailing newline, `.playwright-mcp/` added), keys + runtime
+data untracked at HEAD, HISTORY REWRITTEN to purge `.keys/` and `data/`
+blobs from all affected commits (filter-branch + reflog expire + gc;
+old->new hash mapping in docs/reviews/history-rewrite-2026-06-11.md —
+commit hashes cited in documents dated before 2026-06-11T08:00Z refer to
+pre-rewrite history), purge VERIFIED (no key blobs reachable from any
+ref). PROCESS FIX: never append to .gitignore with `>>`; edit with
+anchored tools and verify `git status --ignored` after.
+OPERATOR ACTION REQUIRED: rotate BOTH Kalshi keys (treat as compromised
+per policy even though exposure was machine-local — the live key is also
+the I4 kill-switch credential): demo + prod key pages at
+(demo.)kalshi.co Account & security -> API Keys; place new PEMs at the
+paths .env names; the fixture set is unaffected (recorded with the demo
+key, which you may rotate independently).
+
 ## Operator adjudication queue — RESOLVED (signed off 2026-06-10)
 
 OPERATOR SIGN-OFF RECORDED: 2026-06-10, in-session, verbatim "I sign off",
@@ -147,15 +174,24 @@ The audit record stays below for the trail.
 **SESSION COMPLETE 2026-06-11:** after the operator installed the matching
 demo key (the original mismatch: the configured id was a fresh key, the
 available PEM was a February-dated one), the full session ran end to end —
-60 captures under fixtures/kalshi/ covering the 27-item checklist, both WS
-flag states, and cleanup. Load-bearing wire findings (full table in
-fixtures/kalshi/README.md): NESTED error envelope everywhere (adapter parse
-fix required before clearance — the OpenAPI flat ErrorResponse never occurs
-on the wire); 409 dup code string `order_already_exists`; canceled
-client_order_ids never free up; non-resting cancels are 404; skew window
-(>5s, <30s); post_only-cross rejected AT CREATE on demo (docs say
-201-then-cancel — demo/prod divergence to re-check); quadratic taker fee
-x0.07 confirmed against a real fill; cursor last-page = empty string.
+60 captures under fixtures/kalshi/ covering the 27-item checklist EXCEPT
+the ledgered exceptions (see README Known gaps incl. STP `maker` mode
+unobserved, #20 vacuous empty-book capture, #17 cursor-stability sub-items
+— gate finding F4), both WS flag states, and cleanup. Load-bearing wire
+findings (full table in fixtures/kalshi/README.md): THREE error-body
+shapes on the wire — nested {"error":{...}} (17/19 4xx), the flat OpenAPI
+shape (json-decode 400s), and bare {"msg"} (parameter-validation 400s);
+the adapter must parse all three (CORRECTED 2026-06-11, gate F2: the
+original "nested everywhere / flat never occurs" claim was falsified by
+this set's own captures); CANCEL-ACK/READ STALE RACE captured live (gate
+F3 — checklist #15's highest-stakes item): DELETE 200 then GET ~360ms
+later still "resting"/full remaining while re-cancel 404s — adapter must
+poll-until-terminal after cancel and treat recancel-404 as canceled; 409
+dup code string `order_already_exists`; canceled client_order_ids never
+free up; non-resting cancels are 404; skew window (>5s, <30s);
+post_only-cross rejected AT CREATE on demo (docs say 201-then-cancel —
+demo/prod divergence to re-check); quadratic taker fee x0.07 confirmed
+against two independent fills; cursor last-page = empty string.
 REMAINING for clearance (T4.2): adapter re-pointed at recordings + nested-
 envelope fix; settlement capture after the seeded market closes; voided
 market when one occurs; series fee fields via event lookup; prod-parity
@@ -302,11 +338,14 @@ observed so far: `INVALID_PARAMETER` (malformed key id) and
   Known conflicts the doc flags: orderbook ordering vs spec text,
   help-center contract-size mislabel, NFA-id discrepancy in Kinetics' own
   filing.
-- **Phase B: PROPOSED, awaiting operator confirmation** — the operator's
-  directive was cut off mid-list ("Phase B — Design then implement, in
-  order:"). Drafted order (B1 spec amendment .. B8 ops) in
-  docs/design/kinetics-perps-module-plan.md; supersede it with the
-  original list if it exists. Nothing builds before confirmation.
+- **Phase B: CONFIRMED by the operator 2026-06-11** ("your B1–B8 order
+  supersedes the truncated directive") with amendments A (B0 recorder
+  first/standalone — BUILT and RUNNING), B (funding_carry data-only
+  >=60d), C (fee-trap rule); the operator's recovered original list is
+  folded in (docs/design/kinetics-perps-module-plan.md §6 verbatim).
+  BUILD_PLAN T5.B0-B8 enumerates the confirmed order. (This entry
+  previously said "awaiting confirmation" after confirmation had landed —
+  one ledger held two states; corrected per gate finding F7.)
 - **OPERATOR (rides the SAME demo-key unblock as the Kalshi session):**
   perps fixture recording session — 18-item request list in research §12,
   output under fixtures/kinetics-perps/ (margin-WS signing path, order
