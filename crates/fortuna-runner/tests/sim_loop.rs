@@ -623,3 +623,61 @@ fn fill_latency_is_measured_from_submit_to_execution() {
     assert_eq!(c.fill_latency.sum_ms, c2.fill_latency.sum_ms);
     assert_eq!(c.fill_latency.max_ms, c2.fill_latency.max_ms);
 }
+
+// ---- hot-path wall-time instrumentation (operator question: the mech
+// ---- strategies race the market; what does OUR slice of the path cost?)
+
+#[test]
+fn tick_wall_time_is_reported() {
+    use std::time::Instant;
+
+    // Busy world: arb scan + 3-leg size/gate/submit/fill every tick.
+    let mut r = SimRunner::new(
+        runner_config(7),
+        vec![strategy()],
+        Box::new(MemoryAuditSink::default()),
+        t0(),
+    )
+    .unwrap();
+    set_arb_books(&r);
+    // Warm + first trade tick.
+    futures::executor::block_on(r.tick()).unwrap();
+
+    // Steady-state ticks (books refreshed, no new arb after capture).
+    let n = 2_000;
+    let started = Instant::now();
+    for _ in 0..n {
+        set_fair_books(&r);
+        r.clock.advance_millis(100).unwrap();
+        futures::executor::block_on(r.tick()).unwrap();
+    }
+    let elapsed = started.elapsed();
+    let per_tick_us = elapsed.as_micros() as f64 / n as f64;
+    println!("[tick-bench] steady-state: {per_tick_us:.0}us/tick over {n} ticks");
+
+    // Decision-heavy ticks: fresh runner per measurement of the full
+    // scan->size->gate->submit->fill tick.
+    let m = 200;
+    let mut total_us = 0u128;
+    for i in 0..m {
+        let mut r = SimRunner::new(
+            runner_config(1_000 + i),
+            vec![strategy()],
+            Box::new(MemoryAuditSink::default()),
+            t0(),
+        )
+        .unwrap();
+        set_arb_books(&r);
+        let t = Instant::now();
+        futures::executor::block_on(r.tick()).unwrap();
+        total_us += t.elapsed().as_micros();
+    }
+    println!(
+        "[tick-bench] full trade tick (scan+gates+3 submits+fills): {:.0}us avg over {m} runs",
+        total_us as f64 / m as f64
+    );
+
+    // Sanity bound only — generous enough to never flake in CI; the
+    // numbers above are the deliverable.
+    assert!(per_tick_us < 50_000.0, "steady tick {per_tick_us}us > 50ms");
+}

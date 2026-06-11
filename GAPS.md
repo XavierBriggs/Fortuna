@@ -60,6 +60,26 @@ evidence by the independent gate: docs/reviews/system-0-4-egate-2026-06-10.md
 (verdict ACCEPT). False documentation was corrected with the correction
 visible (ASSUMPTIONS.md, BUILD_PLAN.md T2.6 note), never erased.
 
+## Minor engineering residue (non-blocking; verified open by the independent
+## f-batch gate, docs/reviews/f-batch-INDEPENDENT-gate-2026-06-10.md)
+
+Fold these into the FIRST POST-FIXTURE composition task (path-to-production
+step 5) — three are composition-wiring by nature and two were already noted
+there by the independent e-gate:
+- `fortuna_ops::alerts::degrade_alerts` has zero non-test callers — the F1
+  alert rule is built and test-covered but undeliverable until a scrape
+  composition consumes it; ASSUMPTIONS overstates this as live.
+- `CalibrationParamsRepo.latest` has no live call site (e-gate note) —
+  must bind in the live composition.
+- `fortuna_mind_spend_today_cents` exported with `counter: true`
+  (runner.rs metrics_export, first tuple block) despite daily-reset gauge
+  semantics — fix the type flag before any Prometheus consumer applies
+  rate() to it.
+- `settlement_voids`/`settlement_reversals` counter increments are never
+  post-state asserted (settlement_loop.rs asserts only the ==0 pre-state).
+- Kelly sizing keys off legs[0] only (single-leg synthesis today; revisit
+  with multi-leg).
+
 ## Operator adjudication queue (operator actions; no code changes)
 
 - **Protected-crate waives (3 batches).** crates/fortuna-invariants/ was
