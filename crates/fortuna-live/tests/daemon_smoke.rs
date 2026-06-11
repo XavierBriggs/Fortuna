@@ -111,6 +111,7 @@ async fn daemon_smoke_boot_ticks_signal_shutdown(pool: PgPool) {
         halt_poll_ms: 500,
     };
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
+    let mut daily = fortuna_live::daemon::DailyScheduler::new();
 
     let (stats, shutdown) = drive(
         &mut runner,
@@ -122,6 +123,7 @@ async fn daemon_smoke_boot_ticks_signal_shutdown(pool: PgPool) {
         |_r, _s| {},
         &mut scrape,
         None,
+        &mut daily,
     )
     .await
     .expect("daemon drive");
@@ -182,6 +184,7 @@ async fn signal_with_working_orders_cancels_them_and_audits(pool: PgPool) {
         halt_poll_ms: 500,
     };
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
+    let mut daily = fortuna_live::daemon::DailyScheduler::new();
 
     let (_stats, shutdown) = drive(
         &mut runner,
@@ -193,6 +196,7 @@ async fn signal_with_working_orders_cancels_them_and_audits(pool: PgPool) {
         |_r, _s| {},
         &mut scrape,
         None,
+        &mut daily,
     )
     .await
     .expect("daemon drive");

@@ -154,6 +154,7 @@ async fn main() -> Result<()> {
         halt_poll_ms: dcfg.daemon.halt_poll_ms,
     };
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
+    let mut daily = fortuna_live::daemon::DailyScheduler::new();
 
     // Slack router from the validated env over the real reqwest transport.
     // The bot token validated present => Some(router); a channel id the
@@ -189,6 +190,7 @@ async fn main() -> Result<()> {
         },
         &mut scrape,
         slack_router.as_ref(),
+        &mut daily,
     )
     .await
     .context("daemon loop")?;

@@ -196,3 +196,21 @@ async fn poll_failure_is_counted_never_silent_never_fatal(pool: PgPool) {
     );
     assert_eq!(stats.ticks, 3, "trading continues on last-known halt state");
 }
+
+#[test]
+fn daily_scheduler_fires_once_per_utc_day() {
+    use fortuna_core::clock::UtcTimestamp;
+    use fortuna_live::daemon::DailyScheduler;
+    let day = |iso: &str| UtcTimestamp::parse_iso8601(iso).unwrap();
+    let mut s = DailyScheduler::new();
+    // First call ever: due.
+    assert!(s.due(day("2026-06-11T00:00:00.000Z")));
+    // Same UTC day later: not due.
+    assert!(!s.due(day("2026-06-11T23:59:59.000Z")));
+    // Next UTC day: due.
+    assert!(s.due(day("2026-06-12T00:00:00.000Z")));
+    // Same new day again: not due.
+    assert!(!s.due(day("2026-06-12T12:00:00.000Z")));
+    // Two days later: due (no double-fire for the skipped day, by design).
+    assert!(s.due(day("2026-06-14T06:00:00.000Z")));
+}

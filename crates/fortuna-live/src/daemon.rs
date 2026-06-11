@@ -22,11 +22,15 @@
 //! The dead-man heartbeat runs as an independent spawned task in main
 //! (deadman_tick, mock-tested; real pings only in the binary).
 //!
+//! The daily-boundary scheduler (DailyScheduler) fires once per UTC day,
+//! emitting a terse daily digest to #fortuna-digest.
+//!
 //! HONESTLY NOT HERE YET (ledgered in GAPS; claims must match code):
 //! the synthesis strategy in main (compose::calibration_for_scope +
 //! persist_beliefs are tested, not yet fed into a daemon-booted
-//! SynthesisStrategy — edge-source design-blocked), and the scheduled
-//! daily/weekly loops.
+//! SynthesisStrategy — edge-source design-blocked); the RICH daily
+//! digest (full DigestInputs) + daily reconciliation re-run + weekly/
+//! monthly cognition reviews (need belief/review data, synthesis-blocked).
 
 use crate::audit_bridge::PgAuditSink;
 use crate::boot::{BootError, DaemonToml};
@@ -209,6 +213,7 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     mut between_segments: impl FnMut(&SimRunner<PgIntentJournal>, &LoopStats),
     scrape: &mut DegradeScrape,
     slack: Option<&fortuna_ops::SlackRouter>,
+    daily: &mut DailyScheduler,
 ) -> Result<(LoopStats, fortuna_runner::ShutdownReport), DaemonError> {
     let mut total = LoopStats::default();
     loop {
@@ -246,6 +251,16 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
             ));
         }
         let _send_failures = route_alerts(slack, runner, &alerts).await;
+
+        // Daily boundary (req 5 tail): on each new UTC day, emit the
+        // end-of-day digest to #fortuna-digest + an audit row. The daily
+        // RECONCILIATION re-run and the weekly/monthly cognition reviews
+        // are the remaining req-5 surface (ledgered).
+        let now = Clock::now(runner.clock.as_ref());
+        if daily.due(now) {
+            let digest = terse_daily_digest(runner, now);
+            route_alerts(slack, runner, &[(fortuna_ops::MessageKind::Digest, digest)]).await;
+        }
 
         between_segments(runner, &stats);
 
@@ -469,4 +484,55 @@ pub async fn deadman_tick(
         Err(e) => on_failure(e.to_string()),
     }
     true
+}
+
+/// UTC-day-boundary scheduler (T4.1 req 5 tail): the clock-injected core
+/// that the daily reconciliation + digest key off. `due` is true on the
+/// first call and whenever the UTC calendar day has changed since the
+/// last fire (day = epoch-ms floored to 86_400_000), recording the new
+/// day. Deterministic under the injected clock — no wall-time read.
+#[derive(Debug, Default)]
+pub struct DailyScheduler {
+    last_day: Option<i64>,
+}
+
+impl DailyScheduler {
+    pub fn new() -> DailyScheduler {
+        DailyScheduler { last_day: None }
+    }
+
+    /// True iff `now` falls on a UTC day not yet fired (records it).
+    pub fn due(&mut self, now: fortuna_core::clock::UtcTimestamp) -> bool {
+        let day = now.epoch_millis().div_euclid(86_400_000);
+        if self.last_day == Some(day) {
+            return false;
+        }
+        self.last_day = Some(day);
+        true
+    }
+}
+
+/// A terse end-of-day digest line (req 5): the date (00:00 UTC boundary),
+/// stage, and the day's headline counters. The RICH DigestInputs
+/// composition (per-strategy rows, veto accounting) and the weekly/
+/// monthly cognition reviews are the remaining req-5 surface — ledgered;
+/// they need belief/review data that flows only once synthesis is in the
+/// daemon (edge-source design-blocked).
+pub fn terse_daily_digest<J: fortuna_exec::IntentJournal + Send>(
+    runner: &SimRunner<J>,
+    now: fortuna_core::clock::UtcTimestamp,
+) -> String {
+    let iso = now.to_iso8601();
+    let date = iso.get(..10).unwrap_or(&iso);
+    let c = runner.counters();
+    format!(
+        "FORTUNA daily digest {date} (sim): ticks={} orders={} fills={} \
+         gate_rejections={} settlement_notices={} cognition_failures={}",
+        c.ticks,
+        c.orders_submitted,
+        c.fills_applied,
+        c.gate_rejections,
+        c.settlement_notices,
+        c.cognition_failures
+    )
 }
