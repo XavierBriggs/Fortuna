@@ -12,6 +12,7 @@
 //! path by firing the same channel.
 
 use anyhow::{bail, Context, Result};
+use fortuna_core::clock::{Clock, RealClock};
 use fortuna_live::boot::{validate_env, DaemonToml};
 use fortuna_live::compose::DegradeScrape;
 use fortuna_live::daemon::{
@@ -53,13 +54,12 @@ async fn main() -> Result<()> {
         );
     }
 
-    // Wall time enters here (binary edge) and at the cadence driver only.
-    let start_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0);
-    let start = fortuna_core::clock::UtcTimestamp::from_epoch_millis(start_ms)
-        .context("wall clock start")?;
+    // Wall time enters here (binary edge) and at the cadence driver only,
+    // ALWAYS through RealClock — the single Clock impl permitted to read
+    // the wall (clock.rs), never a raw SystemTime::now() (CLAUDE.md: a
+    // wall read outside a Clock impl is a defect even at the edge).
+    let start = RealClock.now();
+    let start_ms = start.epoch_millis();
 
     let pool = fortuna_ledger::connect(validated.database_url.expose())
         .await
@@ -128,15 +128,10 @@ async fn main() -> Result<()> {
             let mut ticker = tokio::time::interval(interval);
             loop {
                 ticker.tick().await;
-                let now = fortuna_core::clock::UtcTimestamp::from_epoch_millis(
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_millis() as i64)
-                        .unwrap_or(0),
-                )
-                .unwrap_or_else(|_| {
-                    fortuna_core::clock::UtcTimestamp::from_epoch_millis(0).unwrap()
-                });
+                // RealClock is the daemon's one wall-time source; the
+                // dead-man deliberately reads the WALL (not the runner's
+                // SimClock) so its heartbeat is real-time even in sim soak.
+                let now = RealClock.now();
                 fortuna_live::daemon::deadman_tick(&mut pinger, now, |e| {
                     eprintln!("fortuna-live: dead-man ping FAILED: {e}");
                 })

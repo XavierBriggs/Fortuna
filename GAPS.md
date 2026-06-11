@@ -126,6 +126,23 @@ Slack send-failure count is now SURFACED (drive sums total_send_failures
 and audits a final Ops alert if >0) — the earlier "_send_failures
 discarded" is fixed.
 
+REMEDIATION-2 FOLLOW-UP (2026-06-11, honesty correction): commit f78ba4e
+was framed as "hoist halt-dedup (Major) + 5 minors", but remediation2-gate
+finding #4 (raw SystemTime::now() in fortuna-live main.rs at the binary
+edge — CLAUDE.md calls a wall read outside a Clock impl a defect even at
+the edge) was NOT actually addressed in that commit; the pre-existing F6
+ASSUMPTIONS entry covers only the capture tools (recorder + fixture
+example), not this daemon binary. Self-caught on the next iteration's
+priority-(a) re-verification. CLOSED HERE: main.rs now reads wall time
+through `fortuna_core::clock::RealClock` (the one documented legal
+wall-time source, and a Clock impl — so no longer "outside the Clock
+impls") for both the start timestamp and the dead-man heartbeat tick; zero
+raw SystemTime::now() remain in fortuna-live/src. The dead-man deliberately
+reads the WALL via RealClock (not the runner's SimClock) so its heartbeat
+stays real-time during a sim soak. No ASSUMPTIONS exception is needed — the
+clean fix (route through the Clock impl) was taken over the ledger-it
+alternative.
+
 T41-DAEMON-GATE FIXES (2026-06-11, the daemon gate's BLOCK):
 - F1 clippy-red (drive too_many_args at 77588c5/817d2e7): FIXED at
   871c339 (#[allow] — the args are distinct composition inputs);
