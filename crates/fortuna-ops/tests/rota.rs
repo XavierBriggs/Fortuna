@@ -232,6 +232,33 @@ fn scan_recorder_stats_todays_streams_cheaply_and_flags_staleness() {
     let _ = std::fs::remove_dir_all(&base);
 }
 
+#[test]
+fn scan_recorder_rejects_a_malformed_generated_at_never_faking_healthy() {
+    // audit-tail-fix gate finding #1: a VALID date prefix (so today's dir is
+    // found) with an UNPARSEABLE instant must NOT fake healthy. The old
+    // `parse_iso8601(...).unwrap_or(0)` then `.max(0)` clamped age to 0 =>
+    // healthy:true on garbage. Degraded-never-faked: unknown clock => unhealthy
+    // + null age.
+    let (base, _now_ms, today) = temp_perishable("malformed");
+    let bad = format!("{today}TGARBAGE-NOT-A-TIMESTAMP");
+    let rec = scan_recorder(&base, &bad);
+    let arr = rec.as_array().expect("recorder array");
+    assert_eq!(arr.len(), 2, "today's streams are still listed: {rec}");
+    for s in arr {
+        assert_eq!(
+            s["healthy"], false,
+            "a malformed clock must read unhealthy, NEVER faked-healthy: {s}"
+        );
+        assert!(
+            s["last_capture_age_secs"].is_null(),
+            "age is unknown on a bad clock, not a fabricated 0: {s}"
+        );
+        // size is clock-INDEPENDENT metadata — still honestly reported.
+        assert!(s["size_bytes"].is_number(), "{s}");
+    }
+    let _ = std::fs::remove_dir_all(&base);
+}
+
 #[tokio::test]
 async fn streams_handler_merges_recorder_when_perishable_dir_present() {
     let (base, now_ms, _today) = temp_perishable("handler");

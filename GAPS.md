@@ -253,6 +253,18 @@ ROTA-SLICES GATE REMEDIATION (rota-slices-gate-2026-06-11.md, BLOCK narrow;
   Content (stub; the real Section 9 cornucopia/wheel mark lands in the Phase-3
   asset slice). Tested standalone (favicon_is_a_204_not_a_404, + POST 405) AND
   through the live merged serve_dashboard tree (the dashboard mount test).
+
+AUDIT-TAIL-FIX GATE (audit-tail-fix-gate-2026-06-11.md, ACCEPT-WITH-GAPS — the
+first non-BLOCK after four BLOCKs; F1-cursorless + slice-4-scan + F3-ledger all
+VERIFIED). New/carried Minors:
+- #1 [NEW] scan_recorder faked healthy:true on a malformed generated_at
+  (parse_iso8601 unwrap_or(0) -> age clamped to 0): CLOSED (this commit). now_ms
+  is now Option; age is computed only when BOTH the file mtime AND a parseable
+  "now" are known, else None => unhealthy + null age (degraded-never-faked).
+  Test: scan_recorder_rejects_a_malformed_generated_at_never_faking_healthy
+  (valid date prefix + unparseable instant — the gate's exact vector).
+- #2 favicon: CLOSED (276e67a). #3 DailyScheduler + #4 GAPS/ASSUMPTIONS dead-man
+  contradiction carry into the open list below.
 - STILL OPEN (next iterations): F4 DailyScheduler boot-fire + digest cumulative-
   vs-day labeling + no drive()-level digest assertion; F5 ASSUMPTIONS/GAPS
   dead-man contradiction + stale "SystemTime::now post-RealClock-fix" wording;

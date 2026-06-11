@@ -108,9 +108,12 @@ async fn view_settlement(State(s): State<RotaState>) -> impl IntoResponse {
 /// missed 30s recorder cycles). Absent/unreadable dir => empty array, never a
 /// panic (the panel degrades, never 500s).
 pub fn scan_recorder(perishable_dir: &Path, generated_at: &str) -> Value {
+    // A malformed timestamp leaves "now" UNKNOWN — never default it to 0 (that
+    // clamps every age to 0 => a fabricated healthy:true, audit-tail-fix gate
+    // finding #1). None here flows through to unhealthy + null age below.
     let now_ms = UtcTimestamp::parse_iso8601(generated_at)
         .map(|t| t.epoch_millis())
-        .unwrap_or(0);
+        .ok();
     let today = generated_at.get(0..10).unwrap_or("");
     let day_dir = perishable_dir.join(today);
     let mut paths: Vec<PathBuf> = match std::fs::read_dir(&day_dir) {
@@ -131,11 +134,15 @@ pub fn scan_recorder(perishable_dir: &Path, generated_at: &str) -> Value {
             .to_string();
         let entry = match std::fs::metadata(&path) {
             Ok(md) => {
+                // age only when BOTH the file mtime AND a parseable "now" are
+                // known; otherwise None => unhealthy + null age (never faked).
                 let age = md
                     .modified()
                     .ok()
                     .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| ((now_ms - d.as_millis() as i64).max(0)) / 1000);
+                    .map(|d| d.as_millis() as i64)
+                    .zip(now_ms)
+                    .map(|(mtime, now)| ((now - mtime).max(0)) / 1000);
                 json!({
                     "stream": stream,
                     "last_capture_age_secs": age,
