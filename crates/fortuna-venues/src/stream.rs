@@ -101,14 +101,35 @@ impl BookAssembler {
                 yes_bids,
                 yes_asks,
             } => {
+                // Zero-qty levels are simply absent; NEGATIVE resting
+                // quantity is torn venue data and fails LOUD (re-grade
+                // finding: the first cut swallowed it silently).
                 let mut bids = BTreeMap::new();
                 for level in yes_bids {
+                    if level.qty.raw() < 0 {
+                        return Err(VenueError::Invalid {
+                            reason: format!(
+                                "snapshot for {market} carries negative bid qty {} @ {}",
+                                level.qty.raw(),
+                                level.price
+                            ),
+                        });
+                    }
                     if level.qty.raw() > 0 {
                         bids.insert(level.price.raw(), level.qty.raw());
                     }
                 }
                 let mut asks = BTreeMap::new();
                 for level in yes_asks {
+                    if level.qty.raw() < 0 {
+                        return Err(VenueError::Invalid {
+                            reason: format!(
+                                "snapshot for {market} carries negative ask qty {} @ {}",
+                                level.qty.raw(),
+                                level.price
+                            ),
+                        });
+                    }
                     if level.qty.raw() > 0 {
                         asks.insert(level.price.raw(), level.qty.raw());
                     }

@@ -143,7 +143,7 @@ there by the independent e-gate:
     doc-derived — parser, seq-gap detection, yes-scale subscribe builder,
     BookAssembler, and the stream->PaperVenue replay seam are tested
     against the verbatim official examples. The capture CONFIRMS the
-    contract — esp. use_yes_price semantics, fixture #20 — and unblocks
+    contract — esp. use_yes_price semantics — confirm against the fixture checklist's no-leg-pricing item (research checklist item #20; the recording session should exercise BOTH flag states) — and unblocks
     the live socket DIAL (signed-handshake auth, keep-alive, redial) plus
     the venue-generic runner composition replaying the recordings.),
   - a VOIDED market's settlement record (`market_result` documents only

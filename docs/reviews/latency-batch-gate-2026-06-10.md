@@ -164,3 +164,103 @@ BLOCK. The fix is small (absent fp key == empty side, plus a test) and nothing e
 in the batch needs to move; alternatively the operator may waive until the fixture
 recording session, in which case the remaining items land as ACCEPT-WITH-GAPS with
 the six Minors ledgered in GAPS.md.
+
+---
+
+# RE-GRADE at 57ae240 — 2026-06-10
+Base: d1cafe1  Head: 57ae240  Verdict: ACCEPT-WITH-GAPS (batch as a whole)
+Protected crate touched: no (`git diff cc3bde0...57ae240 -- crates/fortuna-invariants/` -> 0 lines)
+
+Scope of fix commit: crates/fortuna-venues/src/kalshi/ws.rs (+10/-4),
+crates/fortuna-venues/src/stream.rs (+20/-9), tests/stream.rs (+151, additive),
+crates/fortuna-runner/tests/sim_loop.rs (+110, additive), this review file. GAPS.md
+and ASSUMPTIONS.md NOT touched.
+
+## Re-grade criteria (fixed from the predecessor's findings before reading the diff)
+
+- R1 Major (one-sided snapshots): PASS — committed test
+  `one_sided_snapshots_parse_with_the_absent_side_empty` exists and passes (stream
+  10/10). Executed scratch (/tmp/fortuna-regrade-57ae240): one-sided frame -> OK
+  bids=1 asks=0; fully-empty msg -> OK 0/0; present-but-non-array side (string AND
+  object) -> "ERR: invalid: book side is neither absent nor an array". Strictness
+  retained. Mechanism: serde_json index yields Null for absent keys; `parse_levels`
+  maps Null -> empty (ws.rs:227-229).
+- R2 phantom level: PASS — `an_overdrawn_delta_leaves_no_phantom_level_behind`
+  passes. Code now checks BEFORE inserting (stream.rs:138-147). Executed scratch:
+  overdraw at an EXISTING price also errors with state intact (10 -> err -> +1 -> 11,
+  no corruption).
+- R3 SeqGap persistence: PASS — `a_seq_gap_keeps_reporting_until_resync` passes;
+  pins expected=11 on BOTH deltas (12, 13) and resync via fresh snapshot (seq 20 ->
+  delta 21 -> BookDelta).
+- R4 sub-cent trade price: PASS — `sub_cent_trade_prices_are_rejected_too` passes
+  ("0.365" rejected).
+- R5 mid-group abort: PASS — `a_mid_group_gate_rejection_submits_nothing_and_
+  releases_reservations` passes (sim_loop 11/11). Coverage is REAL, not trivial:
+  band gate references book mid (pipeline.rs:327-348); legs 1-2 at the asks (25 vs
+  mid 22, 28 vs mid 25, band 45) pass — same prices/config submit 3 legs in the
+  committed arb test (sim_loop.rs:180) — and leg 3 (99 vs mid 27, distance 72 > 45)
+  rejects, so the release loop runs with `staged` holding 2 reservations
+  (runner.rs:729-794 gates sequentially, reserves per passing leg, breaks on first
+  group rejection). Gauge `fortuna_reserved_exposure_cents` reads
+  `reservations.active_total` (runner.rs:2159-2163), asserted == 0.
+- R6 render validation: PASS — `BookAssembler::render` calls `OrderBook::validate`
+  (stream.rs:186-190). Executed scratch: crossing delta (bid 56 over ask 55) ->
+  "ERR ... crossed book: bid $0.56 >= ask $0.55" (fail-closed); state stays faithful
+  to venue deltas, so the uncrossing delta renders OK (self-heals without resync).
+  NOT ledgered (no GAPS/ASSUMPTIONS entry) — see findings.
+- R7 regression battery: PASS — `cargo fmt --check` exit 0; `cargo clippy
+  --workspace --all-targets -- -D warnings` exit 0; workspace TOTAL PASSED: 652,
+  FAILED: 0; `cargo test -p fortuna-venues --test stream` 10/10;
+  SETTLE_DST_SCENARIOS=300 -> master seed 1781149083051, ok; SYNTH_DST_SCENARIOS=300
+  -> master seed 1781149103930, 861 orders / 1320 proposals, ok; full corpus
+  `scripts/run-dst.sh` (N=2000) exit 0 — core dst "0 corpus + 2000 random seeds,
+  zero invariant violations" (seed 1781149159453), synthesis 2000 (seed
+  1781149236651), settlement 2000 (seed 1781149255654). Byte-identical replay: both
+  DST harnesses re-run every seed and fail on "recording differs on replay"
+  (settlement_dst.rs:504, synthesis_dst.rs:380) — green run = replay held; plus
+  `same_seed_same_script_byte_identical_recording` ok. Invariants crate: 0-line diff
+  across the whole batch; tracked tree clean at HEAD.
+- R8 residual predecessor Minors: PARTIAL — 4 of 6 closed by committed tests
+  (phantom, SeqGap pin, sub-cent trade pin, mid-group coverage). Still open AND
+  unledgered: negative snapshot-qty silent swallow; GAPS.md:146 #20-vs-#24
+  citation; non-positive trade-count rejection untested (tail of predecessor
+  Minor 3 — code DOES reject: scratch "0.00" -> "trade with non-positive count 0",
+  "-5.00" -> non-positive count -5).
+
+## Re-grade findings
+
+- [Minor] (carried) Negative snapshot-level qty still parses (scratch: "-300.00" ->
+  Contracts(-300)) and is silently dropped by the assembler's `> 0` filters
+  (stream.rs:106,112) before render-validate can see it — silent swallow vs
+  fail-loud doctrine, still unledgered.
+- [Minor] (new) Render-validation behavior on crossed venue data is a real,
+  executed behavioral change (transiently crossed feed window -> apply() errors ->
+  consumers resync; self-heals if a later delta uncrosses) with zero fixture
+  evidence on whether Kalshi's delta frame-ordering can produce transient crosses —
+  fail direction is CLOSED (correct), but the assumption is unledgered in
+  GAPS/ASSUMPTIONS.
+- [Minor] (carried) Non-positive trade-count rejection remains untested in the
+  committed suite (rejection confirmed by scratch execution only).
+- [Minor] (carried) GAPS.md:146 still cites "fixture #20" for use_yes_price; the
+  research checklist numbers it #24.
+- [Observation, no finding] `parse_levels` treats explicit `null` the same as an
+  absent key (scratch: `"yes_dollars_fp": null` -> empty side). The archive
+  documents ABSENCE, not null; serde_json indexing cannot distinguish them. Effect
+  is conservative (empty side, sinks still validate) and confined to snapshot
+  sides — delta/trade fields still hard-error when absent or null. No strictness
+  regression found elsewhere: non-array sides, sub-cent prices, fractional and
+  non-positive counts all still refuse (executed).
+
+## Verdict rationale
+
+The predecessor's single Major is fixed exactly as prescribed (absent key == empty
+side + committed test) with strictness preserved, and all four test-debt Minors it
+flagged for the fix received genuine committed pins — the mid-group test provably
+exercises the staged-release branch rather than passing vacuously. Every executed
+regression line is green at full corpus scale and the protected crate is untouched.
+What keeps this from clean ACCEPT: two predecessor Minors and one tail (negative-qty
+swallow, #20/#24 citation, trade-count test) are neither fixed nor ledgered, and the
+fix itself introduced one unledgered behavioral assumption (crossed-book render
+errors). All are non-money-path, fail-closed, Minor-severity items per the taxonomy
+-> ACCEPT-WITH-GAPS, conditional on the implementer ledgering the four open items in
+GAPS.md. No new defect found in the fixes themselves.

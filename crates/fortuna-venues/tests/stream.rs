@@ -443,3 +443,40 @@ fn an_overdrawn_delta_leaves_no_phantom_level_behind() {
     );
     assert_eq!(book.yes_bids[0].price, Cents::new(50));
 }
+
+// ---- re-grade findings: negative quantities fail LOUD; zero trades ----
+
+#[test]
+fn negative_snapshot_quantities_are_refused_not_swallowed() {
+    use fortuna_core::clock::UtcTimestamp;
+    let at = UtcTimestamp::parse_iso8601("2026-06-11T12:00:00.000Z").unwrap();
+    let mut asm = BookAssembler::new();
+    let err = asm.apply(
+        StreamEvent::BookSnapshot {
+            market: mkt("KX-A"),
+            yes_bids: vec![fortuna_venues::PriceLevel {
+                price: Cents::new(50),
+                qty: fortuna_core::market::Contracts::new(-300),
+            }],
+            yes_asks: vec![],
+        },
+        at,
+    );
+    assert!(
+        err.is_err(),
+        "negative resting quantity is torn data, not a skip"
+    );
+}
+
+#[test]
+fn non_positive_trade_counts_are_refused() {
+    let mut parser = KalshiWsParser::new();
+    assert!(parser
+        .parse_frame(
+            r#"{ "type": "trade", "sid": 2, "msg": {
+                  "trade_id": "t0", "market_ticker": "KX-A",
+                  "yes_price_dollars": "0.360", "count_fp": "0.00",
+                  "taker_side": "yes", "ts_ms": 1 } }"#,
+        )
+        .is_err());
+}

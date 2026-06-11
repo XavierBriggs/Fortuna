@@ -21,6 +21,13 @@ conservative option, and the spec section it interprets.
   sequences; fortuna-paper::feed_stream_event drives the SAME honest
   fill rules from a stream (the recorded-replay seam — operator
   recordings plug in directly).
+- **Assembled books VALIDATE before rendering:** a crossed or
+  structurally invalid assembled book errors at the assembler (torn
+  state => resync), not at a downstream sink. If live data shows
+  legitimately crossed transient books, that is new venue knowledge the
+  fixture session must capture — the assembler will not be loosened on
+  speculation. Negative resting quantities in snapshots fail loud (zero
+  quantities are simply absent levels).
 - **Kalshi WS message layer is doc-derived and dial-gated:** parser +
   subscribe builder built ONLY against the verbatim official examples
   and archived AsyncAPI spec (research 2026-06-10). We subscribe with
