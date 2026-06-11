@@ -309,14 +309,18 @@ propose-only (I6); promotion gates (I7) apply to any perps strategy unchanged. M
 changes the loss model (no longer premium-bounded) — gate design must precede adapter
 code.
 
-- [ ] T5.0 Phase A research (read-only, no code): ground Kinetics perps in fetched
+- [x] T5.0 Phase A research (read-only, no code): ground Kinetics perps in fetched
       truth — fee schedule, contract specs (sizes/tick/leverage per asset), funding
       (interval/cap/index), margin + maintenance formulas, liquidation mechanics,
       API auth + rate limits, WS channels, FIX existence, DEMO availability —
       docs/research/venue/kinetics-perps-2026-06-10/research.md with sources,
       retrieval dates, confidence per claim; live-account-only items to GAPS.md.
-      (2026-06-10: IN FLIGHT as a background research loop; tick only after the
-      doc lands and is reviewed.)
+      (DONE 2026-06-10/11: 844-line research.md, ~50 sources, 110 raw archives
+      incl. all three official API specs verbatim + live prod/demo captures;
+      structure + headline claims verified against the manifest. Load-bearing:
+      DEMO CARRIES PERPS with mock funds — the perps fixture session rides the
+      same demo-key unblock as the event-API session. Phase B proposal:
+      docs/design/kinetics-perps-module-plan.md, operator confirmation pending.)
 - [ ] T5.B Phase B — design then implement. NOT ENUMERATED: the operator's directive
       was truncated mid-list ("Phase B — Design then implement, in order:"). A
       proposed order goes to the operator with the research summary; Phase B does

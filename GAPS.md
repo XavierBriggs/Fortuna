@@ -267,22 +267,33 @@ observed so far: `INVALID_PARAMETER` (malformed key id) and
   after perps lands; the cents-core conflict still requires a spec-level
   price-tick decision before any build.
 
-## In flight: Kinetics perps module (operator-directed 2026-06-10)
+## Kinetics perps module (operator-directed 2026-06-10)
 
-- **Phase A research is RUNNING** (background research loop, started
-  2026-06-10): docs/research/venue/kinetics-perps-2026-06-10/research.md —
-  contract specs, funding (8h/±2% claims to verify), margin/maintenance,
-  liquidation, fees, perps_openapi/perps_asyncapi API surface, CF
-  Benchmarks indices, and — load-bearing for sequencing — whether the DEMO
-  environment carries perps. Treated as a spec-governed extension: new
-  capability, ZERO changes to the invariant middle (every perps order
-  passes the same I1 gate pipeline; margin/liquidation semantics need a
-  gate-design pass because max-loss is no longer premium-bounded).
-- **Phase B (design then implement) is NOT enumerated yet:** the operator's
-  directive message was cut off mid-list ("Phase B — Design then implement,
-  in order:" with nothing after). A proposed order will be drafted from the
-  research findings for operator confirmation; nothing in Phase B builds
-  before that confirmation.
+- **Phase A research: DONE** (2026-06-10/11):
+  docs/research/venue/kinetics-perps-2026-06-10/research.md — 844 lines,
+  ~50 sources, 110 raw archives including perps_openapi.yaml /
+  perps_asyncapi.yaml / the SCM spec verbatim plus live prod+demo API
+  captures. Headline build facts: DEMO CARRIES PERPS (open to all, mock
+  funds); auth = same RSA-PSS recipe under /margin/*; tick $0.0001 (breaks
+  Cents as the price carrier — venue-scoped PerpPrice type proposed);
+  client_order_id REQUIRED (idempotency transfers); portfolio margin via
+  API + UNPUBLISHED maintenance-margin formula (conservative gate stance
+  required); Klear liquidates via order_source=system fills (legitimate
+  venue-originated fills need a lifecycle state); fees $0 promo with real
+  rates via /margin/fee_tiers from the June 11 release (re-check then).
+  Known conflicts the doc flags: orderbook ordering vs spec text,
+  help-center contract-size mislabel, NFA-id discrepancy in Kinetics' own
+  filing.
+- **Phase B: PROPOSED, awaiting operator confirmation** — the operator's
+  directive was cut off mid-list ("Phase B — Design then implement, in
+  order:"). Drafted order (B1 spec amendment .. B8 ops) in
+  docs/design/kinetics-perps-module-plan.md; supersede it with the
+  original list if it exists. Nothing builds before confirmation.
+- **OPERATOR (rides the SAME demo-key unblock as the Kalshi session):**
+  perps fixture recording session — 18-item request list in research §12,
+  output under fixtures/kinetics-perps/ (margin-WS signing path, order
+  lifecycle, 409 code, funding/risk/fee_tiers captures). One credential
+  fix, two recording sessions, ideally back-to-back.
 
 ## Operator-blocked: spec maintenance
 

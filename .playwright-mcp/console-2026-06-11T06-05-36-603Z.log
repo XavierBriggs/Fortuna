@@ -65,3 +65,28 @@ https://goo.gle/gpt-message#155 @ https://securepubads.g.doubleclick.net/pagead/
 [   33228ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
 [   63286ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
 [   93162ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  123350ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  129629ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ https://cpm.vistarsagency.com/user-sync?zone=344671&t=image&r=https://image2.pubmatic.com/AdServer/Pug?vcode=bz0yJnR5cGU9MSZjb2RlPTQxNTcmdGw9MTI5NjAw&piggybackCookie={UID}&gdpr=0&gdpr_consent=&us_privacy=1YNN&gpp=DBABLA~BVQqAAAAAACA.QA&gpp_sid=7&ccpa=[CCPA]:0
+[  129629ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ https://cpm.vistarsagency.com/user-sync?zone=344671&t=image&r=https://image2.pubmatic.com/AdServer/Pug?vcode=bz0yJnR5cGU9MSZjb2RlPTQxNTcmdGw9MTI5NjAw&piggybackCookie={UID}&gdpr=0&gdpr_consent=&us_privacy=1YNN&gpp=DBABLA~BVQqAAAAAACA.QA&gpp_sid=7&ccpa=[CCPA]:0
+[  129633ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ https://cpm.vistarsagency.com/user-sync?zone=354281%20&t=image&r=https://image2.pubmatic.com/AdServer/Pug?vcode=bz0yJnR5cGU9MSZjb2RlPTQxNTcmdGw9MTI5NjAw&piggybackCookie={UID}&gdpr=0&gdpr_consent=&us_privacy=1YNN&gpp=DBABLA~BVQqAAAAAACA.QA&gpp_sid=7&ccpa=[CCPA]:0
+[  153830ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  183129ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  183398ms] [LOG] received a request for uspapi @ https://cdn.cookielaw.org/opt-out/otCCPAiab.js:95
+[  183398ms] [LOG] received a request for uspapi @ https://cdn.cookielaw.org/opt-out/otCCPAiab.js:95
+[  183129ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  183556ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  213448ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  243080ms] [LOG] received a request for uspapi @ https://cdn.cookielaw.org/opt-out/otCCPAiab.js:95
+[  243083ms] [LOG] received a request for uspapi @ https://cdn.cookielaw.org/opt-out/otCCPAiab.js:95
+[  243295ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  243295ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  243526ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  273317ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  303195ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  333397ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  363196ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  393484ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  393565ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  393952ms] [TIMEEND] a: 0.003173828125 ms @ https://static.adsafeprotected.com/sca.17.6.4.js:31
+[  423364ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  453209ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
