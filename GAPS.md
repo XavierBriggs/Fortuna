@@ -99,6 +99,19 @@ test-debt batch, no behavior changes:
   degrades fail-closed but is unledgered — ledger or strict-reject.
 - Polymarket research source count: 95 archived files, not 96 as claimed.
 
+## Engineering test debts (Minor; from the two INDEPENDENT batch gates)
+
+Both independent gates (docs/reviews/concurrent-legs-INDEPENDENT-gate +
+ws-ingestion-INDEPENDENT-gate, 2026-06-10) returned ACCEPT-WITH-GAPS with
+zero Majors and these Minor test debts, ledgered here until closed:
+- No seeded DST arm drives MULTI-LEG (>1) groups through the concurrent
+  submission path (composed tests cover it; the chaos battery does not).
+- No test exercises legs COMPLETING in non-input order (join_all
+  preserves order by construction; an adversarial mock should pin it).
+- Two behaviors verified by gate scratch tests but unpinned by committed
+  tests (assembled-book crossed refusal via render->validate; one gap-
+  persistence sub-case) — port the gate's scratch probes into the suite.
+
 ## Operator adjudication queue (operator actions; no code changes)
 
 - **Protected-crate waives (3 batches).** crates/fortuna-invariants/ was
