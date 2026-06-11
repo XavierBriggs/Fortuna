@@ -4,14 +4,14 @@
 //! run is byte-deterministic under its seed.
 
 use fortuna_core::clock::UtcTimestamp;
-use fortuna_core::market::{MarketId, Side, VenueId};
+use fortuna_core::market::{MarketId, Side, StrategyId, VenueId};
 use fortuna_core::money::Cents;
 use fortuna_exec::ExecPolicy;
 use fortuna_gates::{GateConfig, HaltScope};
 use fortuna_runner::mech_structural::{MechStructural, MechStructuralConfig};
 use fortuna_runner::{
-    LatencyStat, MemoryAuditSink, RunnerConfig, SimRunner, Stage, Strategy, StrategyKind,
-    StrategyMetrics,
+    CoreHandle, LatencyStat, MemoryAuditSink, RunnerConfig, SimRunner, Stage, Strategy,
+    StrategyKind, StrategyMetrics,
 };
 use fortuna_state::MarkPolicy;
 use fortuna_venues::fees::{FeeSchedule, ScheduleFeeModel};
@@ -680,4 +680,108 @@ fn tick_wall_time_is_reported() {
     // Sanity bound only — generous enough to never flake in CI; the
     // numbers above are the deliverable.
     assert!(per_tick_us < 50_000.0, "steady tick {per_tick_us}us > 50ms");
+}
+
+// ---- gate finding: the mid-group all-or-nothing abort path ----
+
+/// Proposes one 3-leg group where the THIRD leg's price violates the
+/// band: the phase-split must submit NOTHING and release every
+/// reservation.
+struct DoomedGroup {
+    proposed: bool,
+    metrics: StrategyMetrics,
+}
+
+#[async_trait::async_trait]
+impl Strategy for DoomedGroup {
+    fn id(&self) -> StrategyId {
+        StrategyId::new("mech_structural").unwrap()
+    }
+    fn kind(&self) -> StrategyKind {
+        StrategyKind::Mechanical
+    }
+    fn stage(&self) -> Stage {
+        Stage::Sim
+    }
+    async fn on_event(
+        &mut self,
+        ev: &fortuna_core::bus::BusEvent,
+        _core: &CoreHandle<'_>,
+    ) -> Result<Vec<fortuna_runner::Proposal>, fortuna_runner::RunnerError> {
+        self.metrics.events_seen += 1;
+        if self.proposed {
+            return Ok(Vec::new());
+        }
+        let fortuna_core::bus::EventPayload::BookSnapshot { book, .. } = &ev.payload else {
+            return Ok(Vec::new());
+        };
+        if book.market != mkt("BKT-LO") {
+            return Ok(Vec::new());
+        }
+        self.proposed = true;
+        let leg = |m: &str, price: i64| fortuna_runner::ProposedLeg {
+            market: mkt(m),
+            side: Side::Yes,
+            action: fortuna_core::market::Action::Buy,
+            limit_price: Cents::new(price),
+            fair_value: Cents::new((price + 6).min(99)),
+            calibrated_p: None,
+        };
+        Ok(vec![fortuna_runner::Proposal {
+            legs: vec![
+                leg("BKT-LO", 25),
+                leg("BKT-MID", 28),
+                // Band breach: book ~25/30, band 45 -> 99 is way outside.
+                leg("BKT-HI", 99),
+            ],
+            group_policy: Some(fortuna_exec::GroupPolicy {
+                max_unhedged_notional: Cents::new(5_000),
+                max_leg_open_ms: 60_000,
+                value_per_set: Cents::new(100),
+                min_completion_edge_bps: 100,
+            }),
+            urgency: fortuna_runner::Urgency::Taker,
+            manifest_hash: None,
+            thesis: "doomed group".into(),
+        }])
+    }
+    fn metrics(&self) -> StrategyMetrics {
+        self.metrics
+    }
+}
+
+#[test]
+fn a_mid_group_gate_rejection_submits_nothing_and_releases_reservations() {
+    let mut r = SimRunner::new(
+        runner_config(83),
+        vec![Box::new(DoomedGroup {
+            proposed: false,
+            metrics: StrategyMetrics::default(),
+        })],
+        Box::new(MemoryAuditSink::default()),
+        t0(),
+    )
+    .unwrap();
+    set_arb_books(&r);
+
+    let report = futures::executor::block_on(r.tick()).unwrap();
+    assert_eq!(report.proposals, 1, "the doomed group proposed");
+    assert!(report.gate_rejections >= 1, "the third leg must reject");
+    assert_eq!(
+        report.orders_submitted, 0,
+        "all-or-nothing: NOTHING submits when any leg rejects pre-network"
+    );
+    // Every reservation released: the strategy's reserved exposure is 0.
+    let reserved = r
+        .metrics_export()
+        .into_iter()
+        .find(|s| {
+            s.name == "fortuna_reserved_exposure_cents"
+                && s.labels
+                    .iter()
+                    .any(|(k, v)| k == "strategy" && v == "mech_structural")
+        })
+        .map(|s| s.value)
+        .unwrap_or(-1);
+    assert_eq!(reserved, 0, "reservations from passed legs were released");
 }

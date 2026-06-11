@@ -133,20 +133,22 @@ impl BookAssembler {
                     Side::Yes => bids,
                     Side::No => asks,
                 };
-                let entry = book_side.entry(yes_price.raw()).or_insert(0);
-                let next = *entry + delta_contracts;
+                // Check BEFORE inserting: an overdraw must not leave a
+                // phantom zero-quantity level behind (gate finding).
+                let current = book_side.get(&yes_price.raw()).copied().unwrap_or(0);
+                let next = current + delta_contracts;
                 if next < 0 {
                     return Err(VenueError::Invalid {
                         reason: format!(
                             "stream delta overdraws {market} {side:?}@{yes_price} \
-                             ({entry} + {delta_contracts}); torn state; resync"
+                             ({current} + {delta_contracts}); torn state; resync"
                         ),
                     });
                 }
                 if next == 0 {
                     book_side.remove(&yes_price.raw());
                 } else {
-                    *entry = next;
+                    book_side.insert(yes_price.raw(), next);
                 }
                 Ok(Some(self.render(&market, at)?))
             }
@@ -175,11 +177,17 @@ impl BookAssembler {
                 qty: Contracts::new(*q),
             })
             .collect();
-        Ok(OrderBook {
+        let book = OrderBook {
             market: market.clone(),
             as_of: at,
             yes_bids,
             yes_asks,
-        })
+        };
+        // Defense in depth: a structurally invalid assembled book (e.g.
+        // crossed sides from venue data) fails here, not at a sink.
+        book.validate().map_err(|e| VenueError::Invalid {
+            reason: format!("assembled book for {market} failed validation: {e}"),
+        })?;
+        Ok(book)
     }
 }

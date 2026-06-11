@@ -219,11 +219,17 @@ fn signed_count(value: &Value) -> Result<i64, VenueError> {
     Ok(if negative { -count.raw() } else { count.raw() })
 }
 
-/// Parse `[["0.0800", "300.00"], ...]` levels (yes-scale prices).
+/// Parse `[["0.0800", "300.00"], ...]` levels (yes-scale prices). An
+/// ABSENT side is the documented representation of an empty side
+/// (one-sided snapshots are normal for thin books — the archived
+/// AsyncAPI schema; the batch gate caught the first cut erroring here).
 fn parse_levels(value: &Value) -> Result<Vec<crate::PriceLevel>, VenueError> {
+    if value.is_null() {
+        return Ok(Vec::new());
+    }
     let Some(rows) = value.as_array() else {
         return Err(VenueError::Invalid {
-            reason: "book side is not an array".to_string(),
+            reason: "book side is neither absent nor an array".to_string(),
         });
     };
     let mut out = Vec::with_capacity(rows.len());

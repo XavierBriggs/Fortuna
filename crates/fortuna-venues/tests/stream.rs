@@ -292,3 +292,154 @@ fn the_assembler_folds_snapshot_and_deltas_into_a_canonical_book() {
         )
         .is_err());
 }
+
+// ---- latency-batch gate findings: one-sided snapshots, phantom levels,
+// ---- gap persistence, sub-cent trades ----
+
+#[test]
+fn one_sided_snapshots_parse_with_the_absent_side_empty() {
+    // The archived AsyncAPI documents one-sided snapshots (an absent
+    // side IS the empty side) — thin books are mech_extremes territory,
+    // not an error. The first cut of this parser hard-errored here; the
+    // batch gate caught it against our own spec archive.
+    let mut parser = KalshiWsParser::new();
+    let snap = parser
+        .parse_frame(
+            r#"{ "type": "orderbook_snapshot", "sid": 4, "seq": 1,
+                 "msg": { "market_ticker": "KX-THIN",
+                          "yes_dollars_fp": [["0.0300", "10.00"]] } }"#,
+        )
+        .unwrap();
+    let KalshiWsEvent::Stream(StreamEvent::BookSnapshot {
+        yes_bids, yes_asks, ..
+    }) = snap
+    else {
+        panic!("one-sided snapshot must parse: {snap:?}");
+    };
+    assert_eq!(yes_bids.len(), 1);
+    assert!(yes_asks.is_empty(), "absent side = empty side");
+
+    // Fully empty snapshot likewise.
+    let snap = parser
+        .parse_frame(
+            r#"{ "type": "orderbook_snapshot", "sid": 5, "seq": 1,
+                 "msg": { "market_ticker": "KX-EMPTY" } }"#,
+        )
+        .unwrap();
+    assert!(matches!(
+        snap,
+        KalshiWsEvent::Stream(StreamEvent::BookSnapshot { ref yes_bids, ref yes_asks, .. })
+            if yes_bids.is_empty() && yes_asks.is_empty()
+    ));
+}
+
+#[test]
+fn a_seq_gap_keeps_reporting_until_resync() {
+    let mut parser = KalshiWsParser::new();
+    parser
+        .parse_frame(
+            r#"{ "type": "orderbook_snapshot", "sid": 7, "seq": 10,
+                 "msg": { "market_ticker": "KX-A", "yes_dollars_fp": [], "no_dollars_fp": [] } }"#,
+        )
+        .unwrap();
+    let delta = |seq: u64| {
+        format!(
+            r#"{{ "type": "orderbook_delta", "sid": 7, "seq": {seq},
+                 "msg": {{ "market_ticker": "KX-A", "price_dollars": "0.500",
+                          "delta_fp": "1.00", "side": "yes", "ts_ms": 1 }} }}"#
+        )
+    };
+    assert!(matches!(
+        parser.parse_frame(&delta(12)).unwrap(),
+        KalshiWsEvent::SeqGap {
+            expected: 11,
+            got: 12,
+            ..
+        }
+    ));
+    // The NEXT delta still reports the gap — the baseline must not have
+    // advanced (a torn book stays torn until a fresh snapshot).
+    assert!(matches!(
+        parser.parse_frame(&delta(13)).unwrap(),
+        KalshiWsEvent::SeqGap {
+            expected: 11,
+            got: 13,
+            ..
+        }
+    ));
+    // A fresh snapshot resyncs.
+    parser
+        .parse_frame(
+            r#"{ "type": "orderbook_snapshot", "sid": 7, "seq": 20,
+                 "msg": { "market_ticker": "KX-A", "yes_dollars_fp": [], "no_dollars_fp": [] } }"#,
+        )
+        .unwrap();
+    assert!(matches!(
+        parser.parse_frame(&delta(21)).unwrap(),
+        KalshiWsEvent::Stream(StreamEvent::BookDelta { .. })
+    ));
+}
+
+#[test]
+fn sub_cent_trade_prices_are_rejected_too() {
+    let mut parser = KalshiWsParser::new();
+    assert!(parser
+        .parse_frame(
+            r#"{ "type": "trade", "sid": 2, "msg": {
+                  "trade_id": "t1", "market_ticker": "KX-D",
+                  "yes_price_dollars": "0.365", "count_fp": "10.00",
+                  "taker_side": "yes", "ts_ms": 1 } }"#,
+        )
+        .is_err());
+}
+
+#[test]
+fn an_overdrawn_delta_leaves_no_phantom_level_behind() {
+    use fortuna_core::clock::UtcTimestamp;
+    let at = UtcTimestamp::parse_iso8601("2026-06-11T12:00:00.000Z").unwrap();
+    let mut asm = BookAssembler::new();
+    asm.apply(
+        StreamEvent::BookSnapshot {
+            market: mkt("KX-A"),
+            yes_bids: vec![fortuna_venues::PriceLevel {
+                price: Cents::new(50),
+                qty: fortuna_core::market::Contracts::new(10),
+            }],
+            yes_asks: vec![],
+        },
+        at,
+    )
+    .unwrap();
+    // Overdraw at a NEW price: errors AND must not leave a 0-qty entry
+    // that could render as a phantom best level afterwards.
+    assert!(asm
+        .apply(
+            StreamEvent::BookDelta {
+                market: mkt("KX-A"),
+                side: fortuna_core::market::Side::Yes,
+                yes_price: Cents::new(60),
+                delta_contracts: -5,
+            },
+            at,
+        )
+        .is_err());
+    let book = asm
+        .apply(
+            StreamEvent::BookDelta {
+                market: mkt("KX-A"),
+                side: fortuna_core::market::Side::Yes,
+                yes_price: Cents::new(50),
+                delta_contracts: 1,
+            },
+            at,
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        book.yes_bids.len(),
+        1,
+        "no phantom level: {:?}",
+        book.yes_bids
+    );
+    assert_eq!(book.yes_bids[0].price, Cents::new(50));
+}
