@@ -141,6 +141,9 @@ pub struct SimRunner {
     /// closed; an unmeasured calibration earns no size).
     calibration_quality: BTreeMap<String, f64>,
     kelly_fraction: f64,
+    /// Submit timestamps by client order id (epoch ms), for fill-latency
+    /// measurement; pruned when the intent reaches a terminal state.
+    submit_times: BTreeMap<String, i64>,
     /// Markets with a defined next processor (fresh open belief OR a
     /// mechanical owner), fed by the composition. None = the coverage
     /// view is not wired and the orphan watchdog stays silent.
@@ -152,6 +155,28 @@ pub struct SimRunner {
 struct OpenVeto {
     candidate: VetoCandidate,
     removed: Contracts,
+}
+
+/// Submit->ack / submit->execution latency aggregate (count, sum, max).
+/// Sum/count give the mean downstream (Prometheus convention); max
+/// catches the tail. Under SimClock, ack latency is truthfully ~0 (the
+/// await is instantaneous); fill latency is real whenever the venue's
+/// fault arms delay execution across ticks — and both become wall time
+/// in paper/live, where they tune order TTLs and re-quote cadence.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct LatencyStat {
+    pub count: u64,
+    pub sum_ms: i64,
+    pub max_ms: i64,
+}
+
+impl LatencyStat {
+    fn observe(&mut self, ms: i64) {
+        let ms = ms.max(0);
+        self.count += 1;
+        self.sum_ms = self.sum_ms.saturating_add(ms);
+        self.max_ms = self.max_ms.max(ms);
+    }
 }
 
 /// Cumulative run counters feeding the Section 8 metrics export.
@@ -170,6 +195,10 @@ pub struct RunCounters {
     pub shadow_cycles: u64,
     pub beliefs_drafted: u64,
     pub model_proposals_discarded: u64,
+    /// Spec Section 8 "order/fill latency": submit->ack and
+    /// submit->execution (fill timestamp minus submit time).
+    pub ack_latency: LatencyStat,
+    pub fill_latency: LatencyStat,
 }
 
 /// One exported metric sample (plain data: the ops layer maps these into
@@ -288,6 +317,7 @@ impl SimRunner {
             canonical_resolutions: BTreeMap::new(),
             calibration_quality: BTreeMap::new(),
             kelly_fraction: config_kelly_fraction,
+            submit_times: BTreeMap::new(),
             position_coverage: None,
             orphan_flagged: std::collections::BTreeSet::new(),
             counters: RunCounters::default(),
@@ -643,11 +673,19 @@ impl SimRunner {
                     )?;
                     self.reservations
                         .reserve(strategy_id.as_str(), intent, leg_cost)?;
+                    let submitted_at_ms = self.clock.now().epoch_millis();
                     let submit = self.manager.submit_grouped(gated, group, &self.venue).await;
                     match submit {
                         Ok(SubmitOutcome::Acked { .. }) => {
                             report.orders_submitted += 1;
                             self.counters.orders_submitted += 1;
+                            self.counters
+                                .ack_latency
+                                .observe(self.clock.now().epoch_millis() - submitted_at_ms);
+                            self.submit_times.insert(
+                                ClientOrderId::from_intent(intent).as_str().to_string(),
+                                submitted_at_ms,
+                            );
                             group_legs.push(intent);
                         }
                         Ok(SubmitOutcome::Rejected { reason }) => {
@@ -660,8 +698,13 @@ impl SimRunner {
                         }
                         Ok(SubmitOutcome::Unknown { error }) => {
                             // Reservation stays (the order may be live);
-                            // reconciliation resolves it.
+                            // reconciliation resolves it. Latency still
+                            // measures from here if fills arrive.
                             report.orders_submitted += 1;
+                            self.submit_times.insert(
+                                ClientOrderId::from_intent(intent).as_str().to_string(),
+                                submitted_at_ms,
+                            );
                             group_legs.push(intent);
                             self.audit(
                                 "order",
@@ -894,6 +937,12 @@ impl SimRunner {
             for fill in &page.fills {
                 let app = self.manager.ingest_fill(fill).await?;
                 if app.applied {
+                    if let Some(submitted_ms) = self.submit_times.get(fill.client_order_id.as_str())
+                    {
+                        self.counters
+                            .fill_latency
+                            .observe(fill.at.epoch_millis() - submitted_ms);
+                    }
                     self.positions.apply_fill(fill)?;
                     report.fills_applied += 1;
                     self.counters.fills_applied += 1;
@@ -935,6 +984,8 @@ impl SimRunner {
             .unwrap_or(false);
         if terminal {
             let _ = self.reservations.release(intent)?;
+            self.submit_times
+                .remove(ClientOrderId::from_intent(intent).as_str());
         }
         Ok(())
     }
@@ -1716,6 +1767,46 @@ impl SimRunner {
         let mut samples = Vec::new();
         let c = self.counters();
         for (name, help, value) in [
+            (
+                "fortuna_order_ack_latency_ms_sum",
+                "Total submit->ack latency (ms; mean = sum/count)",
+                c.ack_latency.sum_ms,
+            ),
+            (
+                "fortuna_fill_latency_ms_sum",
+                "Total submit->execution latency (ms; mean = sum/count)",
+                c.fill_latency.sum_ms,
+            ),
+        ] {
+            samples.push(MetricSample {
+                name,
+                help,
+                counter: true,
+                labels: Vec::new(),
+                value,
+            });
+        }
+        for (name, help, value) in [
+            (
+                "fortuna_order_ack_latency_ms_max",
+                "Max submit->ack latency (ms)",
+                c.ack_latency.max_ms,
+            ),
+            (
+                "fortuna_fill_latency_ms_max",
+                "Max submit->execution latency (ms)",
+                c.fill_latency.max_ms,
+            ),
+        ] {
+            samples.push(MetricSample {
+                name,
+                help,
+                counter: false,
+                labels: Vec::new(),
+                value,
+            });
+        }
+        for (name, help, value) in [
             ("fortuna_ticks_total", "Loop heartbeats", c.ticks),
             (
                 "fortuna_fills_applied_total",
@@ -1771,6 +1862,16 @@ impl SimRunner {
                 "fortuna_model_proposals_discarded_total",
                 "Model ProposalDrafts discarded by the cycle",
                 c.model_proposals_discarded,
+            ),
+            (
+                "fortuna_order_ack_latency_ms_count",
+                "Orders with measured submit->ack latency",
+                c.ack_latency.count,
+            ),
+            (
+                "fortuna_fill_latency_ms_count",
+                "Fills with measured submit->execution latency",
+                c.fill_latency.count,
             ),
         ] {
             samples.push(MetricSample {

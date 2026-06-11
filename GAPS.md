@@ -9,9 +9,34 @@ four unledgered Majors). The fix batch (commits 1d1c033..1e3e5e7) closed
 E1-E5 and the RE-RUN GATE is an ACCEPT
 (docs/reviews/system-0-4-egate-2026-06-10.md): every E-item graded CLOSED
 with executed evidence, regression battery clean (630 tests, three-stage
-10,000-seed DST), no new Majors. Every remaining item below is an OPERATOR
-action. One Minor stays disclosed: the regression-seed corpus is empty (no
-randomized run has produced a red seed; discipline in place).
+10,000-seed DST). An INDEPENDENT re-gate (docs/reviews/
+system-0-4-egate-INDEPENDENT-2026-06-10.md, blind to the first e-gate
+verdict, fresh seeds) corroborated all five E-closures on their ledgered
+close criteria — and found ONE new Major (F1 below) plus two Minors that
+the first e-gate missed. F1 is the only open engineering item; everything
+else below is an OPERATOR action. One Minor stays disclosed: the
+regression-seed corpus is empty (no randomized run has produced a red
+seed; discipline in place).
+
+## Engineering item F1: OPEN (found by the independent e-gate)
+
+- **F1. Budget-breach / cognition-failure degrade is SILENT (Major).**
+  Spec line 238 ("budget breach degrades to mechanical-only AND ALERTS");
+  the E3 fix-spec itself required an audit row on degrade. Current:
+  crates/fortuna-runner/src/synthesis.rs:168-173 swallows the error kind
+  (`Err(_failure)`) into `metrics.cognition_failures += 1` — no audit row
+  kind exists for cognition/budget degrade, and fortuna-ops has zero
+  `cognition_failures` references (no alert rule), so a permanently
+  budget-starved or failing mind is invisible except to someone reading
+  the metrics endpoint. Fix spec: preserve the failure kind; write an
+  audit row per degraded cycle (kind, scope, spent/cap when BudgetExhausted);
+  add an ops alert rule (threshold or every-breach for budget). Companion
+  Minors from the same gate: (F2) BUILD_PLAN T2.8 DONE note never received
+  its visible correction; (F3) a cycle whose model output is wholly
+  discarded leaves no audit trace (same family — fold into the F1 fix).
+  Close criterion: test asserting a BudgetExhausted cycle writes the audit
+  row + an ops-layer rule referencing the signal; then a targeted re-gate
+  of this item alone.
 
 Verification record: five verdicts in docs/reviews/ (phase-1, phase-2,
 system-0-1-2, phase-3, system-0-3-final, all 2026-06-10). The phase-3 gate

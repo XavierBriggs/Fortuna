@@ -406,3 +406,78 @@ fn thin_edge_below_gate_floor_is_rejected_by_the_gates() {
     let report2 = r.report().unwrap();
     assert_eq!(report2.realized_pnl, Cents::ZERO);
 }
+
+// ---- order/fill latency metrics (spec Section 8: "order/fill latency") ----
+
+#[test]
+fn fill_latency_is_measured_from_submit_to_execution() {
+    // ack_delay on every order: placement is acknowledged but executes on
+    // the NEXT tick — with 500ms between ticks, submit->fill latency is a
+    // real, nonzero, deterministic number even in Sim.
+    let mut cfg = runner_config(77);
+    cfg.faults.ack_delay_pm = 1_000;
+    let mut r = SimRunner::new(
+        cfg,
+        vec![strategy()],
+        Box::new(MemoryAuditSink::default()),
+        t0(),
+    )
+    .unwrap();
+    set_arb_books(&r);
+
+    let first = futures::executor::block_on(r.tick()).unwrap();
+    assert!(first.orders_submitted >= 1, "orders placed");
+    assert_eq!(first.fills_applied, 0, "delayed: nothing executes yet");
+
+    r.clock.advance_millis(500).unwrap();
+    r.venue().tick().unwrap(); // the venue's world advances: delayed orders execute
+    let second = futures::executor::block_on(r.tick()).unwrap();
+    assert!(second.fills_applied >= 1, "the delayed orders execute");
+
+    let c = r.counters();
+    assert!(c.fill_latency.count >= 1, "fill latency observed");
+    assert!(
+        c.fill_latency.max_ms >= 500,
+        "submit->execution spanned the tick gap: {:?}",
+        c.fill_latency
+    );
+    assert!(c.fill_latency.sum_ms >= c.fill_latency.max_ms);
+    // Ack latency exists as a surface; under SimClock the await is
+    // instantaneous (0ms is the TRUE value here — it becomes real wall
+    // time in paper/live where the venue call actually waits).
+    assert!(c.ack_latency.count >= 1);
+
+    // The ops scrape carries it.
+    let samples = r.metrics_export();
+    let max = samples
+        .iter()
+        .find(|s| s.name == "fortuna_fill_latency_ms_max")
+        .expect("fill latency exported");
+    assert!(max.value >= 500, "exported max {}", max.value);
+    assert!(samples
+        .iter()
+        .any(|s| s.name == "fortuna_fill_latency_ms_count"));
+    assert!(samples
+        .iter()
+        .any(|s| s.name == "fortuna_order_ack_latency_ms_count"));
+
+    // Deterministic: the same seed reproduces the same latency stats.
+    let mut cfg2 = runner_config(77);
+    cfg2.faults.ack_delay_pm = 1_000;
+    let mut r2 = SimRunner::new(
+        cfg2,
+        vec![strategy()],
+        Box::new(MemoryAuditSink::default()),
+        t0(),
+    )
+    .unwrap();
+    set_arb_books(&r2);
+    futures::executor::block_on(r2.tick()).unwrap();
+    r2.clock.advance_millis(500).unwrap();
+    r2.venue().tick().unwrap();
+    futures::executor::block_on(r2.tick()).unwrap();
+    let c2 = r2.counters();
+    assert_eq!(c.fill_latency.count, c2.fill_latency.count);
+    assert_eq!(c.fill_latency.sum_ms, c2.fill_latency.sum_ms);
+    assert_eq!(c.fill_latency.max_ms, c2.fill_latency.max_ms);
+}

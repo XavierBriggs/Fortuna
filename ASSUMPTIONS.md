@@ -3,6 +3,23 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## Order/fill latency metrics (spec Section 8; operator-prompted)
+
+- **Measurement points:** ack latency = clock delta across the awaited
+  `place()` (truthfully ~0 under SimClock — the await is instantaneous;
+  becomes real wall time in paper/live); fill latency = venue execution
+  timestamp (fill.at) minus submit time, by client order id, observed on
+  APPLIED fills only (duplicates never double-count). Submit times prune
+  at terminal intent states. Aggregate is count/sum/max (mean = sum/count
+  downstream, Prometheus convention) — no histogram buckets until live
+  data says where the edges belong.
+- **Unknown-outcome submissions are measured too** (the order may be
+  live; if its fills arrive, their latency counts).
+- **Dropped-then-redelivered fills measure EXECUTION latency, not
+  delivery lag** (fill.at is stamped at execution) — delivery lag is
+  visible separately as cursor-poll behavior. Recorded so nobody reads
+  the fill metric as a delivery-health signal.
+
 ## E5 — verification-gate minor sweep
 
 - **Remaining f64 touchpoints, recorded:** cycle.rs fair-value floor
