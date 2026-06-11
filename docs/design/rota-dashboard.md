@@ -397,9 +397,11 @@ resolve every misfit found in the body. Build to the amendments.
   labeled).
 - V-4 PASS: fortuna-ops deps = core, gates, axum, tokio. fortuna-ledger
   ABSENT (to add); fortuna-runner ABSENT (R2's no-cycle rule already holds).
-- V-5 PASS — NO CYCLE: fortuna-ledger deps = core, venues, exec, gates,
-  cognition; fortuna-ops is not among them, so ops -> ledger is a safe new
-  edge. (Re-verify with cargo tree when the dep lands.)
+- V-5 PASS — NO CYCLE: fortuna-ledger RUNTIME deps = core, venues, exec,
+  gates (cognition is DEV-ONLY — corrected 2026-06-11, ledger-gate fix 4c;
+  the original note mislabeled it a runtime dep); fortuna-ops is not among
+  them, so ops -> ledger is a safe new edge. (Re-verify with cargo tree
+  when the dep lands.)
 - V-6 PASS: `pub async fn recent(&self, kind: &str, limit: i64) ->
   Result<Vec<AuditRow>, LedgerError>` at audit.rs:75 (1-line drift from the
   cite, R10 anticipated); AuditRow has the seven fields.

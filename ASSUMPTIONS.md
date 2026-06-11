@@ -1192,3 +1192,16 @@ crates/fortuna-venues/tests/kalshi_doc_samples/ are NOT recordings.
   recorded, and neither tool feeds the core event loop. Both crates keep
   their logic halves pure and unit-tested; only their capture loops touch
   the wall clock.
+- **degrade_alerts / CalibrationParamsRepo.latest wiring status** (ledger-gate
+  fix 1, 2026-06-11 — this entry was CLAIMED to exist by a GAPS line since the
+  f-batch closure and never actually written until now; the GAPS line is
+  corrected in place): `fortuna_ops::alerts::degrade_alerts` is built and
+  tested but its scrape-delta consumer does not exist until the T4.1 daemon
+  loop lands; `CalibrationParamsRepo.latest` is built and tested but has no
+  live call site until the daemon's calibration binding lands. Anything citing
+  them as operational before T4.1 completes overstates.
+- **fortuna-recorder assumes a SINGLE WRITER** (ledger-gate fix 4a): JSONL
+  append from two recorder processes can interleave partial lines and corrupt
+  the day files. Nothing enforces this today beyond operator discipline; the
+  T4.4 CLI `start` refusal on an unmanaged recorder process (design A2) is the
+  planned enforcement. Until then: never start a second instance.

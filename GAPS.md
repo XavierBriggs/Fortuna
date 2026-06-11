@@ -77,9 +77,17 @@ CLOSED at head (this commit):
   groups drive submit_group_concurrent under seeded ack-delay/api-error/
   reject faults; 400-scenario shakeout green, all 11 arms hit.
 - settlement_voids / settlement_reversals counters post-state asserted.
-- Kelly legs[0] design constraint + degrade_alerts/CalibrationParamsRepo
-  not-yet-live overstatements corrected in ASSUMPTIONS; Polymarket source
-  count corrected to 95 (erratum in the research doc).
+- Kelly legs[0] design constraint corrected in ASSUMPTIONS. [CORRECTED
+  2026-06-11, ledger-accuracy gate, SECOND-GATE MAJOR: the rest of this
+  line previously claimed the degrade_alerts/CalibrationParamsRepo
+  ASSUMPTIONS entry and a Polymarket "95" erratum already existed — both
+  were false from the f-batch closure until 2026-06-11, when the real
+  corrections finally landed: the wiring-status entry is now in
+  ASSUMPTIONS.md, and the research doc carries an ERRATUM stating that
+  neither "96" nor "95" matched a canonical count (ground truth: 38
+  source-table rows; 93 archived raw files). A closure claim that
+  survived TWO gates unverified is exactly the defect class this ledger
+  exists to prevent.]
 
 REMAINING (composition-wiring by nature; bound to the LIVE COMPOSITION
 DAEMON task — the next engineering build):
@@ -119,6 +127,12 @@ denial and not reconciled; corrected, not erased. Pre-batch
 history; their purge is optional and folds into the same finalization
 decision. PROCESS FIX: never append to .gitignore with `>>`; edit with
 anchored tools and verify `git status --ignored` after.
+F5 DISPOSITION (ledger-gate fix 2): the B0/B1-gate's F5 (runtime data +
+playwright litter committed) closed as follows — data/ purged from branch
+history in the F1 rewrite and gitignored; .playwright-mcp/ untracked at
+HEAD and gitignored; PRE-batch playwright blobs remain main-reachable
+(zero-secret browser logs) and their removal would need a second rewrite
+— folded into the operator finalization decision as an optional extra.
 OPERATOR ACTIONS REQUIRED (two distinct decisions):
 1. ROTATE both Kalshi keys (treat as compromised per policy even though
    exposure was machine-local — the live key is also the I4 kill-switch
@@ -368,7 +382,11 @@ observed so far: `INVALID_PARAMETER` (malformed key id) and
 - **OPERATOR (rides the SAME demo-key unblock as the Kalshi session):**
   perps fixture recording session — 18-item request list in research §12,
   output under fixtures/kinetics-perps/ (margin-WS signing path, order
-  lifecycle, 409 code, funding/risk/fee_tiers captures). One credential
+  lifecycle, 409 code, funding/risk/fee_tiers captures). The same session
+  must also capture, on the EVENT API: a public WS `trade` frame (never
+  observed in the 60-capture session — ledger-gate fix 3; it gates the
+  paper-engine trade-through replay), the STP `maker` mode, a two-sided
+  REST orderbook (#20 re-capture), and the settlement re-poll. One credential
   fix, two recording sessions, ideally back-to-back.
 
 ## Spec maintenance: RESOLVED by v0.9 (2026-06-11)

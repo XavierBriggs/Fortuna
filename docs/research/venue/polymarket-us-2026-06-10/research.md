@@ -8,7 +8,14 @@ must record before the adapter is built. All API shapes are taken verbatim from 
 official docs at **docs.polymarket.us** (Mintlify site; append `.md` to any page URL for
 a clean markdown render — same trick as Kalshi). Raw page captures are archived under
 `raw/pages/`, OpenAPI schema JSON under `raw/schemas/`, and non-docs web sources under
-`raw/web-sources.md`. Nothing here is invented; silence in the docs is recorded under
+`raw/web-sources.md`.
+
+**ERRATUM (2026-06-11, ledger-accuracy gate):** summary documents circulated
+source counts of "96" and then "95 archived sources" for this research; the
+doc itself never stated a count, and neither number matches a canonical
+tally. Countable ground truth: 38 rows in the sources table below; 93
+archived files under raw/ (80 pages + 13 schemas) plus the entries in
+raw/web-sources.md. Citations elsewhere should use those numbers. Nothing here is invented; silence in the docs is recorded under
 "Gaps and unknowns". Per repo rules, no behavior is trusted for live use until an
 operator-recorded fixture confirms it.
 
