@@ -122,6 +122,8 @@ pub fn strategy() -> Box<dyn Strategy> {
     )
 }
 
+// Used by pg_journal/pg_audit, not by every binary that includes common.
+#[allow(dead_code)]
 pub fn set_arb_books<J: IntentJournal + Send>(runner: &SimRunner<J>) {
     let lvl = |p: i64, q: i64| PriceLevel {
         price: Cents::new(p),

@@ -112,12 +112,15 @@ belief-producing strategy is in the composition (today's mech_structural
 holds none) — lands with synthesis-in-main.
 
 REMAINING (composition-wiring; T4.1 in progress — status 2026-06-11):
-- fortuna_ops::alerts::degrade_alerts scrape-delta consumer: the
-  consumer now EXISTS and is tested (fortuna-live compose::DegradeScrape
-  — saturating per-scrape deltas incl. restart-reset, 4 pinned
-  behaviors). STILL OPEN: the daemon main must call it each scrape and
-  route the alerts through SlackRouter (+ audit rows) — lands with the
-  composition main / req-10 smoke.
+- fortuna_ops::alerts::degrade_alerts scrape-delta consumer: WIRED. The
+  daemon drive loop scrapes per segment and routes via
+  daemon::route_alerts — Slack send when a router is configured + an
+  audit row ALWAYS (spec 8), send failures counted for dead-man
+  escalation, never silent (3 pinned tests with a mock transport).
+  REMAINING SLIVER: main passes None for the router until the env-built
+  SlackRouter (bot token + channel ids over the reqwest transport) is
+  constructed in main — bounded next step; alerts route to audit rows
+  meanwhile.
 - CalibrationParamsRepo.latest call site: compose::calibration_for_scope
   now fetches latest + resolved_stats and builds CalibrationContext +
   calibration_quality (fail-closed None / zero; corrupt params row

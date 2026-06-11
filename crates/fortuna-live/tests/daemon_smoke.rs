@@ -115,6 +115,7 @@ async fn daemon_smoke_boot_ticks_signal_shutdown(pool: PgPool) {
         &mut stop,
         |_r, _s| {},
         &mut scrape,
+        None,
     )
     .await
     .expect("daemon drive");

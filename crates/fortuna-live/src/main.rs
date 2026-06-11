@@ -141,6 +141,10 @@ async fn main() -> Result<()> {
             }
         },
         &mut scrape,
+        // Slack routing: the router builds from the validated bot token +
+        // channel ids over the real reqwest transport. Until that build is
+        // wired here (ledgered next step), alerts route to audit rows only.
+        None,
     )
     .await
     .context("daemon loop")?;

@@ -19,7 +19,7 @@ use sqlx::PgPool;
 use std::sync::Arc;
 
 mod common;
-use common::{mkt, runner_config, set_arb_books, strategy, t0};
+use common::{mkt, runner_config, strategy, t0};
 
 /// Books with ONE contract of depth at each ask: the marketable legs
 /// partially fill and the REMAINDER RESTS — acked, working orders.

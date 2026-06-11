@@ -11,9 +11,12 @@
 //! stop signal -> SimRunner::shutdown (cancel working orders + final
 //! audit row).
 //!
+//! Degrade alerts ROUTE to Slack via route_alerts when a router is
+//! configured (audit row always; send failure counted, never silent);
+//! main passes None until the env-built router lands (ledgered).
+//!
 //! HONESTLY NOT HERE YET (ledgered in GAPS; claims must match code):
-//! Slack routing of degrade alerts (DegradeScrape runs and its alerts
-//! land in audit rows + stderr only), the synthesis strategy in main
+//! the env-built SlackRouter in main, the synthesis strategy in main
 //! (compose::calibration_for_scope is wired in tests, not yet fed into
 //! a daemon-booted SynthesisStrategy), belief persistence, and the
 //! scheduled daily/weekly loops.
@@ -188,6 +191,7 @@ impl HaltPoller for PgHaltPoller {
 /// then run the graceful-shutdown contract. Between segments the caller
 /// refreshes whatever needs refreshing (the metrics snapshot in main).
 /// Returns accumulated stats + the shutdown report.
+#[allow(clippy::too_many_arguments)]
 pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     runner: &mut SimRunner<PgIntentJournal>,
     cadence: &mut C,
@@ -197,6 +201,7 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     stop: &mut tokio::sync::oneshot::Receiver<()>,
     mut between_segments: impl FnMut(&SimRunner<PgIntentJournal>, &LoopStats),
     scrape: &mut DegradeScrape,
+    slack: Option<&fortuna_ops::SlackRouter>,
 ) -> Result<(LoopStats, fortuna_runner::ShutdownReport), DaemonError> {
     let mut total = LoopStats::default();
     loop {
@@ -214,13 +219,12 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
         total.poll_failures += stats.poll_failures;
         total.halts_applied += stats.halts_applied;
 
-        // Degrade scrape per segment: alerts land as audit rows through
-        // the runner (Slack routing is the ledgered next step).
+        // Degrade scrape per segment: alerts route to Slack (when
+        // configured) and ALWAYS land as audit rows (spec 8). A Slack
+        // send failure is audited, never silent.
         let counters = runner.counters();
         let alerts = scrape.scrape(counters.budget_breaches, counters.cognition_failures);
-        for (kind, message) in &alerts {
-            runner.apply_external_alert(&format!("{kind:?}"), message);
-        }
+        let _send_failures = route_alerts(slack, runner, &alerts).await;
 
         between_segments(runner, &stats);
 
@@ -345,4 +349,46 @@ pub async fn persist_beliefs(
         n += 1;
     }
     Ok(n)
+}
+
+/// Route degrade-scrape alerts to Slack and AUDIT every one (spec 8:
+/// every outbound message is also an audit row; a routed alert that
+/// FAILS to send is itself audited — never silently dropped). Without a
+/// router (no Slack token / unconfigured) the alerts still land as audit
+/// rows: the operator sees them in the trail, just not in Slack. A send
+/// failure is counted in the return so the caller can escalate via the
+/// dead-man path (spec: Slack delivery failure escalates) — wiring that
+/// escalation is the ledgered next step.
+pub async fn route_alerts<J: fortuna_exec::IntentJournal + Send>(
+    router: Option<&fortuna_ops::SlackRouter>,
+    runner: &mut SimRunner<J>,
+    alerts: &[(fortuna_ops::MessageKind, String)],
+) -> usize {
+    let mut send_failures = 0usize;
+    for (kind, message) in alerts {
+        match router {
+            None => {
+                runner.apply_external_alert(&format!("{kind:?}"), message);
+            }
+            Some(r) => match r.send(*kind, message).await {
+                Ok(sent) => {
+                    runner.apply_external_alert(
+                        &format!("{kind:?}"),
+                        &format!(
+                            "{message} [slack ts {}]",
+                            sent.response_ts.unwrap_or_default()
+                        ),
+                    );
+                }
+                Err(e) => {
+                    send_failures += 1;
+                    runner.apply_external_alert(
+                        &format!("{kind:?}"),
+                        &format!("{message} [SLACK SEND FAILED: {e}]"),
+                    );
+                }
+            },
+        }
+    }
+    send_failures
 }
