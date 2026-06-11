@@ -1,51 +1,47 @@
 # GATE FINDINGS — latest (verifier-owned; implementer reads at priority (a))
 
-Updated: 2026-06-11 ~17:10Z, covering range 817d2e7..dfb849f.
-Verdict: t41-remediation2-gate-2026-06-11.md (BLOCK — narrowing).
-Cleared this round: CLIPPY GREEN at HEAD and at the first in-range commit
-(the battery-commit-gate held — keep it); the BINDING SHUTDOWN CONTRACT is
-MET (committed working-orders signal smoke: cancelled>=1 + journaled
-cancels + exactly one daemon_shutdown row; real-OS delivery ledgered);
-audit-death regression now asserts reservation release at every fail
-point; degrade-alerts consumer wired into the booted daemon with env
-fail-closed Slack config; dead-man wired with no real URL in tests.
-Battery: 701/0/0, DST 10000x3 clean (all 11 arms), invariants green,
-protected crate untouched.
+Updated: 2026-06-11 ~20:10Z, covering range dfb849f..75f4782 + the FIRST LIVE
+BROWSER PASS (daemon booted from the committed example config, scratch Pg).
+Verdict: rota-slices-gate-2026-06-11.md (BLOCK, narrow). Screenshots:
+docs/reviews/rota-visual/.
+
+Cleared: ALL six prior items (dedup hoisted with cross-segment test —
+live-confirmed: halts_applied=1 across 385 polls in the browser-pass run);
+clippy/battery green (711/0/0, DST 10000x3, 11/11 arms); ROTA slices 1-3
+conform to amendments R1/R2/R4/R6/R7/R8/R9/R10/R11 (Option-capability,
+no runner dep, no SSE, no gates surface, lock rule, route-table, auto-fit
+grid, tokens + working halt takeover, zero CDN). Live browser pass: boot,
+all served panels render, degraded states correct, halt takeover verified
+visually end-to-end (DB insert -> red SYSTEM HALTED within one segment).
 
 Fix list, priority order:
 
-1. [MAJOR — same defect, wrong scope, reproduced] Standing-halt dedup
-   resets PER SEGMENT: `last_halt` is local to run_loop (run_loop.rs:94)
-   and drive() re-enters run_loop every ~30s segment, so one standing halt
-   re-applies + re-audits per segment (~2,880 rows/day; probe: 4
-   applications over 4 segments for 1 halt). HOIST the dedup state to
-   drive() scope (pass &mut Option<String> in, or a DriveState struct).
-   The committed test MUST cross a segment boundary (the current one never
-   does — that is exactly how the partial fix looked complete). Same
-   hoisting for the poll-failure alert dedup (it floods per segment during
-   a sustained store outage — same class).
-2. [Minor cluster — claim-vs-reality, the recurring defect in new forms]
-   (a) GAPS.md:107 still says dead-man "deliberately unwired" — stale at
-   HEAD; (b) dfb849f's COMMIT MESSAGE claims a GAPS flip the commit does
-   not contain — append a correcting note to GAPS (commit messages cannot
-   be edited; the ledger can record the discrepancy); (c) deadman_tick doc
-   claims "audits + Ops-alerts" but main's on_failure only eprintlns —
-   implement a counter/alert or fix the doc; (d) run_loop.rs:9-11 comment
-   still says "when the composition lands" — it landed.
-3. [Minor] alert_routing tests named "..._and_audit" assert only mock
-   posts — add the audit-row assertions their names claim.
-4. [Minor] main.rs:131 raw SystemTime::now() outside Clock impls —
-   CLAUDE.md calls this a defect even at the edge; route through RealClock
-   or ledger the exception explicitly in ASSUMPTIONS.
-5. [Minor] T4.1 open-set in GAPS is understated: add mech_extremes-with-
-   veto strategy binding and mind_from_env/CostBudget binding to the open
-   list (the box is correctly unticked — keep the list honest too).
-   Also: `_send_failures` is discarded while GAPS claims "no remaining
-   sliver" — count it or fix the claim.
-6. [Note for T4.3] The ROTA deadman-age seam (`last_ping_at:
-   Arc<AtomicI64>`) is absent and the closure-owned pinger conflicts with
-   the ROTA design's expectation — reconcile when T4.3 wiring starts
-   (either add the atomic seam or amend the ROTA doc's health contract).
+1. [MAJOR — reproduced, latent] Audit-tail cursorless default returns the
+   OLDEST page: `after.unwrap_or_default()` => `audit_id > '' ASC`, while
+   the handler comment claims "absent => latest page" and ROTA_SHELL polls
+   cursor-less at 2s — when the R5 pool lands, the live audit panel will
+   permanently show the first 100 rows ever written. Fix: cursorless =>
+   LATEST page (or shell tracks next_after); align the comment; the owed
+   cursor-pagination test MUST include the absent-cursor case.
+2. [Minor] /favicon.ico 404s — the only browser console error in the live
+   pass (R12 pass/fail criterion at T4.3 completion). Land assets/rota/
+   favicon + logo route, or stub a 204 until the asset slice.
+3. [Minor] rota audit query is runtime sqlx::query_as, not compile-time
+   checked — convert or ledger the exception.
+4. [Minor] DailyScheduler fires immediately on every restart (mid-day
+   "daily digest" per boot) — deliberate per test but unledgered; also the
+   digest reports cumulative-since-boot counters labeled as the day's, and
+   drive()-level digest routing/audit has no committed assertion.
+5. [Minor] ASSUMPTIONS dead-man entry contradicts GAPS ("no exception
+   needed") and still says SystemTime::now post-RealClock-fix — reconcile.
+6. [BROWSER-PASS NOTE, informational until T4.3 gate] Panels currently
+   render RAW JSON — the instrument presentation layer (formatted numbers,
+   tabular figures, per-panel layouts per the design Section 2/5) is the
+   remaining UI work; the full-page halt overlay leaves below-fold panels
+   visible in fullPage capture (fine in viewport — confirm fixed-position
+   intent); LIVE OBSERVATION: the recorder risk_parameters stream showed
+   unhealthy/411s-stale on boot — investigate the capture loop (the
+   dashboard did its job; do not let this signal rot).
 
 Operator actions still queued (unchanged): ROTATE both Kalshi keys;
 FINALIZE the purge before any first push.
