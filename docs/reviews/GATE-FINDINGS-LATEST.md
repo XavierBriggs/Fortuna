@@ -1,45 +1,47 @@
 # GATE FINDINGS — latest (verifier-owned; implementer reads at priority (a))
 
-Updated: 2026-06-11 ~09:40Z, covering range b8fa0c8..16478bb.
-Verdicts: overnight-code-gate-2026-06-11.md (ACCEPT-WITH-GAPS) and
-overnight-incident-ledger-gate-2026-06-11.md (BLOCK).
+Updated: 2026-06-11 ~12:10Z, covering range 16478bb..1b3fabb.
+Verdict: t41-increments-gate-2026-06-11.md (BLOCK).
+Prior round's 4 items: ALL FIXED and re-verified (the second-gate ledger
+Major is closed with the corrected-visibly pattern — good).
 
-Battery at 16478bb: 676/0/0 workspace, DST 10000x3 all stages clean (all 11
-settlement arms hit), invariants green per-test, protected crate untouched,
-spec v0.9 Section 3 SHA-verified byte-identical. Security-incident handling
-graded CLEAN (purge effective on main; rotation + finalization correctly
-operator-queued; fixtures secret-free; recorder redacts by construction).
+Battery at 1b3fabb: 681/0/0 workspace, DST 10000x3 clean (all 11 arms),
+invariants green, protected crate untouched, fmt clean — but CLIPPY IS RED
+(see item 2). Fix list, priority order:
 
-The BLOCK is ledger accuracy ONLY. Fix list, priority order:
+1. [MAJOR — money path, REPRODUCED] Audit-death fall-through in the
+   concurrent group path: an audit append failure landing mid-Phase-A
+   (after legs passed gates) still submits the WHOLE staged group in
+   Phase B — probe reproduced `fail_at=21 orders_submitted=3 halted=true`:
+   three orders placed at the venue AFTER the audit store died, their
+   gate-decision + subsequent audit rows lost. Violates spec line 367
+   ("no audit, no trading") / I5 replayability in that window. FIX: on
+   audit failure during Phase A, abort the entire staged group and release
+   reservations — symmetric with the existing `group_rejected` path in
+   crates/fortuna-runner/src/runner.rs; then add the probe as a regression
+   test (the gate's probe source was at /tmp/i5probe — reconstruct from
+   the verdict file's description) and a DST arm if expressible.
+2. [Major-as-DoD] CLIPPY RED AT HEAD: `cargo clippy --workspace
+   --all-targets -- -D warnings` fails — fortuna-live test target
+   "shutdown" has 2 compile errors under clippy. The last commit shipped
+   without the full DoD battery. Fix the test target; re-run the full
+   battery before the next tick.
+3. [Minor] crates/fortuna-live/tests/shutdown.rs:6-7 carries a
+   present-tense comment claiming a SIGTERM handler exists — it does not
+   yet. Correct the comment (false present-tense doc claims are the
+   repo's recurring defect — do not let them seed).
+4. [Pending, honestly unticked] The BINDING T4.1 SHUTDOWN CONTRACT is
+   still unmet: no SignalKind::terminate handler exists anywhere. The
+   shutdown() core is test-asserted (cancel + exactly-one daemon_shutdown
+   audit row, idempotent) — good — but the contract requires the SIGTERM
+   handler wired to it plus the assertion. `fortuna stop` (T4.4) remains
+   blocked on this.
 
-1. [MAJOR x2 — SECOND CONSECUTIVE GATE] GAPS.md "Minor engineering residue"
-   CLOSED list still claims: "degrade_alerts/CalibrationParamsRepo
-   not-yet-live overstatements corrected in ASSUMPTIONS; Polymarket source
-   count corrected to 95 (erratum in the research doc)". BOTH remain FALSE
-   at 16478bb: ASSUMPTIONS contains zero degrade_alerts mention; the
-   Polymarket research doc contains no erratum and no "95". Fix by EITHER
-   landing the two real corrections OR rewriting the sentence to what is
-   true — corrected visibly, never erased. This claim already survived one
-   dedicated remediation cycle.
-2. [Minor] F5 of the B0/B1 self-gate remediation is unaccounted — record
-   its disposition in GAPS.
-3. [Minor] WS public `trade` frame was never observed in the 60-capture
-   session (coverage: 18 covered / 6 partial / 3 missing — honestly
-   ledgered). Add it explicitly to the fixture-session follow-up list; it
-   gates the paper-engine trade-through replay.
-4. [Minor, code gate] (a) recorder single-writer assumption undocumented
-   (JSONL append corrupts under two writers; T4.4 start-refusal depends on
-   it) — one ASSUMPTIONS entry; (b) BUILD_PLAN T5.B0 note says "restart cmd
-   in data/recorder.log header" — the header carries parameters, not a
-   command; (c) ROTA fit-validation V-5 note mislabels cognition as a
-   fortuna-ledger dep (it is dev-only).
+Cleared this round: PgAuditSink bridge (fail-synchronous, no loss window
+on the healthy path, halt-on-append-death test-proven, core stays
+Pg-free); journal-generic runner (exec state machine byte-untouched,
+byte-identical Pg crash-recovery fold); all four prior ledger items.
 
-Cleared by the code gate: T5.B1 (spec v0.9) — the independent clearance is
-overnight-code-gate-2026-06-11.md (the tick at 8544c3f cites an
-implementer-side verdict; the independent one now also stands).
-
-Operator actions queued (morning): ROTATE both Kalshi keys (demo + prod —
-the prod key is also the kill-switch credential) and place new PEMs at the
-.env paths; FINALIZE the purge (drop refs/original + reflog expire
---expire=now --all + gc --prune=now) BEFORE any first push — until then the
-old key blobs remain recoverable from .git.
+Operator actions still queued (unchanged): ROTATE both Kalshi keys (prod
+key = kill-switch credential too) + new PEMs at .env paths; FINALIZE the
+purge (refs/original drop + reflog expire + gc) BEFORE any first push.
