@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "checklist #20: REST orderbook — no_dollars leg pricing vs WS yes-scale",
+  "path": "/trade-api/v2/markets/KXWTACHALLENGERMATCH-26JUN11JIMLEP-LEP/orderbook",
+  "recorded_at_epoch_ms": 1781159357765,
+  "request_body": null,
+  "status": 200
+}

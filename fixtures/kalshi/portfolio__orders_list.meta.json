@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "checklist #17: orders pagination page shape",
+  "path": "/trade-api/v2/portfolio/orders?limit=10",
+  "recorded_at_epoch_ms": 1781159372758,
+  "request_body": null,
+  "status": 200
+}

@@ -1,0 +1,19 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "POST",
+  "note": "checklist #6: IOC crossing — average_fill_price/average_fee_paid presence; #22 fee math vs series fee fields",
+  "path": "/trade-api/v2/portfolio/events/orders",
+  "recorded_at_epoch_ms": 1781159370113,
+  "request_body": {
+    "client_order_id": "2b8394e0-515e-4b89-b624-f34067756855",
+    "count": "1.00",
+    "price": "0.9900",
+    "self_trade_prevention_type": "taker_at_cross",
+    "side": "bid",
+    "ticker": "KXWTACHALLENGERMATCH-26JUN11JIMLEP-LEP",
+    "time_in_force": "immediate_or_cancel"
+  },
+  "status": 201
+}

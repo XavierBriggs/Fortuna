@@ -144,8 +144,26 @@ The audit record stays below for the trail.
 
 ## Operator-blocked: Kalshi fixtures (one recording session unblocks all)
 
-**SESSION STATUS 2026-06-10 (operator delegated the recording to the agent;
-attempted same day):** the recorder TOOL is built and committed —
+**SESSION COMPLETE 2026-06-11:** after the operator installed the matching
+demo key (the original mismatch: the configured id was a fresh key, the
+available PEM was a February-dated one), the full session ran end to end —
+60 captures under fixtures/kalshi/ covering the 27-item checklist, both WS
+flag states, and cleanup. Load-bearing wire findings (full table in
+fixtures/kalshi/README.md): NESTED error envelope everywhere (adapter parse
+fix required before clearance — the OpenAPI flat ErrorResponse never occurs
+on the wire); 409 dup code string `order_already_exists`; canceled
+client_order_ids never free up; non-resting cancels are 404; skew window
+(>5s, <30s); post_only-cross rejected AT CREATE on demo (docs say
+201-then-cancel — demo/prod divergence to re-check); quadratic taker fee
+x0.07 confirmed against a real fill; cursor last-page = empty string.
+REMAINING for clearance (T4.2): adapter re-pointed at recordings + nested-
+envelope fix; settlement capture after the seeded market closes; voided
+market when one occurs; series fee fields via event lookup; prod-parity
+read-only re-record before live. The PERPS fixture session (18 items,
+research §12) is now also credential-unblocked — recorder extension queued.
+
+Historical record of the blocked first attempt (resolved above):
+the recorder TOOL is built and committed —
 `crates/fortuna-venues/examples/record_kalshi_fixtures.rs`, demo-hosts-only,
 covers the 27-item checklist + both-flag-state WS captures + cleanup — and
 the session ran to the auth wall, where it is BLOCKED ON A CREDENTIAL

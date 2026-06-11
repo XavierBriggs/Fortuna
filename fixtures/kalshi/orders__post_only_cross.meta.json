@@ -1,0 +1,20 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "POST",
+  "note": "checklist #10: post_only crossing the book — expect cancel + last_update_reason=PostOnlyCrossCancel",
+  "path": "/trade-api/v2/portfolio/events/orders",
+  "recorded_at_epoch_ms": 1781159378407,
+  "request_body": {
+    "client_order_id": "ad2fa654-072a-4e06-ad01-762a60ead30d",
+    "count": "1.00",
+    "post_only": true,
+    "price": "0.9900",
+    "self_trade_prevention_type": "taker_at_cross",
+    "side": "bid",
+    "ticker": "KXWTACHALLENGERMATCH-26JUN11JIMLEP-LEP",
+    "time_in_force": "good_till_canceled"
+  },
+  "status": 400
+}

@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "checklist #16: actual token costs (checklist names this path)",
+  "path": "/trade-api/v2/account/endpoint_costs",
+  "recorded_at_epoch_ms": 1781159358583,
+  "request_body": null,
+  "status": 200
+}

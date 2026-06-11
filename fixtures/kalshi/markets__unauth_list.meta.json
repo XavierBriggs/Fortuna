@@ -1,0 +1,11 @@
+{
+  "auth": "unauthenticated",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "checklist #5: unauthenticated GET /markets",
+  "path": "/trade-api/v2/markets?limit=2",
+  "recorded_at_epoch_ms": 1781159352785,
+  "request_body": null,
+  "status": 200
+}

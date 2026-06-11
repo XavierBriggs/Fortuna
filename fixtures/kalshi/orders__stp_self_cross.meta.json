@@ -1,0 +1,19 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "POST",
+  "note": "checklist #11: ask crossing our own best bid under taker_at_cross",
+  "path": "/trade-api/v2/portfolio/events/orders",
+  "recorded_at_epoch_ms": 1781159381237,
+  "request_body": {
+    "client_order_id": "8ae6f81d-5f9d-4bb0-8bff-076e5cb4038d",
+    "count": "1.00",
+    "price": "0.4800",
+    "self_trade_prevention_type": "taker_at_cross",
+    "side": "ask",
+    "ticker": "KXWTACHALLENGERMATCH-26JUN11JIMLEP-LEP",
+    "time_in_force": "immediate_or_cancel"
+  },
+  "status": 201
+}

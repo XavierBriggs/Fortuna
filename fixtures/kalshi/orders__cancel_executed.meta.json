@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "DELETE",
+  "note": "checklist #14: cancel of an executed (IOC-terminal) order",
+  "path": "/trade-api/v2/portfolio/events/orders/97ec18b7-10d3-4557-9de0-8598aad625f0",
+  "recorded_at_epoch_ms": 1781159371524,
+  "request_body": null,
+  "status": 404
+}

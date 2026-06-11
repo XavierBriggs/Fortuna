@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "positions shape with a real (demo) position",
+  "path": "/trade-api/v2/portfolio/positions",
+  "recorded_at_epoch_ms": 1781159372345,
+  "request_body": null,
+  "status": 200
+}

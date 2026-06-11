@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "DELETE",
+  "note": "cleanup of STP probe",
+  "path": "/trade-api/v2/portfolio/events/orders/17fc4f3a-b397-4792-bd0c-9c81ca69a1f4",
+  "recorded_at_epoch_ms": 1781159383060,
+  "request_body": null,
+  "status": 200
+}

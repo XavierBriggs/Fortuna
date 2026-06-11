@@ -1,0 +1,11 @@
+{
+  "auth": "signed-skewed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "checklist #2",
+  "path": "/trade-api/v2/portfolio/balance",
+  "recorded_at_epoch_ms": 1781159350734,
+  "request_body": null,
+  "status": 401
+}

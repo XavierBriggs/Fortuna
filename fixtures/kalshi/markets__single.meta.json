@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "market object for the traded ticker (status/fee/structure fields)",
+  "path": "/trade-api/v2/markets/KXWTACHALLENGERMATCH-26JUN11JIMLEP-LEP",
+  "recorded_at_epoch_ms": 1781159357356,
+  "request_body": null,
+  "status": 200
+}

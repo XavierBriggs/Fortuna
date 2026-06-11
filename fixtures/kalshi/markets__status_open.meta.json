@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "checklist #21: status vocabulary (open filter); market-selection pool",
+  "path": "/trade-api/v2/markets?status=open&limit=200",
+  "recorded_at_epoch_ms": 1781159353157,
+  "request_body": null,
+  "status": 200
+}

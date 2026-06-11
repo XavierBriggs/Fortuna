@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "DELETE",
+  "note": "checklist #14: cancel of already-canceled order",
+  "path": "/trade-api/v2/portfolio/events/orders/2597b999-f887-4195-8bac-c3f97a1f2021",
+  "recorded_at_epoch_ms": 1781159365885,
+  "request_body": null,
+  "status": 404
+}

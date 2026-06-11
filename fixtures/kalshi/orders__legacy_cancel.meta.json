@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "DELETE",
+  "note": "checklist #16: legacy DELETE (token cost dispute: 2 vs 20)",
+  "path": "/trade-api/v2/portfolio/orders/e641ead7-badf-41d1-a4bf-04a6cb202714",
+  "recorded_at_epoch_ms": 1781159383884,
+  "request_body": null,
+  "status": 200
+}

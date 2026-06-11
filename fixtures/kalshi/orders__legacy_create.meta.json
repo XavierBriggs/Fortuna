@@ -1,0 +1,18 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "POST",
+  "note": "checklist #12: legacy create with integer-cent fields (10x token cost; recorded once, never used by the adapter)",
+  "path": "/trade-api/v2/portfolio/orders",
+  "recorded_at_epoch_ms": 1781159383478,
+  "request_body": {
+    "action": "buy",
+    "client_order_id": "ae0d38e7-648d-45c0-8ff9-971452e75e52",
+    "count": 1,
+    "side": "yes",
+    "ticker": "KXWTACHALLENGERMATCH-26JUN11JIMLEP-LEP",
+    "yes_price": 1
+  },
+  "status": 201
+}

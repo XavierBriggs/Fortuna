@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "DELETE",
+  "note": "checklist #14: cancel unknown order id — 404 vs 200-with-zero",
+  "path": "/trade-api/v2/portfolio/events/orders/00000000-0000-0000-0000-000000000000",
+  "recorded_at_epoch_ms": 1781159368704,
+  "request_body": null,
+  "status": 404
+}

@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "checklist #21",
+  "path": "/trade-api/v2/markets?status=closed&limit=5",
+  "recorded_at_epoch_ms": 1781159353678,
+  "request_body": null,
+  "status": 200
+}

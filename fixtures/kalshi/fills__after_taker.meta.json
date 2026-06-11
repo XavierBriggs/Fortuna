@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "checklist #19: fill fee_cost dollars-string typing; #17 fills cursor",
+  "path": "/trade-api/v2/portfolio/fills?limit=10",
+  "recorded_at_epoch_ms": 1781159371929,
+  "request_body": null,
+  "status": 200
+}

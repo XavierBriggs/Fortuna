@@ -1,0 +1,249 @@
+{
+  "environment": "demo",
+  "recorded_at_epoch_ms": 1781159570900,
+  "results": [
+    {
+      "result": "HTTP 200",
+      "stage": "auth__balance_ok"
+    },
+    {
+      "result": "balance_cents=9801",
+      "stage": "auth__balance_ok"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "auth__balance_alt_host"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "auth__skew_minus5s"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "auth__skew_plus5s"
+    },
+    {
+      "result": "HTTP 401",
+      "stage": "auth__skew_minus30s"
+    },
+    {
+      "result": "HTTP 401",
+      "stage": "auth__skew_minus5min"
+    },
+    {
+      "result": "HTTP 401",
+      "stage": "auth__skew_plus5min"
+    },
+    {
+      "result": "HTTP 401",
+      "stage": "auth__bad_signature"
+    },
+    {
+      "result": "HTTP 401",
+      "stage": "auth__unknown_key_id"
+    },
+    {
+      "result": "HTTP 401",
+      "stage": "auth__missing_signature_header"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "markets__unauth_list"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "markets__status_open"
+    },
+    {
+      "result": "chosen ticker=KXWTACHALLENGERMATCH-26JUN11JIMLEP-LEP best_bid=47c structure=linear_cent settle_candidate=Some(\"KXWTACHALLENGERMATCH-26JUN11JIMLEP-LEP\")",
+      "stage": "markets__status_open"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "markets__status_closed"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "markets__status_settled"
+    },
+    {
+      "result": "HTTP 400",
+      "stage": "markets__limit_over_max"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "markets__garbage_cursor"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "markets__page1"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "markets__page2"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "markets__page3"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "markets__single_filter_lastpage"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "markets__unauth_single"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "markets__single"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "orderbook__base"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "series__fee_changes"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "account__endpoint_costs"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "account__limits"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "exchange__status"
+    },
+    {
+      "result": "HTTP 201",
+      "stage": "orders__create_v2_maker"
+    },
+    {
+      "result": "HTTP 409",
+      "stage": "orders__duplicate_client_order_id"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "orders__get_after_create"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "orders__cancel_v2"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "orders__get_after_cancel"
+    },
+    {
+      "result": "HTTP 404",
+      "stage": "orders__cancel_already_canceled"
+    },
+    {
+      "result": "HTTP 409",
+      "stage": "orders__reuse_canceled_client_id"
+    },
+    {
+      "result": "HTTP 404",
+      "stage": "orders__cancel_unknown_id"
+    },
+    {
+      "result": "HTTP 201",
+      "stage": "orders__create_v2_taker_ioc"
+    },
+    {
+      "result": "HTTP 404",
+      "stage": "orders__cancel_executed"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "fills__after_taker"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "portfolio__positions"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "portfolio__orders_list"
+    },
+    {
+      "result": "HTTP 400",
+      "stage": "orders__insufficient_balance"
+    },
+    {
+      "result": "HTTP 400",
+      "stage": "orders__invalid_price_structure"
+    },
+    {
+      "result": "HTTP 400",
+      "stage": "orders__numeric_field_types"
+    },
+    {
+      "result": "HTTP 400",
+      "stage": "orders__post_only_cross"
+    },
+    {
+      "result": "HTTP 201",
+      "stage": "orders__stp_setup"
+    },
+    {
+      "result": "HTTP 201",
+      "stage": "orders__stp_self_cross"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "orders__stp_resting_after"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "cleanup__stp_resting"
+    },
+    {
+      "result": "HTTP 201",
+      "stage": "orders__legacy_create"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "orders__legacy_cancel"
+    },
+    {
+      "result": "HTTP 201",
+      "stage": "orders__settlement_seed"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "settlements__page"
+    },
+    {
+      "result": "ws 101=101 frames=5 pings=8",
+      "stage": "ws__orderbook_trade_yes"
+    },
+    {
+      "result": "ws 101=101 frames=7 pings=8",
+      "stage": "ws__orderbook_trade_noleg"
+    },
+    {
+      "result": "HTTP 404",
+      "stage": "cleanup__leftover_0"
+    },
+    {
+      "result": "HTTP 404",
+      "stage": "cleanup__leftover_1"
+    },
+    {
+      "result": "HTTP 404",
+      "stage": "cleanup__leftover_2"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "settlements__end_of_session"
+    }
+  ],
+  "settlement_seed_ticker": "KXWTACHALLENGERMATCH-26JUN11JIMLEP-LEP",
+  "tool": "examples/record_kalshi_fixtures.rs",
+  "traded_ticker": "KXWTACHALLENGERMATCH-26JUN11JIMLEP-LEP"
+}

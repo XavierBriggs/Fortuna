@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "checklist #15: reconcile after cancel (changelog wrong-order caveat)",
+  "path": "/trade-api/v2/portfolio/orders/2597b999-f887-4195-8bac-c3f97a1f2021",
+  "recorded_at_epoch_ms": 1781159364471,
+  "request_body": null,
+  "status": 200
+}

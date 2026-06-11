@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "re-poll; if still empty, re-run after the seeded market closes: see orders__settlement_seed.meta.json for the market",
+  "path": "/trade-api/v2/portfolio/settlements?limit=10",
+  "recorded_at_epoch_ms": 1781159570830,
+  "request_body": null,
+  "status": 200
+}

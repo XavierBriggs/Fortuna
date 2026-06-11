@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://demo-api.kalshi.co",
+  "method": "GET",
+  "note": "checklist #4: signature path identical across both demo hosts",
+  "path": "/trade-api/v2/portfolio/balance",
+  "recorded_at_epoch_ms": 1781159348900,
+  "request_body": null,
+  "status": 200
+}

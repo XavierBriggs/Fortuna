@@ -1,0 +1,27 @@
+{
+  "duration_secs": 90,
+  "environment": "demo",
+  "first_ping_payload": "heartbeat",
+  "format": "one verbatim text frame per line (.jsonl) — feed lines to KalshiWsParser",
+  "frames_captured": 5,
+  "host": "wss://external-api-ws.demo.kalshi.co",
+  "http_status": 101,
+  "note": "checklist #23-#25: signed handshake, subscribed/snapshot/delta/trade capture",
+  "path": "/trade-api/ws/v2",
+  "pings_observed": 8,
+  "recorded_at_epoch_ms": 1781159385771,
+  "subscribe_cmd": {
+    "cmd": "subscribe",
+    "id": 1,
+    "params": {
+      "channels": [
+        "orderbook_delta",
+        "trade"
+      ],
+      "market_tickers": [
+        "KXWTACHALLENGERMATCH-26JUN11JIMLEP-LEP"
+      ],
+      "use_yes_price": true
+    }
+  }
+}

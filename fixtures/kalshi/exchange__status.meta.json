@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "checklist #27: current exchange status shape (maintenance window shape still needs a real window)",
+  "path": "/trade-api/v2/exchange/status",
+  "recorded_at_epoch_ms": 1781159359402,
+  "request_body": null,
+  "status": 200
+}

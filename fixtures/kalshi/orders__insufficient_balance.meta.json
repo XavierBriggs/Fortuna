@@ -1,0 +1,20 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "POST",
+  "note": "checklist #8: exceeds demo balance — exact code/message",
+  "path": "/trade-api/v2/portfolio/events/orders",
+  "recorded_at_epoch_ms": 1781159374177,
+  "request_body": {
+    "client_order_id": "0ef50cc6-49b9-4beb-8c16-b04ba2d9b061",
+    "count": "10099.00",
+    "post_only": false,
+    "price": "0.9900",
+    "self_trade_prevention_type": "taker_at_cross",
+    "side": "bid",
+    "ticker": "KXWTACHALLENGERMATCH-26JUN11JIMLEP-LEP",
+    "time_in_force": "good_till_canceled"
+  },
+  "status": 400
+}

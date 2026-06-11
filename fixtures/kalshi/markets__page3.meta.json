@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "checklist #17: cursor walk",
+  "path": "/trade-api/v2/markets?limit=5&cursor=CgwIuKKp0QYQ-MDV3QISJ0tYTUxCSElULTI2SlVOMTExMzEwQVpNSUEtQVpDQ0FSUk9MTDctMg",
+  "recorded_at_epoch_ms": 1781159356157,
+  "request_body": null,
+  "status": 200
+}

@@ -1,0 +1,19 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "POST",
+  "note": "position in the soonest-closing two-sided market so a settlement record exists for a later poll",
+  "path": "/trade-api/v2/portfolio/events/orders",
+  "recorded_at_epoch_ms": 1781159385294,
+  "request_body": {
+    "client_order_id": "facb2271-6e40-4f08-9aa4-1f6285e5b1cb",
+    "count": "1.00",
+    "price": "0.9900",
+    "self_trade_prevention_type": "taker_at_cross",
+    "side": "bid",
+    "ticker": "KXWTACHALLENGERMATCH-26JUN11JIMLEP-LEP",
+    "time_in_force": "immediate_or_cancel"
+  },
+  "status": 201
+}

@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "checklist #17: single-result page — absent vs empty cursor on last page",
+  "path": "/trade-api/v2/markets?tickers=KXWTACHALLENGERMATCH-26JUN11JIMLEP-LEP",
+  "recorded_at_epoch_ms": 1781159356578,
+  "request_body": null,
+  "status": 200
+}

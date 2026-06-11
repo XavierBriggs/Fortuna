@@ -1,0 +1,9 @@
+{"type":"subscribed","id":1,"msg":{"channel":"orderbook_delta","sid":1}}
+
+{"type":"subscribed","id":1,"msg":{"channel":"trade","sid":2}}
+
+{"type":"orderbook_snapshot","sid":1,"seq":1,"msg":{"market_ticker":"KXWTACHALLENGERMATCH-26JUN11JIMLEP-LEP","market_id":"f5ed38e2-0991-4c8f-817e-08c4fd9cbfdb","yes_dollars_fp":[["0.4700","3.00"]],"no_dollars_fp":[["0.5200","1.00"]]}}
+
+{"type":"orderbook_delta","sid":1,"seq":2,"msg":{"market_ticker":"KXWTACHALLENGERMATCH-26JUN11JIMLEP-LEP","market_id":"f5ed38e2-0991-4c8f-817e-08c4fd9cbfdb","price_dollars":"0.5200","delta_fp":"-1.00","side":"no","ts":"2026-06-11T06:29:47.354803Z","ts_ms":1781159387354}}
+
+{"type":"orderbook_delta","sid":1,"seq":3,"msg":{"market_ticker":"KXWTACHALLENGERMATCH-26JUN11JIMLEP-LEP","market_id":"f5ed38e2-0991-4c8f-817e-08c4fd9cbfdb","price_dollars":"0.5200","delta_fp":"2.00","side":"no","ts":"2026-06-11T06:29:47.42784Z","ts_ms":1781159387427}}

@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "checklist #11: resting order state after the STP event",
+  "path": "/trade-api/v2/portfolio/orders/17fc4f3a-b397-4792-bd0c-9c81ca69a1f4",
+  "recorded_at_epoch_ms": 1781159381646,
+  "request_body": null,
+  "status": 200
+}

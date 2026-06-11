@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "checklist #18: over-max limit — 400 or clamp?",
+  "path": "/trade-api/v2/markets?limit=1001",
+  "recorded_at_epoch_ms": 1781159354508,
+  "request_body": null,
+  "status": 400
+}

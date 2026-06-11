@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "checklist #17: garbage cursor error body",
+  "path": "/trade-api/v2/markets?limit=5&cursor=garbage-cursor-fixture",
+  "recorded_at_epoch_ms": 1781159354913,
+  "request_body": null,
+  "status": 200
+}

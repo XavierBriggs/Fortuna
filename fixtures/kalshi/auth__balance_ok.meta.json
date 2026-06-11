@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "checklist #1: happy-path signed GET balance; #19 balance units",
+  "path": "/trade-api/v2/portfolio/balance",
+  "recorded_at_epoch_ms": 1781159348379,
+  "request_body": null,
+  "status": 200
+}

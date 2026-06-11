@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "checklist #19: settlement cent-int units (likely empty on a fresh account — re-poll after the seeded market closes)",
+  "path": "/trade-api/v2/portfolio/settlements?limit=10",
+  "recorded_at_epoch_ms": 1781159385705,
+  "request_body": null,
+  "status": 200
+}

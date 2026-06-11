@@ -1,0 +1,20 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "POST",
+  "note": "checklist #9: sub-cent price on this market's price_level_structure (see markets__single fixture for the structure value)",
+  "path": "/trade-api/v2/portfolio/events/orders",
+  "recorded_at_epoch_ms": 1781159375588,
+  "request_body": {
+    "client_order_id": "a8d9ddb6-1895-4d43-872a-cef1bae23e96",
+    "count": "1.00",
+    "post_only": true,
+    "price": "0.5150",
+    "self_trade_prevention_type": "taker_at_cross",
+    "side": "bid",
+    "ticker": "KXWTACHALLENGERMATCH-26JUN11JIMLEP-LEP",
+    "time_in_force": "good_till_canceled"
+  },
+  "status": 400
+}
