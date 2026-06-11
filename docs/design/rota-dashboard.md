@@ -382,7 +382,53 @@ keeping: eight-spoked wheel, cornucopia in the lower-right quadrant, all gold.
 
 ### Fit-validation notes
 
-_Implementer fills this section at iteration 0, before building._
+Recorded 2026-06-11 (implementer loop iteration 2; validation only, no code).
+Verdict: **BUILDABLE AS AMENDED** — every V-check passes; the amendments
+resolve every misfit found in the body. Build to the amendments.
+
+- V-1 PASS: serve_dashboard + the three routes present (dashboard.rs ~52-68;
+  `route("/")`, `/metrics`, `/api/boards`); POST-405 loop at
+  tests/dashboard.rs:74-80 exactly as cited.
+- V-2 PASS: `fortuna_rate_bucket_fill` = 0 hits in runner.rs. NOTE: R4 CUT
+  the gauge — V-2's meaning inverts from "genuinely new, to add" to "stays
+  absent"; the gates panel ships without rate_buckets.
+- V-3 PASS: boards_json top level is exactly "positions" (runner.rs:2237) +
+  "ops" (:2238); the "account" extension is genuinely new (R6: sim-only,
+  labeled).
+- V-4 PASS: fortuna-ops deps = core, gates, axum, tokio. fortuna-ledger
+  ABSENT (to add); fortuna-runner ABSENT (R2's no-cycle rule already holds).
+- V-5 PASS — NO CYCLE: fortuna-ledger deps = core, venues, exec, gates,
+  cognition; fortuna-ops is not among them, so ops -> ledger is a safe new
+  edge. (Re-verify with cargo tree when the dep lands.)
+- V-6 PASS: `pub async fn recent(&self, kind: &str, limit: i64) ->
+  Result<Vec<AuditRow>, LedgerError>` at audit.rs:75 (1-line drift from the
+  cite, R10 anticipated); AuditRow has the seven fields.
+- V-7 PASS: discrepancy_resolutions CREATE TABLE present in exactly 1
+  migration file.
+- V-8 PASS: CalibrationParamsRepo + CalibrationParamsRow exported
+  (ledger lib.rs:33-34).
+- V-9 PASS: data/perishable/2026-06-11/ live (recorder running, pid 79813 —
+  do not restart it); capture_row schema fields match the cited range.
+- V-10 PASS with nuance: ws__orderbook_trade_yes.jsonl non-empty; the FIRST
+  lines are `subscribed` acks (no seq); the first DATA frame
+  (orderbook_snapshot, line 3) carries seq:1 — gap-inject remains feasible;
+  the T-3 scanner must skip non-seq frames.
+- V-11 PASS: workspace tokio = features ["full"] (includes sync/broadcast —
+  moot for v1 since R3 cut SSE, but true).
+- V-12 PASS: clippy --workspace --all-targets -D warnings clean at HEAD
+  (run this iteration, 2026-06-11, before these notes).
+- R7 precondition CONFIRMED: `BeliefsRepo::recent` does not exist (0 hits in
+  repos.rs) — the two new ledger queries (recent beliefs; calibration scope
+  enumeration) are genuinely T4.3-owned work, with tests + sqlx prepare.
+
+Body-vs-amendment conflicts the builder must NOT implement from the body:
+§0.4/§3/§5 SSE machinery (SseHub, /stream handler, T-4) — R3 cut it, audit
+tail is cursor-polled; §3 RotaState mandatory `pool: Arc<PgPool>` and §6
+"same Arc<PgPool>; no second Postgres connection" — R1 (Option capability)
+and R5 (DEDICATED 2-conn pool) override BOTH; §5 gates `rate_buckets` field
+— R4 dropped; §5 health `fill_latency_p50_ms` — R6: no p50 exists or gets
+added (runner exports p90/p95/p99 only — verified in metrics_export).
+Bloat watch: none beyond the body items the amendments already cut.
 
 ## 11. Implementation sequence
 
