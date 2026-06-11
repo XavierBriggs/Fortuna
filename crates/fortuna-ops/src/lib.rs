@@ -22,6 +22,7 @@
     )
 )]
 
+pub mod alerts;
 mod config;
 pub mod dashboard;
 mod deadman;

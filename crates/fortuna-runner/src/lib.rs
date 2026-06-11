@@ -106,6 +106,18 @@ pub struct StrategyMetrics {
     pub model_proposals_discarded: u64,
 }
 
+/// One degraded-cognition event for the audit log (F1: degrade is never
+/// silent). Strategies buffer these; the runner drains and audits them
+/// each tick.
+#[derive(Debug, Clone)]
+pub struct DegradeRecord {
+    pub event_id: String,
+    /// 'budget_exhausted' | 'provider' | 'schema_invalid' | 'refused'
+    /// | 'context' | 'model_proposals_discarded'.
+    pub degrade: &'static str,
+    pub detail: serde_json::Value,
+}
+
 /// Execution style request (never size — spec 5.9).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Urgency {
@@ -166,6 +178,11 @@ pub trait Strategy: Send {
         core: &CoreHandle<'_>,
     ) -> Result<Vec<Proposal>, RunnerError>;
     fn metrics(&self) -> StrategyMetrics;
+    /// Degraded-cognition events since the last drain (F1). The runner
+    /// audits each one; mechanical strategies have none.
+    fn drain_degrades(&mut self) -> Vec<DegradeRecord> {
+        Vec::new()
+    }
 }
 
 /// Where audit records go. The Postgres-backed writer satisfies this in the

@@ -199,6 +199,10 @@ pub struct RunCounters {
     /// submit->execution (fill timestamp minus submit time).
     pub ack_latency: LatencyStat,
     pub fill_latency: LatencyStat,
+    /// Cycles degraded by a cost-budget breach (spec line 238: every
+    /// breach alerts). Counted at the audit drain, once per degraded
+    /// cycle.
+    pub budget_breaches: u64,
 }
 
 /// One exported metric sample (plain data: the ops layer maps these into
@@ -461,6 +465,42 @@ impl SimRunner {
             }
         }
         report.proposals = proposals.len();
+
+        // 2b. Drain degraded-cognition events (F1, spec line 238: degrade
+        // ALERTS): every degraded cycle becomes an audit row and a bus
+        // event; budget breaches additionally count for the every-breach
+        // ops alert rule.
+        let mut degrades: Vec<(StrategyId, crate::DegradeRecord)> = Vec::new();
+        for strategy in &mut self.strategies {
+            let id = strategy.id();
+            for record in strategy.drain_degrades() {
+                degrades.push((id.clone(), record));
+            }
+        }
+        for (strategy_id, record) in degrades {
+            if record.degrade == "budget_exhausted" {
+                self.counters.budget_breaches += 1;
+            }
+            let mut payload = serde_json::json!({
+                "strategy": strategy_id.to_string(),
+                "event_id": record.event_id,
+                "degrade": record.degrade,
+            });
+            if let (Some(obj), Some(extra)) = (payload.as_object_mut(), record.detail.as_object())
+            {
+                for (k, v) in extra {
+                    obj.insert(k.clone(), v.clone());
+                }
+            }
+            self.audit("cognition", Some(&record.event_id), payload);
+            self.bus.publish_external(EventPayload::Raw {
+                kind: "cognition_degrade".into(),
+                data: serde_json::json!({
+                    "strategy": strategy_id.to_string(),
+                    "degrade": record.degrade,
+                }),
+            });
+        }
 
         // 3. Size -> gate -> submit.
         for (strategy_id, proposal) in proposals {
@@ -1862,6 +1902,11 @@ impl SimRunner {
                 "fortuna_model_proposals_discarded_total",
                 "Model ProposalDrafts discarded by the cycle",
                 c.model_proposals_discarded,
+            ),
+            (
+                "fortuna_budget_breaches_total",
+                "Cycles degraded by a cost-budget breach (each one alerts)",
+                c.budget_breaches,
             ),
             (
                 "fortuna_order_ack_latency_ms_count",

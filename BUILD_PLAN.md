@@ -189,6 +189,11 @@ EXIT MET TO THE BUILDABLE EXTENT (2026-06-10, commit bee37a6):
       one-per-day. Real-fixture validation operator-blocked (prod read denied by
       classifier; exact unblock in GAPS).
 - [x] T2.8 Calibration layer (Platt/isotonic, shrinkage prior, versioned params). (5.10)
+      (E1 CORRECTION 2026-06-10, completing the F2 gate finding: like T2.6, this
+      DONE note described a LIBRARY — calibrate()/quality had zero call sites in
+      the composed loop until the post-verification E1 fix wired the layer into
+      the decision cycle and the sizing haircut. The independent e-gate caught
+      that this note never received the visible correction T2.6 got.)
       DONE 70c5df6: deterministic Platt (Newton, refuses degenerate records) +
       isotonic PAV (step apply); shrinkage w=min(n/50,1) ignores fit+extremization
       below threshold; quality = n-ramp x reliability-gap accuracy -> T2.6 haircut;

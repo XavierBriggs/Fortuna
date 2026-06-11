@@ -19,8 +19,8 @@
 //!   one book event per market per tick.
 
 use crate::{
-    CoreHandle, Proposal, ProposedLeg, RunnerError, Stage, Strategy, StrategyKind, StrategyMetrics,
-    Urgency,
+    CoreHandle, DegradeRecord, Proposal, ProposedLeg, RunnerError, Stage, Strategy, StrategyKind,
+    StrategyMetrics, Urgency,
 };
 use async_trait::async_trait;
 use fortuna_cognition::context::{content_hash_of, ContextItem, SectionKind};
@@ -62,6 +62,7 @@ pub struct SynthesisStrategy {
     mind: Arc<dyn Mind>,
     metrics: StrategyMetrics,
     stage: Stage,
+    pending_degrades: Vec<DegradeRecord>,
 }
 
 impl SynthesisStrategy {
@@ -81,6 +82,7 @@ impl SynthesisStrategy {
             mind,
             metrics: StrategyMetrics::default(),
             stage: config.stage,
+            pending_degrades: Vec::new(),
         }
     }
 
@@ -165,10 +167,47 @@ impl Strategy for SynthesisStrategy {
             .await
         {
             Ok(outcome) => outcome,
-            Err(_failure) => {
-                // Degrade, never crash: a failed cycle proposes nothing
-                // and the failure is counted for the ops layer.
+            Err(failure) => {
+                // Degrade, never crash — and NEVER SILENTLY (F1, spec
+                // line 238): the failure kind is preserved and buffered
+                // for the runner's audit log; budget breaches also count
+                // separately (they alert on every occurrence).
                 self.metrics.cognition_failures += 1;
+                use fortuna_cognition::cycle::CycleError;
+                use fortuna_cognition::mind::MindError;
+                let (degrade, detail) = match &failure {
+                    CycleError::Mind(MindError::BudgetExhausted {
+                        scope,
+                        spent_cents,
+                        cap_cents,
+                    }) => {
+                        (
+                            "budget_exhausted",
+                            serde_json::json!({
+                                "scope": scope,
+                                "spent_cents": spent_cents,
+                                "cap_cents": cap_cents,
+                            }),
+                        )
+                    }
+                    CycleError::Mind(MindError::Provider { reason }) => {
+                        ("provider", serde_json::json!({ "reason": reason }))
+                    }
+                    CycleError::Mind(MindError::SchemaInvalid { reason }) => {
+                        ("schema_invalid", serde_json::json!({ "reason": reason }))
+                    }
+                    CycleError::Mind(MindError::Refused { explanation }) => {
+                        ("refused", serde_json::json!({ "explanation": explanation }))
+                    }
+                    CycleError::Context(e) => {
+                        ("context", serde_json::json!({ "reason": e.to_string() }))
+                    }
+                };
+                self.pending_degrades.push(DegradeRecord {
+                    event_id: event_id.clone(),
+                    degrade,
+                    detail,
+                });
                 return Ok(Vec::new());
             }
         };
@@ -178,6 +217,14 @@ impl Strategy for SynthesisStrategy {
         }
         self.metrics.beliefs_drafted += outcome.beliefs.len() as u64;
         self.metrics.model_proposals_discarded += outcome.discarded_model_proposals as u64;
+        if outcome.discarded_model_proposals > 0 {
+            // F3: a cycle whose model output is discarded leaves a trace.
+            self.pending_degrades.push(DegradeRecord {
+                event_id: event_id.clone(),
+                degrade: "model_proposals_discarded",
+                detail: serde_json::json!({ "count": outcome.discarded_model_proposals }),
+            });
+        }
 
         let mut proposals = Vec::with_capacity(outcome.candidates.len());
         for candidate in outcome.candidates {
@@ -215,5 +262,9 @@ impl Strategy for SynthesisStrategy {
 
     fn metrics(&self) -> StrategyMetrics {
         self.metrics
+    }
+
+    fn drain_degrades(&mut self) -> Vec<DegradeRecord> {
+        std::mem::take(&mut self.pending_degrades)
     }
 }

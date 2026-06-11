@@ -594,3 +594,114 @@ fn discarded_model_proposals_are_counted_and_proposals_audit_their_manifest() {
         "the manifest hash rides into the audit: {payload}"
     );
 }
+
+// ---- F1/F3: degrade is AUDITED and alert-ready, never silent ----
+
+#[test]
+fn budget_breach_and_discarded_output_write_audit_rows() {
+    #[derive(Clone, Default)]
+    struct SharedSink2(std::sync::Arc<std::sync::Mutex<fortuna_runner::MemoryAuditSink>>);
+    impl fortuna_runner::AuditSink for SharedSink2 {
+        fn append(
+            &mut self,
+            kind: &str,
+            ref_id: Option<&str>,
+            payload: serde_json::Value,
+        ) -> Result<(), fortuna_runner::RunnerError> {
+            self.0
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .append(kind, ref_id, payload)
+        }
+    }
+
+    // A mind that breaches its budget: every decide refuses.
+    struct BrokeMind;
+    #[async_trait::async_trait]
+    impl Mind for BrokeMind {
+        fn id(&self) -> &str {
+            "broke"
+        }
+        async fn decide(
+            &self,
+            _ctx: &fortuna_cognition::context::AssembledContext,
+        ) -> Result<MindOutput, MindError> {
+            Err(MindError::BudgetExhausted {
+                scope: "per_cycle",
+                spent_cents: 50,
+                cap_cents: 50,
+            })
+        }
+    }
+
+    let sink = SharedSink2::default();
+    let strategy = SynthesisStrategy::new(synthesis_config(), Arc::new(BrokeMind));
+    let mut r = SimRunner::new(
+        runner_config(51),
+        vec![Box::new(strategy)],
+        Box::new(sink.clone()),
+        t0(),
+    )
+    .unwrap();
+    r.set_calibration_quality("synth_sim", 1.0);
+    set_book(&r, 58, 60);
+    futures::executor::block_on(r.tick()).unwrap();
+
+    // Spec line 238: degrade to mechanical-only AND ALERT — the degrade
+    // is an audit row carrying the kind, scope, and spend, not a silent
+    // counter bump.
+    let rows = sink.0.lock().unwrap_or_else(|e| e.into_inner());
+    let degrade: Vec<&serde_json::Value> = rows
+        .records
+        .iter()
+        .filter(|(k, _, _)| k == "cognition")
+        .map(|(_, _, p)| p)
+        .collect();
+    assert_eq!(degrade.len(), 1, "one degraded cycle, one audit row");
+    assert_eq!(degrade[0]["degrade"], "budget_exhausted");
+    assert_eq!(degrade[0]["scope"], "per_cycle");
+    assert_eq!(degrade[0]["spent_cents"], 50);
+    assert_eq!(degrade[0]["cap_cents"], 50);
+    assert_eq!(degrade[0]["strategy"], "synth_sim");
+    drop(rows);
+    assert!(r.counters().budget_breaches >= 1, "breach counted for ops");
+
+    // F3: a cycle whose model output is WHOLLY DISCARDED (proposals
+    // dropped, zero candidates) leaves a trace too.
+    let output: MindOutput = serde_json::from_value(serde_json::json!({
+        "beliefs": [],
+        "proposals": [{
+            "market": "KX-A",
+            "side": "yes",
+            "max_price_cents": 99,
+            "thesis": "discard me",
+            "belief_ref": "evt-1",
+            "urgency": "taker"
+        }],
+        "journal": null
+    }))
+    .unwrap();
+    let sink2 = SharedSink2::default();
+    let strategy = SynthesisStrategy::new(
+        synthesis_config(),
+        Arc::new(StubMind::scripted(vec![output])),
+    );
+    let mut r2 = SimRunner::new(
+        runner_config(52),
+        vec![Box::new(strategy)],
+        Box::new(sink2.clone()),
+        t0(),
+    )
+    .unwrap();
+    r2.set_calibration_quality("synth_sim", 1.0);
+    set_book(&r2, 58, 60);
+    futures::executor::block_on(r2.tick()).unwrap();
+
+    let rows = sink2.0.lock().unwrap_or_else(|e| e.into_inner());
+    assert!(
+        rows.records.iter().any(|(k, _, p)| k == "cognition"
+            && p["degrade"] == "model_proposals_discarded"
+            && p["count"] == 1),
+        "wholly-discarded output must leave an audit trace"
+    );
+}
