@@ -413,10 +413,34 @@ Build sub-slices (each its own iteration, TDD, battery-gated):
       (disabling the persist drops after to 0). Note: belief DRAFTING is
       calibration-independent (the cycle calls the mind regardless), so this
       persists even when calibration is None.
-  S6b. RICH daily digest — STILL TERSE. terse_daily_digest -> the full
-      DigestInputs composition (fortuna-ops/digest.rs exists: per-strategy rows,
-      veto accounting, beliefs/calibration) + the daily reconciliation re-run +
-      weekly/monthly cognition reviews. Next sub-slice.
+  S6b. RICH daily digest. SCOPE VALIDATED 2026-06-12 (no code) — the data is
+      MOSTLY available; ONE confirmed gap. Map DigestInputs (fortuna-ops/
+      digest.rs::compose_daily_digest, a PURE fn) <- runner:
+      - date_utc/stage: trivial (now + "sim").
+      - strategies[].{realized_pnl,fees,exposure}: AVAILABLE — the runner already
+        attributes per strategy at metrics_export (a market_strategy map ->
+        pnl_by/fees_by summed over positions; reserved_total(strategy) =
+        exposure).
+      - strategies[].fills: THE GAP — Position carries NO fills count (only
+        realized_pnl + fees_paid, confirmed). Source options: (a) track a
+        fills_by_strategy counter in the runner, incremented at fill-apply time
+        via the same market->strategy attribution as pnl_by — RECOMMENDED (cheap,
+        consistent); (b) count from the IntentJournal.
+      - halts_active/discrepancies_open/settlements_overdue/capital_in_limbo:
+        AVAILABLE — boards_json's ops block already reads them (gates.halts().
+        global_halted(), counters.discrepancies, overdue_alerted.len(),
+        settlements.capital_in_limbo()); expose via a runner accessor (NOT JSON
+        parsing).
+      - veto_decisions/veto_suppressed: counters().
+      BUILD PLAN (next iteration): (1) fortuna-runner (owned): add
+      fills_by_strategy tracking (option a) + a digest_snapshot() accessor
+      returning the raw primitives (per-strategy rows + the ops fields). (2)
+      fortuna-live daemon.rs: rich_daily_digest(runner, now) composes DigestInputs
+      + compose_daily_digest; replace terse_daily_digest in drive's daily block.
+      (3) test (daemon_smoke): seed a position + a veto + a discrepancy -> the
+      rich digest text surfaces per-strategy PnL + the honesty numbers + veto
+      (non-vacuous). DEFERRED to later sub-slices: the daily reconciliation re-run
+      + weekly/monthly cognition reviews (separate review machinery, post-tick).
   Then tick T4.1 (starts the soak) -> T4.2 -> T4.5.
 The populated-path test rule (the verifier's vacuous-test lesson) applies to
 EVERY sub-slice: assert REAL non-empty edge sets / non-zero proposals, never a
