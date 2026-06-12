@@ -17,10 +17,12 @@
 
 use fortuna_cognition::beliefs::calibration_curve;
 use fortuna_cognition::calibration::{calibration_quality, CalibrationParams};
-use fortuna_cognition::cycle::CalibrationContext;
-use fortuna_ledger::{BeliefsRepo, CalibrationParamsRepo, LedgerError};
+use fortuna_cognition::cycle::{CalibrationContext, EdgeView};
+use fortuna_cognition::events::{EdgeTier, MappingType};
+use fortuna_ledger::{BeliefsRepo, CalibrationParamsRepo, EdgesRepo, LedgerError};
 use fortuna_ops::alerts::{degrade_alerts, DegradeSignals, DegradeThresholds};
 use fortuna_ops::MessageKind;
+use sqlx::PgPool;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -31,6 +33,14 @@ pub enum ComposeError {
         "calibration_params row for {scope} does not parse: {reason} (corrupt config; refusing)"
     )]
     CorruptParams { scope: String, reason: String },
+    #[error(
+        "confirmed edge {edge_id} has unknown mapping_type {mapping_type:?} \
+         (data defect; refusing the synthesis edge load)"
+    )]
+    BadEdge {
+        edge_id: String,
+        mapping_type: String,
+    },
 }
 
 /// Reliability-curve bucket count for the quality computation. Ten
@@ -71,6 +81,68 @@ pub async fn calibration_for_scope(
         }
     };
     Ok((ctx, quality))
+}
+
+/// `[synthesis]` config FILTERS for the daemon's confirmed-edge load (the
+/// decision: config NARROWS, never DEFINES, the edge set). Absent fields mean
+/// "no filter". A `[synthesis]` section's mere PRESENCE is what opts the daemon
+/// into synthesis (wired at compose_runner, S3b); these fields only scope it.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct SynthesisSection {
+    /// Restrict to this venue (None = every venue).
+    pub venue: Option<String>,
+    /// Cap the edge count, truncating deterministically by edge id
+    /// (None = no cap) — the conservative bound on synthesis breadth.
+    pub max_edges: Option<usize>,
+    // (a category allowlist is deferred to S3b: it needs an events-category
+    //  join; the EdgeRow carries `venue` but not the event's category.)
+}
+
+/// The daemon synthesis strategy's tradeable edge set
+/// (docs/design/synthesis-edge-source-decision.md req 1 + 4): EdgesRepo
+/// CONFIRMED-tier edges, mapped to the comparator's `EdgeView`, scoped by the
+/// `[synthesis]` filters. CONFIRMED + CURRENT is enforced by `confirmed_edges`;
+/// the filters only NARROW. An empty result is a VALID state (the daemon then
+/// runs mechanically-only — fail closed, req 3). Returns `Err` on a ledger
+/// fault or a corrupt edge row so the per-segment refresh (S4) can keep the
+/// last-known set rather than trade a guessed one.
+pub async fn synthesis_edges(
+    pool: &PgPool,
+    cfg: &SynthesisSection,
+) -> Result<Vec<EdgeView>, ComposeError> {
+    let mut rows = EdgesRepo::new(pool.clone()).confirmed_edges().await?;
+    if let Some(venue) = &cfg.venue {
+        rows.retain(|r| &r.venue == venue);
+    }
+    if let Some(max) = cfg.max_edges {
+        // Deterministic truncation BY EDGE ID (req 4), independent of the
+        // load's (created_at, edge_id) order.
+        rows.sort_by(|a, b| a.edge_id.cmp(&b.edge_id));
+        rows.truncate(max);
+    }
+    let mut views = Vec::with_capacity(rows.len());
+    for row in rows {
+        let mapping = match row.mapping_type.as_str() {
+            "direct" => MappingType::Direct,
+            "negation" => MappingType::Negation,
+            "bracket_component" => MappingType::BracketComponent,
+            "conditional_on" => MappingType::ConditionalOn,
+            _ => {
+                return Err(ComposeError::BadEdge {
+                    edge_id: row.edge_id,
+                    mapping_type: row.mapping_type,
+                })
+            }
+        };
+        views.push(EdgeView {
+            market: row.market_id,
+            event_id: row.event_id,
+            mapping,
+            // confirmed_edges only returns confirmed_by IS NOT NULL rows.
+            tier: EdgeTier::Confirmed,
+        });
+    }
+    Ok(views)
 }
 
 /// The degrade-alert scrape consumer (GAPS residue line 1). One instance

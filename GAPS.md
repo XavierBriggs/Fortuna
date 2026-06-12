@@ -184,20 +184,28 @@ Build sub-slices (each its own iteration, TDD, battery-gated):
       without it the composition is untestable (compose_runner builds its own
       mind, so behaviour-testing needs no injection seam either). TDD red
       observed (stub Vec::new() -> [] != ["synth_sim"]).
-  S3 VALIDATED WIRING (build next; resolved unknowns): compose_runner gains a
+  S3a DONE (this commit): compose::synthesis_edges(pool, &SynthesisSection)
+      -> Result<Vec<EdgeView>, ComposeError> — loads EdgesRepo::confirmed_edges,
+      filters by venue, truncates by edge id (max_edges), maps EdgeRow->EdgeView
+      (match mapping_type snake_case; tier=Confirmed), Err on a corrupt
+      mapping_type (ComposeError::BadEdge) so S4's refresh keeps last-known.
+      SynthesisSection = {venue, max_edges} (category allowlist deferred to S3b
+      — needs an events-category join). TDD red OBSERVED (stub Ok(vec![]) ->
+      len 0 != 1); sqlx::test seeds confirmed kalshi + polymarket + an
+      unconfirmed edge and asserts venue/max_edges filtering + the mapped fields
+      (NON-VACUOUS). DISK NOTE: a warm fortuna-live battery is ~1-2GB (measured),
+      NOT the ~15GB I'd feared — S3 is NOT disk-blocked.
+  S3b VALIDATED WIRING (build next; resolved unknowns): compose_runner gains a
       synthesis arm GATED on dcfg.synthesis.is_some() (opt-in; absent => daemon
       mechanically-only, the conservative default — operator flips it on).
-      Pieces, all confirmed present: calibration_for_scope (compose.rs:44),
-      effective_stage (promotion.rs:50), StubMind (S3 placeholder; real mind is
-      S5 via allow_stub_mind/api-key at main.rs:49). Testable CORE =
-      compose::synthesis_edges(pool,&SynthesisToml) -> Vec<EdgeView>: load
-      EdgesRepo::confirmed_edges, map EdgeRow->EdgeView (parse mapping_type;
-      tier=Confirmed), apply [synthesis] filters (categories/venue/max_edges,
-      truncate by edge id) — sqlx::test seeds confirmed edges and asserts the
-      mapped+filtered set (NON-VACUOUS). compose_runner USES it (no dead_code) +
-      builds SynthesisStrategy(edges, StubMind, calibration, comparator/triage
-      from cfg, derived stage), pushes to strategies with a [per_strategy] gate
-      entry + envelope. Composition test: strategy_ids() contains the synth id
+      Pieces, all confirmed present: calibration_for_scope (compose.rs:54),
+      effective_stage (promotion.rs:50), StubMind (placeholder; real mind is
+      S5 via allow_stub_mind/api-key at main.rs:49). compose_runner USES
+      synthesis_edges (no dead_code) + adds DaemonToml.synthesis (Option<
+      SynthesisSection>) + builds SynthesisStrategy(edges, StubMind, calibration,
+      comparator/triage from cfg, derived stage), pushes to strategies with a
+      [per_strategy] gate entry + envelope. Composition test: strategy_ids()
+      contains the synth id
       with [synthesis]+seeded edges; only mech without. [synthesis] filters may
       split to S3b if S3 runs large.
   S4. drive() per-segment edge refresh: keep last-known on failure + count/alert,
@@ -217,10 +225,14 @@ orders/13 fills; 8675309: fault-dense, 13 faults; 777: fill-dense, 13/13) —
 they pin replay determinism across refactors (a refactor that breaks
 determinism now reds the corpus). Validated: `cargo test -p fortuna-core
 --test dst -- --seeds 0` => "3 corpus + 0 random seeds, zero invariant
-violations". Chosen DISK-SAFE (fortuna-core harness, NOT a fortuna-live
-battery) while the volume sits at ~20Gi/98% and S3's fortuna-live battery
-risks a 3rd ENOSPC; S3 build resumes on a calmer disk per the validated plan
-above.
+violations". Chosen as a disk-light item while the volume sat at ~20Gi/98%.
+CORRECTION (measured next iteration): a WARM fortuna-live battery costs only
+~1-2GB (rlibs are cached from earlier sessions; only the changed crate
+recompiles) — NOT the ~15GB I had feared by over-anchoring on the S1
+fortuna-ledger drop (which included `sqlx prepare` + cold-ish deps). S3 was
+NEVER disk-blocked; S3a shipped immediately after on a warm fortuna-live
+battery (16Gi free after). The ~15GB hazard is a COLD full build (the shared
+gate target), not a warm scoped one.
 Slack send-failure count is now SURFACED (drive sums total_send_failures
 and audits a final Ops alert if >0) — the earlier "_send_failures
 discarded" is fixed.

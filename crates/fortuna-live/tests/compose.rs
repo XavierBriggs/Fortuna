@@ -8,8 +8,11 @@
 //! full strategy-through-daemon flow is the requirement-10 DST smoke;
 //! these tests pin the fetch->build->feed seams themselves.
 
+use fortuna_cognition::events::{EdgeTier, MappingType};
 use fortuna_ledger::{BeliefsRepo, CalibrationParamsRepo};
-use fortuna_live::compose::{calibration_for_scope, DegradeScrape};
+use fortuna_live::compose::{
+    calibration_for_scope, synthesis_edges, DegradeScrape, SynthesisSection,
+};
 use fortuna_ops::alerts::DegradeThresholds;
 use sqlx::PgPool;
 
@@ -182,5 +185,124 @@ async fn corrupt_params_row_is_a_loud_error_never_a_silent_none(pool: PgPool) {
         result.is_err(),
         "a params row that does not parse is corrupt config: loud error, \
          never silently treated as uncalibrated"
+    );
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn synthesis_edges_loads_confirmed_mapped_and_filtered(pool: PgPool) {
+    // docs/design/synthesis-edge-source-decision.md req 1 + 4: the daemon
+    // synthesis edge set is EdgesRepo CONFIRMED-tier, mapped to EdgeView, scoped
+    // by the [synthesis] filters. NON-VACUOUS: assert the REAL mapped EdgeViews
+    // (an empty / stubbed load fails the specific assertions below).
+    let events = fortuna_ledger::EventsRepo::new(pool.clone());
+    events
+        .create(
+            "evt-1",
+            "s",
+            "c",
+            "src",
+            None,
+            "2026-06-20T18:00:00.000Z",
+            "weather",
+            "2026-06-10T12:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    let edges = fortuna_ledger::EdgesRepo::new(pool.clone());
+    // confirmed kalshi edge (direct) -> RETURNED.
+    edges
+        .insert_edge(
+            "e-kalshi",
+            "KX-A",
+            "kalshi",
+            "evt-1",
+            "direct",
+            0.9,
+            "model:stub",
+            Some("op"),
+            None,
+            "2026-06-10T12:01:00.000Z",
+        )
+        .await
+        .unwrap();
+    // confirmed polymarket edge (negation) -> filtered OUT when venue=kalshi.
+    edges
+        .insert_edge(
+            "e-poly",
+            "PM-B",
+            "polymarket",
+            "evt-1",
+            "negation",
+            0.9,
+            "model:stub",
+            Some("op"),
+            None,
+            "2026-06-10T12:02:00.000Z",
+        )
+        .await
+        .unwrap();
+    // unconfirmed kalshi edge -> excluded by confirmed_edges (not confirmed).
+    edges
+        .insert_edge(
+            "e-unconf",
+            "KX-C",
+            "kalshi",
+            "evt-1",
+            "direct",
+            0.5,
+            "model:stub",
+            None,
+            None,
+            "2026-06-10T12:03:00.000Z",
+        )
+        .await
+        .unwrap();
+
+    // venue=kalshi: only the confirmed kalshi edge survives, mapped to EdgeView.
+    let views = synthesis_edges(
+        &pool,
+        &SynthesisSection {
+            venue: Some("kalshi".into()),
+            max_edges: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        views.len(),
+        1,
+        "venue filter keeps only the confirmed kalshi edge: {views:?}"
+    );
+    assert_eq!(views[0].market, "KX-A");
+    assert_eq!(views[0].event_id, "evt-1");
+    assert_eq!(views[0].mapping, MappingType::Direct);
+    assert_eq!(views[0].tier, EdgeTier::Confirmed);
+
+    // no filter: both confirmed edges (kalshi + polymarket); unconfirmed excluded.
+    let all = synthesis_edges(&pool, &SynthesisSection::default())
+        .await
+        .unwrap();
+    let mut markets: Vec<&str> = all.iter().map(|e| e.market.as_str()).collect();
+    markets.sort();
+    assert_eq!(
+        markets,
+        vec!["KX-A", "PM-B"],
+        "both confirmed edges; unconfirmed excluded: {markets:?}"
+    );
+
+    // max_edges=1 truncates deterministically by edge id ("e-kalshi" < "e-poly").
+    let capped = synthesis_edges(
+        &pool,
+        &SynthesisSection {
+            venue: None,
+            max_edges: Some(1),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(capped.len(), 1, "max_edges caps the set");
+    assert_eq!(
+        capped[0].market, "KX-A",
+        "truncation by edge id keeps e-kalshi (< e-poly)"
     );
 }
