@@ -990,12 +990,19 @@ observed so far: `INVALID_PARAMETER` (malformed key id) and
   promo-\$0 fill correctly yields a discrepancy vs the 0.0012 taker
   tier — fee-trap surfacing as designed). The RiskCurve converter
   (bus fix 4) landed with the gate-fix batch (3b21b7e).
-  STILL OPEN before the tick: the WS session layer (connect/subscribe/
-  resync over the recorded streams; frame parsing already covered in
-  slice 1). DATA GAPS held open honestly in the DTOs (never invented):
-  funding_history ENTRY shape uncaptured (item 10 partial — demo rate
-  was 0; raw JSON until a populated capture or the PROD parity sweep),
-  notional risk limit per-market values uncaptured (empty map on demo).
+  SLICE 4 LANDED (commit bbadfc0): WS session layer — recorder-accepted
+  subscribe commands byte-pinned, handshake constants (finding 2), seq/
+  torn discipline with no-advance-until-fresh-snapshot, both recorded
+  streams replay gapless and fully typed. **T5.B4 BOX TICKED.**
+  OPEN venue-state/composition items (not code gaps): funding_history
+  ENTRY shape uncaptured (item 10 partial — demo rate was 0; raw JSON
+  until a populated capture or the PROD parity sweep); notional risk
+  limit per-market values uncaptured (empty map on demo);
+  duplicate-resolution list scan is first-page-only (pagination);
+  the LIVE dial (TLS + signed WS handshake + redial policy, reqwest
+  transport wiring with the kinetics credential pair from env) is
+  composition work that lands with the daemon integration — no live
+  traffic from track C, ever (demo flips are operator actions).
 - **TRACK C GATE FIX LIST: ALL 4 CLOSED (commit 3b21b7e)** — verdict
   was ACCEPT-WITH-GAPS, zero Critical
   (track-c-perp-gates-gate-2026-06-12.md). (1) CLOSED: at-boundary

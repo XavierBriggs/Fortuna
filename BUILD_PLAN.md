@@ -504,9 +504,19 @@ code.
       I1/I2/I3 invariant ADDITIONS [pure, 0 deletions — operator waive
       queued in GAPS]; daemon wiring of the composed equity lands with the
       B4/B5 runtime integration, ledgered.)
-- [ ] T5.B4 Kinetics adapter (own credentials; dedicated 5.14 envelope):
+- [x] T5.B4 Kinetics adapter (own credentials; dedicated 5.14 envelope):
       REST+WS from the archived specs, doc-derived samples, FIXTURES-GATED vs
       fixtures/kinetics-perps/ (18-item list, research section 12).
+      (DONE track C 2026-06-12, commits dd82ca1 + c4f6248 + e3d0dde +
+      bbadfc0 + converter in 3b21b7e: DTOs [all 76 bodies, full-coverage
+      classification], client [every request meta-equality-gated],
+      adapter [GatedPerpOrder-only place, reduce-only/IOC pre-wire rule,
+      AlreadyExists via list scan, Liquidation fill class, fee
+      reconciliation surfacing the promo-\$0 discrepancy], WS session
+      [recorded commands, seq/torn discipline, both streams replay
+      gapless]. OPEN venue-state items stay in GAPS: funding_history
+      entry shape, notional-limit values, duplicate-scan pagination,
+      live-dial composition.)
 - [x] T5.B5 Paper engine margin semantics: funding accrual on SimClock,
       liquidation sim from recorded risk curves, mark-based PnL.
       (DONE track C 2026-06-12, commit e8fe069: fortuna-state MarginSim —
