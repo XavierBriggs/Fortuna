@@ -988,17 +988,21 @@ observed so far: `INVALID_PARAMETER` (malformed key id) and
   funding_history ENTRY shape uncaptured (item 10 partial — demo rate
   was 0; raw JSON until a populated capture or the PROD parity sweep),
   notional risk limit per-market values uncaptured (empty map on demo).
-- **TRACK C GATE VERDICT acknowledged (2026-06-12 ~10:30Z bus):
-  cumulative perps gate = ACCEPT-WITH-GAPS, zero Critical**
-  (track-c-perp-gates-gate-2026-06-12.md). The 4-item Minor fix list is
-  NEXT-ITERATION priority (a) work: (1) exactly-at-boundary tests for
-  the liquidation floor + leverage cap (mutations M1/M3 survived); (2)
-  enforce-or-ledger the funding ±2% cap in MarginSim; (3) perp.rs
-  leverage display cleanup; (4) BINDING-for-B4 RiskCurve converter from
-  recorded leverage_estimates + T5.B5 tick wording correction (visible,
-  never erased). Operator decisions parked on the bus (waive batch 5,
-  F1 disposition, leverage-cap number) are operator actions, not
-  track-C work.
+- **TRACK C GATE FIX LIST: ALL 4 CLOSED (commit 3b21b7e)** — verdict
+  was ACCEPT-WITH-GAPS, zero Critical
+  (track-c-perp-gates-gate-2026-06-12.md). (1) CLOSED: at-boundary
+  equality pinned for the liquidation floor AND the leverage cap
+  (pass-at-exact + reject-one-past pairs; mutations M1/M3 now die).
+  (2) CLOSED as ENFORCE: MarginSim refuses |rate| > 2% — the venue
+  clamps before reporting, so an over-cap rate is corrupt input; we
+  error rather than silently clamp data entering an append-only record.
+  (3) CLOSED: leverage cap renders as '{n}.{d}x'. (4) CLOSED:
+  RiskCurve::from_leverage_estimates (numeric tier sort, ceil'd
+  conservative bps, fail-closed on leverage<1/non-finite/bad keys),
+  shape-tested vs fixtures/kinetics-perps/markets__single.json; T5.B5
+  tick wording corrected VISIBLY in BUILD_PLAN. Operator decisions
+  parked on the bus (waive batch 5, F1 disposition, leverage-cap
+  number) remain operator actions, not track-C work.
 - **T5.B6 perp DST: DONE, box ticked** (track C, 2026-06-12, commit
   335e5e6): run-dst.sh gains the perp_dst stage (fortuna-state, same
   seed count as the other stages) — 6 accounted arms with a coverage
