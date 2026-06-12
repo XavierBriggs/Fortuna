@@ -258,14 +258,27 @@ Build sub-slices (each its own iteration, TDD, battery-gated):
       NOTE: refresh is MOOT until S5 (the StubMind arm trades nothing), so S5
       could reasonably PRECEDE S4 — but req 2 is binding, so S4 completes
       synthesis-in-main.
-  S5. mind binding (StubMind -> AnthropicMind). compose_runner builds the mind
-      INTERNALLY today, so a real-API test is BOTH expensive AND the kickoff
-      money pitfall. TESTABILITY VALIDATED: a compose::mind_from_env helper that
-      takes the TRANSPORT injected (StubMind when no key + allow_stub;
-      AnthropicMind{model, budgets -> CostBudget, injected transport} when
-      keyed). Test with a SCRIPTED transport (the synthesis_loop
-      anthropic_mind_trades pattern), NEVER a real key; compose_runner uses it
-      with the real reqwest transport in the binary.
+  S5a. make synthesis TRADEABLE (mind-injection + calibration) — the high-value
+      step; SCOPE RESOLVED 2026-06-12 (more tractable than feared — NO
+      events-category join needed). (1) compose_runner takes a mind: Arc<dyn
+      Mind> PARAM (5 call sites: main + daemon_smoke x4; existing pass StubMind,
+      the live test passes a scripted believing mind) — resolves the
+      mind-injection testability. (2) The synth arm needs CALIBRATION to price
+      (today calibration=None => prices nothing): add [synthesis].category
+      (operator-specified scope; NOT the edges' category, so no events-join) +
+      compose_runner calls calibration_for_scope(MODEL_CONST e.g.
+      "claude-fable-5", "synthesis", cfg.category, "platt") -> bind calibration
+      + runner.set_calibration_quality("synthesis", quality). (3) Live test
+      (daemon_smoke sqlx::test): seed an event(category="weather") + a confirmed
+      sim-market edge + a calibration_params row for that scope + a SCRIPTED
+      believing mind + a book -> tick -> the synth arm TRADES (proposal +
+      position; the non-vacuous populated path). main stays StubMind (inert) =>
+      production-live is S5b.
+  S5b. mind_from_env helper: StubMind when no key + allow_stub; AnthropicMind
+      {model, budgets->CostBudget, reqwest transport} when keyed (transport
+      INJECTED for tests, scripted, NEVER a real key — the kickoff money
+      pitfall). main builds it + passes to compose_runner; the arm goes LIVE.
+      Needs [cognition].model (+ AnthropicMindConfig fields) — config additions.
   S6. belief drain+persist wired (path exists); rich digest.
   Then tick T4.1 (starts the soak) -> T4.2 -> T4.5.
 The populated-path test rule (the verifier's vacuous-test lesson) applies to
