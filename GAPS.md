@@ -506,6 +506,85 @@ fabricated/zeroed panel). Fix list:
   also slotted BUILD_PLAN T4.5 (ROTA v1.1 deferred panels), after T4.2; its
   TEST RULE bakes in the populated-path-seed lesson.
 
+## RALPH STOP 2026-06-12T08:20:05Z (track B — queue exhausted, loop ends clean)
+
+Track B's assigned queue (docs/design/implementer-loop-track-b.md priority
+(b), per docs/design/orchestration.md) is COMPLETE:
+
+- T4.4 operator CLI — BOX TICKED. Three gate-pending slices on track-b:
+  slice 1 (config check / logs / status process-health, A9 exit-0 pinned),
+  slice 2 (start: A2 pgrep refusal, A3 O_EXCL claim, A4 detach), slice 3
+  (stop: A1 log-confirmed shutdown w/ append-offset semantics, A7 timeout
+  posture, zombie-aware liveness). 38 tests in the crate; §13 manual smoke
+  runbook recorded in the design doc.
+- T4.3 track-B items — ALL FOUR DONE: the R7 ledger queries
+  (BeliefsRepo::recent + CalibrationParamsRepo::scopes, populated-path
+  tests, sqlx prepare), the cognition view (counters honest-absent until
+  synthesis; ledger arrays live over the R5 pool; 4KB evidence
+  truncation), the instrument presentation layer (per-panel renderers,
+  UTC labels, click-to-expand evidence, raw expanders, §0.4 cadences),
+  and assets/rota/logo.svg (§9 geometry, favicon + asset routes).
+
+WHY STOP (loop rule 6): the bus names no track-B findings (the three open
+Minors live in fortuna-live/fortuna-runner — track A's files); the
+remaining T4.3 surface is explicitly not track B's (full §5 money model =
+operator/design call; R12 browser pass = verifier; audit-recents were not
+in the queue enumeration); T4.5/T4.2/T5.B belong to tracks A/C. Inventing
+work violates "idle-and-stopped beats bloat".
+
+STATE FOR THE VERIFIER: five track-B commits awaiting gate on branch
+track-b (T4.4 slices 1-3, T4.3 slices 8-9), every one committed only
+after a green full battery (fmt / clippy -D warnings / cargo test
+--workspace / DST corpus) run under env -u DATABASE_URL (the operator-URL
+canary is ledgered above). Cross-track notes for the gate are in the
+T4.3/T4.4 sections: the venues-example fmt violation at HEAD (track A's),
+the 39 stale .sqlx entries (owners'), the lib.rs one-line export and the
+two favicon-test evolutions (both declared). DISK: the ENOSPC treadmill
+entry above remains an operator action.
+
+This entry's commit is DOCS-ONLY on the batteried HEAD (zero code delta
+since the slice-9 battery: workspace 773/0, DST exit 0).
+
+## T4.3 cognition slice (track B; 2026-06-12) — ownership notes for the gate
+
+- **fortuna-ledger/src/lib.rs gained ONE additive pub-use line** (the two
+  new row types). Track-B ledger ownership reads "the two R7 query
+  additions in repos.rs"; the queries are unreachable from fortuna-ops
+  without the export, so the line is read as PART of the query addition.
+  Zero existing exports moved or changed; flagged here for the gate.
+- **R7 query tests live in a NEW file crates/fortuna-ledger/tests/
+  rota_queries.rs** (R7 mandates "both with tests"): purely additive —
+  no existing ledger test file was touched.
+- **.sqlx cache: only track B's two query JSONs are committed.** A full
+  `cargo sqlx prepare --workspace` regenerated 41 missing entries — 39 of
+  them are PRE-EXISTING staleness from other tracks' queries (cache not
+  refreshed for several commits); committing those would put track B's
+  name on surfaces it doesn't own. They remain untracked; owners/verifier
+  should run prepare at the next gate.
+- **Design §3 deviation — RotaState gains NO budget fields:** fortuna-live
+  main.rs (track A) constructs RotaState as a STRUCT LITERAL; adding
+  fields breaks a file track B may not edit. Budgets (daily/per-cycle)
+  ride the daemon-shaped cognition view when track A's synthesis-in-main
+  populates it — same channel as the counters. If the literal ever
+  becomes a builder, the §3 shape can be revisited.
+- **Cognition counters render as explicit absence, not zeros:** under
+  mech_structural the counters are structurally zero (the r5test-slice6
+  gate's vacuous-data class); the panel shows counters_status:
+  "unavailable" until synthesis-in-main composes a cognition strategy.
+  The LEDGER arrays are live and populated-path-tested with real seeded
+  values (p=0.67/0.71, evidence reasoning text, provenance cost, max
+  version 2) — a fabricated panel cannot pass them.
+- **Slice 9 test evolution (declared, not a weakening):** the favicon
+  test `favicon_is_a_204_not_a_404` asserted the INTERIM 204 stub and its
+  own comment said the §9 mark "replaces this in the Phase-3 asset
+  slice". That slice is here: the test became
+  `favicon_serves_the_wheel_mark_never_a_404` with STRONGER asserts
+  (200 + image/svg+xml + wheel markup + the unchanged POST-405). The F2
+  intent (no 404 / no console error) is preserved and tightened. The
+  serve_dashboard merge test pinned the same interim 204 at its own
+  assertion site — evolved identically (200 + content-type), found red
+  by the battery before commit.
+
 ## T4.4 CLI — slice 1 (track B; box unticked; 2026-06-12)
 
 - **SIGTERM mechanism (design checklist item 8, decided at fit-validation):**
@@ -544,6 +623,83 @@ fabricated/zeroed panel). Fix list:
   `i5_audit_append_only` canary. Track-B batteries therefore run under
   `env -u DATABASE_URL` so sqlx tests route to the dev server. No operator-DB
   writes occurred (the failure mode is a DENIED `CREATE DATABASE`).
+
+Slice 2 (`start`) additions:
+
+- **`[recorder]` config table is read but not yet in the committed example:**
+  `start` builds the recorder invocation from an optional `[recorder]` table
+  (interval_secs / bracket_series / out_dir) with defaults pinned to the A2
+  live invocation verbatim (30s, KXBTC15M,KXBTC,KXBTCD, data/perishable made
+  ABSOLUTE against cwd). Adding the section to config/fortuna.example.toml is
+  OUTSIDE track-B ownership (config/ is unassigned) — needs track A or an
+  operator edit; until then the defaults govern and are test-visible in
+  recorder_invocation().
+- **A2 refusal scope (conservative interpretation):** an unmanaged
+  fortuna-recorder process refuses the WHOLE start — even a daemon-only
+  spawn — until the operator migrates. Rationale: a managed spawn alongside
+  an unmanaged recorder normalizes the exact double-appender state A2
+  exists to prevent; spec-silent => conservative.
+- **The success spawn path is NOT integration-tested on this box, by
+  design and by necessity:** design §9 makes start->status->stop a manual
+  runbook check (forking is timing-flaky in CI), and this machine
+  intentionally hosts the operator's UNMANAGED recorder, so a clean
+  `fortuna start` here correctly REFUSES (the A2 path — which IS
+  integration-tested, with a planted decoy so it stays deterministic on
+  clean machines too). Claim atomicity (8-thread race), append-mode
+  redirect, claim-release-on-spawn-failure, and pidfile-write+marker-clear
+  are unit-tested at the primitive level.
+- **The `lifecycle` audit row path is not Pg-integration-tested:** the CLI
+  reads DATABASE_URL from env; the sqlx::test harness does not hand a URL
+  to a spawned binary. The append mirrors the existing tested halt/rearm
+  pattern (checklist item 10 signature) and is best-effort by A10. Verifier
+  scratch-test or the manual runbook covers it; flagged honestly here.
+
+Slice 3 (`stop` — T4.4 commands complete) additions:
+
+- **Zombies read as not-running** (found red-first: the stop tests' stubs
+  are children of the test process, so their TERM-exits left ps-visible
+  zombies and the liveness poll never saw an exit): `comm_of` now reads
+  `ps -o stat=` alongside comm and treats stat Z* as not-running. This is
+  production-correct, not a test accommodation — a zombie pidfile target
+  is an EXITED process whose parent has not reaped it; it is not
+  signalable work, and `stop` must count its exit as an exit.
+- **fortuna-recorder has NO SIGTERM handler** (crate outside track-B
+  ownership): default TERM termination can land mid-append and tear a
+  JSONL line — the same defect class A2 guards against, with a microscopic
+  window (one write per 30s interval). `stop` cannot fix this from the
+  CLI side; a trap/flush handler belongs to the recorder's owner. Flagged
+  for track A / operator queue.
+- **A1 evidence choice:** the daemon's stderr line `fortuna-live: clean
+  shutdown` (main.rs, redirected into the managed log by `start`) is the
+  log evidence `stop` requires; the Pg final audit row remains the I5
+  record (A10 framing). `stop` accepts the marker only at/after the log
+  byte-offset captured BEFORE the signal — append-mode logs carry previous
+  runs' markers, and a stale marker must never vouch for a fresh crash
+  (offset semantics test-pinned, including the pre-seeded-marker case).
+- **A daemon that was never started via `start` has no managed log**, so
+  A1 cannot be confirmed: stop still SIGTERMs and waits, then exits 1
+  with an honest "no shutdown line" warning. The managed lifecycle is the
+  contract; outside it, stop degrades loudly rather than lying.
+- **DISK INCIDENT 2026-06-12 (environmental; operator notified live):**
+  the Data volume hit 100% (161MiB free) during the slice-3 battery —
+  link steps failed with ENOSPC across crates. Track B removed its OWN
+  worktree target/ (7.2G, regenerable build cache; nothing else touched —
+  not other tracks' targets, not data/, not Pg) restoring ~13Gi free, and
+  re-ran the battery from a clean build. The volume remains ~99% used
+  overall. Survey: MAIN checkout target/ = 35G (shared by the verifier's
+  gate batteries + rust-analyzer — NOT track-B's to clean), track-C
+  target/ = 9.7G (track C's), track-B = 7.2G (cleaned). A
+  `cargo clean` in the main checkout between gate firings is the big
+  FORTUNA-side lever — verifier/operator call. Risk while pressure
+  lasts: ENOSPC could hit the B0 recorder's JSONL appends and any
+  track's battery mid-link.
+  RECURRED same night (next iteration): 0 bytes free again — briefly
+  blocked even session tooling temp-files; track-B target/ deleted a
+  second time (~14Gi back). The pattern is a TREADMILL: each track
+  battery rebuild is ~8GB across three tracks; headroom lasts roughly
+  one battery. Operator re-notified live. Track B continues but every
+  battery now starts from a cold build (slower iterations) and may
+  ENOSPC mid-link if another track builds concurrently.
 
 ## SECURITY INCIDENT 2026-06-11 (gate finding F1, Critical) — keys were committed
 

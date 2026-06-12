@@ -157,14 +157,21 @@ async fn serve_dashboard_mounts_the_rota_console_alongside_the_instrument() {
         assert_eq!(resp.status(), 405, "POST {path} must be refused");
     }
 
-    // rota-slices gate F2: /favicon.ico is served 204 through the LIVE merged
-    // tree (the browser pass found it 404ing) — no console error.
+    // rota-slices gate F2: /favicon.ico serves through the LIVE merged tree
+    // (the browser pass found it 404ing) — no console error. Phase-3 asset
+    // slice: the interim 204 stub became the real §9 mark; the F2 intent
+    // holds with STRONGER asserts (200 + SVG, not just "not 404").
     let fav = client
         .get(format!("{base}/favicon.ico"))
         .send()
         .await
         .unwrap();
-    assert_eq!(fav.status(), 204, "favicon 204 through serve_dashboard");
+    assert_eq!(
+        fav.status(),
+        200,
+        "favicon serves the mark through serve_dashboard"
+    );
+    assert_eq!(fav.headers()["content-type"], "image/svg+xml");
 
     server.abort();
 }

@@ -23,6 +23,7 @@ use axum::response::{Html, IntoResponse};
 use axum::routing::get;
 use axum::{Json, Router};
 use fortuna_core::clock::UtcTimestamp;
+use fortuna_ledger::{BeliefsRepo, CalibrationParamsRepo};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -57,9 +58,11 @@ pub fn rota_router(state: RotaState) -> Router {
     Router::new()
         .route("/rota", get(shell))
         .route("/favicon.ico", get(favicon))
+        .route("/assets/rota/logo.svg", get(logo_asset))
         .route("/api/rota/v1/health", get(view_health))
         .route("/api/rota/v1/money", get(view_money))
         .route("/api/rota/v1/gates", get(view_gates))
+        .route("/api/rota/v1/cognition", get(view_cognition))
         .route("/api/rota/v1/settlement", get(view_settlement))
         .route("/api/rota/v1/streams", get(view_streams))
         .route("/api/rota/v1/audit", get(audit_tail))
@@ -95,6 +98,123 @@ async fn view_gates(State(s): State<RotaState>) -> impl IntoResponse {
 }
 async fn view_settlement(State(s): State<RotaState>) -> impl IntoResponse {
     Json(read_view(&s, "settlement").await)
+}
+
+/// Evidence payloads are operator-readable JSONB of unbounded size; the
+/// panel truncates at 4KB per row (design §5 operator amendment). The
+/// LEDGER row stays whole — only this payload is cut, and the cut is
+/// explicit (`truncated: true` + byte count), never silent.
+fn truncate_evidence(evidence: &Value) -> Value {
+    let serialized = evidence.to_string();
+    if serialized.len() <= 4096 {
+        return evidence.clone();
+    }
+    let mut end = 4096;
+    while !serialized.is_char_boundary(end) {
+        end -= 1;
+    }
+    json!({
+        "truncated": true,
+        "bytes_total": serialized.len(),
+        "preview": &serialized[..end],
+    })
+}
+
+/// An unavailable ledger sub-surface (uniform shape for the two arrays).
+fn ledger_unavailable(detail: &str) -> Value {
+    json!({ "available": false, "detail": detail, "rows": [] })
+}
+
+/// R7 — the cognition panel. Counters and budgets ride the daemon-shaped
+/// "cognition" view, which stays ABSENT until synthesis-in-main composes a
+/// cognition strategy: structurally-zero counters would read as "all
+/// clear" to an operator (the verifier's escalating vacuous-data class),
+/// so absence renders as an explicit status, never fabricated zeros. The
+/// belief listing (evidence + provenance, click-to-expand in the shell)
+/// and the calibration-scope enumeration are ROTA's OWN R7 ledger queries
+/// over the R5 read pool. RotaState deliberately gains NO budget fields:
+/// the daemon constructs RotaState as a struct literal (fortuna-live
+/// main.rs — track A's file), so budgets ride the view when synthesis
+/// wires them rather than breaking that construction site.
+async fn view_cognition(State(s): State<RotaState>) -> impl IntoResponse {
+    let (generated_at, counters) = {
+        let snap = s.snapshot.read().await;
+        (
+            snap.generated_at.clone(),
+            snap.views.get("cognition").cloned(),
+        )
+    }; // R8: snapshot lock released before any query below.
+    let mut out = match counters {
+        Some(Value::Object(map)) => Value::Object(map),
+        _ => json!({
+            "counters_status": "unavailable",
+            "detail": "no cognition strategy composed yet (synthesis-in-main pending)",
+        }),
+    };
+    let (beliefs, scopes) = match &s.pool {
+        None => (
+            ledger_unavailable("postgres capability absent (standalone ROTA)"),
+            ledger_unavailable("postgres capability absent (standalone ROTA)"),
+        ),
+        Some(pool) => {
+            let beliefs = match BeliefsRepo::new(pool.clone()).recent(20).await {
+                Ok(rows) => {
+                    let rows: Vec<Value> = rows
+                        .into_iter()
+                        .map(|r| {
+                            json!({
+                                "belief_id": r.belief_id,
+                                "created_at": r.created_at,
+                                "event_id": r.event_id,
+                                "p": r.p,
+                                "p_raw": r.p_raw,
+                                "status": r.status,
+                                "brier": r.brier,
+                                "clv_bps": r.clv_bps,
+                                "evidence": truncate_evidence(&r.evidence),
+                                "provenance": r.provenance,
+                            })
+                        })
+                        .collect();
+                    json!({ "available": true, "rows": rows })
+                }
+                Err(e) => {
+                    // Neutral detail only — never raw sqlx text to the view.
+                    eprintln!("rota: cognition belief read degraded: {e}");
+                    ledger_unavailable("belief read unavailable (dashboard pool degraded)")
+                }
+            };
+            let scopes = match CalibrationParamsRepo::new(pool.clone()).scopes().await {
+                Ok(rows) => {
+                    let rows: Vec<Value> = rows
+                        .into_iter()
+                        .map(|r| {
+                            json!({
+                                "model_id": r.model_id,
+                                "strategy": r.strategy,
+                                "category": r.category,
+                                "kind": r.kind,
+                                "version": r.version,
+                                "effective_at": r.effective_at,
+                            })
+                        })
+                        .collect();
+                    json!({ "available": true, "rows": rows })
+                }
+                Err(e) => {
+                    eprintln!("rota: cognition scope read degraded: {e}");
+                    ledger_unavailable("calibration read unavailable (dashboard pool degraded)")
+                }
+            };
+            (beliefs, scopes)
+        }
+    };
+    if let Some(obj) = out.as_object_mut() {
+        obj.insert("generated_at".to_string(), json!(generated_at));
+        obj.insert("recent_beliefs".to_string(), beliefs);
+        obj.insert("calibration_scopes".to_string(), scopes);
+    }
+    Json(out)
 }
 /// Cheap liveness stat of the recorder's perishable JSONL streams (the
 /// /streams panel's `recorder` section). Reads only file METADATA (mtime +
@@ -285,32 +405,58 @@ async fn audit_tail(State(s): State<RotaState>, Query(q): Query<AuditQuery>) -> 
 }
 
 async fn shell() -> impl IntoResponse {
-    (StatusCode::OK, Html(ROTA_SHELL))
+    // The §9 mark inlines into the header at serve time (compile-time
+    // asset, zero fs reads, zero CDN — Section 1/R12).
+    (
+        StatusCode::OK,
+        Html(ROTA_SHELL.replace("<!--ROTA_LOGO-->", ROTA_LOGO_SVG)),
+    )
 }
 
-/// Favicon: a 204 No Content stub (rota-slices gate F2). The browser's
-/// automatic /favicon.ico probe otherwise 404s — the only console error in
-/// the live browser pass, and an R12 pass criterion. 204 clears it with no
-/// asset dependency; the real Section 9 cornucopia/wheel mark replaces this in
-/// the Phase-3 asset slice.
+/// The §9 cornucopia/wheel mark, committed at assets/rota/logo.svg and
+/// baked in at compile time (a missing asset is a build error, not a 404).
+const ROTA_LOGO_SVG: &str = include_str!("../../../assets/rota/logo.svg");
+
+/// Favicon = the §9 mark as SVG (browsers accept SVG favicons). Replaces
+/// the interim 204 stub (rota-slices gate F2: the bare /favicon.ico probe
+/// must never 404 — an R12 console-error criterion).
 async fn favicon() -> impl IntoResponse {
-    StatusCode::NO_CONTENT
+    (
+        StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "image/svg+xml")],
+        ROTA_LOGO_SVG,
+    )
+}
+
+/// GET /assets/rota/logo.svg (§3 route table).
+async fn logo_asset() -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "image/svg+xml")],
+        ROTA_LOGO_SVG,
+    )
 }
 
 /// The gold-on-black instrument shell (operator tokens, Section 2):
-/// vanilla JS short-poll, the panel grid is the only responsive line
-/// (R11). Inlined as a const — zero build step, zero CDN (R12 / Section 1).
+/// vanilla JS short-poll at the §0.4 cadences, per-panel renderers with a
+/// raw-JSON expander (instrument honesty: the formatted view never hides
+/// the payload), cognition evidence as click-to-expand rows (operator
+/// amendment), cents rendered as dollars, times labeled UTC (R6). The
+/// panel grid line is the ONLY responsive concession (R11). Inlined as a
+/// const — zero build step, zero CDN (R12 / Section 1).
 const ROTA_SHELL: &str = r#"<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>FORTUNA · ROTA</title>
+<link rel="icon" href="/assets/rota/logo.svg" type="image/svg+xml">
 <style>
   :root{--bg:#0A0A0B;--card:#141416;--gold:#D4AF37;--amber:#FFB84D;
         --text:#EDEDEA;--halt:#FF3B30;--ok:#30D158}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--text);
        font-family:system-ui,sans-serif}
-  header{display:flex;align-items:center;gap:12px;padding:14px 20px;
+  header{display:flex;align-items:center;gap:12px;padding:12px 20px;
          border-bottom:1px solid var(--gold)}
+  header .logo svg{height:28px;width:28px;display:block}
   header .mark{color:var(--gold);font-weight:700;letter-spacing:2px}
   header .sub{color:var(--amber);font-size:12px;letter-spacing:3px}
   .grid{display:grid;gap:14px;padding:18px;
@@ -318,31 +464,100 @@ const ROTA_SHELL: &str = r#"<!doctype html><html lang="en"><head>
   .panel{background:var(--card);border:1px solid #2a2a2d;border-radius:6px;padding:14px}
   .panel h2{margin:0 0 8px;color:var(--gold);font-size:13px;
             letter-spacing:1.5px;text-transform:uppercase}
-  pre{margin:0;font-family:"JetBrains Mono",ui-monospace,monospace;
-      font-size:12px;color:var(--text);white-space:pre-wrap;
+  .mono,pre,.kv,.row{font-family:"JetBrains Mono",ui-monospace,monospace;
       font-variant-numeric:tabular-nums lining-nums}
+  pre{margin:0;font-size:11px;color:var(--text);white-space:pre-wrap}
+  .kv{display:flex;justify-content:space-between;gap:10px;font-size:12px;
+      padding:2px 0;border-bottom:1px dotted #222}
+  .kv span{color:#9a9a96}.kv b{color:var(--text);font-weight:500}
+  .kv b.gold{color:var(--gold)}
+  .row{font-size:12px;padding:2px 0;color:var(--text)}
+  .pill{display:inline-block;padding:1px 8px;border-radius:8px;font-size:11px}
+  .pill.ok{border:1px solid var(--ok);color:var(--ok)}
+  .pill.bad{border:1px solid var(--halt);color:var(--halt)}
+  .pill.dim{border:1px solid #555;color:#999}
+  .warn{color:var(--amber);font-size:12px;padding:2px 0}
+  .asof{color:#6e6e6a;font-size:10px;margin-top:8px}
+  details.raw summary,details.belief summary{cursor:pointer;font-size:11px;color:#8a8a86}
+  details.raw{margin-top:6px}
+  details.belief{padding:2px 0;border-bottom:1px dotted #222}
+  details.belief summary{font-size:12px;color:var(--text)}
+  details.belief pre{padding:6px 0 4px 12px;color:#bdbdb8}
   #halt{display:none;position:fixed;inset:0;background:var(--halt);
         color:#fff;align-items:center;justify-content:center;
         font-size:28px;letter-spacing:3px;z-index:9}
 </style></head><body>
 <div id="halt">SYSTEM HALTED</div>
-<header><span class="mark">FORTUNA</span><span class="sub">ROTA</span></header>
+<header><span class="logo"><!--ROTA_LOGO--></span>
+<span class="mark">FORTUNA</span><span class="sub">ROTA</span></header>
 <div class="grid">
-  <div class="panel"><h2>Health</h2><pre id="health">…</pre></div>
-  <div class="panel"><h2>Money</h2><pre id="money">…</pre></div>
-  <div class="panel"><h2>Gates</h2><pre id="gates">…</pre></div>
-  <div class="panel"><h2>Settlement</h2><pre id="settlement">…</pre></div>
-  <div class="panel"><h2>Streams</h2><pre id="streams">…</pre></div>
-  <div class="panel"><h2>Audit tail</h2><pre id="audit">…</pre></div>
+  <div class="panel"><h2>Health</h2><div id="health">…</div></div>
+  <div class="panel"><h2>Money</h2><div id="money">…</div></div>
+  <div class="panel"><h2>Gates</h2><div id="gates">…</div></div>
+  <div class="panel"><h2>Cognition</h2><div id="cognition">…</div></div>
+  <div class="panel"><h2>Settlement</h2><div id="settlement">…</div></div>
+  <div class="panel"><h2>Streams</h2><div id="streams">…</div></div>
+  <div class="panel"><h2>Audit tail</h2><div id="audit">…</div></div>
 </div>
 <script>
 const B="/api/rota/v1/";
-async function poll(name,el){try{const r=await fetch(B+name);const j=await r.json();
-  document.getElementById(el).textContent=JSON.stringify(j,null,2);
-  if(name==="health"){document.getElementById("halt").style.display=
-    j.halt_active?"flex":"none";}}catch(e){
-  document.getElementById(el).textContent="(unreachable: "+e+")";}}
-function tick(){poll("health","health");poll("money","money");poll("gates","gates");
-  poll("settlement","settlement");poll("streams","streams");poll("audit","audit");}
-tick();setInterval(tick,2000);
+const esc=s=>String(s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
+function fmtCents(c){if(c===null||c===undefined)return "—";
+  return (c/100).toLocaleString("en-US",{style:"currency",currency:"USD"});}
+const kv=(k,v,gold)=>`<div class="kv"><span>${esc(k)}</span><b${gold?' class="gold"':''}>${v}</b></div>`;
+const pill=(t,c)=>`<span class="pill ${c}">${esc(t)}</span>`;
+const raw=j=>`<details class="raw"><summary>raw</summary><pre>${esc(JSON.stringify(j,null,2))}</pre></details>`;
+const asof=j=>j.generated_at?`<div class="asof">as of ${esc(j.generated_at)} UTC</div>`:"";
+function gate(j){if(j&&j.status==="unavailable")return `<div class="warn">${esc(j.detail||"unavailable")}</div>`;return null;}
+const R={
+ health(j){let h=kv("halt",j.halt_active?pill("HALTED","bad"):pill("clear","ok"));
+  if(j.halt_reason)h+=kv("reason",esc(j.halt_reason));
+  h+=kv("ticks",j.ticks_total??"—")
+   +kv("fill p90/p95/p99 ms",`${j.fill_latency_p90_ms??"—"} / ${j.fill_latency_p95_ms??"—"} / ${j.fill_latency_p99_ms??"—"}`)
+   +kv("dead-man",j.dead_man_last_ping_age_secs==null?pill("external","dim"):esc(j.dead_man_last_ping_age_secs)+"s ago");
+  (j.venues||[]).forEach(v=>h+=kv("venue "+esc(v.id),(v.healthy?pill("ok","ok"):pill("errors","bad"))+" "+(v.api_error_count??0)+" err"));
+  return h;},
+ money(j){let h="";if(j.basis)h+=kv("basis",pill(esc(j.basis),"dim"));
+  h+=kv("settled",fmtCents(j.settled_cents),1)+kv("committed",fmtCents(j.committed_cents))
+   +kv("floating",fmtCents(j.floating_cents))+kv("total",fmtCents(j.total_cents),1);
+  const ps=j.positions||[];h+=kv("positions",ps.length);
+  ps.slice(0,8).forEach(p=>h+=`<div class="row">${esc(p.market)} y${p.yes_qty??0}/n${p.no_qty??0} ${fmtCents(p.realized_pnl_cents)}</div>`);
+  return h;},
+ gates(j){let h=kv("rejections",j.total_rejections??"—",1);
+  (j.rejections_by_check||[]).forEach(r=>h+=kv("· "+esc(r.check),r.count));
+  return h;},
+ cognition(j){let h="";
+  if(j.counters_status)h+=`<div class="warn">${esc(j.detail||j.counters_status)}</div>`;
+  else{h+=kv("spend today",fmtCents(j.mind_spend_today_cents),1)
+   +kv("daily budget",fmtCents(j.daily_budget_cents))
+   +kv("failures",j.cognition_failures_total??"—")+kv("breaches",j.budget_breaches_total??"—");}
+  const sc=j.calibration_scopes;
+  if(sc&&sc.available)sc.rows.forEach(s=>h+=kv("cal "+esc(s.model_id)+"/"+esc(s.kind),"v"+s.version));
+  else if(sc)h+=`<div class="warn">scopes: ${esc(sc.detail)}</div>`;
+  const rb=j.recent_beliefs;
+  if(rb&&rb.available){rb.rows.forEach(b=>{
+    h+=`<details class="belief"><summary>${esc(b.belief_id.slice(-8))} p=${b.p} (${esc(b.status)})</summary>`
+     +`<pre>evidence: ${esc(JSON.stringify(b.evidence,null,1))}\nprovenance: ${esc(JSON.stringify(b.provenance,null,1))}</pre></details>`;});
+   if(!rb.rows.length)h+=`<div class="row">no beliefs yet</div>`;}
+  else if(rb)h+=`<div class="warn">beliefs: ${esc(rb.detail)}</div>`;
+  return h;},
+ settlement(j){return kv("in limbo",fmtCents(j.capital_in_limbo_cents),1)
+  +kv("overdue",j.settlements_overdue??"—")+kv("discrepancies",j.discrepancies_open??"—")
+  +kv("voids",j.settlement_voids_total??"—")+kv("reversals",j.settlement_reversals_total??"—");},
+ streams(j){let h=kv("venue api errors",j.venue_api_errors_total??"—");
+  (j.recorder||[]).forEach(r=>h+=kv("rec "+esc(r.stream),
+    (r.healthy?pill("live","ok"):pill("stale","bad"))+" "+(r.last_capture_age_secs??"—")+"s"));
+  return h;},
+ audit(j){if(!j.available)return `<div class="warn">${esc(j.detail||"unavailable")}</div>`;
+  let h="";j.rows.slice(-12).forEach(r=>h+=`<div class="row">${esc(r.at)} UTC ${esc(r.kind)}${r.actor?" · "+esc(r.actor):""}</div>`);
+  return h||`<div class="row">no audit rows yet</div>`;}
+};
+async function poll(name){const el=document.getElementById(name);
+ try{const r=await fetch(B+name);const j=await r.json();
+  if(name==="health")document.getElementById("halt").style.display=j.halt_active?"flex":"none";
+  el.innerHTML=(gate(j)??R[name](j))+raw(j)+asof(j);
+ }catch(e){el.innerHTML=`<div class="warn">unreachable: ${esc(e)}</div>`;}}
+function every(ms,names){names.forEach(poll);setInterval(()=>names.forEach(poll),ms);}
+every(2000,["health","audit"]);every(5000,["money","gates"]);
+every(10000,["cognition","settlement"]);every(15000,["streams"]);
 </script></body></html>"#;

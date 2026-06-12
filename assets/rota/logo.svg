@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" role="img" aria-label="ROTA — FORTUNA wheel and cornucopia">
+  <!-- Section 9: eight-spoked wheel, gold on transparent -->
+  <circle cx="24" cy="24" r="20" stroke="#D4AF37" stroke-width="2"/>
+  <circle cx="24" cy="24" r="4" fill="#D4AF37"/>
+  <g stroke="#D4AF37" stroke-width="1">
+    <line x1="28" y1="24" x2="44" y2="24"/>
+    <line x1="26.83" y1="26.83" x2="38.14" y2="38.14"/>
+    <line x1="24" y1="28" x2="24" y2="44"/>
+    <line x1="21.17" y1="26.83" x2="9.86" y2="38.14"/>
+    <line x1="20" y1="24" x2="4" y2="24"/>
+    <line x1="21.17" y1="21.17" x2="9.86" y2="9.86"/>
+    <line x1="24" y1="20" x2="24" y2="4"/>
+    <line x1="26.83" y1="21.17" x2="38.14" y2="9.86"/>
+  </g>
+  <!-- Cornucopia: tip upper-left curving into the lower-right quadrant -->
+  <path d="M14,14 C 15,24 19,30 30,33" stroke="#D4AF37" stroke-width="1.5" fill="none"/>
+  <path d="M14,14 C 18,22 24,28 32,30" stroke="#D4AF37" stroke-width="1.5" fill="none"/>
+  <ellipse cx="34" cy="34" rx="5" ry="3" transform="rotate(45 34 34)" stroke="#D4AF37" stroke-width="1.5"/>
+</svg>

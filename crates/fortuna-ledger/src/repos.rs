@@ -920,6 +920,24 @@ pub struct BeliefRow {
     pub clv_bps: Option<f64>,
 }
 
+/// One belief as the ROTA cognition panel lists it (T4.3 amendment R7a):
+/// the scoreboard fields PLUS the persisted `evidence`/`provenance` JSONB —
+/// the model's stated reasoning surfaces to the operator (any payload
+/// truncation is the presentation layer's concern, not the ledger's).
+#[derive(Debug, Clone)]
+pub struct BeliefPanelRow {
+    pub belief_id: String,
+    pub created_at: String,
+    pub event_id: String,
+    pub p: f64,
+    pub p_raw: f64,
+    pub status: String,
+    pub brier: Option<f64>,
+    pub clv_bps: Option<f64>,
+    pub evidence: serde_json::Value,
+    pub provenance: serde_json::Value,
+}
+
 /// Belief ledger ops (spec 5.5): rows are immutable (DB content guard);
 /// an update INSERTS a superseding row and flips the prior's status;
 /// scoring fills outcome/brier/clv exactly once (repo-enforced over the
@@ -999,6 +1017,38 @@ impl BeliefsRepo {
             brier: r.brier,
             clv_bps: r.clv_bps,
         })
+    }
+
+    /// R7a (ROTA cognition panel): the newest `limit` beliefs, evidence +
+    /// provenance included. ULIDs order lexically == chronologically, so
+    /// `belief_id DESC` is newest-first without a timestamp parse. `limit`
+    /// clamps to [1, 500] — a read-only panel query never errors on a bad
+    /// limit and never fetches unboundedly.
+    pub async fn recent(&self, limit: i64) -> Result<Vec<BeliefPanelRow>, LedgerError> {
+        let limit = limit.clamp(1, 500);
+        let rows = sqlx::query!(
+            r#"SELECT belief_id, created_at, event_id, p, p_raw, status,
+                      brier, clv_bps, evidence, provenance
+               FROM beliefs ORDER BY belief_id DESC LIMIT $1"#,
+            limit
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| BeliefPanelRow {
+                belief_id: r.belief_id,
+                created_at: r.created_at,
+                event_id: r.event_id,
+                p: r.p,
+                p_raw: r.p_raw,
+                status: r.status,
+                brier: r.brier,
+                clv_bps: r.clv_bps,
+                evidence: r.evidence,
+                provenance: r.provenance,
+            })
+            .collect())
     }
 
     /// Resolve + score EXACTLY ONCE: refused unless the belief is still
@@ -1284,6 +1334,44 @@ impl CalibrationParamsRepo {
             effective_at: r.effective_at,
         }))
     }
+
+    /// R7b (ROTA cognition panel): every DISTINCT calibration scope at its
+    /// MAX version — one row per (model, strategy, category, kind), the
+    /// Postgres `DISTINCT ON` idiom over the version ordering. Empty table
+    /// => empty vec, never an error.
+    pub async fn scopes(&self) -> Result<Vec<CalibrationScopeRow>, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT DISTINCT ON (model_id, strategy, category, kind)
+                      model_id, strategy, category, kind, version, effective_at
+               FROM calibration_params
+               ORDER BY model_id, strategy, category, kind, version DESC"#
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| CalibrationScopeRow {
+                model_id: r.model_id,
+                strategy: r.strategy,
+                category: r.category,
+                kind: r.kind,
+                version: r.version,
+                effective_at: r.effective_at,
+            })
+            .collect())
+    }
+}
+
+/// One calibration scope at its highest version (T4.3 amendment R7b — the
+/// cognition panel's scope enumeration).
+#[derive(Debug, Clone)]
+pub struct CalibrationScopeRow {
+    pub model_id: String,
+    pub strategy: String,
+    pub category: String,
+    pub kind: String,
+    pub version: i32,
+    pub effective_at: String,
 }
 
 // ------------------------------------------------------------------------

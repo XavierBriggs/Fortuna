@@ -23,6 +23,39 @@ conservative option, and the spec section it interprets.
   append-mode redirection), Ctrl-C lands on tail directly.
 - **`status` db section is bounded at 5s** — see the GAPS T4.4 entry for
   the degradable-status posture this pins.
+- **`start` spawns per-component, daemon first then recorder, and only the
+  missing ones** (design §5 lists daemon-then-recorder; a recorder that
+  crashed overnight can be restarted under a still-running daemon without
+  touching it). All components already running => idempotent exit 0,
+  decided BEFORE the A2 pgrep check (a fully managed system is not a
+  collision).
+- **Component binaries resolve FORTUNA_BIN_DIR -> current_exe siblings ->
+  PATH:** the standard cargo target layout puts fortuna-live and
+  fortuna-recorder next to the fortuna binary; FORTUNA_BIN_DIR is the
+  operator pin (release vs debug) and the test seam (stub binaries).
+- **`--foreground` is exec, not supervise:** it replaces the CLI process
+  with `fortuna-live <config-path>` (no pidfile, no recorder, no detach) —
+  a debugging mode where the operator owns the terminal; exit codes
+  propagate unmodified.
+- **`pgrep -f fortuna-recorder` is the A2 collision mechanism** (named by
+  the amendment). pgrep FAILING TO RUN refuses the start (fail closed —
+  an unverifiable safety check is a failed safety check); pgrep exit 1
+  (no match) passes.
+- **A7 stopping markers are cleared when `start` claims a pidfile** — a
+  marker left by a previous stop must never make a freshly started daemon
+  read as "stopping since".
+- **`stop`'s decision matrix per component:** stale pidfile (dead pid /
+  name mismatch / garbage) => "already stopped", stale file removed,
+  NOTHING signaled (A3: a reused pid is never signaled — test-pinned);
+  empty mid-claim pidfile => warning + skip (a start is racing; stop never
+  steals a claim); running => marker, SIGTERM, bounded wait.
+- **stop polls liveness at 200ms cadence against a RealClock deadline**
+  (default --timeout-secs 60 per A7); the wait is wall time at the binary
+  edge, the sanctioned RealClock source — no SystemTime::now().
+- **stop exits 1 whenever ANY component produced a warning** (timeout,
+  missing A1 evidence, mid-claim skip) even though the other component
+  proceeded — the operator must read the output; exit 0 is reserved for
+  fully-confirmed shutdowns and true idempotent no-ops.
 
 ## Latency levers: concurrent legs + stream ingestion (operator-directed)
 
