@@ -271,7 +271,7 @@ Polymarket research+fixtures, spec v0.9 touch-up).
 
 ## Phase 4 — Live composition (post-acceptance; operator-directed)
 
-- [ ] T4.1 The composition daemon (`fortuna-live` binary in fortuna-runner or its own
+- [x] T4.1 The composition daemon (`fortuna-live` binary in fortuna-runner or its own
       crate): config load (fortuna.toml + env secrets, fail-closed on missing),
       Postgres-backed repos + AuditWriter (no audit, no trading), SimRunner-based
       tick loop on a real-time cadence (RealClock at the edges, SimClock semantics
@@ -357,6 +357,24 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       ANTHROPIC_API_KEY for live synthesis, + a release build). Daily
       reconciliation + weekly/monthly reviews are post-tick; the veto's
       AnthropicVetoMind (fortuna-cognition) is the remaining live-synthesis prereq.
+      TICKED 2026-06-12 (tail commits 64d45db..304f746): the composition daemon
+      is BUILT + battery-gated (full fortuna-live + fortuna-runner suites + DST
+      green) — boot-validated config + PgIntentJournal/PgAuditSink, journal-
+      generic SimRunner, clock-injected run loop (halt poll <=500ms + poll-failure
+      alert), SIGTERM/SIGINT graceful shutdown, GET-only metrics, dead-man
+      heartbeat, mech_structural + the opt-in [synthesis] arm (mind_from_env, the
+      "synth_events" ledger calibration, per-segment confirmed-edge refresh,
+      belief drain+persist) + the opt-in [mech_extremes] arm (reduce-only veto,
+      stub) + the RICH daily digest, kalshi-refuses-until-fixtures. The independent
+      VERIFIER gates this batch AT the tick (per GATE-FINDINGS). The Sim SOAK is
+      OPERATOR-STARTED — running the daemon continuously needs operator-provisioned
+      secrets (Slack bot token + deadman URL, both OUTWARD-FACING on the operator's
+      infra), the ANTHROPIC_API_KEY for the live synthesis mind (absent => the
+      inert StubMind), + a `cargo build --release -p fortuna-live`; I do NOT
+      autonomously start an outward-facing continuous daemon on un-gated code.
+      HONESTLY DEFERRED post-tick (ledgered, NOT part of the soak's mechanical
+      run): daily reconciliation re-run + weekly/monthly cognition reviews; live
+      synthesis also needs AnthropicVetoMind (fortuna-cognition, out of bounds).
 - [ ] T4.2 POST-FIXTURE tranche (blocked on the operator recording session):
       Kalshi WS dial (signed handshake, keep-alive, redial w/ resubscribe-on-gap),
       venue-generic recorded-stream replay into PaperVenue under both mech

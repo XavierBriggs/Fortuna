@@ -260,11 +260,13 @@ Build sub-slices (each its own iteration, TDD, battery-gated):
       calibration; arm trades a seeded edge); S5b mind_from_env DONE (synthesis
       side: AnthropicMind when keyed, else StubMind; main wires it from env);
       S6a belief drain+persist WIRED into drive() DONE; S6b RICH digest (terse ->
-      DigestInputs composition) DONE. NEXT (Track A's tail): TICK T4.1 — tick the
-      box + start the Sim soak (the daemon is built + gated; the soak runs
-      mechanically-only / with the inert stub mind absent a key). The daily
-      reconciliation re-run + weekly/monthly cognition reviews are POST-TICK
-      sub-slices. DEMO-CONFIG PREP (this commit): (1) the S5a config gaps are
+      DigestInputs composition) DONE. T4.1 BOX TICKED 2026-06-12 (tail commits
+      64d45db..304f746; the daemon is built + battery-gated; the verifier gates
+      the batch AT the tick per GATE-FINDINGS; the Sim soak is OPERATOR-started —
+      outward-facing secrets + the key + a release build — NOT autonomously
+      started). NEXT (post-tick Track A, while T4.2 stays operator-blocked on the
+      fixture session): the daily reconciliation re-run + weekly/monthly cognition
+      reviews (scheduled-loop sub-slices). DEMO-CONFIG PREP (this commit): (1) the S5a config gaps are
       CLOSED in config/fortuna.example.toml — synthesis_cents=200_000 envelope +
       [gates.per_strategy.synthesis] (so the operator's copy supports the
       synthesis arm); (2) FIXED an S5b bug — CognitionSection's field was `model`
