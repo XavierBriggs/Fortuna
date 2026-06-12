@@ -19,6 +19,9 @@ conservative option, and the spec section it interprets.
   `fortuna` re-arm output + the ROTA health panel should surface "re-arm pending
   daemon restart" so the operator knows to restart — ledgered in GAPS for track
   B / the orphaned-minor pool.
+- **Pinned (executable):** `tests/run_loop.rs::a_running_daemon_never_auto_clears_a_halt_on_rearm_only_a_restart_does`
+  asserts a halt survives a long Ok(None) "re-armed" poll tail (stays halted,
+  one halt audit, zero clear audits); mutation-proven non-vacuous.
 
 ## T4.4 — operator CLI lifecycle, slice 1 (track B)
 

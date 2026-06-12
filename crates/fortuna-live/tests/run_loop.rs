@@ -151,6 +151,86 @@ async fn polled_halt_applies_to_the_gates_and_audits(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn a_running_daemon_never_auto_clears_a_halt_on_rearm_only_a_restart_does(pool: PgPool) {
+    // R12 halt-rearm finding (2026-06-12), adjudicated option (a): I2's "no
+    // automatic resumption" is enforced by keeping the RUNNING daemon halted
+    // once it halts. An operator re-arm makes the durable halt fold show no
+    // active halt — i.e. the poller starts returning Ok(None) — but that does
+    // NOT clear the in-memory gate halt. Only a deliberate RESTART, whose boot
+    // fold reads the set->rearm sequence, resumes trading. The closest sibling
+    // (polled_halt_applies_to_the_gates_and_audits) proves the APPLY path and
+    // covers this only incidentally; this is the EXPLICIT regression pin for
+    // the option-(a) clear path the R12 drill surfaced. It guards against a
+    // future "helpful" refactor that auto-clears on Ok(None) (option (b),
+    // REJECTED). Mutation-proven non-vacuous: wiring any clear into run_loop's
+    // Ok(None) arm flips both `tick.halted` and the clear-audit count, RED.
+    let mut r = compose(&pool).await;
+    set_arb_books(&r); // absent the halt there IS arb to trade — the halt is what stops it
+    let mut cadence = SimCadence {
+        clock: r.clock.clone(),
+    };
+    // Halt at call 2; calls 3.. all return Ok(None) — the re-armed / folded-
+    // away state the running daemon must IGNORE (option a).
+    let mut poller = ScriptedPoller {
+        halt_at_call: Some(2),
+        ..ScriptedPoller::default()
+    };
+    let cfg = LoopConfig {
+        tick_interval_ms: 1000,
+        halt_poll_ms: 500,
+    };
+
+    // 12 wakes: one pre-halt Ok(None), the halt at call 2, then TEN Ok(None)
+    // "re-arm" polls. Were the daemon to auto-clear, ticks after call 2 would
+    // resume and the post-loop `tick.halted` below would be false.
+    let (_tx, mut stop) = tokio::sync::oneshot::channel::<()>();
+    let mut last_halt = None;
+    let stats = run_loop(
+        &mut r,
+        &mut cadence,
+        &mut poller,
+        &cfg,
+        Some(12),
+        &mut stop,
+        &mut last_halt,
+    )
+    .await
+    .unwrap();
+    assert_eq!(stats.halts_applied, 1, "applied exactly once: {stats:?}");
+
+    // After ten Ok(None) "re-armed" polls the gate halt STILL governs.
+    let tick = r.tick().await.unwrap();
+    assert!(
+        tick.halted,
+        "a running daemon stays halted across a re-arm; only a RESTART resumes (I2, option a)"
+    );
+
+    // The halt is audited exactly once (no re-audit across the Ok(None) tail)
+    // and the running daemon writes NO clear/rearm/unhalt audit at all — re-arm
+    // is restart-gated, never reflected by the live poll loop.
+    let halt_rows: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit WHERE kind = 'halt' AND payload->>'source' = 'halt_poll'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        halt_rows, 1,
+        "halt audited once; no re-audit across the Ok(None) tail"
+    );
+    let clear_rows: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit WHERE kind IN ('rearm', 'unhalt', 'halt_clear')",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        clear_rows, 0,
+        "the running daemon writes NO clear/rearm audit — re-arm is restart-gated"
+    );
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
 async fn a_standing_halt_audits_exactly_once_across_segment_boundaries(pool: PgPool) {
     // Gate finding 2026-06-11 (SECOND gate — the per-segment scope bug):
     // a standing halt must apply ONCE even though `drive` re-enters

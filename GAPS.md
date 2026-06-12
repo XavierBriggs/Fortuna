@@ -162,6 +162,16 @@ CROSS-TRACK follow-on (track B files, NOT track A's — released to the
 orphaned-minor pool): surface "re-arm pending daemon restart" in the `fortuna`
 re-arm output (fortuna-cli) + the ROTA health panel (fortuna-ops) so the
 operator knows to restart.
+REGRESSION PIN (2026-06-12): tests/run_loop.rs::
+a_running_daemon_never_auto_clears_a_halt_on_rearm_only_a_restart_does now
+asserts option (a) EXPLICITLY — a halt applied then ten Ok(None) "re-arm"
+polls leaves the daemon halted (tick.halted), with exactly one halt audit and
+ZERO clear/rearm/unhalt audit rows. Mutation-proven non-vacuous: wiring a
+gates.rearm into run_loop's Ok(None) arm flips it RED at the tick.halted
+assertion (probe added + reverted, never committed). This upgrades the prior
+INCIDENTAL coverage (polled_halt_applies_to_the_gates_and_audits, whose
+Ok(None) tail happened to cover it) into a named guard against a future
+"helpful auto-clear on Ok(None)" refactor — option (b), which I2 forbids.
 
 ## TRACK A — SYNTHESIS-IN-MAIN build plan (validated 2026-06-12, no code)
 
