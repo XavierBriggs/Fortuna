@@ -351,13 +351,16 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       isolated 2-conn, never the writer's) wired into the daemon's RotaState so
       the audit TAIL is LIVE; available:true path HTTP-tested. Also: rota-slices
       + audit-tail-fix gate findings ALL remediated (F1-F6 + #1-#4);
-      slice 6 (this commit) = gates.rejections_by_check (new SimRunner::
+      slice 6 (19954a6) = gates.rejections_by_check (new SimRunner::
       rejections_by_check() read accessor -> views_from; {check,count} summing
-      to total_rejections, the consistency invariant tested). Gates surface
-      complete bar recent_rejections (audit query).
-      REMAINING: cognition view (R7, pool-unblocked); money view (DESIGN-BLOCKED
-      — §5 account model has no faithful source, ledgered in GAPS); Phase-3
-      shell/assets; R12 browser pass.
+      to total_rejections, the consistency invariant tested);
+      slice 7 (this commit) = money view SIM-ONLY subset (R6; verifier-endorsed
+      unblock) — boards "account" block from inspect_totals; settled=cash,
+      committed=reserved, positions; floating/total NULL (mark loop not exposed).
+      The FIVE primary surfaces now carry real data.
+      REMAINING: cognition view (R7, pool-unblocked); the FULL §5 money model
+      (mark-loop floating + per-strategy attribution — operator/design call);
+      Phase-3 shell/assets; R12 browser pass.
 - [ ] T4.4 Operator CLI lifecycle (operator-directed 2026-06-11; design
       AUTHORITATIVE at docs/design/fortuna-cli.md INCLUDING its amendments
       section): `fortuna start/stop/status/logs/config-check` extending

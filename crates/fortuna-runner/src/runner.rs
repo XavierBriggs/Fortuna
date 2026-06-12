@@ -2403,8 +2403,16 @@ impl<J: IntentJournal + Send> SimRunner<J> {
             })
             .collect();
         let c = self.counters;
+        // SIM-ONLY account block (design R6): cash + reserved exposure from the
+        // venue's ground-truth totals. §5's floating/total need the mark loop
+        // (not yet exposed), so the dashboard reports those null — never faked.
+        let (cash, reserved, _, _) = self.venue.inspect_totals();
         serde_json::json!({
             "positions": positions,
+            "account": {
+                "cash_cents": cash.raw(),
+                "reserved_cents": reserved.raw(),
+            },
             "ops": {
                 "ticks": c.ticks,
                 "halt_active": self.gates.halts().global_halted().is_some(),

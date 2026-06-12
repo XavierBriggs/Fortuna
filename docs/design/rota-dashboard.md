@@ -509,6 +509,19 @@ complete bar recent_rejections (audit-pool query). REMAINING: cognition view
 (R7), money view (design-blocked), recent_rejections/recent_watchdog (audit
 queries), Phase-3 shell/assets, R12 browser pass.
 
+SLICE 7 BUILT (2026-06-11): money view — SIM-ONLY subset (R6; the r5-pool gate's
+verifier-endorsed unblock). boards_json gained an "account" block {cash_cents,
+reserved_cents} from SimVenue::inspect_totals; views_from money: basis="sim-only",
+settled_cents=cash, committed_cents=reserved (both real), positions reshaped to
+§5 yes_qty/no_qty. floating_cents + total_cents are NULL — §5's
+total=settled+floating needs the mark loop (not exposed; "the mark loop is the
+missing source", verifier), so they are honestly null and the "sim-only" basis
+label prevents misreading as the complete picture. This completes the FIVE
+primary surfaces with real data. REMAINING: cognition view (R7's two ledger
+queries), the full §5 money model (mark-loop floating + per-strategy attribution
+— operator/design call), recent_rejections/recent_watchdog (audit queries),
+Phase-3 shell/assets, R12 browser pass.
+
 - V-1 PASS: serve_dashboard + the three routes present (dashboard.rs ~52-68;
   `route("/")`, `/metrics`, `/api/boards`); POST-405 loop at
   tests/dashboard.rs:74-80 exactly as cited.

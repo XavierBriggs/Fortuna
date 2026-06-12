@@ -330,18 +330,18 @@ VERIFIED). New/carried Minors:
   the paired informational note: the audit_tail Err arm no longer returns
   available:true with raw sqlx text — it degrades to available:false + a neutral
   detail (no error-text leak; the cause is logged server-side).
-- MONEY VIEW — DESIGN-BLOCKED (validated, not guessed): §5 specifies account
-  fields settled_cents / committed_cents / floating_cents / total_cents (with
-  total = settled + floating per the example), populated "from inspect_totals".
-  But `SimVenue::inspect_totals()` returns `(cash, reserved, fill_count,
-  pending_count)` — a DST-invariant helper, NOT that account model; and
-  positions carry realized_pnl/fees per MARKET, not attributed per STRATEGY for
-  the strategies[] breakdown. So the §5 money account contract has NO faithful
-  source today. Building it would FABRICATE a financial surface (the gravest
-  degraded-never-faked violation). LEDGERED here for an operator/design call:
-  define the account model from real data (cash, reserved, realized via
-  positions, unrealized via marks) OR add per-strategy PnL attribution. Not
-  built; the money panel stays "unavailable" (honest) until reconciled.
+- MONEY VIEW — SIM-ONLY SUBSET BUILT (the r5-pool gate's verifier-endorsed
+  unblock: "ship the view with the SIM-ONLY subset per R6"). boards_json gained
+  an "account" block {cash_cents, reserved_cents} from SimVenue::inspect_totals;
+  views_from shapes the money view: basis="sim-only", settled_cents=cash,
+  committed_cents=reserved (both REAL), positions reshaped to §5 yes_qty/no_qty.
+  floating_cents + total_cents are NULL — the §5 identity total=settled+floating
+  needs the MARK LOOP, which is not exposed (verifier-confirmed: "the mark loop
+  is the missing source"); they are honestly null, never faked-zero, and the
+  "sim-only" basis label means an operator never reads this as the complete
+  picture. STILL OPEN (full §5 model, an operator/design call): floating from a
+  mark-loop accessor + per-strategy PnL attribution for strategies[] + a live
+  venue's settled/floating semantics (the account block is sim-only until then).
 
 ## SECURITY INCIDENT 2026-06-11 (gate finding F1, Critical) — keys were committed
 

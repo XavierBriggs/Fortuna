@@ -21,8 +21,9 @@
 //! DELIBERATELY ABSENT (each needs a capability this slice lacks; a faked
 //! value reads to an operator as "all clear", so we emit NOTHING rather than
 //! a zero we cannot stand behind):
-//!   - `money`: needs the NEW boards "account" key (settled/committed/
-//!     floating) — an un-added runner read-path field (R6).
+//!   - `money`: now the SIM-ONLY subset (R6) — settled=cash, committed=
+//!     reserved from the boards "account" block + positions; floating/total
+//!     stay NULL until the mark loop is exposed (their only source).
 //!   - `cognition`: needs `BeliefsRepo::recent` + calibration-scope
 //!     enumeration — two new ledger queries (R7).
 //!   - `gates.recent_rejections` / `settlement.recent_watchdog_events`: the
@@ -79,6 +80,29 @@ pub fn views_from<J: IntentJournal + Send>(runner: &SimRunner<J>, generated_at: 
         .map(|(check, count)| json!({ "check": check, "count": count }))
         .collect();
 
+    // SIM-ONLY money account (R6): settled = cash, committed = reserved (both
+    // real, from the boards "account" block); floating + total are NULL (the
+    // mark loop is their only source and is not exposed — never faked). The
+    // positions are reshaped from the boards' yes/no to §5's yes_qty/no_qty.
+    let account = &boards["account"];
+    let money_positions: Vec<Value> = boards["positions"]
+        .as_array()
+        .map(|ps| {
+            ps.iter()
+                .map(|p| {
+                    json!({
+                        "market": p["market"],
+                        "yes_qty": p["yes"],
+                        "no_qty": p["no"],
+                        "realized_pnl_cents": p["realized_pnl_cents"],
+                        "fees_cents": p["fees_cents"],
+                        "lifecycle": p["lifecycle"],
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     json!({
         "health": {
             "generated_at": generated_at,
@@ -103,6 +127,19 @@ pub fn views_from<J: IntentJournal + Send>(runner: &SimRunner<J>, generated_at: 
             "settlements_overdue": overdue,
             "settlement_voids_total": c.settlement_voids,
             "settlement_reversals_total": c.settlement_reversals,
+        },
+        "money": {
+            "generated_at": generated_at,
+            // SIM-ONLY: a live venue's settled/floating model is the full
+            // §5 contract; until the mark loop is exposed, total + floating
+            // are null and the basis is labelled so an operator never reads
+            // this as the complete picture.
+            "basis": "sim-only",
+            "settled_cents": account["cash_cents"].clone(),
+            "committed_cents": account["reserved_cents"].clone(),
+            "floating_cents": Value::Null,
+            "total_cents": Value::Null,
+            "positions": money_positions,
         },
         "gates": {
             "generated_at": generated_at,

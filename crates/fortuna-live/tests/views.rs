@@ -7,13 +7,13 @@
 //! latency quantiles, venue errors) and SETTLEMENT (limbo, voids, reversals)
 //! — plus the primary scalars for GATES and STREAMS, all from the runner's
 //! EXISTING `counters()` / `boards_json()` / halt accessors (zero runner
-//! changes). The audit-derived arrays (recent_rejections, recent_watchdog),
-//! the recorder filesystem scan, the rejections-by-check breakdown, and the
-//! whole MONEY + COGNITION views are LATER slices (they need the R5 pool, a
-//! runner read-path accessor, the filesystem, or two new ledger queries).
-//! Those are asserted ABSENT here so the contract never fakes a field it
-//! cannot yet source honestly. Written red-first against a `views_from` that
-//! did not exist.
+//! changes). LATER slices extended this file: the gates rejections-by-check
+//! breakdown (slice 6) and the SIM-ONLY money subset (slice 7) are now
+//! populated + tested below. COGNITION and the audit-derived arrays
+//! (recent_rejections, recent_watchdog) remain LATER slices (new ledger
+//! queries / the audit pool) and are asserted ABSENT so the contract never
+//! fakes a field it cannot yet source honestly. Each view was written
+//! red-first against a `views_from` that did not yet emit it.
 
 use fortuna_live::views::views_from;
 use fortuna_runner::{AuditSink, RunnerError, SimRunner};
@@ -144,9 +144,42 @@ async fn gates_and_streams_carry_scalars_arrays_and_other_views_deferred() {
     assert!(v["streams"]["venue_api_errors_total"].is_number());
     // The recorder filesystem scan is a later slice (reads data/perishable).
     assert!(v["streams"].get("recorder").is_none());
-    // MONEY needs the new boards "account" field; COGNITION needs two new
-    // ledger queries — whole-view later slices, never stubbed with fake
-    // zeros that would read as "all clear".
-    assert!(v.get("money").is_none(), "money is a later slice");
+    // COGNITION needs two new ledger queries — a later slice, never stubbed
+    // with fake zeros that would read as "all clear". (MONEY is now the
+    // SIM-ONLY subset — see money_view_is_the_sim_only_account_subset.)
     assert!(v.get("cognition").is_none(), "cognition is a later slice");
+}
+
+#[tokio::test]
+async fn money_view_is_the_sim_only_account_subset() {
+    // R6 + the r5-pool gate's verifier-endorsed unblock: ship the SIM-ONLY
+    // money subset rather than fake the §5 floating/total. settled = venue
+    // cash, committed = reserved exposure (both real); floating + total are
+    // NULL because the mark loop (their only source) is not exposed — honestly
+    // null, never a faked zero. Positions carry the per-market detail.
+    let r = ticked_runner(11, 3).await;
+    let m = &views_from(&r, GEN)["money"];
+    assert_eq!(
+        m["basis"], "sim-only",
+        "the account block is labeled SIM-ONLY: {m}"
+    );
+    assert!(m["settled_cents"].is_number(), "settled = venue cash: {m}");
+    assert!(
+        m["committed_cents"].is_number(),
+        "committed = reserved exposure: {m}"
+    );
+    assert!(
+        m["floating_cents"].is_null(),
+        "floating deferred — no mark loop, never faked: {m}"
+    );
+    assert!(
+        m["total_cents"].is_null(),
+        "total = settled + floating, undefined without floating: {m}"
+    );
+    let positions = m["positions"].as_array().expect("positions array");
+    for p in positions {
+        assert!(p["market"].is_string(), "{p}");
+        assert!(p.get("yes_qty").is_some(), "§5 names it yes_qty: {p}");
+        assert!(p["realized_pnl_cents"].is_number(), "{p}");
+    }
 }
