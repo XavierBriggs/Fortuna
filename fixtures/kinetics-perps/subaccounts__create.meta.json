@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "POST",
+  "note": "item 13 probe: subaccount create (empty JSON body) while not margin-enabled",
+  "path": "/trade-api/v2/portfolio/margin/subaccounts",
+  "recorded_at_epoch_ms": 1781231224231,
+  "request_body": {},
+  "status": 404
+}

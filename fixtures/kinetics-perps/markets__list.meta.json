@@ -1,0 +1,11 @@
+{
+  "auth": "unauthenticated",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "demo margin market catalog, unauthenticated (research says public)",
+  "path": "/trade-api/v2/margin/markets",
+  "recorded_at_epoch_ms": 1781231136039,
+  "request_body": null,
+  "status": 200
+}

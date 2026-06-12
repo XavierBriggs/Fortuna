@@ -1,0 +1,11 @@
+{
+  "auth": "unauthenticated",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "in-progress funding period estimate for the session market",
+  "path": "/trade-api/v2/margin/funding_rates/estimate?ticker=KXBTCPERP1",
+  "recorded_at_epoch_ms": 1781231139738,
+  "request_body": null,
+  "status": 200
+}

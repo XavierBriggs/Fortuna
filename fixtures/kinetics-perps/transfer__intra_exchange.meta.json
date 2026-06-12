@@ -1,0 +1,15 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "POST",
+  "note": "item 16: documented 'currently not available' — capture the 4xx body (amount is in CENTICENTS; 100 = 1 cent)",
+  "path": "/trade-api/v2/portfolio/intra_exchange_instance_transfer",
+  "recorded_at_epoch_ms": 1781231224640,
+  "request_body": {
+    "amount": 100,
+    "destination": "margined",
+    "source": "event_contract"
+  },
+  "status": 403
+}

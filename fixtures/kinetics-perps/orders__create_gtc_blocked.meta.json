@@ -1,0 +1,20 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "POST",
+  "note": "items 3-7 blocked-evidence probe: order create against a non-margin-enabled account — exact gate error body",
+  "path": "/trade-api/v2/margin/orders",
+  "recorded_at_epoch_ms": 1781231222559,
+  "request_body": {
+    "client_order_id": "6d0f33ed-1762-4562-8022-a3796d891dea",
+    "count": "1",
+    "post_only": false,
+    "price": "5.3829",
+    "self_trade_prevention_type": "taker_at_cross",
+    "side": "bid",
+    "ticker": "KXBTCPERP1",
+    "time_in_force": "good_till_canceled"
+  },
+  "status": 400
+}

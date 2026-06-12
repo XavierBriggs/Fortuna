@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "item 14: status-filter vocabulary probe (MarginOrder has no status field; an error body may enumerate accepted values)",
+  "path": "/trade-api/v2/margin/orders?status=open&limit=10",
+  "recorded_at_epoch_ms": 1781231226688,
+  "request_body": null,
+  "status": 200
+}

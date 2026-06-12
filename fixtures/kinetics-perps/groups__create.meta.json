@@ -1,0 +1,13 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "POST",
+  "note": "item 12 probe: group create while not margin-enabled",
+  "path": "/trade-api/v2/margin/order_groups/create",
+  "recorded_at_epoch_ms": 1781231223411,
+  "request_body": {
+    "contracts_limit": 10
+  },
+  "status": 400
+}

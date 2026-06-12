@@ -1,0 +1,11 @@
+{
+  "auth": "signed-skewed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "item 1: timestamp-skew probe (event API tolerated ±5s, rejected ±30s); skew rejections must present as 401 regardless of margin enablement",
+  "path": "/trade-api/v2/margin/balance",
+  "recorded_at_epoch_ms": 1781231133945,
+  "request_body": null,
+  "status": 403
+}

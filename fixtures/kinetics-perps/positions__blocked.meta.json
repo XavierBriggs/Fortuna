@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "items 9/10 blocked-evidence probe: positions read while not margin-enabled",
+  "path": "/trade-api/v2/margin/positions",
+  "recorded_at_epoch_ms": 1781231223002,
+  "request_body": null,
+  "status": 200
+}

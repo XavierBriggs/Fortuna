@@ -1,0 +1,186 @@
+{
+  "environment": "demo",
+  "margin_enabled": false,
+  "open_funding_position": null,
+  "recorded_at_epoch_ms": 1781231232184,
+  "results": [
+    {
+      "result": "HTTP 200",
+      "stage": "auth__margin_enabled_ok"
+    },
+    {
+      "result": "HTTP 403",
+      "stage": "auth__margin_balance"
+    },
+    {
+      "result": "MARGIN NOT ENABLED for this demo account (enabled=false, balance HTTP 403) — DEGRADED capture: auth probes, public surfaces, WS handshake, one blocked-evidence probe per private item family. Order lifecycle and the item-10 funding position are BLOCKED (operator action: enable margin/perps on the demo account).",
+      "stage": "session"
+    },
+    {
+      "result": "HTTP 403",
+      "stage": "auth__skew_minus5s"
+    },
+    {
+      "result": "HTTP 403",
+      "stage": "auth__skew_plus5s"
+    },
+    {
+      "result": "HTTP 401",
+      "stage": "auth__skew_minus30s"
+    },
+    {
+      "result": "HTTP 403",
+      "stage": "auth__skew_plus30s"
+    },
+    {
+      "result": "HTTP 401",
+      "stage": "auth__skew_minus5min"
+    },
+    {
+      "result": "HTTP 401",
+      "stage": "auth__skew_plus5min"
+    },
+    {
+      "result": "HTTP 401",
+      "stage": "auth__bad_signature"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "markets__list"
+    },
+    {
+      "result": "session market = KXBTCPERP1",
+      "stage": "markets__list"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "markets__single"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "exchange__status"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "risk__parameters"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "account__limits_perps"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "fees__tiers"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "risk__notional_limit"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "funding__rates_estimate"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "funding__rates_historical"
+    },
+    {
+      "result": "HTTP 400",
+      "stage": "funding__history_no_params"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "funding__history_baseline"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "orderbook__depth0"
+    },
+    {
+      "result": "bids n=671 first=Some(48368) last=Some(63329); asks n=418 first=Some(76635) last=Some(63416)",
+      "stage": "orderbook__depth0"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "orderbook__depth5"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "orderbook__agg_010"
+    },
+    {
+      "result": "best_bid=6.3329 best_ask=6.3416",
+      "stage": "session"
+    },
+    {
+      "result": "handshake OK signing /trade-api/ws/v2/margin (status 101)",
+      "stage": "ws__public"
+    },
+    {
+      "result": "ws 101=101 frames=1712 pings=0",
+      "stage": "ws__public_orderbook_ticker"
+    },
+    {
+      "result": "handshake OK signing /trade-api/ws/v2/margin (status 101)",
+      "stage": "ws__private"
+    },
+    {
+      "result": "HTTP 400",
+      "stage": "orders__create_gtc_blocked"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "positions__blocked"
+    },
+    {
+      "result": "HTTP 400",
+      "stage": "groups__create"
+    },
+    {
+      "result": "HTTP 400",
+      "stage": "subaccounts__create_nobody"
+    },
+    {
+      "result": "HTTP 404",
+      "stage": "subaccounts__create"
+    },
+    {
+      "result": "HTTP 403",
+      "stage": "transfer__intra_exchange"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "orders__list_all"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "orders__filter_resting"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "orders__filter_canceled"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "orders__filter_executed"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "orders__filter_open"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "orders__filter_garbage"
+    },
+    {
+      "result": "saw user_orders=false fill=false order_group_updates=false",
+      "stage": "ws__private_lifecycle"
+    },
+    {
+      "result": "ws 101=101 frames=3 pings=1",
+      "stage": "ws__private_lifecycle"
+    }
+  ],
+  "session_market": "KXBTCPERP1",
+  "tool": "examples/record_kinetics_fixtures.rs"
+}

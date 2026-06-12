@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "perps rate-limit tier + read/write buckets (enablement-gating evidence if 4xx)",
+  "path": "/trade-api/v2/account/limits/perps",
+  "recorded_at_epoch_ms": 1781231138156,
+  "request_body": null,
+  "status": 200
+}

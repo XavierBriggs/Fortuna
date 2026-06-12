@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "per-user notional caps (default value undocumented)",
+  "path": "/trade-api/v2/margin/notional_risk_limit",
+  "recorded_at_epoch_ms": 1781231139188,
+  "request_body": null,
+  "status": 200
+}

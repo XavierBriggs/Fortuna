@@ -1,0 +1,5 @@
+{"type":"subscribed","id":1,"msg":{"channel":"user_orders","sid":1}}
+
+{"type":"subscribed","id":1,"msg":{"channel":"fill","sid":2}}
+
+{"type":"subscribed","id":1,"msg":{"channel":"order_group_updates","sid":3}}
