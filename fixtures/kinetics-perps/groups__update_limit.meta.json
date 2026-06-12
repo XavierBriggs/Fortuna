@@ -4,8 +4,8 @@
   "host": "https://external-api.demo.kalshi.co",
   "method": "PUT",
   "note": "item 12: PUT limit update (would trigger if new limit already exceeded)",
-  "path": "/trade-api/v2/margin/order_groups/400e176b-0022-40bb-8248-f188e6d4f409/limit",
-  "recorded_at_epoch_ms": 1781237260575,
+  "path": "/trade-api/v2/margin/order_groups/3e027f77-5bd4-48db-b953-339d3f56b8c6/limit",
+  "recorded_at_epoch_ms": 1781268399619,
   "request_body": {
     "contracts_limit": 5
   },

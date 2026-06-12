@@ -4,8 +4,8 @@
   "host": "https://external-api.demo.kalshi.co",
   "method": "POST",
   "note": "item 3: amend price change — the queue-LOSING amendment",
-  "path": "/trade-api/v2/margin/orders/5208305e-eecb-4c59-ac5c-115a047de9d7/amend",
-  "recorded_at_epoch_ms": 1781237227104,
+  "path": "/trade-api/v2/margin/orders/27da8d61-16d6-41d5-81c1-296a98075495/amend",
+  "recorded_at_epoch_ms": 1781268365189,
   "request_body": {
     "count": "1",
     "price": "5.3779",

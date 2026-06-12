@@ -4,8 +4,8 @@
   "host": "https://external-api.demo.kalshi.co",
   "method": "DELETE",
   "note": "item 3: cleanup of ord_c",
-  "path": "/trade-api/v2/margin/orders/e4d339ff-8be1-45d6-b19b-eef5c8cb5a74",
-  "recorded_at_epoch_ms": 1781237239783,
+  "path": "/trade-api/v2/margin/orders/4c6fb6b9-b20c-4eec-b7dc-3ae3775e829a",
+  "recorded_at_epoch_ms": 1781268378115,
   "request_body": null,
   "status": 200
 }

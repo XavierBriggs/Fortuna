@@ -5,9 +5,9 @@
   "method": "POST",
   "note": "item 4: exact resubmission — expect 409; capture the code string",
   "path": "/trade-api/v2/margin/orders",
-  "recorded_at_epoch_ms": 1781237214024,
+  "recorded_at_epoch_ms": 1781268351888,
   "request_body": {
-    "client_order_id": "99845c0f-725c-4a4a-8955-a95a30e58072",
+    "client_order_id": "259c46e4-5196-4b42-b822-5f812b9067b9",
     "count": "1",
     "post_only": false,
     "price": "5.3829",

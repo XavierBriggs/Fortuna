@@ -5,7 +5,7 @@
   "method": "POST",
   "note": "item 13: body-less POST (OpenAPI declares no requestBody) — first run showed the API requires a JSON content type anyway (flat 400)",
   "path": "/trade-api/v2/portfolio/margin/subaccounts",
-  "recorded_at_epoch_ms": 1781237266647,
+  "recorded_at_epoch_ms": 1781268405678,
   "request_body": null,
   "status": 400
 }

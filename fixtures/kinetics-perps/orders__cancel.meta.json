@@ -4,8 +4,8 @@
   "host": "https://external-api.demo.kalshi.co",
   "method": "DELETE",
   "note": "item 3: happy-path cancel (reduced_by)",
-  "path": "/trade-api/v2/margin/orders/c445aeac-f95b-4c96-8086-faacebfd300d",
-  "recorded_at_epoch_ms": 1781237215846,
+  "path": "/trade-api/v2/margin/orders/f6384bf5-23d0-475d-9ea2-19914feb73ed",
+  "recorded_at_epoch_ms": 1781268353766,
   "request_body": null,
   "status": 200
 }

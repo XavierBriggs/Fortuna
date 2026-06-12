@@ -5,7 +5,7 @@
   "method": "GET",
   "note": "item 8: full-depth book — settles the §11.1 sort-order conflict",
   "path": "/trade-api/v2/margin/markets/KXBTCPERP1/orderbook?depth=0",
-  "recorded_at_epoch_ms": 1781237148527,
+  "recorded_at_epoch_ms": 1781268269273,
   "request_body": null,
   "status": 200
 }

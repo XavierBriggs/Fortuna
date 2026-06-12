@@ -5,9 +5,9 @@
   "method": "POST",
   "note": "item 10 SETUP: IOC buy 1 contract, crossing — position LEFT OPEN deliberately for the 04/12/20 UTC funding capture (later session). Also item 3: average_fill_price/average_fee_paid presence on fills.",
   "path": "/trade-api/v2/margin/orders",
-  "recorded_at_epoch_ms": 1781237242997,
+  "recorded_at_epoch_ms": 1781268381372,
   "request_body": {
-    "client_order_id": "76f7796b-ab18-4de1-adba-58c86400b2dd",
+    "client_order_id": "bef4e2b3-cd3f-487c-a242-70c4209d96ab",
     "count": "1",
     "price": "6.3616",
     "self_trade_prevention_type": "taker_at_cross",

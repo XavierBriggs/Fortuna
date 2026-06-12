@@ -70,7 +70,22 @@ crash-tell) — implement or ledger. F-2: A2 spawn-cwd pinning (cwd-relative
 out-dir edge). Plus: one manual §13 runbook execution before
 managed-lifecycle adoption (operator).
 
-## TRACK-C FINAL GATE: BLOCK — first true red DST seed (track-c-final-gate-2026-06-12.md)
+## TRACK-C RE-GATE: ACCEPT-WITH-GAPS (track-c-regate-2026-06-12.md) — BLOCK CLEARED
+
+Bidirectional proof: pre-fix harness reproduced the exact red seed at the
+gate master (exit 101); post-fix green byte-identically; full battery
+940/0/0 + run-dst.sh 10000 exit 0; protected crate untouched since the
+parked waive. THE PERPS MERGE IS NOW READY AND WAITS ONLY ON THE TWO
+OPERATOR SIGNATURES (waive batch 5 + F1 disposition).
+
+TRACK-C LEDGER ITEMS (3 Minor, ride with B7): (1) document the corpus-
+placement deviation (in-harness REGRESSION_SEEDS instead of dst-corpus/ —
+functionally superior, unledgered); (2) tighten the designed-arm pin to
+match the curve-exceeded reason string specifically; (3) the latent
+same-class false-red at the invariant-3 instant-liquidation call site
+(fail-noisy not fail-open; unhit in 20k scenarios) — fix or ledger.
+
+## [historical] TRACK-C FINAL GATE: BLOCK — first true red DST seed (track-c-final-gate-2026-06-12.md)
 
 Seed 11819682492387934495 (master 1781262032255, PERP_DST_SCENARIOS=10000):
 wild-regime mark drift pushes notional past the harness's last risk-curve

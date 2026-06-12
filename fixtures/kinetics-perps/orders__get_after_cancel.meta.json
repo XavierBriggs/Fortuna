@@ -4,8 +4,8 @@
   "host": "https://external-api.demo.kalshi.co",
   "method": "GET",
   "note": "item 3: read surface after cancel (last_update_reason transition; event API had a stale-read race here — compare timestamps)",
-  "path": "/trade-api/v2/margin/orders/c445aeac-f95b-4c96-8086-faacebfd300d",
-  "recorded_at_epoch_ms": 1781237218055,
+  "path": "/trade-api/v2/margin/orders/f6384bf5-23d0-475d-9ea2-19914feb73ed",
+  "recorded_at_epoch_ms": 1781268355988,
   "request_body": null,
-  "status": 200
+  "status": 404
 }

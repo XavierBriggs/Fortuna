@@ -5,11 +5,11 @@
   "method": "POST",
   "note": "item 13 cleanup: return the cent to the primary subaccount",
   "path": "/trade-api/v2/portfolio/margin/subaccounts/transfer",
-  "recorded_at_epoch_ms": 1781237268367,
+  "recorded_at_epoch_ms": 1781268407403,
   "request_body": {
     "amount_cents": 1,
-    "client_transfer_id": "f87b8b8d-4515-459d-8d0d-4c41a688e16f",
-    "from_subaccount": 6,
+    "client_transfer_id": "a023e290-7ada-40d0-817a-189a24e944e2",
+    "from_subaccount": 7,
     "to_subaccount": 0
   },
   "status": 200

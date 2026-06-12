@@ -5,7 +5,7 @@
   "method": "GET",
   "note": "recent funding-rate history for the session market",
   "path": "/trade-api/v2/margin/funding_rates/historical?ticker=KXBTCPERP1&limit=5",
-  "recorded_at_epoch_ms": 1781237146298,
+  "recorded_at_epoch_ms": 1781268267974,
   "request_body": null,
   "status": 200
 }

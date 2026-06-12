@@ -5,9 +5,9 @@
   "method": "POST",
   "note": "item 5: reduce_only + GTC — spec says rejected unless IOC/FOK; exact body",
   "path": "/trade-api/v2/margin/orders",
-  "recorded_at_epoch_ms": 1781237247869,
+  "recorded_at_epoch_ms": 1781268386921,
   "request_body": {
-    "client_order_id": "61f14161-f3df-4a20-88f5-c41645f0b480",
+    "client_order_id": "1adfd9be-32ad-4f55-914f-f9c6db600fd0",
     "count": "1",
     "price": "6.3816",
     "reduce_only": true,

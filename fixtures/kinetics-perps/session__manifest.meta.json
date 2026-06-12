@@ -2,14 +2,14 @@
   "environment": "demo",
   "margin_enabled": true,
   "open_funding_position": {
-    "average_fee_paid": "",
-    "average_fill_price": "",
-    "contracts": "0.00",
+    "average_fee_paid": "0.0000",
+    "average_fill_price": "6.3556",
+    "contracts": "1.00",
     "purpose": "research §12 item 10 — hold across a 04/12/20 UTC funding time; capture GET /margin/funding_history in a later session; DO NOT CLOSE",
     "side": "long",
     "ticker": "KXBTCPERP1"
   },
-  "recorded_at_epoch_ms": 1781237278622,
+  "recorded_at_epoch_ms": 1781268419063,
   "results": [
     {
       "result": "HTTP 200",
@@ -120,7 +120,7 @@
       "stage": "ws__public"
     },
     {
-      "result": "ws 101=101 frames=5000 pings=0",
+      "result": "ws 101=101 frames=245 pings=0",
       "stage": "ws__public_orderbook_ticker"
     },
     {
@@ -136,7 +136,7 @@
       "stage": "orders__duplicate_client_order_id"
     },
     {
-      "result": "HTTP 200",
+      "result": "HTTP 404",
       "stage": "orders__get_after_create"
     },
     {
@@ -144,7 +144,7 @@
       "stage": "orders__cancel"
     },
     {
-      "result": "HTTP 200",
+      "result": "HTTP 404",
       "stage": "orders__get_after_cancel"
     },
     {
@@ -164,7 +164,7 @@
       "stage": "orders__amend_price"
     },
     {
-      "result": "HTTP 200",
+      "result": "HTTP 404",
       "stage": "orders__get_after_amend"
     },
     {
@@ -180,7 +180,7 @@
       "stage": "orders__decrease_reduce_by"
     },
     {
-      "result": "HTTP 200",
+      "result": "HTTP 404",
       "stage": "orders__get_after_decrease"
     },
     {
@@ -192,7 +192,7 @@
       "stage": "orders__funding_position_ioc"
     },
     {
-      "result": "OPEN FUNDING POSITION: KXBTCPERP1 long fill_count=0.00 avg_price= avg_fee= — DO NOT CLOSE",
+      "result": "OPEN FUNDING POSITION: KXBTCPERP1 long fill_count=1.00 avg_price=6.3556 avg_fee=0.0000 — DO NOT CLOSE",
       "stage": "orders__funding_position_ioc"
     },
     {
@@ -236,7 +236,7 @@
       "stage": "groups__list"
     },
     {
-      "result": "HTTP 200",
+      "result": "HTTP 404",
       "stage": "groups__get"
     },
     {
@@ -252,7 +252,7 @@
       "stage": "groups__trigger"
     },
     {
-      "result": "HTTP 200",
+      "result": "HTTP 404",
       "stage": "orders__get_after_group_trigger"
     },
     {
@@ -260,7 +260,7 @@
       "stage": "groups__reset"
     },
     {
-      "result": "HTTP 200",
+      "result": "HTTP 404",
       "stage": "groups__get_after_reset"
     },
     {
@@ -288,7 +288,7 @@
       "stage": "subaccounts__transfer_back"
     },
     {
-      "result": "HTTP 200",
+      "result": "HTTP 503",
       "stage": "transfer__intra_exchange"
     },
     {
@@ -320,6 +320,10 @@
       "stage": "cleanup__leftover_0"
     },
     {
+      "result": "HTTP 404",
+      "stage": "cleanup__leftover_1"
+    },
+    {
       "result": "HTTP 200",
       "stage": "orders__final_resting"
     },
@@ -328,11 +332,11 @@
       "stage": "positions__final"
     },
     {
-      "result": "saw user_orders=false fill=false order_group_updates=true",
+      "result": "saw user_orders=false fill=true order_group_updates=true",
       "stage": "ws__private_lifecycle"
     },
     {
-      "result": "ws 101=101 frames=20 pings=2",
+      "result": "ws 101=101 frames=21 pings=2",
       "stage": "ws__private_lifecycle"
     }
   ],

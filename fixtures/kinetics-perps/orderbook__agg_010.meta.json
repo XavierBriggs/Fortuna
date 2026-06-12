@@ -5,7 +5,7 @@
   "method": "GET",
   "note": "item 8: aggregation_tick_size=0.10 bucketing",
   "path": "/trade-api/v2/margin/markets/KXBTCPERP1/orderbook?depth=5&aggregation_tick_size=0.10",
-  "recorded_at_epoch_ms": 1781237149265,
+  "recorded_at_epoch_ms": 1781268270014,
   "request_body": null,
   "status": 200
 }

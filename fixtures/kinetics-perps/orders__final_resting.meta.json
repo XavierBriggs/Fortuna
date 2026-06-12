@@ -5,7 +5,7 @@
   "method": "GET",
   "note": "cleanup verification: expect ZERO resting orders at session end",
   "path": "/trade-api/v2/margin/orders?status=resting&limit=100",
-  "recorded_at_epoch_ms": 1781237273146,
+  "recorded_at_epoch_ms": 1781268413584,
   "request_body": null,
   "status": 200
 }

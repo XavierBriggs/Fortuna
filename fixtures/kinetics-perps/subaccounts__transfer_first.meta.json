@@ -5,12 +5,12 @@
   "method": "POST",
   "note": "item 13: 1-cent transfer primary -> subaccount",
   "path": "/trade-api/v2/portfolio/margin/subaccounts/transfer",
-  "recorded_at_epoch_ms": 1781237267465,
+  "recorded_at_epoch_ms": 1781268406498,
   "request_body": {
     "amount_cents": 1,
-    "client_transfer_id": "c25a36af-2eb3-4cc1-a971-f98055bd7c6b",
+    "client_transfer_id": "fe7f99a3-873e-4105-8f2b-3986816252d7",
     "from_subaccount": 0,
-    "to_subaccount": 6
+    "to_subaccount": 7
   },
   "status": 200
 }

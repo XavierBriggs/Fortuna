@@ -5,9 +5,9 @@
   "method": "POST",
   "note": "item 7: 5-decimal price (off the 0.0001 tick grid) — exact error body",
   "path": "/trade-api/v2/margin/orders",
-  "recorded_at_epoch_ms": 1781237253907,
+  "recorded_at_epoch_ms": 1781268392955,
   "request_body": {
-    "client_order_id": "f880a635-44ee-4307-ae99-1218af2513c7",
+    "client_order_id": "5d24b65b-3889-4fdb-93c8-666c965e600e",
     "count": "1",
     "price": "5.38295",
     "self_trade_prevention_type": "taker_at_cross",

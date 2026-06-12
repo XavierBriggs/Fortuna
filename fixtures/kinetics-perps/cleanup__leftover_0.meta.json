@@ -4,8 +4,8 @@
   "host": "https://external-api.demo.kalshi.co",
   "method": "DELETE",
   "note": "end-of-session cancel of any order still tracked live (terminal-state cancels are themselves useful fixtures)",
-  "path": "/trade-api/v2/margin/orders/82c52513-39ed-4008-9aa0-73546b956f7a",
-  "recorded_at_epoch_ms": 1781237272723,
+  "path": "/trade-api/v2/margin/orders/01740d1e-b68b-416f-bbf0-244547fb5ddb",
+  "recorded_at_epoch_ms": 1781268411763,
   "request_body": null,
   "status": 404
 }

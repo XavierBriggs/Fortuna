@@ -5,7 +5,7 @@
   "method": "GET",
   "note": "item 9: 50-token balance variant with available-balance computation",
   "path": "/trade-api/v2/margin/balance?compute_available_balance=true",
-  "recorded_at_epoch_ms": 1781237246027,
+  "recorded_at_epoch_ms": 1781268384595,
   "request_body": null,
   "status": 200
 }
