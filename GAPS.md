@@ -52,8 +52,23 @@ REMAINING gate findings (NOT this commit; queued):
   (GAPS:148-163); behavior itself I2-compliant (gate C4 PASS). Should land
   before the soak's first halt drill. NOTE: 7cc510f (post-gate, unseen by this
   verdict) added the explicit option-(a) regression pin.
-- [Minor m1] R4 categories-allowlist filter absent + stale "deferred to S3b"
-  pointer — implement or re-ledger as a current open item.
+- [Minor m1] RESOLVED via re-ledger (deliberate deferral, not implemented).
+  Decision-doc req 4 lists three [synthesis] filters: categories allowlist,
+  venue, max-edge count. Venue + max_edges (deterministic edge-id truncation)
+  ARE built + tested (compose::synthesis_edges); the CATEGORIES ALLOWLIST is
+  NOT. `SynthesisSection.category` is the CALIBRATION-scope selector (keys
+  calibration_for_scope), a DIFFERENT concern — never an edge-category filter.
+  The old "(category allowlist deferred to S3b)" pointer (corrected inline at
+  the S3a entry below) was STALE: S3b closed without it. DISPOSITION:
+  deferred-by-choice as an OPTIONAL narrows-only filter — the verifier confirms
+  its absence is NOT fail-open, and it is redundant with the existing narrowing
+  (venue filter + max_edges + the confirmed-only gate + the operator deciding
+  which edges get confirmed). NOT soak-critical. IF later wanted
+  (events-category-join rationale): add `categories: Option<Vec<String>>` to
+  SynthesisSection and, in synthesis_edges, retain only edges whose event
+  category (edge.event_id -> events.category, a non-overlapping EdgesRepo join
+  like confirmed_edges) is in the allowlist; deterministic + tested. Deviation
+  recorded in docs/design/synthesis-edge-source-decision.md req 4.
 - [Minor m2] CLOSED: the R5/R2 refresh-failure INTEGRATION test is now committed
   — daemon_smoke.rs::refresh_failure_keeps_last_known_edges_alerts_and_survives:
   a failing per-segment edge refresh KEEPS last-known + ALERTS (audit row) + the
@@ -344,7 +359,10 @@ Build sub-slices (each its own iteration, TDD, battery-gated):
       (match mapping_type snake_case; tier=Confirmed), Err on a corrupt
       mapping_type (ComposeError::BadEdge) so S4's refresh keeps last-known.
       SynthesisSection = {venue, max_edges} (category allowlist deferred to S3b
-      — needs an events-category join). TDD red OBSERVED (stub Ok(vec![]) ->
+      — needs an events-category join). [CORRECTION 2026-06-12: "deferred to S3b"
+      went STALE — S3b closed WITHOUT the allowlist. Now a deliberate optional-
+      filter deferral; see the [Minor m1] disposition near the top.] TDD red
+      OBSERVED (stub Ok(vec![]) ->
       len 0 != 1); sqlx::test seeds confirmed kalshi + polymarket + an
       unconfirmed edge and asserts venue/max_edges filtering + the mapped fields
       (NON-VACUOUS). DISK NOTE: a warm fortuna-live battery is ~1-2GB (measured),

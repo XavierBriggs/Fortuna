@@ -31,6 +31,14 @@ Binding requirements for the implementation (T4.1 synthesis-in-main):
    empty edge set is a VALID state, not an error.
 4. Config surface: [synthesis] filters only (categories allowlist, venue,
    max_edges cap with deterministic truncation order by edge id).
+   [BUILT 2026-06-12 (T4.1 gate finding m1): venue + max_edges (deterministic
+   edge-id truncation) are implemented + tested in compose::synthesis_edges.
+   The CATEGORIES ALLOWLIST is DEFERRED-BY-CHOICE, not built — a narrows-only
+   filter whose absence is NOT fail-open (verifier-confirmed), redundant with
+   venue + max_edges + the confirmed-only gate + operator-controlled edge
+   confirmation. NOTE: `SynthesisSection.category` is the calibration-SCOPE
+   selector, a different concern — never this allowlist. Disposition + the
+   events-category-join how-to (if later wanted) are in GAPS [Minor m1].]
 5. Tests: composition with seeded confirmed edges trades them; unconfirmed/
    superseded edges excluded; refresh failure keeps last-known + alerts;
    empty-set boots clean and trades nothing. Populated-path rule applies.
