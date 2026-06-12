@@ -27,6 +27,7 @@
 
 mod accounts;
 mod drawdown;
+mod margin;
 mod marks;
 mod positions;
 mod reservations;
@@ -35,6 +36,7 @@ mod sizing;
 
 pub use accounts::{build_account_view, AccountView, PositionValuation};
 pub use drawdown::{DrawdownMonitor, DrawdownVerdict};
+pub use margin::{equity_with_margin, HaltEquity};
 pub use marks::{mark_lots, Mark, MarkPolicy};
 pub use positions::{Lot, Position, PositionBook, PositionLifecycle};
 pub use reservations::ReservationLedger;
