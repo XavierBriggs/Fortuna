@@ -39,10 +39,11 @@
 //! mind is INJECTED (S5a) and bound from env (S5b): `mind_from_env` builds the
 //! Claude-backed AnthropicMind when ANTHROPIC_API_KEY is present, else the
 //! StubMind. Calibration is bound from the "synth_events" ledger scope when
-//! [synthesis].category is set (S5a). NOTE: synthesis still trades nothing
-//! until the operator config adds a `synthesis_cents` envelope +
-//! [gates.per_strategy.synthesis] (the S5a config gap) — do NOT expect
-//! synthesis activity in the soak until then.
+//! [synthesis].category is set (S5a). The S5a config gap is CLOSED (304f746):
+//! config/fortuna.example.toml now carries the `synthesis_cents` envelope +
+//! [gates.per_strategy.synthesis]. Synthesis trades in the soak when the arm
+//! is composed (opt-in [synthesis] section) AND a real mind is bound
+//! (ANTHROPIC_API_KEY present; the default StubMind proposes nothing).
 //!
 //! HONESTLY NOT HERE YET (ledgered in GAPS; claims must match code): the
 //! mech_extremes VETO mind — AnthropicVetoMind does NOT exist (fortuna-cognition,

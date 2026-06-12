@@ -18,12 +18,56 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## T4.1 completion gate (t41-completion-gate-2026-06-12.md): BLOCK driver M1 FIXED + m3 closed
+
+The independent T4.1 completion gate returned BLOCK (base 8467d0f, head 17245de).
+The composition itself graded mechanically sound (all 3 gate mutations held; DST
+10000 all stages green; every targeted suite green). The BLOCK had ONE
+mechanical driver, now fixed:
+- [Major M1, BLOCK driver] FIXED: 304f746 added synthesis_cents +
+  [gates.per_strategy.synthesis] to config/fortuna.example.toml but did NOT
+  update the example-config pin (fortuna-ops tests/config.rs:84), so
+  `cargo test --workspace` exited 101. Fix: synced the pinned envelopes BTreeMap
+  to include ("synthesis", 200_000) — a pin TRACKING the deliberate config
+  addition, NOT a weakening (verifier-endorsed framing). Proven by the FULL
+  `cargo test --workspace` (WS_EXIT=0), not a -p subset.
+- [Minor m3] FIXED: stale operator guidance in daemon.rs + main.rs ("synthesis
+  trades nothing until the operator config adds a synthesis_cents envelope…")
+  was false since 304f746 closed that gap; corrected to state the gap is closed
+  and synthesis trades when a real mind is keyed + the [synthesis] arm composed.
+LESSON (root cause, verifier D3): per-crate scoped batteries (304f746 ran
+`-p fortuna-live` only) MISS cross-crate pins — the example-config pin lives in
+fortuna-ops. RULE: any change to config/fortuna.example.toml (or shared config
+types) MUST run the FULL `cargo test --workspace` as the commit gate, never a
+-p subset. The DoD/loop-doc already require --workspace; M1 is why.
+RE-GATE BATTERY (this commit, full + real exit codes): fmt --check 0; clippy
+--workspace --all-targets -D warnings 0; cargo test --workspace 0; run-dst.sh
+10000 0 (corpus replay + 10000 seeds; synthesis/settlement/daemon_smoke green).
+REMAINING gate findings (NOT this commit; queued):
+- [Major M2] daily reconciliation + weekly/monthly reviews unbuilt (ticked box,
+  named contract items deferred). Operator waive-or-subtask decision; the
+  Track-A wiring is scoped below ("NEXT ITEM"). Verifier recommends explicit
+  BUILD_PLAN sub-checkboxes so the items cannot evaporate post-tick.
+- [Major M3] rearm docs 1/3 — ASSUMPTIONS done; CLI + ROTA notices are track-B
+  (GAPS:148-163); behavior itself I2-compliant (gate C4 PASS). Should land
+  before the soak's first halt drill. NOTE: 7cc510f (post-gate, unseen by this
+  verdict) added the explicit option-(a) regression pin.
+- [Minor m1] R4 categories-allowlist filter absent + stale "deferred to S3b"
+  pointer — implement or re-ledger as a current open item.
+- [Minor m2] R5 refresh-failure INTEGRATION test not committed (only the latch
+  unit test); shape preserved at /tmp/t41-gate-scratch-mutations.rs.preserved
+  (the I5 trigger refuses DELETE — use a superseding insert).
+
 ## OPERATOR-INFRA — disk hit ENOSPC mid-session (HARD-BLOCKS the build battery)
 
 2026-06-12 (overnight): the machine disk (/System/Volumes/Data, 926Gi; ~10Gi
 free at session start) reached 100% (ENOSPC) during the post-commit
-investigation after 7cc510f — the clippy --workspace --all-targets + run-dst.sh
-builds consumed the last headroom. At ENOSPC the harness cannot open a
+investigation after 7cc510f. ATTRIBUTION CORRECTED per the T4.1 gate verdict's
+[Info] note: the dominant cause was the VERIFIER session creating a SECOND
+scratch CARGO_TARGET_DIR (/tmp/fortuna-gate-target) against the disk-hygiene-v2
+single-target rule (it freed ~30GB mid-session); my clippy --all-targets +
+run-dst.sh builds on the shared crates target were a contributing, not sole,
+factor. At ENOSPC the harness cannot open a
 command's output file, so NO bash command (build/test/commit/even `rm`) can
 launch: the loop's DoD battery is hard-blocked, and no code commit can be
 gate-clean until the disk has stable headroom for a cold workspace build.

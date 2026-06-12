@@ -375,6 +375,14 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       HONESTLY DEFERRED post-tick (ledgered, NOT part of the soak's mechanical
       run): daily reconciliation re-run + weekly/monthly cognition reviews; live
       synthesis also needs AnthropicVetoMind (fortuna-cognition, out of bounds).
+      COMPLETION GATE 2026-06-12 (docs/reviews/t41-completion-gate-2026-06-12.md):
+      BLOCK with ONE mechanical driver M1 (example-config pin out of sync after
+      304f746 added synthesis_cents). FIXED + FULL re-gate battery green
+      (fmt/clippy --workspace --all-targets/cargo test --workspace/run-dst.sh
+      10000 all exit 0); m3 stale operator-guidance comments also corrected. The
+      gate's M2 (daily reconciliation + reviews unbuilt) awaits the operator's
+      waive-or-subtask call; M3 (rearm CLI/ROTA notices) is track-B. Details in
+      the GAPS "T4.1 completion gate" entry.
 - [ ] T4.2 POST-FIXTURE tranche (blocked on the operator recording session):
       Kalshi WS dial (signed handshake, keep-alive, redial w/ resubscribe-on-gap),
       venue-generic recorded-stream replay into PaperVenue under both mech

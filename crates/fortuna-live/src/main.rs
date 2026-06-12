@@ -73,8 +73,10 @@ async fn main() -> Result<()> {
     // the inert StubMind. The key reaches ONLY the transport (read from env by
     // from_env), never config or logs. The mind's cost-budget day boundary runs
     // on RealClock — the real-time daemon's SimClock tracks wall time, so they
-    // align. NOTE: synthesis still trades nothing until the operator config adds
-    // a `synthesis_cents` envelope + `[gates.per_strategy.synthesis]` (S5a gap).
+    // align. The S5a config gap is CLOSED (304f746): the example config carries
+    // the `synthesis_cents` envelope + `[gates.per_strategy.synthesis]`, so a
+    // keyed mind + the opt-in [synthesis] section trades; the default StubMind
+    // (no key) proposes nothing.
     let synthesis_transport = match validated.anthropic_api_key.as_ref() {
         Some(_) => Some(
             ReqwestMindTransport::from_env(std::time::Duration::from_secs(SYNTH_MIND_TIMEOUT_SECS))

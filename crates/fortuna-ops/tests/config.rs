@@ -75,9 +75,13 @@ fn example_config_file_parses_and_validates() {
 
     // [envelopes] keys are stored with the `_cents` suffix stripped so they
     // align with [gates.per_strategy] strategy names; values stay cents.
+    // `synthesis` is the opt-in S5b arm's capital, added to the example with
+    // its [gates.per_strategy.synthesis] gate (304f746); this pin TRACKS that
+    // deliberate config addition (kept in lockstep, not loosened).
     let expected: BTreeMap<String, i64> = [
         ("mech_extremes".to_string(), 200_000),
         ("mech_structural".to_string(), 300_000),
+        ("synthesis".to_string(), 200_000),
     ]
     .into_iter()
     .collect();
