@@ -5,9 +5,9 @@
   "method": "POST",
   "note": "item 3: GTC limit, post_only=false, 1 contract, 15% below touch",
   "path": "/trade-api/v2/margin/orders",
-  "recorded_at_epoch_ms": 1781232391265,
+  "recorded_at_epoch_ms": 1781237210745,
   "request_body": {
-    "client_order_id": "69c8d591-b06f-44bd-87f9-ac87b3778f3d",
+    "client_order_id": "99845c0f-725c-4a4a-8955-a95a30e58072",
     "count": "1",
     "post_only": false,
     "price": "5.3829",

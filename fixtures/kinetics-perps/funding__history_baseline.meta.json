@@ -4,8 +4,8 @@
   "host": "https://external-api.demo.kalshi.co",
   "method": "GET",
   "note": "item 10 baseline: own funding payments BEFORE holding through a funding time; start_date AND end_date are both REQUIRED (undocumented); ISO dates accepted",
-  "path": "/trade-api/v2/margin/funding_history?start_date=2026-06-01&end_date=2026-06-11",
-  "recorded_at_epoch_ms": 1781232311606,
+  "path": "/trade-api/v2/margin/funding_history?start_date=2026-06-05&end_date=2026-06-13",
+  "recorded_at_epoch_ms": 1781237148117,
   "request_body": null,
   "status": 200
 }

@@ -783,7 +783,35 @@ async fn main() -> Result<()> {
         ),
         (
             "funding__history_baseline",
-            format!("{API_ROOT}/margin/funding_history?start_date=2026-06-01&end_date=2026-06-11"),
+            {
+                // Dynamic window: funding posts at 04/12/20 UTC; a hardcoded
+                // end_date went stale the moment the UTC date rolled (caught
+                // when the 2026-06-12T04:00Z payment fell outside the window).
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("epoch")
+                    .as_secs() as i64;
+                let day = 86_400;
+                let fmt = |t: i64| {
+                    let days = t / day;
+                    // civil date from days since epoch (Howard Hinnant algorithm)
+                    let (mut y, mut doe) = (1970 + 4 * (days / 1461), days % 1461);
+                    while doe >= if y % 4 == 0 { 366 } else { 365 } {
+                        doe -= if y % 4 == 0 { 366 } else { 365 };
+                        y += 1;
+                    }
+                    let leap = y % 4 == 0;
+                    let ml = [31, if leap {29} else {28}, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+                    let mut m = 0usize;
+                    while doe >= ml[m] { doe -= ml[m]; m += 1; }
+                    format!("{y:04}-{:02}-{:02}", m + 1, doe + 1)
+                };
+                format!(
+                    "{API_ROOT}/margin/funding_history?start_date={}&end_date={}",
+                    fmt(now - 7 * day),
+                    fmt(now + day)
+                )
+            },
             AuthMode::Signed,
             "item 10 baseline: own funding payments BEFORE holding through a funding \
              time; start_date AND end_date are both REQUIRED (undocumented); ISO dates \

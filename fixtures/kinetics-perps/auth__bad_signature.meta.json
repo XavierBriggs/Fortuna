@@ -5,7 +5,7 @@
   "method": "GET",
   "note": "item 1: valid-format signature over the wrong message — 401 body",
   "path": "/trade-api/v2/margin/balance",
-  "recorded_at_epoch_ms": 1781232307280,
+  "recorded_at_epoch_ms": 1781237142747,
   "request_body": null,
   "status": 401
 }

@@ -5,9 +5,9 @@
   "method": "POST",
   "note": "item 7: bid at 50% of best bid — below the band floor min(80% of bb, 1000 ticks below bb); exact error body",
   "path": "/trade-api/v2/margin/orders",
-  "recorded_at_epoch_ms": 1781232432985,
+  "recorded_at_epoch_ms": 1781237252496,
   "request_body": {
-    "client_order_id": "b8884a8f-43c0-4a93-bfe5-fc9f7c276ea9",
+    "client_order_id": "b0ad8884-d218-4d72-bde2-2dfb26ab3cbf",
     "count": "1",
     "post_only": false,
     "price": "3.1664",

@@ -4,8 +4,8 @@
   "host": "https://external-api.demo.kalshi.co",
   "method": "PUT",
   "note": "item 12: reset after trigger — re-allows orders",
-  "path": "/trade-api/v2/margin/order_groups/644fa4cd-a130-4410-807e-93176ebe7707/reset",
-  "recorded_at_epoch_ms": 1781232444096,
+  "path": "/trade-api/v2/margin/order_groups/400e176b-0022-40bb-8248-f188e6d4f409/reset",
+  "recorded_at_epoch_ms": 1781237263613,
   "request_body": {},
   "status": 200
 }

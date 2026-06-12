@@ -4,8 +4,8 @@
   "host": "https://external-api.demo.kalshi.co",
   "method": "POST",
   "note": "item 3: POST /decrease reduce_by=1 (XOR reduce_to)",
-  "path": "/trade-api/v2/margin/orders/e3e75552-0c6c-4bda-a261-f5b01a735ab2/decrease",
-  "recorded_at_epoch_ms": 1781232416653,
+  "path": "/trade-api/v2/margin/orders/e4d339ff-8be1-45d6-b19b-eef5c8cb5a74/decrease",
+  "recorded_at_epoch_ms": 1781237236158,
   "request_body": {
     "reduce_by": "1"
   },

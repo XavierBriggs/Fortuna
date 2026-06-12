@@ -5,9 +5,9 @@
   "method": "POST",
   "note": "item 3: GTC 2 contracts for the /decrease probe",
   "path": "/trade-api/v2/margin/orders",
-  "recorded_at_epoch_ms": 1781232414438,
+  "recorded_at_epoch_ms": 1781237233945,
   "request_body": {
-    "client_order_id": "78177ad6-9760-49c8-b4f4-dd5c59cf7adb",
+    "client_order_id": "2fa6efed-7c11-495a-8213-ff906041f936",
     "count": "2",
     "post_only": false,
     "price": "5.3829",

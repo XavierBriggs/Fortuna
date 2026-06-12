@@ -5,7 +5,7 @@
   "method": "GET",
   "note": "per-user notional caps (default value undocumented)",
   "path": "/trade-api/v2/margin/notional_risk_limit",
-  "recorded_at_epoch_ms": 1781232309980,
+  "recorded_at_epoch_ms": 1781237145493,
   "request_body": null,
   "status": 200
 }

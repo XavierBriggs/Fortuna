@@ -2,12 +2,12 @@
   "environment": "demo",
   "first_ping_payload": null,
   "format": "one verbatim text frame per line (.jsonl)",
-  "frames_captured": 1625,
+  "frames_captured": 5000,
   "host": "wss://external-api-margin-ws.demo.kalshi.co",
   "http_status": 101,
   "note": "item 2: subscribed acks, orderbook snapshot+delta with seq, ticker with funding_rate/mark prices, heartbeat pings",
   "pings_observed": 0,
-  "recorded_at_epoch_ms": 1781232387923,
+  "recorded_at_epoch_ms": 1781237207447,
   "signed_path": "/trade-api/ws/v2/margin",
   "subscribe_cmds": [
     {

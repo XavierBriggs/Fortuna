@@ -5,7 +5,7 @@
   "method": "POST",
   "note": "item 16: documented 'currently not available' — capture the 4xx body (amount is in CENTICENTS; 100 = 1 cent; KINETICS_FUND_CENTICENTS overrides)",
   "path": "/trade-api/v2/portfolio/intra_exchange_instance_transfer",
-  "recorded_at_epoch_ms": 1781232449364,
+  "recorded_at_epoch_ms": 1781237268823,
   "request_body": {
     "amount": 100,
     "destination": "margined",

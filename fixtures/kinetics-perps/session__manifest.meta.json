@@ -2,14 +2,14 @@
   "environment": "demo",
   "margin_enabled": true,
   "open_funding_position": {
-    "average_fee_paid": "0.0000",
-    "average_fill_price": "6.3587",
-    "contracts": "1.00",
+    "average_fee_paid": "",
+    "average_fill_price": "",
+    "contracts": "0.00",
     "purpose": "research §12 item 10 — hold across a 04/12/20 UTC funding time; capture GET /margin/funding_history in a later session; DO NOT CLOSE",
     "side": "long",
     "ticker": "KXBTCPERP1"
   },
-  "recorded_at_epoch_ms": 1781232459161,
+  "recorded_at_epoch_ms": 1781237278622,
   "results": [
     {
       "result": "HTTP 200",
@@ -120,7 +120,7 @@
       "stage": "ws__public"
     },
     {
-      "result": "ws 101=101 frames=1625 pings=0",
+      "result": "ws 101=101 frames=5000 pings=0",
       "stage": "ws__public_orderbook_ticker"
     },
     {
@@ -192,7 +192,7 @@
       "stage": "orders__funding_position_ioc"
     },
     {
-      "result": "OPEN FUNDING POSITION: KXBTCPERP1 long fill_count=1.00 avg_price=6.3587 avg_fee=0.0000 — DO NOT CLOSE",
+      "result": "OPEN FUNDING POSITION: KXBTCPERP1 long fill_count=0.00 avg_price= avg_fee= — DO NOT CLOSE",
       "stage": "orders__funding_position_ioc"
     },
     {
@@ -328,11 +328,11 @@
       "stage": "positions__final"
     },
     {
-      "result": "saw user_orders=false fill=true order_group_updates=true",
+      "result": "saw user_orders=false fill=false order_group_updates=true",
       "stage": "ws__private_lifecycle"
     },
     {
-      "result": "ws 101=101 frames=21 pings=2",
+      "result": "ws 101=101 frames=20 pings=2",
       "stage": "ws__private_lifecycle"
     }
   ],

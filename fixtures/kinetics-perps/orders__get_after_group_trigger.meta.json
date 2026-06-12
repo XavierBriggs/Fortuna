@@ -4,8 +4,8 @@
   "host": "https://external-api.demo.kalshi.co",
   "method": "GET",
   "note": "item 12: grouped order state after trigger (last_update_reason)",
-  "path": "/trade-api/v2/margin/orders/7e409f7f-fdb2-4822-b212-9d517e502200",
-  "recorded_at_epoch_ms": 1781232443684,
+  "path": "/trade-api/v2/margin/orders/1d45702e-4b93-476a-958d-0f9bed496826",
+  "recorded_at_epoch_ms": 1781237263200,
   "request_body": null,
   "status": 200
 }

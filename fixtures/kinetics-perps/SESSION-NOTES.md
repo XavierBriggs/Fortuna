@@ -170,3 +170,15 @@ the manifest will carry the details under `open_funding_position`.
   run-1's $50 transfer (200 + transfer_id) had completed and run-2 orders
   succeeded — transfer settlement appears async relative to the balance read;
   reconcile timestamps in the meta files during the adapter build.
+
+## Item 10 disposition (2026-06-12 ~04:15Z)
+
+Funding history is EMPTY after the 04:00Z tick because demo's funding_rate
+is currently 0 (funding__rates_estimate.json: rate=0, next=12:00Z) — a zero
+payment posts no entry. Two recorder fixes landed en route: the history
+window is now dynamic (was hardcoded end_date=2026-06-11, stale after UTC
+rollover), and the funding amount math is documented. DISPOSITION: position
+stays open (zero carry cost at rate 0); future verification-loop firings
+opportunistically re-capture when funding_rate != 0; the entry SHAPE can
+alternatively come from the PROD read-only parity sweep (item 17, operator).
+Item 10 = PARTIAL (blocked by venue state, not by us).

@@ -5,7 +5,7 @@
   "method": "GET",
   "note": "demo margin market catalog, unauthenticated (research says public)",
   "path": "/trade-api/v2/margin/markets",
-  "recorded_at_epoch_ms": 1781232307685,
+  "recorded_at_epoch_ms": 1781237143153,
   "request_body": null,
   "status": 200
 }
