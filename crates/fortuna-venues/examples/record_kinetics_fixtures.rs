@@ -801,9 +801,25 @@ async fn main() -> Result<()> {
                         y += 1;
                     }
                     let leap = y % 4 == 0;
-                    let ml = [31, if leap {29} else {28}, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+                    let ml = [
+                        31,
+                        if leap { 29 } else { 28 },
+                        31,
+                        30,
+                        31,
+                        30,
+                        31,
+                        31,
+                        30,
+                        31,
+                        30,
+                        31,
+                    ];
                     let mut m = 0usize;
-                    while doe >= ml[m] { doe -= ml[m]; m += 1; }
+                    while doe >= ml[m] {
+                        doe -= ml[m];
+                        m += 1;
+                    }
                     format!("{y:04}-{:02}-{:02}", m + 1, doe + 1)
                 };
                 format!(
