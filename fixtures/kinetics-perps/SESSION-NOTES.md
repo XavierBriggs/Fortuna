@@ -182,3 +182,11 @@ stays open (zero carry cost at rate 0); future verification-loop firings
 opportunistically re-capture when funding_rate != 0; the entry SHAPE can
 alternatively come from the PROD read-only parity sweep (item 17, operator).
 Item 10 = PARTIAL (blocked by venue state, not by us).
+
+## Funding observation 2 (2026-06-12 12:05Z tick)
+
+rate=0 again at the second observed tick; history still empty. Working
+hypothesis: demo's funding engine is pegged at zero. Disposition: checks
+downgrade to ~daily opportunistic; the funding_history ENTRY SHAPE comes
+from the PROD read-only parity sweep (operator item 17, post-fee
+activation). Position stays open (zero carry at rate 0).
