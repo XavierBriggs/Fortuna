@@ -970,21 +970,35 @@ observed so far: `INVALID_PARAMETER` (malformed key id) and
   outside track C ownership (examples/, not src/kinetics*), so track C
   ledgered + skipped per loop rule 7 while its own diffs stayed
   fmt-clean.
-- **T5.B4 kinetics adapter: SLICE 1 LANDED, box stays unticked** (track
-  C, 2026-06-12, commit dd82ca1): the DTO layer for the full recorded
-  REST + WS surface, fixtures-gated with FULL coverage (all 76 bodies
-  classified + parsed, classification cross-checked against recorded
-  HTTP statuses, both WS streams zero-unknown). STILL OPEN before the
-  tick: (a) signing + REST transport (same RSA-PSS recipe under
-  /trade-api/v2/margin/*, asymmetric skew window per fixture finding 3);
-  (b) the adapter proper — order path accepting ONLY GatedPerpOrder
-  (type-level I1), reduce_only=>IOC/FOK enforcement, system-fill
-  (liquidation) ingestion as the dedicated 5.15 lifecycle class, fee
-  reconciliation vs fee_tiers; (c) WS session layer. DATA GAPS held
-  open honestly in the DTOs (never invented): funding_history ENTRY
-  shape uncaptured (item 10 partial — demo rate was 0; raw JSON values
-  until a populated capture or the PROD parity sweep), notional risk
-  limit per-market values uncaptured (empty map on demo).
+- **T5.B4 kinetics adapter: SLICES 1+2 LANDED, box stays unticked**
+  (track C, 2026-06-12, commits dd82ca1 + c4f6248): slice 1 = the DTO
+  layer, fixtures-gated with FULL coverage (all 76 bodies classified +
+  parsed vs recorded statuses, both WS streams zero-unknown); slice 2 =
+  KineticsClient over the shared signed transport (own credential PAIR
+  at composition; same RSA-PSS recipe — fixture item 1), request-shaping
+  fixtures-gated against every .meta.json (method/path/query/body
+  equality; the meta-equality test caught a real divergence: group
+  trigger/reset send {}). STILL OPEN before the tick: (a) the adapter
+  proper — order path accepting ONLY GatedPerpOrder (type-level I1),
+  reduce_only=>IOC/FOK enforcement, system-fill (liquidation) ingestion
+  as the dedicated 5.15 lifecycle class, fee reconciliation vs
+  fee_tiers; (b) WS session layer; (c) the BINDING gate-fix item: the
+  leverage_estimates->RiskCurve converter + shape test (bus fix 4).
+  DATA GAPS held open honestly in the DTOs (never invented):
+  funding_history ENTRY shape uncaptured (item 10 partial — demo rate
+  was 0; raw JSON until a populated capture or the PROD parity sweep),
+  notional risk limit per-market values uncaptured (empty map on demo).
+- **TRACK C GATE VERDICT acknowledged (2026-06-12 ~10:30Z bus):
+  cumulative perps gate = ACCEPT-WITH-GAPS, zero Critical**
+  (track-c-perp-gates-gate-2026-06-12.md). The 4-item Minor fix list is
+  NEXT-ITERATION priority (a) work: (1) exactly-at-boundary tests for
+  the liquidation floor + leverage cap (mutations M1/M3 survived); (2)
+  enforce-or-ledger the funding ±2% cap in MarginSim; (3) perp.rs
+  leverage display cleanup; (4) BINDING-for-B4 RiskCurve converter from
+  recorded leverage_estimates + T5.B5 tick wording correction (visible,
+  never erased). Operator decisions parked on the bus (waive batch 5,
+  F1 disposition, leverage-cap number) are operator actions, not
+  track-C work.
 - **T5.B6 perp DST: DONE, box ticked** (track C, 2026-06-12, commit
   335e5e6): run-dst.sh gains the perp_dst stage (fortuna-state, same
   seed count as the other stages) — 6 accounted arms with a coverage
