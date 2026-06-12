@@ -24,7 +24,6 @@
 
 pub mod fees;
 pub mod kalshi;
-pub mod kinetics;
 pub mod polymarket;
 pub mod sim;
 pub mod stream;

@@ -43,9 +43,7 @@ pub struct CandidateOrder {
     pub client_order_id: ClientOrderId,
 }
 
-/// The pipeline checks: spec 5.3 checks 1-10, plus the spec 5.15 perps
-/// additions (11-14). `ALL` is the event-contract order; `perp::PERP_ALL`
-/// is the perp-arm order.
+/// The ten checks, in pipeline order (spec 5.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum GateCheck {
     Halts,
@@ -58,16 +56,6 @@ pub enum GateCheck {
     Idempotency,
     EventExposure,
     InternalNetting,
-    /// Spec 5.15: worst-case (liquidation-loss) margin requirement vs the
-    /// margin account's conservative equity.
-    MarginHeadroom,
-    /// Spec 5.15 gate (a): minimum distance between the conservative mark
-    /// and the estimated liquidation point.
-    LiquidationDistance,
-    /// Spec 5.15 gate (b): per-asset leverage cap.
-    LeverageCap,
-    /// Spec 5.15 gate (d): per-venue and per-asset perps notional caps.
-    PerpNotionalCap,
 }
 
 impl GateCheck {
@@ -84,8 +72,7 @@ impl GateCheck {
         GateCheck::InternalNetting,
     ];
 
-    /// 1-based pipeline position (spec numbering; 11-14 are the spec 5.15
-    /// perps additions).
+    /// 1-based pipeline position (spec numbering).
     pub fn index(self) -> usize {
         match self {
             GateCheck::Halts => 1,
@@ -98,10 +85,6 @@ impl GateCheck {
             GateCheck::Idempotency => 8,
             GateCheck::EventExposure => 9,
             GateCheck::InternalNetting => 10,
-            GateCheck::MarginHeadroom => 11,
-            GateCheck::LiquidationDistance => 12,
-            GateCheck::LeverageCap => 13,
-            GateCheck::PerpNotionalCap => 14,
         }
     }
 }
@@ -166,13 +149,10 @@ pub struct GateInputs<'a> {
 /// The pipeline. Owns halt flags and rate-bucket state; everything else is
 /// pure functions over (candidate, inputs, config).
 pub struct GatePipeline {
-    // pub(crate): the perp arm (crate::perp) shares this exact state — same
-    // config, same halt flags, same I3 buckets — so a breach on either arm
-    // halts both.
-    pub(crate) config: GateConfig,
-    pub(crate) halts: HaltFlags,
-    pub(crate) venue_buckets: BTreeMap<String, Bucket>,
-    pub(crate) market_buckets: BTreeMap<(String, String), Bucket>,
+    config: GateConfig,
+    halts: HaltFlags,
+    venue_buckets: BTreeMap<String, Bucket>,
+    market_buckets: BTreeMap<(String, String), Bucket>,
 }
 
 impl GatePipeline {
@@ -263,14 +243,6 @@ impl GatePipeline {
             GateCheck::Idempotency => self.check_idempotency(c, i),
             GateCheck::EventExposure => self.check_event_exposure(c, i),
             GateCheck::InternalNetting => self.check_internal_netting(c, i),
-            // Perp-domain checks (spec 5.15) never run on the event-contract
-            // arm; `ALL` does not contain them. Defensive fail-closed arm.
-            GateCheck::MarginHeadroom
-            | GateCheck::LiquidationDistance
-            | GateCheck::LeverageCap
-            | GateCheck::PerpNotionalCap => {
-                Err("perp-domain check invoked on the event-contract pipeline: fail-closed".into())
-            }
         }
     }
 
@@ -570,18 +542,15 @@ impl GatePipeline {
     }
 
     fn strategy_limits(&self, c: &CandidateOrder) -> Result<&StrategyLimits, String> {
-        self.strategy_limits_by_id(&c.strategy)
-    }
-
-    /// Shared with the perp arm (crate::perp): fail-closed strategy lookup.
-    pub(crate) fn strategy_limits_by_id(
-        &self,
-        strategy: &StrategyId,
-    ) -> Result<&StrategyLimits, String> {
         self.config
             .per_strategy
-            .get(strategy.as_str())
-            .ok_or_else(|| format!("no limits configured for strategy {strategy}: fail-closed"))
+            .get(c.strategy.as_str())
+            .ok_or_else(|| {
+                format!(
+                    "no limits configured for strategy {}: fail-closed",
+                    c.strategy
+                )
+            })
     }
 }
 

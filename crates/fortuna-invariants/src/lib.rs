@@ -29,28 +29,3 @@
 //! fn requires_deserialize<T: serde::de::DeserializeOwned>() {}
 //! requires_deserialize::<fortuna_gates::GatedOrder>();
 //! ```
-//!
-//! Perp path witness (spec 5.15 / T5.B3 ADDITION; guards the perp
-//! compile_fail siblings against passing vacuously if the type were ever
-//! moved or renamed):
-//!
-//! ```
-//! use fortuna_gates::perp::GatedPerpOrder;
-//! fn _perp_witness(_: &GatedPerpOrder) {}
-//! ```
-//!
-//! I1 (type-level, perps): constructing a `GatedPerpOrder` outside
-//! fortuna-gates does not compile — its fields are private and its only
-//! constructor is pub(crate) inside the perp gate arm:
-//!
-//! ```compile_fail
-//! let forged = fortuna_gates::perp::GatedPerpOrder {};
-//! ```
-//!
-//! I1 (type-level, serde, perps): `GatedPerpOrder` implements `Serialize`
-//! for audit but deliberately NOT `Deserialize`:
-//!
-//! ```compile_fail
-//! fn requires_deserialize<T: serde::de::DeserializeOwned>() {}
-//! requires_deserialize::<fortuna_gates::perp::GatedPerpOrder>();
-//! ```

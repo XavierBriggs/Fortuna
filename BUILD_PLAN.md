@@ -558,54 +558,18 @@ code.
       (DONE: spec commit 213e41f [post-rewrite hash]; graded faithful on all
       C3 criteria by the batch gate; tick released by the remediation ACCEPT
       addendum, docs/reviews/perps-b0-b1-remediation-regate-2026-06-11.md.)
-- [x] T5.B2 Core perps types: PerpPrice, signed PerpPosition, FundingAccrual,
+- [ ] T5.B2 Core perps types: PerpPrice, signed PerpPosition, FundingAccrual,
       MarginAccountView w/ conservative marking; property tests on conversions.
-      (DONE track C 2026-06-12, commit 56d07db: fortuna_core::perp — 38 tests
-      incl. 7 property suites written from spec 5.15 before implementation;
-      battery green except ONE pre-existing fmt diff on main outside track-C
-      ownership, ledgered in GAPS.)
-- [x] T5.B3 Gate extensions: margin headroom, liquidation-distance floor,
+- [ ] T5.B3 Gate extensions: margin headroom, liquidation-distance floor,
       per-asset leverage caps, funding-drag-in-edge, notional caps; worst case =
       liquidation loss. Invariant-crate ADDITIONS only (I2 extension tests).
-      (DONE track C 2026-06-12, commits 7782f5c + b4561ca: perp gate arm on
-      the shared GatePipeline + equity_with_margin I2 composition + perp
-      I1/I2/I3 invariant ADDITIONS [pure, 0 deletions — operator waive
-      queued in GAPS]; daemon wiring of the composed equity lands with the
-      B4/B5 runtime integration, ledgered.)
-- [x] T5.B4 Kinetics adapter (own credentials; dedicated 5.14 envelope):
+- [ ] T5.B4 Kinetics adapter (own credentials; dedicated 5.14 envelope):
       REST+WS from the archived specs, doc-derived samples, FIXTURES-GATED vs
       fixtures/kinetics-perps/ (18-item list, research section 12).
-      (DONE track C 2026-06-12, commits dd82ca1 + c4f6248 + e3d0dde +
-      bbadfc0 + converter in 3b21b7e: DTOs [all 76 bodies, full-coverage
-      classification], client [every request meta-equality-gated],
-      adapter [GatedPerpOrder-only place, reduce-only/IOC pre-wire rule,
-      AlreadyExists via list scan, Liquidation fill class, fee
-      reconciliation surfacing the promo-\$0 discrepancy], WS session
-      [recorded commands, seq/torn discipline, both streams replay
-      gapless]. OPEN venue-state items stay in GAPS: funding_history
-      entry shape, notional-limit values, duplicate-scan pagination,
-      live-dial composition.)
-- [x] T5.B5 Paper engine margin semantics: funding accrual on SimClock,
+- [ ] T5.B5 Paper engine margin semantics: funding accrual on SimClock,
       liquidation sim from recorded risk curves, mark-based PnL.
-      (DONE track C 2026-06-12, commit e8fe069: fortuna-state MarginSim —
-      VWAP-against-us position math, 04/12/20-UTC funding schedule +
-      append-only accrual log, whole-account liquidation at worse-mark +
-      penalty with unbounded-curve/missing-mark = error; 20 spec-first
-      tests; fortuna-paper wiring ledgered for that crate's owner.)
-      [CORRECTED 2026-06-12 per gate fix F1, never erased: the original
-      note's "liquidation sim from recorded risk curves" OVERSTATED the
-      data source — at e8fe069 the sim consumed operator-CONFIG curves
-      and no recorded-curve path existed. The converter landed with the
-      gate-fix batch: RiskCurve::from_leverage_estimates builds the
-      curve from the RECORDED venue leverage_estimates, shape-tested
-      against fixtures/kinetics-perps/markets__single.json.]
-- [x] T5.B6 DST arms: funding-tick chaos, liquidation under ack-delay/api-error,
+- [ ] T5.B6 DST arms: funding-tick chaos, liquidation under ack-delay/api-error,
       system-fill ingestion, margin-call sequences, demo-divergence confusion.
-      (DONE track C 2026-06-12, commit 335e5e6: perp_dst battery stage —
-      6 accounted arms incl. wild-regime margin-call sequences reaching
-      real liquidations [786 @ 2000 scenarios]; 7 per-seed invariants
-      incl. gate-pass=>no-instant-liquidation, never-silent liquidation,
-      exact conservation, same-seed determinism; coverage floor at 100+.)
 - [ ] T5.B7 Strategies rung 0: perp_event_basis (Sim), funding_forecast
       (zero-capital scalar claims), funding_carry DATA-ONLY until >=60d regime
       evidence (amendment B). FEE-TRAP RULE (amendment C): edge floors at assumed

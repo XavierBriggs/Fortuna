@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-rust_decimal = { workspace = true }
 fortuna-core = { path = "../fortuna-core" }
 fortuna-venues = { path = "../fortuna-venues" }
 thiserror = { workspace = true }
@@ -12,6 +11,4 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
-fortuna-gates = { path = "../fortuna-gates" }
-toml = { workspace = true }
 proptest = { workspace = true }
