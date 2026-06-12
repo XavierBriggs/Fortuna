@@ -157,14 +157,19 @@ ledger migration. Validated API:
 - Beliefs: reuse persist_beliefs(pool, drafts, now_iso, id_base).
 SLICING (each a complete, gate-clean slice; the full workspace battery is the
 commit gate — never a -p subset, loop rule 4):
- - SLICE 1: a `run_daily_reconciliation(runner:&mut SimRunner<PgIntentJournal>,
-   pool:&PgPool, mind:&dyn Mind, now, id_base) -> Result<bool, DaemonError>`
-   helper, NOT yet wired into drive() (no drive() signature ripple). Idempotent
-   via get_day (already-reconciled-today => skip). Tests (daemon_smoke, scripted
-   minds — the S5/S6 pattern): a journal-producing scripted mind => a journal row
-   for the day + discards audited + ZERO orders (structural); an empty StubMind
-   (NoJournal) => graceful skip + skip-alert + no journal row + the call returns
-   Ok (survives). Mutation-proven non-vacuous.
+ - SLICE 1 DONE (this commit): `run_daily_reconciliation(runner:&mut SimRunner<
+   PgIntentJournal>, pool, mind:&dyn Mind, now, id_base) -> Result<bool,
+   DaemonError>` helper in daemon.rs, NOT yet wired into drive() (no signature
+   ripple). Context from counters()+positions-count (one AccountState item;
+   beliefs-context deferred); run_reconciliation -> JournalRepo::insert
+   (idempotent via get_day, one journal/UTC-day); apply_external_alert audits the
+   cycle (journal-written + discarded_proposals + beliefs-count + cost); NoJournal
+   / any error => graceful skip + audit + Ok (the daily boundary survives, mirrors
+   the refresh-failure arm); NO orders (structural). Tests (daemon_smoke):
+   daily_reconciliation_writes_a_journal_and_places_no_orders (mutation-proven:
+   skipping the insert turns it RED) + ..._gracefully_skips_when_the_mind_writes_
+   no_journal. Full workspace battery green (fmt/clippy --workspace --all-targets/
+   cargo test --workspace/run-dst.sh 10000).
  - SLICE 2: wire run_daily_reconciliation into drive()'s daily block, INSIDE the
    SAME `if daily.due(now)` as the digest (one due() check fires both — two
    separate due() checks would mean the second never fires), via a new

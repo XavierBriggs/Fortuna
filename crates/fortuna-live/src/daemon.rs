@@ -57,11 +57,13 @@ use crate::audit_bridge::PgAuditSink;
 use crate::boot::{BootError, CognitionSection, DaemonToml};
 use crate::compose::{calibration_for_scope, synthesis_edges, DegradeScrape, SynthesisSection};
 use crate::run_loop::{run_loop, CadenceDriver, HaltPoller, LoopConfig, LoopStats};
+use fortuna_cognition::context::{content_hash_of, ContextItem, SectionKind};
 use fortuna_cognition::cycle::{ComparatorConfig, TriageDecision};
 use fortuna_cognition::events::EdgeTier;
 use fortuna_cognition::mind::{
     AnthropicMind, AnthropicMindConfig, CostBudget, Mind, MindTransport, StubMind,
 };
+use fortuna_cognition::reconciliation::{run_reconciliation, ReconError};
 use fortuna_cognition::veto::{StubVetoMind, VetoMind};
 use fortuna_core::clock::{Clock, UtcTimestamp};
 use fortuna_core::market::{MarketId, StrategyId, VenueId};
@@ -705,6 +707,132 @@ pub async fn persist_beliefs(
         n += 1;
     }
     Ok(n)
+}
+
+/// The daily reconciliation cycle (spec 5.8; fires at the 00:00 UTC daily
+/// boundary once slice 2 wires it into drive()): the model reads the day's
+/// fills + open positions (assembled as context) and writes the journal entry.
+/// NO orders are placed — STRUCTURAL: `ReconciliationOutcome` carries none, and
+/// any proposals the mind emits are counted (audited as discarded) and dropped
+/// (I6 — reconciliation never trades). Idempotent per UTC day: the `journal`
+/// table's unique `day` index plus a get_day pre-check make a second call the
+/// same day a no-op. A mind that produces no journal (the default StubMind with
+/// no key => MindOutput::empty()) is a GRACEFUL SKIP + audit, never a crash —
+/// like the edge-refresh failure arm. Returns Ok(true) iff a journal was
+/// written this call.
+///
+/// SLICE 1 (this commit): the helper + its tests. Wiring it into drive()'s
+/// daily block (alongside the digest) is slice 2 (GAPS NEXT-ITEM plan).
+pub async fn run_daily_reconciliation(
+    runner: &mut SimRunner<PgIntentJournal>,
+    pool: &PgPool,
+    mind: &dyn Mind,
+    now: UtcTimestamp,
+    id_base: u64,
+) -> Result<bool, DaemonError> {
+    let now_iso = now.to_iso8601();
+    // The UTC date keys the journal (one per day, unique index).
+    let day = now_iso
+        .split('T')
+        .next()
+        .unwrap_or(now_iso.as_str())
+        .to_string();
+
+    // Idempotent: if today's journal already exists, this is a no-op skip.
+    let journal_repo = fortuna_ledger::JournalRepo::new(pool.clone());
+    let existing = journal_repo
+        .get_day(&day)
+        .await
+        .map_err(|e| DaemonError::Compose {
+            reason: format!("journal get_day {day}: {e}"),
+        })?;
+    if existing.is_some() {
+        return Ok(false);
+    }
+
+    let items = reconciliation_context(runner, now);
+
+    match run_reconciliation(mind, &items, now).await {
+        Ok(outcome) => {
+            let Some(journal) = outcome.journal.as_ref() else {
+                // run_reconciliation errors NoJournal rather than Ok(journal:None);
+                // handle defensively as a skip.
+                runner.apply_external_alert("reconciliation", "skipped: no journal");
+                return Ok(false);
+            };
+            journal_repo
+                .insert(
+                    &format!("01JRN{:021}", id_base),
+                    &day,
+                    &serde_json::json!({
+                        "body": journal.body,
+                        "manifest_hash": outcome.manifest_hash,
+                    }),
+                    &now_iso,
+                )
+                .await
+                .map_err(|e| DaemonError::Compose {
+                    reason: format!("journal insert {day}: {e}"),
+                })?;
+            // Spec 8: the cycle rides the audit trail. The model's proposals are
+            // counted as discarded (I6: reconciliation never trades); cost noted.
+            // (Belief PERSISTENCE from this cycle is a ledgered follow-on; the
+            // count is surfaced here so beliefs are never silently dropped.)
+            runner.apply_external_alert(
+                "reconciliation",
+                &format!(
+                    "journal written for {day}; discarded_proposals={}; beliefs={}; cost_cents={}",
+                    outcome.discarded_proposals,
+                    outcome.beliefs.len(),
+                    outcome.cost_cents
+                ),
+            );
+            Ok(true)
+        }
+        Err(ReconError::NoJournal) => {
+            // The default StubMind (no key) emits MindOutput::empty() => no
+            // journal => the daily boundary records a skip and survives.
+            runner.apply_external_alert(
+                "reconciliation",
+                "skipped: mind produced no journal (stub mind / no key)",
+            );
+            Ok(false)
+        }
+        Err(e) => {
+            // No reconciliation failure may crash the daily boundary (mirrors
+            // the edge-refresh failure arm): alert + survive.
+            runner.apply_external_alert("reconciliation", &format!("failure: {e}"));
+            Ok(false)
+        }
+    }
+}
+
+/// Assemble the reconciliation context (spec 5.8 inputs): a point-in-time
+/// summary of the day's fills + open positions as one AccountState item.
+/// (Originating-beliefs context is a ledgered follow-on — slice 1 reconciles
+/// the fills + positions the runner exposes directly.)
+fn reconciliation_context(
+    runner: &SimRunner<PgIntentJournal>,
+    now: UtcTimestamp,
+) -> Vec<ContextItem> {
+    let c = runner.counters();
+    let open_positions = runner.positions().positions().count();
+    let body = format!(
+        "Daily reconciliation as of {} (counters since boot): {} fills applied, \
+         {} orders submitted, {} gate rejections, {} open position(s).",
+        now.to_iso8601(),
+        c.fills_applied,
+        c.orders_submitted,
+        c.gate_rejections,
+        open_positions,
+    );
+    vec![ContextItem {
+        item_id: "recon-account".to_string(),
+        section: SectionKind::AccountState,
+        content_hash: content_hash_of(&body),
+        body,
+        at: now,
+    }]
 }
 
 /// Route degrade-scrape alerts to Slack and AUDIT every one (spec 8:

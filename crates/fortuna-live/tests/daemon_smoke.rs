@@ -49,6 +49,19 @@ fn believing_mind(event: &str, p: f64) -> Arc<dyn Mind> {
     Arc::new(StubMind::scripted(vec![out]))
 }
 
+/// A mind that returns a JOURNAL entry (the daily-reconciliation product);
+/// no beliefs, no proposals. The reconciliation cycle's one job is the journal.
+fn journaling_mind(body: &str) -> Arc<dyn Mind> {
+    let out: MindOutput = serde_json::from_value(serde_json::json!({
+        "beliefs": [],
+        "proposals": [],
+        "journal": {"body": body},
+        "cost_cents": 5
+    }))
+    .unwrap();
+    Arc::new(StubMind::scripted(vec![out]))
+}
+
 /// Sim cadence that FIRES THE STOP CHANNEL at a chosen wake — the
 /// deterministic stand-in for SIGTERM arriving mid-run.
 struct StopAtCadence {
@@ -940,4 +953,135 @@ async fn drive_drains_and_persists_the_synthesis_arms_beliefs(pool: PgPool) {
         after >= 1,
         "the synth arm's belief drafted during the segment was drained + persisted (got {after})"
     );
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn daily_reconciliation_writes_a_journal_and_places_no_orders(pool: PgPool) {
+    // T4.1/M2 slice 1 (spec 5.8): the daily reconciliation reads the day's
+    // fills + open positions (assembled context) and writes the journal entry;
+    // it places NO orders (STRUCTURAL — ReconciliationOutcome carries none).
+    // A scripted journaling mind drives it. NON-VACUOUS: a journal row appears
+    // for the UTC day that was NOT there before, and orders_submitted is
+    // UNCHANGED across the call (the day's tick placed real orders first).
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let full = FortunaConfig::load_file(example_path).unwrap();
+    let dcfg = DaemonToml::parse(&text).unwrap();
+    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 70, stub_mind())
+        .await
+        .unwrap();
+    arb_books(&runner);
+    runner.tick().await.unwrap(); // real day activity for the context
+
+    let now = t0();
+    let day = "2026-06-11";
+    assert!(
+        fortuna_ledger::JournalRepo::new(pool.clone())
+            .get_day(day)
+            .await
+            .unwrap()
+            .is_none(),
+        "no journal before reconciliation"
+    );
+    let orders_before = runner.counters().orders_submitted;
+
+    let mind = journaling_mind("Day flat; no surprises. Tomorrow: hold.");
+    let wrote = fortuna_live::daemon::run_daily_reconciliation(
+        &mut runner,
+        &pool,
+        mind.as_ref(),
+        now,
+        1000,
+    )
+    .await
+    .expect("reconciliation runs");
+    assert!(wrote, "a journal-producing mind writes the journal");
+
+    let row = fortuna_ledger::JournalRepo::new(pool.clone())
+        .get_day(day)
+        .await
+        .unwrap();
+    let row = row.expect("journal persisted for the UTC day");
+    assert!(
+        row.body.get("body").is_some(),
+        "the journal row carries the entry body"
+    );
+    assert_eq!(
+        runner.counters().orders_submitted,
+        orders_before,
+        "reconciliation places NO orders (structural)"
+    );
+    let recon_audits: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit WHERE kind = 'alert'
+         AND payload->>'kind' = 'reconciliation' AND payload->>'message' LIKE 'journal written%'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(recon_audits, 1, "the reconciliation cycle is audited once");
+
+    // Idempotent: a second call the same UTC day is a no-op (one journal/day).
+    let again = fortuna_live::daemon::run_daily_reconciliation(
+        &mut runner,
+        &pool,
+        mind.as_ref(),
+        now,
+        1001,
+    )
+    .await
+    .unwrap();
+    assert!(
+        !again,
+        "idempotent: already reconciled today => no second journal"
+    );
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn daily_reconciliation_gracefully_skips_when_the_mind_writes_no_journal(pool: PgPool) {
+    // The default StubMind (no key) emits MindOutput::empty() => no journal =>
+    // ReconError::NoJournal => GRACEFUL SKIP: Ok(false), no journal row, a skip
+    // audit, and the call NEVER errors (the daily boundary must survive).
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let full = FortunaConfig::load_file(example_path).unwrap();
+    let dcfg = DaemonToml::parse(&text).unwrap();
+    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 71, stub_mind())
+        .await
+        .unwrap();
+
+    let now = t0();
+    let day = "2026-06-11";
+    let mind = stub_mind(); // StubMind::scripted(vec![]) => MindOutput::empty()
+    let wrote = fortuna_live::daemon::run_daily_reconciliation(
+        &mut runner,
+        &pool,
+        mind.as_ref(),
+        now,
+        2000,
+    )
+    .await
+    .expect("reconciliation must not crash on a no-journal mind");
+    assert!(!wrote, "no journal => graceful skip");
+    assert!(
+        fortuna_ledger::JournalRepo::new(pool.clone())
+            .get_day(day)
+            .await
+            .unwrap()
+            .is_none(),
+        "no journal row is written on a skip"
+    );
+    let skip_audits: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit WHERE kind = 'alert'
+         AND payload->>'kind' = 'reconciliation' AND payload->>'message' LIKE 'skipped%'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(skip_audits, 1, "the skip is audited (never silent)");
 }
