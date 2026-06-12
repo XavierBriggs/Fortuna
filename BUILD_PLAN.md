@@ -371,6 +371,19 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       process_group(0) + append-mode logs; runtime dir data/runtime/
       (gitignored), NOT /tmp; depends on the T4.1 SHUTDOWN CONTRACT above.
       Verifier-gated.
+      PROGRESS (track B; box stays unticked — start/stop remain): fit-
+      validation recorded in the design doc §11 (BUILDABLE AS AMENDED);
+      slice 1 (this commit) = read-only surfaces, tests-first (15 in new
+      tests/cli_integration.rs): `config check` (FortunaConfig whole-shape
+      validation), `logs daemon|recorder [-f]` (exec tail -n50 of the
+      redirected logs), `status` process-health section from name-validated
+      pidfiles (A3 semantics: dead pid / name mismatch / unparseable all
+      read stale-stopped) + A7 stopping-marker display + A6 config-on-disk
+      venue line + degradable db section (A9 pinned: no DATABASE_URL ->
+      exit 0; unreachable Pg -> warn + exit 0, 5s bound). db queries moved
+      verbatim to status_db_section. NEXT: `start` (A2 recorder refusal,
+      A3 atomic claim, A4 detach), then `stop` LAST against T4.1's asserted
+      SIGTERM contract (A1).
 
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)

@@ -11,6 +11,12 @@ path = "src/main.rs"
 fortuna-core = { path = "../fortuna-core" }
 fortuna-gates = { path = "../fortuna-gates" }
 fortuna-ledger = { path = "../fortuna-ledger" }
+fortuna-ops = { path = "../fortuna-ops" }
 anyhow = { workspace = true }
 tokio = { workspace = true }
 serde_json = { workspace = true }
+# Raw-value read of config-on-disk for `status` (A6): FortunaConfig
+# deliberately drops [daemon] (the daemon owns that section), so the venue
+# line needs a plain toml::Value pass. Workspace-pinned dep, ledgered as a
+# deviation from design Section 6 in GAPS.md.
+toml = { workspace = true }

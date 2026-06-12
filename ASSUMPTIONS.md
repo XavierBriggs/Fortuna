@@ -3,6 +3,27 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T4.4 — operator CLI lifecycle, slice 1 (track B)
+
+- **Pidfile format is `<pid>\n<name>\n`** (design A3 names the fields, not
+  the encoding): two plain lines, no serialization dep, trivially
+  inspectable by the operator with `cat`. Any malformed pidfile reads as
+  STOPPED-stale (never trusted, never signaled later).
+- **Name validation is substring containment on `ps -o comm=` output:**
+  macOS `comm` yields the full executable path (`/bin/sleep`), Linux a
+  possibly-truncated basename — `contains(<claimed name>)` is the one test
+  that works on both. Conservative direction: a mismatch DEMOTES a live pid
+  to stale; it never promotes.
+- **`FORTUNA_RUNTIME_DIR` resolves relative to the CWD when overridden, and
+  defaults to `data/runtime/`** (A5) relative to the repo root — consistent
+  with the A2 contract that lifecycle commands run from the repo root (the
+  recorder spawn cwd is pinned there too). Tests pin absolute temp dirs.
+- **`logs` execs `tail -n50` for BOTH modes** (A4 specifies `-f`): one code
+  path, no whole-file read into memory (daemon logs grow unboundedly under
+  append-mode redirection), Ctrl-C lands on tail directly.
+- **`status` db section is bounded at 5s** — see the GAPS T4.4 entry for
+  the degradable-status posture this pins.
+
 ## Latency levers: concurrent legs + stream ingestion (operator-directed)
 
 - **Concurrent leg submission preserves the determinism doctrine:** the
