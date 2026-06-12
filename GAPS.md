@@ -472,6 +472,45 @@ fabricated/zeroed panel). Fix list:
   also slotted BUILD_PLAN T4.5 (ROTA v1.1 deferred panels), after T4.2; its
   TEST RULE bakes in the populated-path-seed lesson.
 
+## RALPH STOP 2026-06-12T08:20:05Z (track B — queue exhausted, loop ends clean)
+
+Track B's assigned queue (docs/design/implementer-loop-track-b.md priority
+(b), per docs/design/orchestration.md) is COMPLETE:
+
+- T4.4 operator CLI — BOX TICKED. Three gate-pending slices on track-b:
+  slice 1 (config check / logs / status process-health, A9 exit-0 pinned),
+  slice 2 (start: A2 pgrep refusal, A3 O_EXCL claim, A4 detach), slice 3
+  (stop: A1 log-confirmed shutdown w/ append-offset semantics, A7 timeout
+  posture, zombie-aware liveness). 38 tests in the crate; §13 manual smoke
+  runbook recorded in the design doc.
+- T4.3 track-B items — ALL FOUR DONE: the R7 ledger queries
+  (BeliefsRepo::recent + CalibrationParamsRepo::scopes, populated-path
+  tests, sqlx prepare), the cognition view (counters honest-absent until
+  synthesis; ledger arrays live over the R5 pool; 4KB evidence
+  truncation), the instrument presentation layer (per-panel renderers,
+  UTC labels, click-to-expand evidence, raw expanders, §0.4 cadences),
+  and assets/rota/logo.svg (§9 geometry, favicon + asset routes).
+
+WHY STOP (loop rule 6): the bus names no track-B findings (the three open
+Minors live in fortuna-live/fortuna-runner — track A's files); the
+remaining T4.3 surface is explicitly not track B's (full §5 money model =
+operator/design call; R12 browser pass = verifier; audit-recents were not
+in the queue enumeration); T4.5/T4.2/T5.B belong to tracks A/C. Inventing
+work violates "idle-and-stopped beats bloat".
+
+STATE FOR THE VERIFIER: five track-B commits awaiting gate on branch
+track-b (T4.4 slices 1-3, T4.3 slices 8-9), every one committed only
+after a green full battery (fmt / clippy -D warnings / cargo test
+--workspace / DST corpus) run under env -u DATABASE_URL (the operator-URL
+canary is ledgered above). Cross-track notes for the gate are in the
+T4.3/T4.4 sections: the venues-example fmt violation at HEAD (track A's),
+the 39 stale .sqlx entries (owners'), the lib.rs one-line export and the
+two favicon-test evolutions (both declared). DISK: the ENOSPC treadmill
+entry above remains an operator action.
+
+This entry's commit is DOCS-ONLY on the batteried HEAD (zero code delta
+since the slice-9 battery: workspace 773/0, DST exit 0).
+
 ## T4.3 cognition slice (track B; 2026-06-12) — ownership notes for the gate
 
 - **fortuna-ledger/src/lib.rs gained ONE additive pub-use line** (the two
