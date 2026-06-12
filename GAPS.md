@@ -973,6 +973,20 @@ observed so far: `INVALID_PARAMETER` (malformed key id) and
   file). Unblock: the owning session (main checkout) runs
   `cargo fmt -p fortuna-venues` and commits, or the verifier authorizes a
   track to format it.
+- **T5.B3 gate extensions: SLICE 1 LANDED, box stays unticked** (track C,
+  2026-06-12, commit 7782f5c): the perp gate arm in fortuna-gates —
+  MarginHeadroom/LiquidationDistance/LeverageCap/PerpNotionalCap (spec
+  numbering 11-14) + perp arms of PriceSanity/SizeSanity/EdgeFloor
+  (funding drag + fee-trap assumed fees) + shared rate/idempotency/
+  netting/halts; GatedPerpOrder sealed type; PerpConfig validation.
+  36 spec-first tests. STILL OPEN before the tick: (a) the I2 drawdown
+  extension (funding + margin uPnL into halt math — fortuna-state margin
+  pieces); (b) fortuna-invariants ADDITIONS pinning the perp arm (I1 seal
+  compile-fail for GatedPerpOrder, I2-extension, I3 cross-domain halt) —
+  PROTECTED-CRATE TOUCH: auto-queues the operator waive (expected,
+  orchestration.md). Two design readings FLAGGED for the verifier in
+  ASSUMPTIONS ("T5.B3 perp gate arm, slice 1"): GatedPerpOrder as a
+  second sealed type, and the reduce-only risk-gate/edge-floor skip.
 - **T5.B2 core perps types: DONE** (track C, 2026-06-12):
   fortuna-core/src/perp.rs — InstrumentKind, PerpPrice (i64
   ten-thousandths, checked ops, Decimal only at payload boundaries),

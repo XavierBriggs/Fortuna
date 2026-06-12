@@ -57,6 +57,57 @@ conservative option, and the spec section it interprets.
   proceeded — the operator must read the output; exit 0 is reserved for
   fully-confirmed shutdowns and true idempotent no-ops.
 
+## T5.B3 perp gate arm, slice 1 (track C, 2026-06-12; interprets spec 5.15)
+
+- **"Same sealed GatedOrder through the same I1 pipeline" is read as: same
+  `GatePipeline` instance (shared halt flags, shared I3 buckets, same audit
+  record stream, same fail-closed loop, same private-constructor seal
+  discipline) producing a SECOND sealed type `GatedPerpOrder`.** The literal
+  same-type reading is impossible under 5.15's own type-level price
+  separation: `GatedOrder.limit_price` is `Cents` and "a PerpPrice must
+  never carry an event-contract price nor vice versa". The invariant
+  substance — no order reaches a venue without passing the gates,
+  constructible only by the pipeline, Serialize-only — is identical.
+  FLAGGED for verifier review as the load-bearing design reading.
+- **Reduce-only doctrine:** a VALID reduce-only order (position exists,
+  opposite direction, qty <= |position|) passes MarginHeadroom,
+  LiquidationDistance, LeverageCap, PerpNotionalCap, and EdgeFloor with an
+  "exposure-reducing" note. Rationale: such an order strictly reduces
+  worst-case exposure and grows liquidation distance; rejecting it would
+  force staying at HIGHER risk, and blocking a stop-loss close on a
+  margined instrument converts margin-model error into realized loss. It
+  still faces halts, price/size sanity, rate limits, idempotency, and
+  netting in full. Invalid reduce-only (no position / same direction /
+  oversized) rejects outright. FLAGGED for verifier review.
+- **Worst-case quantity = max(|pos|, |pos + delta|):** the position passes
+  through every value between pos and pos+delta while an order fills, so
+  the risk checks price the largest |position| along that path (a
+  non-reduce-only flip is priced at the bigger side, test-pinned).
+- **Conservative per-contract valuation = max(limit, mark):** the worst of
+  what we'd pay and where the market marks; exposure ceils to cents.
+- **MM curve semantics:** ascending (max_notional_cents, mm_bps) tiers;
+  lookup takes the first tier covering the worst-case notional; beyond the
+  last tier the approximation cannot bound the order and it is REFUSED
+  (spec 5.15 sentence implemented literally). Safety multiplier is percent
+  and validation-enforced >= 100 (below would weaken the venue's own
+  requirement); the venue's IM = 1.3 x MM suggests operators set >= 130.
+- **Funding drag inputs:** the candidate DECLARES intended holding in 8h
+  windows (holding_windows >= 1 enforced — every position can cross a
+  funding tick); drag = order notional x funding_drag_bps_per_window x
+  windows, ceiled. The drag also debits available equity in the headroom
+  check (plan §2's "margin consumed at liquidation + funding drag").
+- **Checks 2/3/9 (Capital, PositionCaps, EventExposure) do not run on the
+  perp arm** — dispatch on kind per 5.15: the margin account is the
+  dedicated capital envelope (MarginHeadroom is the capital check), the
+  leverage/notional caps are the position-caps analog, and perps have no
+  canonical events. Per-STRATEGY exposure caps for perps bind at sizing
+  (T5.B7); ledgered as a deliberate deferral.
+- **Rate-limit logic is deliberately duplicated** in the perp arm
+  (consume_perp_rate), kept in lockstep with pipeline::check_rate_limits
+  over the SAME buckets, rather than refactoring the I3-pinned original
+  mid-flight. Both arms set the same venue halt on breach (cross-domain
+  halt is test-pinned).
+
 ## T5.B2 perps core types (track C, 2026-06-12; interprets spec 5.15)
 
 - **`PerpPosition.avg_entry` is a whole-tick `PerpPrice`:** the venue quotes
