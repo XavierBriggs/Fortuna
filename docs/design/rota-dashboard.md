@@ -482,6 +482,22 @@ without). REMAINING: money + cognition views, audit-tail recents (R5 pool),
 gates.rejections_by_check, cursor-pagination test, rows_today/key_count
 (content-read optimisation), Phase-3 shell/assets, R12 browser pass.
 
+SLICE 5 BUILT (2026-06-11): R5 dedicated audit pool. `fortuna_ledger::
+connect_readonly_pool` = an ISOLATED 2-conn read pool (short acquire_timeout +
+3s statement_timeout, no migrations) wired into the daemon's RotaState.pool
+(was None) so the audit TAIL is LIVE — never the writer's pool (audit-append
+failure is a global halt; dashboard load must not queue against the audit
+writer). Connect failure => audit panel degrades empty, daemon never crashes.
+The /audit available:true path is now HTTP-tested end-to-end (F1
+cursorless-latest at the handler layer). This pool also unblocks the cognition
+view's two ledger queries (next slice). MONEY VIEW is now DESIGN-BLOCKED (not a
+deferral): §5's account model (settled/committed/floating, total=settled+
+floating) has no faithful source — inspect_totals returns (cash, reserved,
+counts), and positions are not strategy-attributed; building it would fabricate
+a financial surface. Ledgered in GAPS for an operator/design call. REMAINING:
+cognition view (R7, now pool-unblocked), money view (design-blocked),
+gates.rejections_by_check, Phase-3 shell/assets, R12 browser pass.
+
 - V-1 PASS: serve_dashboard + the three routes present (dashboard.rs ~52-68;
   `route("/")`, `/metrics`, `/api/boards`); POST-405 loop at
   tests/dashboard.rs:74-80 exactly as cited.

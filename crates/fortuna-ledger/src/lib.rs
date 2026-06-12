@@ -68,3 +68,29 @@ pub async fn connect(database_url: &str) -> Result<PgPool, LedgerError> {
     MIGRATOR.run(&pool).await?;
     Ok(pool)
 }
+
+/// A small, ISOLATED read pool for the operator dashboard (ROTA, design R5).
+/// It is SEPARATE from the daemon's writer pool BY DESIGN: audit-append failure
+/// is a GLOBAL HALT ("no audit, no trading"), so dashboard load must never be
+/// able to queue against the audit writer's connections. Bounded to two
+/// connections; a short `acquire_timeout` so a saturated pool renders the panel
+/// DEGRADED (the handler's error path), never hung; a `statement_timeout` on
+/// every connection so a slow read cannot pin a connection. NO migrations — the
+/// writer pool owns schema; this handle only reads.
+pub async fn connect_readonly_pool(database_url: &str) -> Result<PgPool, LedgerError> {
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .acquire_timeout(std::time::Duration::from_secs(3))
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                // 3s ceiling on any dashboard read (R5).
+                sqlx::query("SET statement_timeout = 3000")
+                    .execute(&mut *conn)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(database_url)
+        .await?;
+    Ok(pool)
+}

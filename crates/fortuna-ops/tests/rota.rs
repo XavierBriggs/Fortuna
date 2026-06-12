@@ -401,6 +401,52 @@ async fn audit_tail_empty_table_is_an_empty_page_not_an_error(pool: sqlx::PgPool
     assert!(audit_tail_page(&pool, None, 100).await.unwrap().is_empty());
 }
 
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn audit_handler_serves_the_live_tail_when_a_pool_is_present(pool: sqlx::PgPool) {
+    // R5: with a (dedicated) pool the /audit handler serves the LIVE tail —
+    // the available:true path END-TO-END through HTTP (only the degraded
+    // pool=None path had coverage). Also pins F1 cursorless-latest at the
+    // handler layer, not just the query fn.
+    for (id, kind) in [
+        ("01AAAAAAAAAAAAAAAAAAAAAAA0", "old"),
+        ("01BBBBBBBBBBBBBBBBBBBBBBB0", "mid"),
+        ("01CCCCCCCCCCCCCCCCCCCCCCC0", "new"),
+    ] {
+        insert_audit(&pool, id, kind).await;
+    }
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+    };
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/audit"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(j["available"], true, "pool present => live tail: {j}");
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 3, "{j}");
+    // cursorless => the NEWEST row is in the page (F1, through the handler).
+    assert_eq!(
+        j["next_after"], "01CCCCCCCCCCCCCCCCCCCCCCC0",
+        "next_after = the newest id in the page: {j}"
+    );
+    assert!(
+        rows.iter()
+            .any(|r| r["audit_id"] == "01CCCCCCCCCCCCCCCCCCCCCCC0"),
+        "the live tail includes the newest row: {j}"
+    );
+    h.abort();
+}
+
 // ---- rota-slices gate F2: /favicon.ico must not 404 ----
 
 #[tokio::test]

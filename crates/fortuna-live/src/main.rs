@@ -85,16 +85,27 @@ async fn main() -> Result<()> {
         "fortuna-live: metrics at http://{}",
         dcfg.daemon.metrics_bind
     );
+    // R5: a DEDICATED, isolated read pool for ROTA's audit tail — NEVER the
+    // writer's. Audit-append failure is a global halt ("no audit, no trading"),
+    // so dashboard load must be unable to queue against the audit writer's
+    // connections. A connect failure degrades the audit panel to empty (the
+    // operator keeps the snapshot views); it never crashes the daemon.
+    let rota_pool = fortuna_ledger::connect_readonly_pool(validated.database_url.expose())
+        .await
+        .ok();
+    if rota_pool.is_none() {
+        eprintln!("fortuna-live: ROTA read pool unavailable — audit tail degrades to empty");
+    }
     let dash_state = snapshot.clone();
     tokio::spawn(async move {
         // ROTA mounts alongside the legacy boards off the same snapshot
         // (T4.3). perishable_dir = the recorder's output base ("data/perishable",
         // matching fortuna-recorder's default --out-dir) so the /streams panel
         // shows recorder liveness; an absent dir degrades to an empty scan,
-        // never a 500. pool stays None until the R5 dedicated audit-pool slice.
+        // never a 500.
         let rota = fortuna_ops::rota::RotaState {
             snapshot: dash_state,
-            pool: None,
+            pool: rota_pool,
             perishable_dir: Some(Arc::new(std::path::PathBuf::from("data/perishable"))),
         };
         if let Err(e) = serve_dashboard(listener, rota).await {

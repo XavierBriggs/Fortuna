@@ -343,13 +343,17 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       running daemon actually serves /rota + /api/rota/v1/* (was wired into
       nothing); red-first merge test proves the populated view is served and
       read-only survives;
-      slice 4 (this commit) = streams recorder filesystem-scan (scan_recorder,
+      slice 4 (ee7ab9d) = streams recorder filesystem-scan (scan_recorder,
       metadata-only — never a content read, dodging the 1.3GB line-count DoS;
       §5 rows_today/key_count deferred), merged into /streams when
-      perishable_dir present; daemon wires perishable_dir="data/perishable".
-      REMAINING: money/cognition views, audit-tail recents (R5 pool),
-      gates.rejections_by_check, cursor-pagination test, rows_today/key_count,
-      Phase-3 shell/assets, R12 browser pass.
+      perishable_dir present; daemon wires perishable_dir="data/perishable";
+      slice 5 (this commit) = R5 dedicated audit pool (connect_readonly_pool,
+      isolated 2-conn, never the writer's) wired into the daemon's RotaState so
+      the audit TAIL is LIVE; available:true path HTTP-tested. Also: rota-slices
+      + audit-tail-fix gate findings ALL remediated (F1-F6 + #1-#4).
+      REMAINING: cognition view (R7, pool-unblocked); money view (DESIGN-BLOCKED
+      — §5 account model has no faithful source, ledgered in GAPS);
+      gates.rejections_by_check; Phase-3 shell/assets; R12 browser pass.
 - [ ] T4.4 Operator CLI lifecycle (operator-directed 2026-06-11; design
       AUTHORITATIVE at docs/design/fortuna-cli.md INCLUDING its amendments
       section): `fortuna start/stop/status/logs/config-check` extending

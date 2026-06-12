@@ -301,8 +301,34 @@ VERIFIED). New/carried Minors:
   R2 forbids parsing); recent_rejections / recent_watchdog_events (R5
   dedicated audit pool); streams.recorder + per-venue book_age_ms (recorder
   filesystem scan + new boards field); health.last_tick_age_ms (no last-tick
-  wall stamp tracked). Also remaining: R5 pool, cursor-pagination test,
-  Phase-3 shell/assets, R12 browser pass.
+  wall stamp tracked). Also remaining: cursor-pagination test (DONE — see
+  audit_tail_page tests), Phase-3 shell/assets, R12 browser pass.
+
+## T4.3 ROTA — slice 5 (R5 pool) + the money-view design finding (2026-06-11)
+
+- R5 DEDICATED AUDIT POOL: BUILT (this commit). `fortuna_ledger::
+  connect_readonly_pool` makes an ISOLATED 2-connection read pool (short
+  acquire_timeout + a 3s statement_timeout via after_connect; NO migrations) —
+  NEVER the daemon's writer pool, so dashboard load cannot queue against the
+  audit writer (audit-append failure is a global halt). Daemon main wires it
+  into RotaState.pool (was None); a connect failure degrades the audit panel to
+  empty, never crashes the daemon. The /audit handler's available:true path is
+  now HTTP-tested end-to-end (audit_handler_serves_the_live_tail_when_a_pool_is_
+  present) — F1 cursorless-latest at the handler layer. The audit TAIL is now
+  LIVE on the running daemon; this pool also unblocks the cognition view's two
+  ledger queries (next).
+- MONEY VIEW — DESIGN-BLOCKED (validated, not guessed): §5 specifies account
+  fields settled_cents / committed_cents / floating_cents / total_cents (with
+  total = settled + floating per the example), populated "from inspect_totals".
+  But `SimVenue::inspect_totals()` returns `(cash, reserved, fill_count,
+  pending_count)` — a DST-invariant helper, NOT that account model; and
+  positions carry realized_pnl/fees per MARKET, not attributed per STRATEGY for
+  the strategies[] breakdown. So the §5 money account contract has NO faithful
+  source today. Building it would FABRICATE a financial surface (the gravest
+  degraded-never-faked violation). LEDGERED here for an operator/design call:
+  define the account model from real data (cash, reserved, realized via
+  positions, unrealized via marks) OR add per-strategy PnL attribution. Not
+  built; the money panel stays "unavailable" (honest) until reconciled.
 
 ## SECURITY INCIDENT 2026-06-11 (gate finding F1, Critical) — keys were committed
 
