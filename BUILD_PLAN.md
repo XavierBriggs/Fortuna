@@ -340,9 +340,12 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       mind_from_env builds the Claude AnthropicMind from env when keyed (model
       from [cognition].model, transport injected — scripted in tests, never a
       real key) else StubMind; main wires it. The VETO side stays blocked
-      (AnthropicVetoMind unbuilt, fortuna-cognition). Loop-doc tail next: S6
-      (belief drain+persist + rich digest) -> tick. Live synthesis additionally
-      awaits the two config gaps + AnthropicVetoMind.
+      (AnthropicVetoMind unbuilt, fortuna-cognition). S6a belief drain+persist
+      WIRED into drive() DONE — per segment the synth arm's drafts are drained +
+      persisted (calibration substrate; persist failure alerts, never crashes);
+      mutation-proven non-vacuous daemon_smoke test. Loop-doc tail next: S6b
+      (terse digest -> rich DigestInputs + reconciliation + reviews) -> tick.
+      Live synthesis additionally awaits the two config gaps + AnthropicVetoMind.
 - [ ] T4.2 POST-FIXTURE tranche (blocked on the operator recording session):
       Kalshi WS dial (signed handshake, keep-alive, redial w/ resubscribe-on-gap),
       venue-generic recorded-stream replay into PaperVenue under both mech

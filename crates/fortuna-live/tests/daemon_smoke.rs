@@ -683,3 +683,121 @@ async fn synthesis_arm_trades_with_ledger_calibration_and_an_injected_mind(pool:
         "the proposal sized (quality > 0) + gated + submitted an order: {report:?}"
     );
 }
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn drive_drains_and_persists_the_synthesis_arms_beliefs(pool: PgPool) {
+    // T4.1/S6: the daemon's drive loop DRAINS the synthesis arm's belief drafts
+    // and PERSISTS them per segment (the calibration substrate). The synth arm
+    // drafts a belief whenever its book event fires + the mind believes
+    // (calibration is irrelevant to belief DRAFTING — it gates only pricing).
+    // NON-VACUOUS: a belief for evt-1 lands in the ledger that was NOT there
+    // before drive — the drain->persist wiring is load-bearing.
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let full = FortunaConfig::load_file(example_path).unwrap();
+
+    // A confirmed sim edge SIM-BKT-LO -> evt-1 (the belief's event).
+    fortuna_ledger::EventsRepo::new(pool.clone())
+        .create(
+            "evt-1",
+            "s",
+            "c",
+            "nws",
+            None,
+            "2026-06-20T18:00:00.000Z",
+            "weather",
+            "2026-06-10T12:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    fortuna_ledger::EdgesRepo::new(pool.clone())
+        .insert_edge(
+            "e-synth",
+            "SIM-BKT-LO",
+            "sim",
+            "evt-1",
+            "direct",
+            0.9,
+            "model:stub",
+            Some("op"),
+            None,
+            "2026-06-10T12:01:00.000Z",
+        )
+        .await
+        .unwrap();
+
+    let dcfg = DaemonToml::parse(&format!("{text}\n[synthesis]\nvenue = \"sim\"\n")).unwrap();
+    let mut runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        t0(),
+        60,
+        believing_mind("evt-1", 0.70),
+    )
+    .await
+    .expect("composition");
+    // A book for the edge market so the synth arm's cycle runs (and drafts).
+    let lvl = |p: i64, q: i64| PriceLevel {
+        price: Cents::new(p),
+        qty: Contracts::new(q),
+    };
+    runner
+        .venue()
+        .set_book(
+            &MarketId::new("SIM-BKT-LO").unwrap(),
+            vec![lvl(58, 80)],
+            vec![lvl(60, 80)],
+        )
+        .unwrap();
+
+    let before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM beliefs WHERE event_id = 'evt-1'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(before, 0, "no beliefs before drive");
+
+    let (tx, mut stop) = tokio::sync::oneshot::channel::<()>();
+    let mut cadence = StopAtCadence {
+        clock: runner.clock.clone(),
+        sleeps: 0,
+        fire_at: 6, // one full 4-wake segment drains+persists before the stop
+        tx: Some(tx),
+    };
+    let mut poller = NeverHalted;
+    let loop_cfg = LoopConfig {
+        tick_interval_ms: 1000,
+        halt_poll_ms: 500,
+    };
+    let mut scrape = DegradeScrape::new(default_degrade_thresholds());
+    let mut daily = fortuna_live::daemon::DailyScheduler::new();
+    let synthesis_refresh = dcfg.synthesis.clone().map(|syn| (pool.clone(), syn));
+
+    let (_stats, _shutdown) = drive(
+        &mut runner,
+        &mut cadence,
+        &mut poller,
+        &loop_cfg,
+        4,
+        &mut stop,
+        |_r, _s| {},
+        &mut scrape,
+        None,
+        &mut daily,
+        synthesis_refresh,
+    )
+    .await
+    .expect("daemon drive");
+
+    let after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM beliefs WHERE event_id = 'evt-1'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(
+        after >= 1,
+        "the synth arm's belief drafted during the segment was drained + persisted (got {after})"
+    );
+}

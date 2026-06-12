@@ -17,9 +17,12 @@
 //! send failure counted, never silent); main builds the router from the
 //! validated env via build_slack_router over the reqwest transport.
 //!
-//! Belief persistence (persist_beliefs) + the drain path exist and are
-//! tested; the daemon main persists them once a belief-producing
-//! strategy is composed (mech_structural holds none today).
+//! Belief persistence (S6): drive() DRAINS the synthesis arm's belief
+//! drafts and PERSISTS them per segment (runner.drain_pending_beliefs ->
+//! persist_beliefs, FK-correct + monotonic ids). A persist failure alerts
+//! and counts but never crashes (beliefs are the calibration substrate, not
+//! the money path). Only the synthesis arm drafts beliefs; the mechanical
+//! arms hold none.
 //!
 //! The dead-man heartbeat runs as an independent spawned task in main
 //! (deadman_tick, mock-tested; real pings only in the binary).
@@ -439,6 +442,11 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     // the latch on the next success, and counts every failure.
     let mut refresh_failing = false;
     let mut edge_refresh_failures = 0u64;
+    // S6 belief-id monotonic base: seed from the drive-start epoch so ids never
+    // collide ACROSS runs (a later restart starts at a larger epoch), and the
+    // per-persist increment keeps them unique WITHIN a run. (A full ULID is the
+    // ledgered req-6 refinement; persist_beliefs documents the same.)
+    let mut belief_id_base = Clock::now(runner.clock.as_ref()).epoch_millis().max(0) as u64;
     loop {
         let stats = run_loop(
             runner,
@@ -506,6 +514,27 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                             ),
                         ));
                     }
+                }
+            }
+
+            // S6: drain + persist the synthesis arm's belief drafts per segment
+            // (the calibration substrate; ONLY the synth arm drafts beliefs, so
+            // synthesis_refresh-Some is exactly when any exist). A persist
+            // FAILURE alerts + counts but never crashes — beliefs are not the
+            // money path (I5 governs the AUDIT log, not these). The drained set
+            // is lost on failure (re-buffering is a ledgered refinement).
+            let drained = runner.drain_pending_beliefs();
+            if !drained.is_empty() {
+                let now_iso = Clock::now(runner.clock.as_ref()).to_iso8601();
+                match persist_beliefs(pool, &drained, &now_iso, belief_id_base).await {
+                    Ok(persisted) => belief_id_base += persisted as u64,
+                    Err(e) => alerts.push((
+                        fortuna_ops::MessageKind::Ops,
+                        format!(
+                            "belief persist FAILED — {} draft(s) lost this segment: {e}",
+                            drained.len()
+                        ),
+                    )),
                 }
             }
         }

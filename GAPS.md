@@ -258,9 +258,11 @@ Build sub-slices (each its own iteration, TDD, battery-gated):
       +veto -> mind binding): S4 per-segment refresh DONE; mech_extremes+veto
       DONE; S5a mind binding DONE (synthesis mind PARAM + "synth_events"-scoped
       calibration; arm trades a seeded edge); S5b mind_from_env DONE (synthesis
-      side: AnthropicMind when keyed, else StubMind; main wires it from env).
-      NEXT (Track A's tail): S6 belief drain+persist + rich digest -> THEN tick
-      T4.1 (starts the soak). PREREQS before the LIVE synthesis arm trades
+      side: AnthropicMind when keyed, else StubMind; main wires it from env);
+      S6a belief drain+persist WIRED into drive() DONE. NEXT (Track A's tail):
+      S6b RICH digest (terse -> DigestInputs) + daily reconciliation re-run +
+      weekly/monthly reviews -> THEN tick T4.1 (starts the soak). PREREQS before
+      the LIVE synthesis arm trades
       (operator/config + a boundary item, NOT blocking the tick of a soak that
       can run mechanically-only or with the stub): (1) add `synthesis_cents`
       envelope + `[gates.per_strategy.synthesis]` to the example/operator config
@@ -396,7 +398,25 @@ Build sub-slices (each its own iteration, TDD, battery-gated):
       before the veto goes live; the veto stays StubVetoMind::allow_all. PROD-
       LIVE PREREQ (S5a gap): synthesis trades only once the operator config adds
       `synthesis_cents` envelope + [gates.per_strategy.synthesis].
-  S6. belief drain+persist wired (path exists); rich digest.
+  S6a. belief drain+persist WIRED INTO drive(). DONE (this commit): per segment,
+      within the synthesis_refresh-Some path (only the synth arm drafts beliefs),
+      drive() calls runner.drain_pending_beliefs() -> persist_beliefs(pool,
+      drafts, now_iso, belief_id_base). belief_id_base seeds from the drive-start
+      epoch (unique across runs) + increments per persist (unique within a run);
+      a full ULID is the ledgered req-6 refinement (persist_beliefs already notes
+      it). A persist FAILURE alerts (Ops) + counts but never crashes — beliefs
+      are the calibration substrate, NOT the money path (I5 governs the audit
+      log). The drained set is LOST on persist failure (re-buffering = a ledgered
+      refinement). Test (daemon_smoke sqlx::test): [synthesis] + a believing mind
+      + a confirmed sim edge + a book -> drive one segment -> a belief for evt-1
+      lands in the ledger (before 0 -> after >=1); MUTATION-PROVEN non-vacuous
+      (disabling the persist drops after to 0). Note: belief DRAFTING is
+      calibration-independent (the cycle calls the mind regardless), so this
+      persists even when calibration is None.
+  S6b. RICH daily digest — STILL TERSE. terse_daily_digest -> the full
+      DigestInputs composition (fortuna-ops/digest.rs exists: per-strategy rows,
+      veto accounting, beliefs/calibration) + the daily reconciliation re-run +
+      weekly/monthly cognition reviews. Next sub-slice.
   Then tick T4.1 (starts the soak) -> T4.2 -> T4.5.
 The populated-path test rule (the verifier's vacuous-test lesson) applies to
 EVERY sub-slice: assert REAL non-empty edge sets / non-zero proposals, never a
