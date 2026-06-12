@@ -347,13 +347,17 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       metadata-only — never a content read, dodging the 1.3GB line-count DoS;
       §5 rows_today/key_count deferred), merged into /streams when
       perishable_dir present; daemon wires perishable_dir="data/perishable";
-      slice 5 (this commit) = R5 dedicated audit pool (connect_readonly_pool,
+      slice 5 (468c8c1) = R5 dedicated audit pool (connect_readonly_pool,
       isolated 2-conn, never the writer's) wired into the daemon's RotaState so
       the audit TAIL is LIVE; available:true path HTTP-tested. Also: rota-slices
-      + audit-tail-fix gate findings ALL remediated (F1-F6 + #1-#4).
+      + audit-tail-fix gate findings ALL remediated (F1-F6 + #1-#4);
+      slice 6 (this commit) = gates.rejections_by_check (new SimRunner::
+      rejections_by_check() read accessor -> views_from; {check,count} summing
+      to total_rejections, the consistency invariant tested). Gates surface
+      complete bar recent_rejections (audit query).
       REMAINING: cognition view (R7, pool-unblocked); money view (DESIGN-BLOCKED
-      — §5 account model has no faithful source, ledgered in GAPS);
-      gates.rejections_by_check; Phase-3 shell/assets; R12 browser pass.
+      — §5 account model has no faithful source, ledgered in GAPS); Phase-3
+      shell/assets; R12 browser pass.
 - [ ] T4.4 Operator CLI lifecycle (operator-directed 2026-06-11; design
       AUTHORITATIVE at docs/design/fortuna-cli.md INCLUDING its amendments
       section): `fortuna start/stop/status/logs/config-check` extending

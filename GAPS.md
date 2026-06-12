@@ -296,13 +296,15 @@ VERIFIED). New/carried Minors:
 - DEFERRED (capability-gated; keys ABSENT not faked-zero so a panel never
   reads falsely "all clear"): money view (needs the new boards "account"
   field, R6); cognition view (R7 — BeliefsRepo::recent + calibration-scope
-  enumeration, two new ledger queries); gates.rejections_by_check (needs a
-  runner read-path accessor — escapes only via Prometheus text today, which
-  R2 forbids parsing); recent_rejections / recent_watchdog_events (R5
-  dedicated audit pool); streams.recorder + per-venue book_age_ms (recorder
-  filesystem scan + new boards field); health.last_tick_age_ms (no last-tick
-  wall stamp tracked). Also remaining: cursor-pagination test (DONE — see
-  audit_tail_page tests), Phase-3 shell/assets, R12 browser pass.
+  enumeration, two new ledger queries); recent_rejections /
+  recent_watchdog_events (R5 dedicated audit pool + a query); streams.recorder
+  + per-venue book_age_ms (recorder filesystem scan + new boards field);
+  health.last_tick_age_ms (no last-tick wall stamp tracked). Also remaining:
+  Phase-3 shell/assets, R12 browser pass.
+  [DONE since: cursor-pagination test (audit_tail_page tests); R5 audit pool;
+  gates.rejections_by_check — now POPULATED via the new SimRunner::
+  rejections_by_check() accessor (sorted {check,count}, sums to
+  total_rejections; §5 per-check "number" omitted — runner keys by name only).]
 
 ## T4.3 ROTA — slice 5 (R5 pool) + the money-view design finding (2026-06-11)
 

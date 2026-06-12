@@ -121,10 +121,25 @@ async fn settlement_view_carries_limbo_voids_and_reversals() {
 #[tokio::test]
 async fn gates_and_streams_carry_scalars_arrays_and_other_views_deferred() {
     let v = views_from(&ticked_runner(10, 2).await, GEN);
-    assert!(v["gates"]["total_rejections"].is_number());
-    // rejections_by_check needs a runner read-path accessor; recent_rejections
-    // needs the audit pool — both later slices, asserted absent.
-    assert!(v["gates"].get("rejections_by_check").is_none());
+    let total = v["gates"]["total_rejections"]
+        .as_u64()
+        .expect("total is a number");
+    // rejections_by_check is the per-check breakdown (runner read-path
+    // accessor). Each entry is {check, count}; the counts MUST sum to the
+    // total (a consistency invariant that holds for any run, including zero).
+    let by_check = v["gates"]["rejections_by_check"]
+        .as_array()
+        .expect("rejections_by_check is an array");
+    let mut sum = 0u64;
+    for e in by_check {
+        assert!(e["check"].is_string(), "each entry names its check: {e}");
+        sum += e["count"].as_u64().expect("count is a number");
+    }
+    assert_eq!(
+        sum, total,
+        "the by-check breakdown sums to total_rejections"
+    );
+    // recent_rejections still needs the audit pool — a later slice, absent.
     assert!(v["gates"].get("recent_rejections").is_none());
     assert!(v["streams"]["venue_api_errors_total"].is_number());
     // The recorder filesystem scan is a later slice (reads data/perishable).

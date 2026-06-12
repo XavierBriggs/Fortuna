@@ -25,11 +25,12 @@
 //!     floating) — an un-added runner read-path field (R6).
 //!   - `cognition`: needs `BeliefsRepo::recent` + calibration-scope
 //!     enumeration — two new ledger queries (R7).
-//!   - `gates.rejections_by_check` / `recent_rejections`,
-//!     `settlement.recent_watchdog_events`: the per-check breakdown needs a
-//!     runner read-path accessor (it escapes only via Prometheus text today,
-//!     which R2 forbids parsing); the recent-event tails need the R5
-//!     dedicated audit pool.
+//!   - `gates.recent_rejections` / `settlement.recent_watchdog_events`: the
+//!     recent-event tails need the R5 dedicated audit pool + a query.
+//!     (`gates.rejections_by_check` is now POPULATED via the new
+//!     `SimRunner::rejections_by_check()` accessor — sorted {check, count},
+//!     summing to total_rejections; §5's per-check "number" is omitted as the
+//!     runner keys by check name only.)
 //!   - `streams.recorder` + per-venue `book_age_ms`: the recorder filesystem
 //!     scan and the NEW boards book-age field (later slices).
 //!   - `health.last_tick_age_ms`: no last-tick wall stamp is tracked — null,
@@ -69,6 +70,15 @@ pub fn views_from<J: IntentJournal + Send>(runner: &SimRunner<J>, generated_at: 
     let limbo = ops["capital_in_limbo_cents"].as_i64().unwrap_or(0).max(0);
     let overdue = ops["settlements_overdue"].as_u64().unwrap_or(0);
 
+    // The per-check gate-rejection breakdown (sorted by check name; counts sum
+    // to total_rejections). §5's "number" field is omitted: the runner keys by
+    // check NAME only, so a fabricated gate number would be a guess.
+    let rejections_by_check: Vec<Value> = runner
+        .rejections_by_check()
+        .into_iter()
+        .map(|(check, count)| json!({ "check": check, "count": count }))
+        .collect();
+
     json!({
         "health": {
             "generated_at": generated_at,
@@ -97,6 +107,7 @@ pub fn views_from<J: IntentJournal + Send>(runner: &SimRunner<J>, generated_at: 
         "gates": {
             "generated_at": generated_at,
             "total_rejections": c.gate_rejections,
+            "rejections_by_check": rejections_by_check,
         },
         "streams": {
             "generated_at": generated_at,

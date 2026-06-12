@@ -507,6 +507,15 @@ impl<J: IntentJournal + Send> SimRunner<J> {
         self.gates.halts().global_halted().map(|s| s.to_string())
     }
 
+    /// Per-check gate rejection tallies (Section 8 "gate rejection counts by
+    /// reason"): check name -> count, sorted by name. A pure read accessor for
+    /// the ROTA gates view — the breakdown otherwise escapes only via the
+    /// Prometheus text, which ROTA must not parse (design R2). The counts sum
+    /// to `counters().gate_rejections`. Read-path only; no money-path effect.
+    pub fn rejections_by_check(&self) -> std::collections::BTreeMap<String, u64> {
+        self.gate_rejections_by_check.clone()
+    }
+
     /// Take the belief drafts buffered since the last drain (req 6). The
     /// daemon persists them to BeliefsRepo (events upserted first for the
     /// FK); draining empties the buffer so a draft is persisted once.

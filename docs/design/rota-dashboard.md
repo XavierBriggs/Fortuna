@@ -498,6 +498,17 @@ a financial surface. Ledgered in GAPS for an operator/design call. REMAINING:
 cognition view (R7, now pool-unblocked), money view (design-blocked),
 gates.rejections_by_check, Phase-3 shell/assets, R12 browser pass.
 
+SLICE 6 BUILT (2026-06-11): gates.rejections_by_check. New pure read accessor
+`SimRunner::rejections_by_check()` (check name -> count, sorted) — the breakdown
+otherwise escapes only via Prometheus text, which R2 forbids parsing. views_from
+shapes it into the gates view as sorted {check, count} entries; §5's per-check
+"number" is OMITTED (the runner keys by check NAME only — a gate number would be
+a guess). Test asserts the consistency invariant: the by-check counts SUM to
+total_rejections (holds for any run, including zero). The gates surface is now
+complete bar recent_rejections (audit-pool query). REMAINING: cognition view
+(R7), money view (design-blocked), recent_rejections/recent_watchdog (audit
+queries), Phase-3 shell/assets, R12 browser pass.
+
 - V-1 PASS: serve_dashboard + the three routes present (dashboard.rs ~52-68;
   `route("/")`, `/metrics`, `/api/boards`); POST-405 loop at
   tests/dashboard.rs:74-80 exactly as cited.
