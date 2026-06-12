@@ -1,60 +1,82 @@
 # GATE FINDINGS — latest (verifier-owned; implementer reads at priority (a))
 
-Updated: 2026-06-12 ~03:30Z, covering commits 19954a6 + 8a4fcb2.
-Verdict: r5test-slice6-gate-2026-06-12.md (ACCEPT-WITH-GAPS — third
-consecutive non-BLOCK; zero Major).
+Updated: 2026-06-12 ~10:30Z. Multi-track pipeline state.
 
-Cleared: the R5 isolation test is committed WITH TEETH — verifier
-scratch-merged the pools and the test went RED (PoolTimedOut on the
-writer-unimpeded half), so the property is genuinely pinned; the Err arm
-is honest now (available:false + neutral detail, no raw sqlx text leaking
-to the view). Slice 6 is read-path-only confirmed (runner.rs +9/-0, pure
-clone of an existing BTreeMap; the enforcement site is untouched). Battery
-721/0/0, DST 2000-tier clean, invariants green, protected crate untouched.
+## TRACK C — cumulative perps gate VERDICT (track-c-perp-gates-gate-2026-06-12.md)
 
-Update 2026-06-12 ~04:05Z: money-view gate (money-view-gate-2026-06-12.md)
-= ACCEPT-WITH-GAPS, FOURTH consecutive non-BLOCK, zero Major. Slice 7 money
-view is honest: floating/total are literal nulls (never faked zeros),
-settled/committed trace to inspect_totals with the committed-subset-of-
-settled identity verified, "basis":"sim-only" labeled and test-asserted,
-integer cents end-to-end. Battery 722/0/0. NEW Minor (item 4 below) —
-SECOND occurrence of the vacuous-test class; a third on a money surface
-escalates to Major by prior calibration note.
+ACCEPT-WITH-GAPS, zero Critical, MERGE CONDITIONAL ON TWO OPERATOR
+DECISIONS (parked below). Cleared: B2 types integer end-to-end; B3 gate arm
+fail-closed on every error arm, liquidation-loss worst case, pipeline
+provably additive (checks 1-10 zero hunks); MarginSim byte-deterministic;
+protected crate PURE ADDITIONS (628/0, full diff in the verdict); battery
+852/0/0, DST 10000x4 clean.
 
-4. [Minor — vacuous-test class, 2nd occurrence] The money-view test stays
-   green under a fully fabricated panel (mutation-proven: zeroed settled/
-   committed/empty positions => workspace green). Assert real numbers:
-   settled == venue cash from a seeded run with fills (e.g. the 11/3 seed:
-   3 positions, yes_qty=50, fees 66/71/74), and add a reserved>0 seed so
-   committed is asserted non-zero at least once.
+TRACK C FIX LIST (Minor, ledger each):
+1. [F2] At-boundary equality unpinned for liquidation floor + leverage cap
+   (mutations M1/M3 survived — add exactly-at-boundary tests; the
+   enforcement itself is mutation-proven one tick beyond).
+2. [F3] The funding ±2% cap (research §4) is unenforced in MarginSim —
+   enforce or ledger why simulation should not clamp.
+3. [F5] perp.rs:729-730 (see verdict) minor cleanup.
+4. [F1 follow-on, BINDING for B4]: build the leverage_estimates -> RiskCurve
+   converter reading the RECORDED fixtures + a shape test against
+   fixtures/kinetics-perps/markets__single.json; correct the T5.B5 tick
+   wording (claims "recorded risk curves" — currently false; correct
+   visibly, never erase).
 
-ALSO SLOTTED (operator-directed): BUILD_PLAN T4.5 — ROTA v1.1 deferred
-panels (shadow cross-join + discovery join queries, triage + discovery
-panels, gate-verdict badge w/ parser, WS counters flip) — sequenced after
-T4.2; perps panel stays with T5.B8 (mounts in ROTA). The directive
-priority order now includes T4.5. Its TEST RULE bakes in the
-vacuous-test lesson: populated-path seeds required.
+## OPERATOR DECISIONS PARKED (morning queue)
 
-Fix list (all Minor, ledger each):
+1. PROTECTED-CRATE WAIVE batch 5: track-C invariant additions (perp I1
+   seal, I2 extension, I3 cross-domain halt) — verified pure additions,
+   628 insertions / 0 deletions, full diff quoted in the verdict file.
+2. F1 DISPOSITION: verifier recommends waive + tick-wording correction +
+   the B4 contract item above (the sim engine is sound; the tick
+   overstated its data source).
+3. LEVERAGE CAP NUMBER: the Phase-A note says ~5.9x -> 2x intent, but spec
+   5.15 says "config-set at or below venue maxima" and NO 2x exists in any
+   committed config. If 2x is the intended conservative posture, say so —
+   it becomes a [perp] config entry + a pinned test. (Also: this gate's
+   rubric wrongly asserted "spec says 2x" — verifier-session error,
+   corrected here.)
+4. Standing: keys rotation; purge finalization; machine disk (~16-33GB
+   free, fluctuating); 35GB main-target cargo clean window.
 
-1. The slice-6 "counts sum to total_rejections" test is VACUOUS on the
-   populated path: the seeded run produces zero rejections, and stubbing
-   the accessor to an empty map leaves every suite green. Seed a run that
-   actually REJECTS (e.g. an exposure-cap breach) and assert a non-empty
-   by_check breakdown sums to a non-zero total.
-2. The R5 test self-constructs its pools — a future wiring merge at
-   main.rs:93-108 would fail no test. Add a boot-path assertion (or a
-   construction-site test) that the daemon's reader and writer pools are
-   distinct objects.
-3. The gates-view rationale "number would be a guess" is false:
-   GateCheck::index() (fortuna-gates/src/pipeline.rs:75-86) provides the
-   exact spec numbering (EdgeFloor=6 matches the design example). Either
-   include the number field per the design contract or correct the
-   rationale.
+## R12 BROWSER PASS: PASSED (2026-06-12 ~10:25Z) — T4.3 final condition MET
 
-Standing: KXBTCPERP1 funding position crosses the 04:00 UTC tick — the
-~05:00Z gate firing captures funding_history and completes fixture item
-10. Do NOT close that position before then.
+Boot at merged main; ZERO console errors; all panels render the real
+presentation layer (wheel logo, instrument panels, honest nulls for
+floating/total, the amber "no cognition strategy composed yet" honest
+state); halt drill -> full SYSTEM HALTED takeover verified; clean
+SIGTERM shutdown (92 ticks, exactly-one shutdown row); screenshots in
+docs/reviews/rota-visual/rota-r12-*. T4.3's track-B tick is now FULLY
+accepted. Track-B merge complete; post-merge battery green INCLUDING the
+first-ever corpus replay (3 anchor seeds).
 
-Operator actions still queued (unchanged): ROTATE both Kalshi keys;
-FINALIZE the purge before any first push.
+## NEW FINDING from the R12 drill — for TRACK A (fortuna-live owner):
+
+[Needs-adjudication] The halt poller APPLIES external halts (<=500ms) but
+appears to NEVER CLEAR on rearm: a halt_events kind='rearm' row left the
+daemon halted for minutes until a restart (whose boot fold DID read
+set->rearm correctly — verified live). Either (a) deliberate-conservative
+(rearm requires restart) — then DOCUMENT it in the CLI rearm output, ROTA
+health panel, and ASSUMPTIONS, or (b) the poller should clear on rearm —
+then implement + test (one standing rearm over N polls => unhalt exactly
+once, audit row). Adjudicate against I2's wording (re-arm is the HUMAN
+act; the poller reflecting it is not "automatic resumption").
+
+## TRACK-B ORPHANED MINORS (track stopped; revert to pool — track A may take):
+F-1: fortuna status missing the audit-age line (fortuna-cli.md:57, the
+crash-tell) — implement or ledger. F-2: A2 spawn-cwd pinning (cwd-relative
+out-dir edge). Plus: one manual §13 runbook execution before
+managed-lifecycle adoption (operator).
+
+## PIPELINE
+
+Track B: final cumulative gate RUNNING (CLI slices 2+3 + ROTA cognition/
+presentation/logo + both ticks); R12 browser pass follows its verdict,
+run by the orchestrator. Track B session STOPPED itself clean (queue
+exhausted) — protocol-conformant.
+Track C increments queued: B6 DST arms + B4 slice 1 (gate after track-B).
+Main: synthesis-in-main batch accumulating (S1, S2, S3a landed; gates at
+the T4.1 tick or coherent slice); determinism anchors landed (corpus no
+longer empty — closes the standing Info finding).
