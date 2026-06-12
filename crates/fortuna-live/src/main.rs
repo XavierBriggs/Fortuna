@@ -165,6 +165,11 @@ async fn main() -> Result<()> {
     let mut cadence = RealCadence {
         clock: runner.clock.clone(),
     };
+    // S4: when [synthesis] is configured, hand drive() the pool + its filters
+    // so the loop re-loads the confirmed edge set per segment (req 2). Built
+    // BEFORE `pool` moves into the halt poller. Absent [synthesis] => None =>
+    // the loop never reloads (a mechanically-only daemon).
+    let synthesis_refresh = dcfg.synthesis.clone().map(|syn| (pool.clone(), syn));
     let mut poller = PgHaltPoller::new(pool);
     let loop_cfg = LoopConfig {
         tick_interval_ms: dcfg.daemon.tick_interval_ms,
@@ -216,6 +221,7 @@ async fn main() -> Result<()> {
         &mut scrape,
         slack_router.as_ref(),
         &mut daily,
+        synthesis_refresh,
     )
     .await
     .context("daemon loop")?;

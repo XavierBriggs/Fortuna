@@ -294,6 +294,63 @@ fn strategy_ids_reports_the_composed_strategy() {
     );
 }
 
+#[test]
+fn refresh_synthesis_edges_swaps_the_set_and_reports_the_count() {
+    // S4 (synthesis-edge-source-decision req 2): the daemon re-loads the
+    // confirmed-tier edges each segment and pushes them into the booted
+    // synthesis arm through the runner — the exact seam `drive()` calls.
+    // `synthesis_edge_count` reports the live set; `refresh_synthesis_edges`
+    // replaces it wholesale and returns the new count. NON-VACUOUS: real edge
+    // views in, the live count changes to match (a stubbed no-op would report
+    // the original 1, failing the swap-to-2 assertion).
+    let mind: Arc<dyn Mind> = Arc::new(StubMind::scripted(vec![]));
+    let strategy = SynthesisStrategy::new(synthesis_config(), mind); // seeds 1 edge
+    let mut r = SimRunner::new(
+        runner_config(71),
+        vec![Box::new(strategy)],
+        Box::new(MemoryAuditSink::default()),
+        t0(),
+    )
+    .unwrap();
+    assert_eq!(
+        r.synthesis_edge_count(),
+        Some(1),
+        "the composed arm starts at its single config edge"
+    );
+
+    // A fresh confirmed-tier load with TWO edges replaces the set wholesale.
+    let reloaded = vec![
+        EdgeView {
+            market: "KX-A".to_string(),
+            event_id: "evt-1".to_string(),
+            mapping: MappingType::Direct,
+            tier: EdgeTier::Confirmed,
+        },
+        EdgeView {
+            market: "KX-B".to_string(),
+            event_id: "evt-2".to_string(),
+            mapping: MappingType::Negation,
+            tier: EdgeTier::Confirmed,
+        },
+    ];
+    assert_eq!(
+        r.refresh_synthesis_edges(&reloaded),
+        Some(2),
+        "refresh swaps to the reloaded set and reports its count"
+    );
+    assert_eq!(
+        r.synthesis_edge_count(),
+        Some(2),
+        "the live count reflects the swap"
+    );
+
+    // An empty reload is VALID (req 3 fail-closed): the refresh SUCCEEDS and
+    // reports zero; the arm then trades nothing until a later refresh restores
+    // edges. It is not an error and never a crash.
+    assert_eq!(r.refresh_synthesis_edges(&[]), Some(0));
+    assert_eq!(r.synthesis_edge_count(), Some(0));
+}
+
 // ------------------------------------------------------- cognition failure
 
 /// A mind that always fails, with a scripted error kind.

@@ -2449,6 +2449,35 @@ impl<J: IntentJournal + Send> SimRunner<J> {
         self.strategies.iter().map(|s| s.id()).collect()
     }
 
+    /// Push a freshly loaded confirmed-tier edge set into the composed
+    /// synthesis arm (S4 per-segment refresh; the daemon calls this once per
+    /// `drive()` segment — synthesis-edge-source-decision req 2). Returns the
+    /// new edge count, or `None` when no synthesis arm is composed (a
+    /// mechanically-only daemon — the refresh is then a no-op, never an
+    /// error). The set replaces the arm's prior set wholesale; an empty set
+    /// is VALID (req 3 fail-closed). The daemon composes exactly one synthesis
+    /// arm, but every edge-trading arm is refreshed for robustness.
+    pub fn refresh_synthesis_edges(
+        &mut self,
+        edges: &[fortuna_cognition::cycle::EdgeView],
+    ) -> Option<usize> {
+        let mut count = None;
+        for s in self.strategies.iter_mut() {
+            if let Some(n) = s.refresh_edges(edges) {
+                count = Some(n);
+            }
+        }
+        count
+    }
+
+    /// The composed synthesis arm's live edge count, or `None` for a
+    /// mechanically-only daemon — the read seam `drive()`'s smoke asserts a
+    /// per-segment refresh took (it reflects ONLY an edge-trading arm, never
+    /// a mechanical one).
+    pub fn synthesis_edge_count(&self) -> Option<usize> {
+        self.strategies.iter().find_map(|s| s.edge_count())
+    }
+
     /// Apply a venue settlement to local books (sim convenience mirroring
     /// what the settlement processors automate at T1.4).
     pub fn apply_settlement(

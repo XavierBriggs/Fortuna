@@ -28,10 +28,13 @@
 //!
 //! The OPT-IN synthesis arm (S3b): a [synthesis] config section composes a
 //! SynthesisStrategy from the confirmed-tier edge load (compose::
-//! synthesis_edges) ALONGSIDE mech_structural. Its mind is a StubMind
-//! PLACEHOLDER and calibration is None until S5 binds the real mind +
-//! measured calibration, so the arm is INERT (prices no edge, makes no
-//! trade) until then — do NOT start the soak before S5.
+//! synthesis_edges) ALONGSIDE mech_structural. drive() RE-LOADS that confirmed
+//! set once per segment (S4, req 2) — a mid-run confirmation takes effect
+//! within one segment, no restart; a reload failure keeps the LAST-KNOWN set,
+//! counts, and alerts on the failing transition, never crashing the loop. Its
+//! mind is a StubMind PLACEHOLDER and calibration is None until S5 binds the
+//! real mind + measured calibration, so the arm is INERT (prices no edge,
+//! makes no trade) until then — do NOT start the soak before S5.
 //!
 //! HONESTLY NOT HERE YET (ledgered in GAPS; claims must match code): the
 //! real-mind binding (S5: StubMind -> AnthropicMind via mind_from_env +
@@ -41,7 +44,7 @@
 
 use crate::audit_bridge::PgAuditSink;
 use crate::boot::{BootError, DaemonToml};
-use crate::compose::DegradeScrape;
+use crate::compose::{synthesis_edges, DegradeScrape, SynthesisSection};
 use crate::run_loop::{run_loop, CadenceDriver, HaltPoller, LoopConfig, LoopStats};
 use fortuna_cognition::cycle::{ComparatorConfig, TriageDecision};
 use fortuna_cognition::events::EdgeTier;
@@ -243,9 +246,30 @@ impl HaltPoller for PgHaltPoller {
     }
 }
 
+/// Fold one segment's edge-refresh outcome into the failure latch, mirroring
+/// the halt-poll-failure transition dedup: a sustained reload outage alerts
+/// ONCE (on the failing transition), the latch recovers on the next success,
+/// and EVERY failure is counted. Returns `true` exactly on the transition INTO
+/// failing — the caller then emits the ops alert. Keeping the last-known edge
+/// set on failure is implicit: the caller simply does not refresh (req 2).
+fn edge_refresh_transition(failed: bool, refresh_failing: &mut bool, failures: &mut u64) -> bool {
+    if failed {
+        *failures += 1;
+        if !*refresh_failing {
+            *refresh_failing = true;
+            return true;
+        }
+        false
+    } else {
+        *refresh_failing = false;
+        false
+    }
+}
+
 /// Drive the composed runner in SEGMENTS until the stop signal fires,
 /// then run the graceful-shutdown contract. Between segments the caller
-/// refreshes whatever needs refreshing (the metrics snapshot in main).
+/// refreshes whatever needs refreshing (the metrics snapshot in main); the
+/// loop itself re-loads the synthesis edge set per segment (S4, req 2).
 /// Returns accumulated stats + the shutdown report.
 #[allow(clippy::too_many_arguments)]
 pub async fn drive<C: CadenceDriver, P: HaltPoller>(
@@ -259,6 +283,12 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     scrape: &mut DegradeScrape,
     slack: Option<&fortuna_ops::SlackRouter>,
     daily: &mut DailyScheduler,
+    // S4 (synthesis-edge-source-decision req 2): when synthesis is composed,
+    // the pool + its `[synthesis]` filters so the loop re-loads the confirmed
+    // edge set once per segment. `None` for a mechanically-only daemon (and
+    // every smoke that does not exercise refresh) — the loop then never
+    // reloads.
+    synthesis_refresh: Option<(PgPool, SynthesisSection)>,
 ) -> Result<(LoopStats, fortuna_runner::ShutdownReport), DaemonError> {
     let mut total = LoopStats::default();
     // Dedup state OWNED ACROSS SEGMENTS (gate finding 2026-06-11: keeping
@@ -269,6 +299,11 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     let mut last_halt: Option<String> = None;
     let mut poll_failing = false;
     let mut total_send_failures = 0usize;
+    // S4 edge-refresh failure latch, OWNED ACROSS SEGMENTS for the same
+    // reason as poll_failing: a sustained reload outage alerts once, recovers
+    // the latch on the next success, and counts every failure.
+    let mut refresh_failing = false;
+    let mut edge_refresh_failures = 0u64;
     loop {
         let stats = run_loop(
             runner,
@@ -304,6 +339,41 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
         } else if stats.poll_failures == 0 {
             poll_failing = false;
         }
+
+        // S4 per-segment edge refresh (synthesis-edge-source-decision req 2):
+        // re-load the confirmed-tier edge set and push it into the synthesis
+        // arm so a newly confirmed (or superseded) edge takes effect within
+        // one segment — the ledger is the boundary, re-read each segment. A
+        // reload FAILURE keeps the LAST-KNOWN set (we simply do not refresh —
+        // never trade a guessed set), counts, and alerts ONCE on the failing
+        // transition; it never crashes the loop. The edges take effect on the
+        // arm's next book event with no further wiring.
+        if let Some((pool, syn)) = &synthesis_refresh {
+            match synthesis_edges(pool, syn).await {
+                Ok(edges) => {
+                    runner.refresh_synthesis_edges(&edges);
+                    edge_refresh_transition(
+                        false,
+                        &mut refresh_failing,
+                        &mut edge_refresh_failures,
+                    );
+                }
+                Err(e) => {
+                    if edge_refresh_transition(
+                        true,
+                        &mut refresh_failing,
+                        &mut edge_refresh_failures,
+                    ) {
+                        alerts.push((
+                            fortuna_ops::MessageKind::Ops,
+                            format!(
+                                "synthesis edge refresh FAILING — trading on last-known edge set: {e}"
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
         total_send_failures += route_alerts(slack, runner, &alerts).await;
 
         // Daily boundary (req 5 tail): on each new UTC day, emit the
@@ -335,6 +405,17 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
         runner.apply_external_alert(
             "Ops",
             &format!("{total_send_failures} Slack alert send(s) failed over this run"),
+        );
+    }
+    // Likewise surface the run's total edge-refresh failures: a daemon that
+    // could not re-load its edge set traded on a stale (last-known) one — an
+    // ops signal in its own right, never silently discarded (req 2).
+    if edge_refresh_failures > 0 {
+        runner.apply_external_alert(
+            "Ops",
+            &format!(
+                "{edge_refresh_failures} synthesis edge-refresh failure(s) over this run — traded on last-known edges"
+            ),
         );
     }
     let report = runner.shutdown().await?;
@@ -604,4 +685,36 @@ pub fn terse_daily_digest<J: fortuna_exec::IntentJournal + Send>(
         c.settlement_notices,
         c.cognition_failures
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::edge_refresh_transition;
+
+    #[test]
+    fn edge_refresh_transition_alerts_once_per_outage_and_counts_every_failure() {
+        // S4 req-2 dedup contract (mirrors the halt-poll-failure latch): a
+        // sustained reload outage alerts ONCE, counts EVERY failure, and
+        // re-alerts only after a recovery. NON-VACUOUS: distinct return values
+        // across the failing/recovering boundary + a real counter walk.
+        let mut failing = false;
+        let mut failures = 0u64;
+
+        // First failure: TRANSITION into failing -> alert, counted.
+        assert!(edge_refresh_transition(true, &mut failing, &mut failures));
+        assert_eq!(failures, 1);
+        // Sustained failure: counted, but DEDUPED (no second alert).
+        assert!(!edge_refresh_transition(true, &mut failing, &mut failures));
+        assert_eq!(failures, 2);
+        // Recovery: the latch resets; a success never alerts and never counts.
+        assert!(!edge_refresh_transition(false, &mut failing, &mut failures));
+        assert_eq!(failures, 2, "a success is not a failure");
+        // A fresh outage AFTER recovery re-alerts (the operator learns again).
+        assert!(edge_refresh_transition(true, &mut failing, &mut failures));
+        assert_eq!(failures, 3);
+        // Steady-state success keeps the latch clear and stays silent.
+        assert!(!edge_refresh_transition(false, &mut failing, &mut failures));
+        assert!(!edge_refresh_transition(false, &mut failing, &mut failures));
+        assert_eq!(failures, 3);
+    }
 }

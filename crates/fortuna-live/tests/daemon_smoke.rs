@@ -124,6 +124,7 @@ async fn daemon_smoke_boot_ticks_signal_shutdown(pool: PgPool) {
         &mut scrape,
         None,
         &mut daily,
+        None, // S4: no per-segment edge refresh in this smoke
     )
     .await
     .expect("daemon drive");
@@ -212,6 +213,7 @@ async fn signal_with_working_orders_cancels_them_and_audits(pool: PgPool) {
         &mut scrape,
         None,
         &mut daily,
+        None, // S4: no per-segment edge refresh in this smoke
     )
     .await
     .expect("daemon drive");
@@ -317,5 +319,108 @@ async fn compose_runner_composes_synthesis_only_when_configured(pool: PgPool) {
     assert!(
         ids2.iter().any(|i| i == "mech_structural"),
         "mech composed: {ids2:?}"
+    );
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn per_segment_refresh_picks_up_a_newly_confirmed_edge(pool: PgPool) {
+    // T4.1/S4 (synthesis-edge-source-decision req 2): the daemon re-loads the
+    // confirmed-tier edge set ONCE PER SEGMENT from the ledger — the ledger is
+    // the boundary between the discovery loop (which WRITES edges) and the
+    // trading daemon (which re-READS them). A daemon that booted with zero
+    // confirmed edges (synth arm empty, fail-closed) picks up an edge that is
+    // confirmed WHILE IT RUNS, within one segment and with no restart.
+    // NON-VACUOUS: the live count moves 0 -> 1 because a REAL confirmed edge
+    // was inserted between boot and the segment refresh; a stubbed/again-empty
+    // refresh would leave it at 0 and fail the 0 -> 1 assertion.
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let full = FortunaConfig::load_file(example_path).unwrap();
+    // Boot WITH [synthesis] scoped to the sim venue, but with NO edges yet.
+    let dcfg = DaemonToml::parse(&format!("{text}\n[synthesis]\nvenue = \"sim\"\n")).unwrap();
+
+    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 9)
+        .await
+        .expect("composition");
+    assert_eq!(
+        runner.synthesis_edge_count(),
+        Some(0),
+        "booted with no confirmed edges => the synth arm is empty (fail closed)"
+    );
+    arb_books(&runner);
+
+    // The edge becomes CONFIRMED AFTER boot — the running daemon must pick it
+    // up on its next segment refresh (not at the next restart).
+    let events = fortuna_ledger::EventsRepo::new(pool.clone());
+    events
+        .create(
+            "evt-1",
+            "s",
+            "c",
+            "src",
+            None,
+            "2026-06-20T18:00:00.000Z",
+            "weather",
+            "2026-06-10T12:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    fortuna_ledger::EdgesRepo::new(pool.clone())
+        .insert_edge(
+            "e1",
+            "KX-A",
+            "sim",
+            "evt-1",
+            "direct",
+            0.9,
+            "model:stub",
+            Some("op"),
+            None,
+            "2026-06-10T12:01:00.000Z",
+        )
+        .await
+        .unwrap();
+
+    let (tx, mut stop) = tokio::sync::oneshot::channel::<()>();
+    let mut cadence = StopAtCadence {
+        clock: runner.clock.clone(),
+        sleeps: 0,
+        fire_at: 6, // one full 4-wake segment refreshes before the stop fires
+        tx: Some(tx),
+    };
+    let mut poller = NeverHalted;
+    let loop_cfg = LoopConfig {
+        tick_interval_ms: 1000,
+        halt_poll_ms: 500,
+    };
+    let mut scrape = DegradeScrape::new(default_degrade_thresholds());
+    let mut daily = fortuna_live::daemon::DailyScheduler::new();
+    // The S4 wiring main builds: the pool + the SAME [synthesis] filters the
+    // composition used, so the per-segment reload is scoped identically.
+    let synthesis_refresh = dcfg.synthesis.clone().map(|syn| (pool.clone(), syn));
+
+    let (_stats, _shutdown) = drive(
+        &mut runner,
+        &mut cadence,
+        &mut poller,
+        &loop_cfg,
+        4,
+        &mut stop,
+        |_r, _s| {},
+        &mut scrape,
+        None,
+        &mut daily,
+        synthesis_refresh,
+    )
+    .await
+    .expect("daemon drive");
+
+    assert_eq!(
+        runner.synthesis_edge_count(),
+        Some(1),
+        "the per-segment refresh loaded the edge confirmed mid-run (0 -> 1)"
     );
 }

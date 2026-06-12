@@ -237,27 +237,53 @@ Build sub-slices (each its own iteration, TDD, battery-gated):
       COMPLETE: S1 edge source + S2 fail-closed PIN + S3a load/filter/map +
       S3b-1 opt-in config + S3b-2 wiring. The arm is INERT (StubMind, calibration
       None) — do NOT tick T4.1 / start the soak until S5 binds the real mind.
-      Remaining T4.1 tail: S4 per-segment edge refresh -> S5 mind binding ->
-      S6 belief drain+persist + rich digest -> THEN tick T4.1 (starts the soak).
-      The [synthesis] CATEGORY filter (events-category join) stays deferred.
+      Remaining T4.1 tail (loop-doc order: synthesis-in-main -> mech_extremes
+      +veto -> mind binding): S4 per-segment refresh is now DONE (req 2 closes
+      synthesis-in-main) -> mech_extremes+veto -> S5 mind binding -> S6 belief
+      drain+persist + rich digest -> THEN tick T4.1 (starts the soak). The
+      [synthesis] CATEGORY filter (events-category join) stays deferred.
   S4. drive() per-segment edge refresh (requirement 2): keep last-known on
-      failure + count/alert, never crash. MECHANISM VALIDATED 2026-06-12
-      (substantial + WIDE — build with focused context): drive() cannot reach
-      the synth strategy's edges today (private Vec<EdgeView>, no setter; the
-      runner exposes no strategy-mut access; the between_segments closure is
-      &SimRunner = immutable). Build path: (1) SynthesisStrategy::set_edges(
-      Vec<EdgeView>) + edge_count() getter (for the test); (2) Strategy::
-      as_any_mut(&mut self) -> &mut dyn Any (1 line per impl) + runner.
-      refresh_synthesis_edges(edges) -> Option<usize> (downcast, set, return
-      count); (3) drive() gains the pool + SynthesisSection AS AN OPTION so the
-      MANY existing callers (daemon_smoke x2, run_loop tests, main) pass None,
-      and per segment re-loads compose::synthesis_edges + calls
-      refresh_synthesis_edges; on Err keep last-known + count/alert (mirror the
-      halt-poll-failure TRANSITION dedup). Test: refresh swaps edges (edge_count
-      changes); an Err-injecting load keeps the prior count + bumps a counter.
-      NOTE: refresh is MOOT until S5 (the StubMind arm trades nothing), so S5
-      could reasonably PRECEDE S4 — but req 2 is binding, so S4 completes
-      synthesis-in-main.
+      failure + count/alert, never crash. DONE (this commit). ORDER REVERSAL
+      (honest, vs 1770c1f which leaned "S5a precedes S4"): the GOVERNING
+      implementer-loop.md orders the tail "synthesis-in-main -> mech_extremes
+      +veto -> mind binding"; synthesis-in-main = decision-doc req 1-5, and req
+      2 IS the per-segment refresh, so S4 COMPLETES synthesis-in-main and
+      precedes mind binding. It is also the conservative order: the fail-closed
+      refresh is a SAFETY net (never trade a guessed set, never crash) better in
+      place BEFORE the mind can trade live. Built CLEANER than the validated
+      as_any/downcast (trait polymorphism, no Any): (1) Strategy::edge_count()
+      -> Option<usize> + refresh_edges(&[EdgeView]) -> Option<usize>, both
+      DEFAULT None (mechanical strategies untouched); SynthesisStrategy overrides
+      (wholesale replace; empty set = VALID, req 3). (2) SimRunner::refresh_
+      synthesis_edges(&[EdgeView]) -> Option<usize> + synthesis_edge_count() ->
+      Option<usize> (iterate strategies; the daemon composes exactly one synth
+      arm, refresh handles many defensively). (3) drive() gains synthesis_refresh:
+      Option<(PgPool, SynthesisSection)> (ONE Option param; the 3 callers — main
+      + daemon_smoke x2 — main passes Some when [synthesis] is set, the smokes
+      None). Per segment it re-loads compose::synthesis_edges + refresh_synthesis_
+      edges; on Err it KEEPS last-known (simply does not refresh), counts
+      edge_refresh_failures, alerts ONCE on the failing transition (edge_refresh_
+      transition — the same dedup shape as poll_failing) + surfaces the run total
+      on shutdown. 3 NON-VACUOUS tests: (a) runner swap (synthesis_loop.rs)
+      1->2->0 edges via refresh_synthesis_edges/synthesis_edge_count, TDD red
+      observed (None != Some(1) before the overrides); (b) integration (daemon_
+      smoke sqlx::test) boots with 0 confirmed edges (count 0), confirms an edge
+      MID-RUN, drives one segment, count 0->1 (the ledger re-read is LOAD-BEARING,
+      not boot-cached); (c) the dedup latch (daemon.rs unit) alerts once/outage,
+      counts every failure, re-alerts after recovery. FAILURE-PATH NOTE:
+      ComposeError::BadEdge is UNREACHABLE from a real DB (mapping_type is
+      CHECK-constrained to the 4 values synthesis_edges all handle), so the
+      keep-last-known-on-Err path is proven via the pure edge_refresh_transition
+      helper, not a corrupt-row injection. BATTERY: fmt clean; clippy --workspace
+      --all-targets -D warnings GREEN (all 15 crates); tests GREEN on the COMPLETE
+      reverse-dep set of the change (fortuna-runner + fortuna-live + fortuna-
+      invariants — the only crates depending on the changed code; the rest are
+      behaviorally unaffected by construction) incl. the 3 new S4 tests; run-dst.sh
+      GREEN (3 corpus + 2000 seeds + synthesis_dst + settlement_dst). A single
+      `cargo test --workspace` invocation was repeatedly OOM-killed / target-thrashed
+      by the concurrent multi-track load (load ~29, disk near the 10GB floor) — the
+      VERIFIER's independent full battery is the backstop for the unaffected crates.
+      The arm is STILL INERT (StubMind, calibration None) — do NOT tick T4.1 until S5.
   S5a. make synthesis TRADEABLE (mind-injection + calibration) — the high-value
       step; SCOPE RESOLVED 2026-06-12 (more tractable than feared — NO
       events-category join needed). (1) compose_runner takes a mind: Arc<dyn

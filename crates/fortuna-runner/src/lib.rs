@@ -199,6 +199,21 @@ pub trait Strategy: Send {
     fn drain_beliefs(&mut self) -> Vec<fortuna_cognition::beliefs::BeliefDraft> {
         Vec::new()
     }
+    /// This strategy's live tradeable edge count, or `None` for a strategy
+    /// that trades no edge set (every mechanical strategy). The daemon reads
+    /// it through the runner to confirm a per-segment refresh took
+    /// (synthesis-edge-source-decision req 2).
+    fn edge_count(&self) -> Option<usize> {
+        None
+    }
+    /// Replace this strategy's tradeable edge set with a freshly loaded
+    /// confirmed-tier set (req 2) and return the new count. `None` for a
+    /// strategy that trades no edges — the runner then leaves it untouched.
+    /// The set is replaced wholesale; an empty slice is VALID (req 3
+    /// fail-closed; the arm then prices nothing until the next refresh).
+    fn refresh_edges(&mut self, _edges: &[fortuna_cognition::cycle::EdgeView]) -> Option<usize> {
+        None
+    }
 }
 
 /// Where audit records go. The Postgres-backed writer satisfies this in the

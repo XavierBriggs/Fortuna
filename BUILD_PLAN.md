@@ -315,6 +315,16 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       daemon's synthesis EDGES come from: EdgesRepo load vs config vs the
       discovery loop) — recorded in GAPS, not guessed. EXIT (continuous
       Sim week with the real mind) also awaits that wiring.
+      PROGRESS 2026-06-12 (box STILL UNTICKED — tick awaits S5 mind + S6 +
+      soak start): the synthesis edge-source design call is RESOLVED
+      (docs/design/synthesis-edge-source-decision.md: EdgesRepo confirmed-tier,
+      req 1-5). SYNTHESIS-IN-MAIN is now COMPLETE — S3b composes the opt-in arm;
+      S4 (req 2) re-loads the confirmed set per drive() segment (SimRunner::
+      refresh_synthesis_edges; fail-closed: empty=valid, reload-failure keeps
+      last-known + alerts once, never crashes) with 3 non-vacuous tests (runner
+      swap; integration count 0->1 on a mid-run confirmation; the dedup latch).
+      The arm is still INERT (StubMind, calibration None). Loop-doc tail next:
+      mech_extremes+veto -> S5 mind binding -> S6 digest -> tick.
 - [ ] T4.2 POST-FIXTURE tranche (blocked on the operator recording session):
       Kalshi WS dial (signed handshake, keep-alive, redial w/ resubscribe-on-gap),
       venue-generic recorded-stream replay into PaperVenue under both mech

@@ -281,4 +281,16 @@ impl Strategy for SynthesisStrategy {
     fn drain_beliefs(&mut self) -> Vec<fortuna_cognition::beliefs::BeliefDraft> {
         std::mem::take(&mut self.pending_beliefs)
     }
+    fn edge_count(&self) -> Option<usize> {
+        Some(self.edges.len())
+    }
+    fn refresh_edges(&mut self, edges: &[EdgeView]) -> Option<usize> {
+        // Wholesale replacement: the confirmed-tier load is the authority each
+        // segment (synthesis-edge-source-decision req 2). An empty set is VALID
+        // (req 3) — the arm then prices nothing until the next refresh restores
+        // edges. quotes()/on_event read self.edges, so this takes effect on the
+        // next book event with no further wiring.
+        self.edges = edges.to_vec();
+        Some(self.edges.len())
+    }
 }
