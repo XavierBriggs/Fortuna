@@ -12,6 +12,7 @@
 //!   fortuna config check [--config-path <path>]
 //!   fortuna logs   <daemon|recorder> [-f]
 //!   fortuna start  [--foreground] [--config-path <path>]
+//!   fortuna stop   [--timeout-secs N]
 //!
 //! halt/rearm write durable halt_events + an audit row; the running system
 //! restores flags from the fold at boot and observes operator events via its
@@ -71,6 +72,7 @@ struct Args {
     operator: Option<String>,
     journal: Option<String>,
     config_path: Option<String>,
+    timeout_secs: Option<String>,
     flatten: bool,
     follow: bool,
     foreground: bool,
@@ -84,6 +86,7 @@ fn parse_args() -> Result<Args> {
         operator: None,
         journal: None,
         config_path: None,
+        timeout_secs: None,
         flatten: false,
         follow: false,
         foreground: false,
@@ -108,6 +111,10 @@ fn parse_args() -> Result<Args> {
                 i += 1;
                 args.config_path = raw.get(i).cloned();
             }
+            "--timeout-secs" => {
+                i += 1;
+                args.timeout_secs = raw.get(i).cloned();
+            }
             "--flatten" => args.flatten = true,
             "-f" | "--follow" => args.follow = true,
             "--foreground" => args.foreground = true,
@@ -118,9 +125,9 @@ fn parse_args() -> Result<Args> {
     }
     if args.command.is_empty() {
         bail!(
-            "usage: fortuna <status|halt|rearm|kill|config check|logs|start> \
+            "usage: fortuna <status|halt|rearm|kill|config check|logs|start|stop> \
              [scope|component] [--reason ..] [--operator ..] [--journal ..] \
-             [--flatten] [--config-path ..] [-f] [--foreground]"
+             [--flatten] [--config-path ..] [-f] [--foreground] [--timeout-secs N]"
         );
     }
     Ok(args)
@@ -134,6 +141,7 @@ fn run() -> Result<()> {
         "logs" => logs_cmd(&args),
         "status" => status_cmd(&args),
         "start" => start_cmd(&args),
+        "stop" => stop_cmd(&args),
         "halt" | "rearm" => {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -163,21 +171,30 @@ fn log_path(dir: &Path, component: &str) -> PathBuf {
     dir.join("logs").join(format!("{component}.log"))
 }
 
-/// `ps -p <pid> -o comm=` — one call answers both liveness and identity
+/// `ps -p <pid> -o stat= -o comm=` — one call answers liveness and identity
 /// (A3: macOS reuses PIDs; a live pid is trusted only if its command path
-/// contains the name the pidfile claims). None = not running.
+/// contains the name the pidfile claims). None = not running. A ZOMBIE
+/// (stat Z*: exited, unreaped by its parent) reads as not running — it is
+/// not signalable work, and `stop` must see its exit as an exit.
 fn comm_of(pid: i64) -> Option<String> {
     if pid <= 0 {
         return None;
     }
     let out = std::process::Command::new("ps")
-        .args(["-p", &pid.to_string(), "-o", "comm="])
+        .args(["-p", &pid.to_string(), "-o", "stat=", "-o", "comm="])
         .output()
         .ok()?;
     if !out.status.success() {
         return None;
     }
-    let comm = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let text = String::from_utf8_lossy(&out.stdout);
+    let line = text.trim();
+    let mut parts = line.split_whitespace();
+    let stat = parts.next()?;
+    if stat.starts_with('Z') {
+        return None;
+    }
+    let comm = parts.collect::<Vec<_>>().join(" ");
     if comm.is_empty() {
         None
     } else {
@@ -581,6 +598,201 @@ async fn start_db_section(url: &str, components: &[(&str, i64)]) -> Result<()> {
     Ok(())
 }
 
+/// The daemon's graceful-exit marker (fortuna-live/src/main.rs prints it to
+/// stderr on the clean path; `start`'s redirect lands it in the daemon log).
+/// A1: `stop` succeeds only when this appears in the log AFTER the signal.
+const DAEMON_SHUTDOWN_MARKER: &str = "fortuna-live: clean shutdown";
+
+/// SIGTERM via shell-out (`nix` is not a workspace dep; std's Child::kill
+/// is SIGKILL and is never acceptable here — GAPS T4.4 records the call).
+fn send_sigterm(pid: i64) -> Result<()> {
+    let status = std::process::Command::new("kill")
+        .args(["-15", &pid.to_string()])
+        .status()
+        .context("running kill -15")?;
+    if !status.success() {
+        bail!("kill -15 {pid} exited with {status}");
+    }
+    Ok(())
+}
+
+/// Does `needle` appear in `path` at or after byte `offset`? The log is
+/// APPEND-mode across runs (A4), so only bytes written after the signal
+/// count — a previous run's marker must never satisfy A1.
+fn log_contains_after(path: &Path, offset: u64, needle: &str) -> bool {
+    use std::io::{Read, Seek, SeekFrom};
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    if file.seek(SeekFrom::Start(offset)).is_err() {
+        return false;
+    }
+    let mut buf = Vec::new();
+    if file.read_to_end(&mut buf).is_err() {
+        return false;
+    }
+    String::from_utf8_lossy(&buf).contains(needle)
+}
+
+/// `fortuna stop [--timeout-secs N]` (design Section 5 + A1/A7/A10):
+/// SIGTERM daemon then recorder, never SIGKILL, idempotent. Daemon success
+/// requires the clean-shutdown line in the log AFTER the signal (A1 —
+/// process exit alone is not success). Timeout leaves the process, the
+/// pidfile, and the A7 stopping marker, warns, and STILL proceeds to the
+/// recorder. The lifecycle audit row is best-effort: a dead DB can never
+/// block a shutdown.
+fn stop_cmd(args: &Args) -> Result<()> {
+    let timeout_secs: i64 = match &args.timeout_secs {
+        None => 60,
+        Some(raw) => raw
+            .parse()
+            .with_context(|| format!("--timeout-secs {raw:?} is not a number"))?,
+    };
+    let dir = runtime_dir();
+    let clock = RealClock;
+    let mut warnings = 0usize;
+    let mut stopped: Vec<(&str, i64)> = Vec::new();
+    for component in COMPONENTS {
+        let pidpath = pidfile_path(&dir, component);
+        let content = match std::fs::read_to_string(&pidpath) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                println!("{component}: already stopped");
+                continue;
+            }
+            Err(e) => {
+                return Err(e).with_context(|| format!("reading pidfile {}", pidpath.display()))
+            }
+            Ok(content) => content,
+        };
+        let pid = match classify_existing(&content, &comm_of) {
+            ExistingPidfile::Stale => {
+                std::fs::remove_file(&pidpath)
+                    .with_context(|| format!("removing stale pidfile {}", pidpath.display()))?;
+                println!("{component}: already stopped (stale pidfile removed)");
+                continue;
+            }
+            ExistingPidfile::MidClaim => {
+                eprintln!(
+                    "fortuna: {component} pidfile {} is claimed but empty — a start \
+                     appears to be in progress; re-run stop after it finishes",
+                    pidpath.display()
+                );
+                warnings += 1;
+                continue;
+            }
+            ExistingPidfile::Running { pid } => pid,
+        };
+        // A7: marker first, so status shows "stopping since T" throughout.
+        let marker = dir.join(format!("{component}.stopping"));
+        std::fs::write(&marker, b"")
+            .with_context(|| format!("writing stopping marker {}", marker.display()))?;
+        // A1: capture the append-log offset BEFORE the signal.
+        let logfile = log_path(&dir, component);
+        let log_offset = std::fs::metadata(&logfile).map(|m| m.len()).unwrap_or(0);
+        send_sigterm(pid)?;
+        let deadline = clock
+            .now()
+            .epoch_millis()
+            .saturating_add(timeout_secs * 1000);
+        let exited = loop {
+            if comm_of(pid).is_none() {
+                break true;
+            }
+            if clock.now().epoch_millis() >= deadline {
+                break false;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        };
+        if !exited {
+            // A7 verbatim guidance; the process, pidfile, and marker stay
+            // for the operator. NEVER SIGKILL — the daemon is cancelling
+            // working orders.
+            eprintln!(
+                "fortuna: {component} (pid {pid}) did not exit within {timeout_secs}s — \
+                 daemon is cancelling working orders — do NOT kill -9; watch \
+                 `fortuna logs daemon`; if the venue is unreachable use `fortuna kill`"
+            );
+            warnings += 1;
+            continue;
+        }
+        std::fs::remove_file(&pidpath)
+            .with_context(|| format!("removing pidfile {}", pidpath.display()))?;
+        let _ = std::fs::remove_file(&marker);
+        if component == "daemon" {
+            if log_contains_after(&logfile, log_offset, DAEMON_SHUTDOWN_MARKER) {
+                println!("daemon: stopped (clean shutdown confirmed in the log)");
+            } else {
+                // A1: exit alone is not success.
+                eprintln!(
+                    "fortuna: daemon (pid {pid}) exited but no shutdown line \
+                     ({DAEMON_SHUTDOWN_MARKER:?}) appeared in {} after the signal — \
+                     crash-style exit? Check `fortuna logs daemon` and the audit trail",
+                    logfile.display()
+                );
+                warnings += 1;
+            }
+        } else {
+            println!("{component}: stopped");
+        }
+        stopped.push((component, pid));
+    }
+    // A10: advisory attribution only — a dead DB never blocks a shutdown.
+    if !stopped.is_empty() {
+        match std::env::var("DATABASE_URL") {
+            Err(_) => println!("db: DATABASE_URL not set — lifecycle audit skipped"),
+            Ok(url) => {
+                let bounded = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .context("tokio runtime")
+                    .map(|rt| {
+                        rt.block_on(async {
+                            tokio::time::timeout(
+                                std::time::Duration::from_secs(STATUS_DB_TIMEOUT_SECS),
+                                stop_db_section(&url, &stopped),
+                            )
+                            .await
+                        })
+                    });
+                match bounded {
+                    Ok(Ok(Ok(()))) => {}
+                    Ok(Ok(Err(e))) => println!("db: unavailable — {e:#} (stop unaffected)"),
+                    Ok(Err(_)) => println!(
+                        "db: unavailable — no response within {STATUS_DB_TIMEOUT_SECS}s \
+                         (stop unaffected)"
+                    ),
+                    Err(e) => println!("db: unavailable — {e:#} (stop unaffected)"),
+                }
+            }
+        }
+    }
+    if warnings > 0 {
+        bail!("stop completed with {warnings} warning(s) — see above");
+    }
+    Ok(())
+}
+
+/// Best-effort `lifecycle` stop row (A10).
+async fn stop_db_section(url: &str, components: &[(&str, i64)]) -> Result<()> {
+    let pool = fortuna_ledger::connect(url).await?;
+    let clock = RealClock;
+    let now = clock.now();
+    let user = std::env::var("USER").unwrap_or_else(|_| "unknown".to_string());
+    let audit = AuditWriter::new(
+        pool,
+        std::sync::Arc::new(RealClock),
+        now.epoch_millis() as u64,
+    );
+    let mut payload = serde_json::json!({"action": "stop"});
+    for (component, pid) in components {
+        payload[format!("{component}_pid")] = serde_json::json!(pid);
+    }
+    audit
+        .append("lifecycle", Some(&user), None, payload)
+        .await?;
+    Ok(())
+}
+
 /// `fortuna config check [--config-path <p>]`: whole-shape validation via
 /// fortuna-ops, starts nothing, mutates nothing.
 fn config_cmd(args: &Args) -> Result<()> {
@@ -944,6 +1156,52 @@ mod tests {
         // Test cleanup only — the real stop path never SIGKILLs.
         child.kill().unwrap();
         let _ = child.wait();
+    }
+
+    #[test]
+    fn zombie_child_reads_as_not_running() {
+        // An exited-but-unreaped child is a zombie: ps still lists it
+        // (stat Z), but it is not running and never signalable work.
+        // `stop` polling such a pid must see an exit, not a hang.
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let pid = i64::from(child.id());
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert_eq!(comm_of(pid), None, "a zombie must read as not-running");
+        let _ = child.wait();
+    }
+
+    #[test]
+    fn log_contains_after_respects_the_offset() {
+        // A1 + A4: append-mode logs accumulate runs; only bytes after the
+        // pre-signal offset count as THIS shutdown's evidence.
+        let dir = scratch("log-offset");
+        let path = dir.join("daemon.log");
+        let old = format!("{DAEMON_SHUTDOWN_MARKER} (previous run)\n");
+        std::fs::write(&path, &old).unwrap();
+        let offset = old.len() as u64;
+        assert!(
+            !log_contains_after(&path, offset, DAEMON_SHUTDOWN_MARKER),
+            "a marker before the offset must not count"
+        );
+        assert!(
+            log_contains_after(&path, 0, DAEMON_SHUTDOWN_MARKER),
+            "offset 0 sees the whole file"
+        );
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        writeln!(f, "{DAEMON_SHUTDOWN_MARKER} — ticks=3").unwrap();
+        drop(f);
+        assert!(
+            log_contains_after(&path, offset, DAEMON_SHUTDOWN_MARKER),
+            "a marker appended after the offset counts"
+        );
+        assert!(
+            !log_contains_after(&dir.join("absent.log"), 0, DAEMON_SHUTDOWN_MARKER),
+            "a missing log is never evidence"
+        );
     }
 
     #[test]

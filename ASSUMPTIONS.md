@@ -44,6 +44,18 @@ conservative option, and the spec section it interprets.
 - **A7 stopping markers are cleared when `start` claims a pidfile** — a
   marker left by a previous stop must never make a freshly started daemon
   read as "stopping since".
+- **`stop`'s decision matrix per component:** stale pidfile (dead pid /
+  name mismatch / garbage) => "already stopped", stale file removed,
+  NOTHING signaled (A3: a reused pid is never signaled — test-pinned);
+  empty mid-claim pidfile => warning + skip (a start is racing; stop never
+  steals a claim); running => marker, SIGTERM, bounded wait.
+- **stop polls liveness at 200ms cadence against a RealClock deadline**
+  (default --timeout-secs 60 per A7); the wait is wall time at the binary
+  edge, the sanctioned RealClock source — no SystemTime::now().
+- **stop exits 1 whenever ANY component produced a warning** (timeout,
+  missing A1 evidence, mid-claim skip) even though the other component
+  proceeded — the operator must read the output; exit 0 is reserved for
+  fully-confirmed shutdowns and true idempotent no-ops.
 
 ## Latency levers: concurrent legs + stream ingestion (operator-directed)
 

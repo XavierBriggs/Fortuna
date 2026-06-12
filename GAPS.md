@@ -541,6 +541,46 @@ Slice 2 (`start`) additions:
   pattern (checklist item 10 signature) and is best-effort by A10. Verifier
   scratch-test or the manual runbook covers it; flagged honestly here.
 
+Slice 3 (`stop` — T4.4 commands complete) additions:
+
+- **Zombies read as not-running** (found red-first: the stop tests' stubs
+  are children of the test process, so their TERM-exits left ps-visible
+  zombies and the liveness poll never saw an exit): `comm_of` now reads
+  `ps -o stat=` alongside comm and treats stat Z* as not-running. This is
+  production-correct, not a test accommodation — a zombie pidfile target
+  is an EXITED process whose parent has not reaped it; it is not
+  signalable work, and `stop` must count its exit as an exit.
+- **fortuna-recorder has NO SIGTERM handler** (crate outside track-B
+  ownership): default TERM termination can land mid-append and tear a
+  JSONL line — the same defect class A2 guards against, with a microscopic
+  window (one write per 30s interval). `stop` cannot fix this from the
+  CLI side; a trap/flush handler belongs to the recorder's owner. Flagged
+  for track A / operator queue.
+- **A1 evidence choice:** the daemon's stderr line `fortuna-live: clean
+  shutdown` (main.rs, redirected into the managed log by `start`) is the
+  log evidence `stop` requires; the Pg final audit row remains the I5
+  record (A10 framing). `stop` accepts the marker only at/after the log
+  byte-offset captured BEFORE the signal — append-mode logs carry previous
+  runs' markers, and a stale marker must never vouch for a fresh crash
+  (offset semantics test-pinned, including the pre-seeded-marker case).
+- **A daemon that was never started via `start` has no managed log**, so
+  A1 cannot be confirmed: stop still SIGTERMs and waits, then exits 1
+  with an honest "no shutdown line" warning. The managed lifecycle is the
+  contract; outside it, stop degrades loudly rather than lying.
+- **DISK INCIDENT 2026-06-12 (environmental; operator notified live):**
+  the Data volume hit 100% (161MiB free) during the slice-3 battery —
+  link steps failed with ENOSPC across crates. Track B removed its OWN
+  worktree target/ (7.2G, regenerable build cache; nothing else touched —
+  not other tracks' targets, not data/, not Pg) restoring ~13Gi free, and
+  re-ran the battery from a clean build. The volume remains ~99% used
+  overall. Survey: MAIN checkout target/ = 35G (shared by the verifier's
+  gate batteries + rust-analyzer — NOT track-B's to clean), track-C
+  target/ = 9.7G (track C's), track-B = 7.2G (cleaned). A
+  `cargo clean` in the main checkout between gate firings is the big
+  FORTUNA-side lever — verifier/operator call. Risk while pressure
+  lasts: ENOSPC could hit the B0 recorder's JSONL appends and any
+  track's battery mid-link.
+
 ## SECURITY INCIDENT 2026-06-11 (gate finding F1, Critical) — keys were committed
 
 WHAT HAPPENED: both Kalshi PEM private keys (`.keys/fortuna-demo-v1.txt`

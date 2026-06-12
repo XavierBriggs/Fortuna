@@ -471,6 +471,238 @@ fn start_mid_claim_pidfile_is_contended_not_stale() {
     );
 }
 
+// ------------------------------------------------------------------------ stop
+//
+// Slice 3 (A1/A7). Stubs trap SIGTERM; their stdout is redirected to the
+// managed daemon log exactly as `start` would, so the A1 check (the
+// "fortuna-live: clean shutdown" line must appear in the log AFTER the
+// signal) runs against the real mechanism. Pidfiles claim name "sh" —
+// `ps -o comm=` for a shell stub reports /bin/sh.
+
+/// The daemon's graceful-exit marker (fortuna-live/src/main.rs prints it
+/// to stderr, which `start` redirects into the log).
+const SHUTDOWN_MARKER: &str = "fortuna-live: clean shutdown";
+
+/// Spawn a stub with stdout+stderr appended to the managed daemon log and
+/// a pidfile claiming it, exactly as `start` leaves the world.
+fn spawn_managed_daemon_stub(dir: &Path, case: &str, body: &str) -> ChildGuard {
+    let stub = write_stub(&temp_dir(&format!("{case}-stub")), "daemon-stub", body);
+    fs::create_dir_all(dir.join("logs")).unwrap();
+    let log = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("logs/daemon.log"))
+        .unwrap();
+    let log_err = log.try_clone().unwrap();
+    let child = Command::new(&stub)
+        .stdin(Stdio::null())
+        .stdout(log)
+        .stderr(log_err)
+        .spawn()
+        .unwrap();
+    write_pidfile(dir, "daemon", child.id(), "sh");
+    ChildGuard(child)
+}
+
+fn run_stop(runtime_dir: &Path, extra: &[&str]) -> Output {
+    let mut args = vec!["stop"];
+    args.extend_from_slice(extra);
+    bin()
+        .args(&args)
+        .env("FORTUNA_RUNTIME_DIR", runtime_dir)
+        .env_remove("DATABASE_URL")
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn stop_is_idempotent_when_nothing_runs() {
+    // Design Section 7 rule 4 + A9: stop on a stopped system is exit 0.
+    let dir = temp_dir("stop-idem");
+    let out = run_stop(&dir, &[]);
+    assert!(
+        out.status.success(),
+        "stop must be idempotent, stderr: {}",
+        stderr_of(&out)
+    );
+    let text = stdout_of(&out);
+    assert!(text.contains("daemon: already stopped"), "stdout: {text}");
+    assert!(text.contains("recorder: already stopped"), "stdout: {text}");
+}
+
+#[test]
+fn stop_graceful_daemon_confirms_log_line_and_cleans_up() {
+    let dir = temp_dir("stop-clean");
+    let _stub = spawn_managed_daemon_stub(
+        &dir,
+        "stop-clean",
+        "#!/bin/sh\ntrap 'echo \"fortuna-live: clean shutdown — ticks=0 polls=0\"; exit 0' TERM\nwhile true; do /bin/sleep 0.2; done\n",
+    );
+    let out = run_stop(&dir, &["--timeout-secs", "10"]);
+    assert!(
+        out.status.success(),
+        "graceful stop must succeed; stderr: {}",
+        stderr_of(&out)
+    );
+    let text = stdout_of(&out);
+    assert!(text.contains("daemon: stopped"), "stdout: {text}");
+    assert!(
+        !dir.join("daemon.pid").exists(),
+        "clean stop removes the pidfile"
+    );
+    assert!(
+        !dir.join("daemon.stopping").exists(),
+        "clean stop removes the A7 marker"
+    );
+}
+
+#[test]
+fn stop_exit_without_shutdown_line_is_not_success() {
+    // A1: process exit alone is NOT success — the shutdown line must
+    // appear in the log.
+    let dir = temp_dir("stop-silent");
+    let _stub = spawn_managed_daemon_stub(
+        &dir,
+        "stop-silent",
+        "#!/bin/sh\ntrap 'exit 0' TERM\nwhile true; do /bin/sleep 0.2; done\n",
+    );
+    let out = run_stop(&dir, &["--timeout-secs", "10"]);
+    assert!(
+        !out.status.success(),
+        "a silent exit must not read as a clean shutdown"
+    );
+    assert!(
+        stderr_of(&out).contains("no shutdown line"),
+        "stderr: {}",
+        stderr_of(&out)
+    );
+}
+
+#[test]
+fn stop_ignores_pre_existing_marker_lines_in_the_append_log() {
+    // Logs are APPEND-mode across runs (A4): a PREVIOUS run's clean-
+    // shutdown line must not satisfy A1 for THIS stop.
+    let dir = temp_dir("stop-oldmarker");
+    fs::create_dir_all(dir.join("logs")).unwrap();
+    fs::write(
+        dir.join("logs/daemon.log"),
+        format!("{SHUTDOWN_MARKER} — ticks=9 (previous run)\n"),
+    )
+    .unwrap();
+    let _stub = spawn_managed_daemon_stub(
+        &dir,
+        "stop-oldmarker",
+        "#!/bin/sh\ntrap 'exit 0' TERM\nwhile true; do /bin/sleep 0.2; done\n",
+    );
+    let out = run_stop(&dir, &["--timeout-secs", "10"]);
+    assert!(
+        !out.status.success(),
+        "a stale marker from a previous run must not count: {}",
+        stdout_of(&out)
+    );
+}
+
+#[test]
+fn stop_timeout_warns_proceeds_and_leaves_state() {
+    // A7: timeout => warn (never SIGKILL), keep pidfile + stopping marker
+    // so status shows "stopping since", STILL proceed to the recorder,
+    // exit non-zero.
+    let dir = temp_dir("stop-timeout");
+    let stub = spawn_managed_daemon_stub(
+        &dir,
+        "stop-timeout",
+        "#!/bin/sh\ntrap '' TERM\nwhile true; do /bin/sleep 0.2; done\n",
+    );
+    let out = run_stop(&dir, &["--timeout-secs", "1"]);
+    assert!(!out.status.success(), "timeout must exit non-zero");
+    let err = stderr_of(&out);
+    assert!(
+        err.contains("do NOT kill -9"),
+        "A7 warning text must print: {err}"
+    );
+    assert!(
+        dir.join("daemon.pid").exists(),
+        "timeout leaves the pidfile for the operator"
+    );
+    assert!(
+        dir.join("daemon.stopping").exists(),
+        "timeout leaves the A7 marker so status shows stopping-since"
+    );
+    assert!(
+        stdout_of(&out).contains("recorder: already stopped"),
+        "stop proceeds to the recorder after a daemon timeout: {}",
+        stdout_of(&out)
+    );
+    // The stub must still be alive (never SIGKILLed by stop).
+    let alive = Command::new("ps")
+        .args(["-p", &stub.0.id().to_string(), "-o", "comm="])
+        .output()
+        .unwrap();
+    assert!(
+        alive.status.success(),
+        "stop must never SIGKILL — the TERM-ignoring stub survives"
+    );
+}
+
+#[test]
+fn stop_never_signals_a_name_mismatched_pid() {
+    // A3: a reused PID is treated stale and NEVER signaled.
+    let dir = temp_dir("stop-mismatch");
+    let child = spawn_sleep();
+    let pid = child.0.id();
+    write_pidfile(&dir, "daemon", pid, "fortuna-live");
+    let out = run_stop(&dir, &[]);
+    assert!(
+        out.status.success(),
+        "a stale (mismatched) pidfile reads as already stopped; stderr: {}",
+        stderr_of(&out)
+    );
+    assert!(
+        stdout_of(&out).contains("daemon: already stopped"),
+        "stdout: {}",
+        stdout_of(&out)
+    );
+    // The mismatched process was NOT killed.
+    let alive = Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "comm="])
+        .output()
+        .unwrap();
+    assert!(
+        alive.status.success(),
+        "stop signaled a name-mismatched pid — A3 violation"
+    );
+    assert!(
+        !dir.join("daemon.pid").exists(),
+        "the stale pidfile is cleaned up"
+    );
+}
+
+#[test]
+fn stop_recorder_needs_no_log_line() {
+    // A1 is the DAEMON's contract; the recorder stops on process exit.
+    let dir = temp_dir("stop-recorder");
+    let stub_dir = temp_dir("stop-recorder-stub");
+    let stub = write_stub(
+        &stub_dir,
+        "recorder-stub",
+        "#!/bin/sh\ntrap 'exit 0' TERM\nwhile true; do /bin/sleep 0.2; done\n",
+    );
+    let child = ChildGuard(Command::new(&stub).stdin(Stdio::null()).spawn().unwrap());
+    write_pidfile(&dir, "recorder", child.0.id(), "sh");
+    let out = run_stop(&dir, &["--timeout-secs", "10"]);
+    assert!(
+        out.status.success(),
+        "recorder stop succeeds on exit alone; stderr: {}",
+        stderr_of(&out)
+    );
+    assert!(
+        stdout_of(&out).contains("recorder: stopped"),
+        "stdout: {}",
+        stdout_of(&out)
+    );
+    assert!(!dir.join("recorder.pid").exists());
+}
+
 // ----------------------------------------------------------------------- usage
 
 #[test]
@@ -482,4 +714,5 @@ fn usage_names_new_commands() {
     assert!(err.contains("config"), "usage must name config: {err}");
     assert!(err.contains("logs"), "usage must name logs: {err}");
     assert!(err.contains("start"), "usage must name start: {err}");
+    assert!(err.contains("stop"), "usage must name stop: {err}");
 }

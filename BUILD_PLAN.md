@@ -361,7 +361,7 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       REMAINING: cognition view (R7, pool-unblocked); the FULL §5 money model
       (mark-loop floating + per-strategy attribution — operator/design call);
       Phase-3 shell/assets; R12 browser pass.
-- [ ] T4.4 Operator CLI lifecycle (operator-directed 2026-06-11; design
+- [x] T4.4 Operator CLI lifecycle (operator-directed 2026-06-11; design
       AUTHORITATIVE at docs/design/fortuna-cli.md INCLUDING its amendments
       section): `fortuna start/stop/status/logs/config-check` extending
       crates/fortuna-cli (start/stop naming binding; v1 cut to FOUR new
@@ -397,6 +397,20 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       (exit code propagation tested). Success spawn path = manual runbook
       per §9 (+ this box intentionally hosts the operator's unmanaged
       recorder). 9 unit + 6 new integration tests. NEXT: `stop` (A1/A7).
+      slice 3 (this commit) = `fortuna stop [--timeout-secs]` — COMPLETES
+      the v1 command set; BOX TICKED. SIGTERM (shell-out kill -15) daemon
+      then recorder, never SIGKILL; A1: success requires the daemon's
+      "fortuna-live: clean shutdown" line in the managed log AT/AFTER the
+      pre-signal byte offset (stale markers from earlier runs rejected,
+      test-pinned incl. a pre-seeded-marker case); A7: timeout => verbatim
+      do-NOT-kill-9 warning, pidfile + stopping marker left, STILL
+      proceeds to the recorder, exit 1; stale pidfiles never signaled
+      (A3); zombies read as not-running (production-correct comm_of stat
+      check, found red-first); best-effort lifecycle stop row (A10, dead
+      DB never blocks). 7 new integration + 2 new unit tests (38 total in
+      the crate); §13 manual smoke runbook recorded in the design doc.
+      A6 deferral stands: status Section 3 (metrics poll) awaits ROTA.
+      Verifier gate pending as with every batch.
 
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)

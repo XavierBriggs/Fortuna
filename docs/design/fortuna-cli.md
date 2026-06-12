@@ -305,3 +305,21 @@ moot item 6; no misfit beyond what the amendments already resolve.
 | GAPS.md / ASSUMPTIONS.md | SIGTERM/MIGRATOR fallbacks; runtime-dir choice |
 
 No changes to killswitch, ops, ledger, invariants, or any other crate.
+
+## 13. Manual smoke runbook (Section 9: the start->status->stop check)
+
+Implementer-recorded with the build (2026-06-12). Real-binary forking is
+deliberately NOT in CI; the operator (or verifier) runs this once per
+release box, from the repo root, with .env sourced:
+
+1. `cargo build --release -p fortuna-cli -p fortuna-live -p fortuna-recorder`
+2. STOP the manual recorder first (A2 will refuse otherwise — expected).
+3. `FORTUNA_BIN_DIR=target/release target/release/fortuna start`
+   — expect: `started daemon (pid …)`, `started recorder (pid …)`,
+   active-halts print, no error. data/runtime/{daemon,recorder}.pid exist.
+4. `target/release/fortuna status` — both `running (pid …)`; config line.
+5. `target/release/fortuna logs daemon` — boot lines, no truncation.
+6. `target/release/fortuna stop` — daemon SIGTERM, "clean shutdown
+   confirmed in the log" (A1), recorder stopped, pidfiles gone, exit 0.
+7. `target/release/fortuna stop` again — both "already stopped", exit 0.
+8. Restart the manual recorder if the managed lifecycle is not yet adopted.
