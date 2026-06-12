@@ -27,7 +27,7 @@ mod audit;
 mod intent_journal;
 mod repos;
 
-pub use audit::{AuditRow, AuditWriter};
+pub use audit::{AuditRow, AuditWriter, LatestAudit};
 pub use intent_journal::PgIntentJournal;
 pub use repos::{
     halt_scope_string, parse_halt_scope, BeliefPanelRow, BeliefRow, BeliefsRepo,

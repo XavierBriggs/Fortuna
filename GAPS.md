@@ -529,6 +529,31 @@ fabricated/zeroed panel). Fix list:
   also slotted BUILD_PLAN T4.5 (ROTA v1.1 deferred panels), after T4.2; its
   TEST RULE bakes in the populated-path-seed lesson.
 
+## POST-STOP CONTINUATION (operator-directed, 2026-06-12 ~10:40Z): orphaned minors F-1 + F-2 taken back
+
+The Ralph loop ended clean below; the operator then said "continue" and
+the bus (10:30Z update) had released track-B's two orphaned Minors to the
+pool. Both originate from this track's own commits, so this session took
+them back:
+
+- **F-1 (A8 audit-age line): CLOSED** — see the updated entry in the
+  T4.4 slice-1 section. Ownership step-out DECLARED: ledger/src/audit.rs
+  gained ONE method (`latest_at`) + ONE struct (`LatestAudit`) + one
+  lib.rs export word — the exact "one-line AuditWriter addition" the
+  original deferral named, sanctioned by the pool release + operator
+  continue. Nothing else in audit.rs touched.
+- **F-2 (A2 spawn-cwd pinning): CLOSED** — lifecycle paths now anchor to
+  the REPO ROOT derived from the config path (`config/`'s parent; a
+  config outside a config/ dir anchors to its own directory): the
+  recorder out-dir, the runtime dir default (env override still wins),
+  and the children's spawn cwd (`Command::current_dir(root)`) are all
+  root-anchored, so `fortuna start` from a wrong cwd can no longer
+  re-anchor data/ paths or fork the B0 dataset. Root derivation and
+  out-dir anchoring unit-tested; all four lifecycle commands resolve the
+  SAME root so status/logs/stop look where start wrote.
+- The third bus item (one manual §13 runbook execution) remains the
+  OPERATOR's — it requires stopping the manual recorder.
+
 ## RALPH STOP 2026-06-12T08:20:05Z (track B — queue exhausted, loop ends clean)
 
 Track B's assigned queue (docs/design/implementer-loop-track-b.md priority
@@ -619,14 +644,19 @@ since the slice-9 battery: workspace 773/0, DST exit 0).
   deliberately drops (the daemon owns that section — live/src/boot.rs).
   Implemented as a raw `toml::Value` read; `toml` was already a workspace
   dep (ops uses it), zero new external code. Flagged for the gate.
-- **A8 audit-age status line DEFERRED:** "age of the most recent audit row"
-  needs a max(at)-over-all-kinds ledger query; AuditWriter (ledger/src/
-  audit.rs) is outside track-B ownership (only the two R7 repos.rs query
-  additions are track-B's). A kind-filtered approximation through the
-  existing `recent()` API would be a FALSE crash-tell — a healthy daemon
-  writing only cognition/veto rows would read stale — worse than absent.
-  Wire it once a one-line `AuditWriter` addition can land (track A or
-  operator waive).
+- **A8 audit-age status line — CLOSED (orphaned minor F-1, post-pool-
+  release):** originally DEFERRED here because AuditWriter (ledger/src/
+  audit.rs) was outside track-B ownership and a kind-filtered
+  approximation through `recent()` would be a FALSE crash-tell (a healthy
+  daemon writing only cognition/veto rows would read stale). The bus
+  released track-B ownership to the pool at session stop and the operator
+  continued the session — the unblock this entry named. Closed with:
+  `AuditWriter::latest_at()` (kind-agnostic, ULID-ordered newest row, at
+  + kind; tests in ledger/tests/audit_latest.rs incl. the kind-agnostic
+  assertion), one additive lib.rs export (LatestAudit), sqlx prepare (one
+  new cache JSON), and the status line ("most recent audit row: 42s ago
+  (kind …)" / "none yet"; formatting unit-tested incl. unparseable-at
+  degradation).
 - **"Degradable" status interpretation (test-pinned):** A9 pins only the
   no-DATABASE_URL case (exit 0). This slice extends the same posture to
   DATABASE_URL-set-but-unreachable: status prints `db: unavailable — …` and

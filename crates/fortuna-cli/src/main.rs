@@ -155,12 +155,43 @@ fn run() -> Result<()> {
 
 // --------------------------------------------------------------- T4.4 helpers
 
-/// Runtime state directory (A5): pidfiles + redirected logs. data/ is
-/// gitignored and survives reboots, unlike /tmp on macOS.
-fn runtime_dir() -> PathBuf {
+/// A2 (orphaned minor F-2): lifecycle paths anchor to the REPO ROOT
+/// derived from the config path — the parent of its `config/` directory —
+/// never the invoker's cwd. A `fortuna start` from the wrong directory
+/// must not re-anchor data/ paths (a cwd-relative recorder out-dir would
+/// silently fork the B0 dataset). A config kept outside a `config/` dir
+/// anchors to the file's own directory; a relative path resolves against
+/// the cwd first (identical to today for repo-root invocations).
+fn repo_root_from_config(config_path: &Path) -> PathBuf {
+    let cwd = || std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let abs = if config_path.is_absolute() {
+        config_path.to_path_buf()
+    } else {
+        cwd().join(config_path)
+    };
+    let parent = abs.parent().map(Path::to_path_buf).unwrap_or_else(cwd);
+    if parent.file_name().map(|n| n == "config").unwrap_or(false) {
+        parent.parent().map(Path::to_path_buf).unwrap_or_else(cwd)
+    } else {
+        parent
+    }
+}
+
+/// Runtime state directory (A5): pidfiles + redirected logs, anchored to
+/// the repo root (F-2). data/ is gitignored and survives reboots, unlike
+/// /tmp on macOS. The env override always wins (operator pin + tests).
+fn runtime_dir(root: &Path) -> PathBuf {
     std::env::var_os("FORTUNA_RUNTIME_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("data/runtime"))
+        .unwrap_or_else(|| root.join("data/runtime"))
+}
+
+/// The resolved config path (--config-path or the default), shared by
+/// every lifecycle command so they all derive the SAME root.
+fn resolved_config_path(args: &Args) -> String {
+    args.config_path
+        .clone()
+        .unwrap_or_else(|| DEFAULT_CONFIG_PATH.to_string())
 }
 
 fn pidfile_path(dir: &Path, component: &str) -> PathBuf {
@@ -395,15 +426,14 @@ fn recorder_invocation(config_path: &str) -> Result<Vec<String>> {
             }
         }
     }
-    // A2: the out-dir must be ABSOLUTE — a relative path under a wrong cwd
-    // would silently fork the sacred B0 dataset.
+    // A2 + F-2: the out-dir must be ABSOLUTE and anchored to the CONFIG-
+    // derived repo root, never the invoker's cwd — a relative path under a
+    // wrong cwd would silently fork the sacred B0 dataset.
     let out_path = PathBuf::from(&out_dir);
     let abs_out = if out_path.is_absolute() {
         out_path
     } else {
-        std::env::current_dir()
-            .context("resolving cwd for the recorder out-dir")?
-            .join(out_path)
+        repo_root_from_config(Path::new(config_path)).join(out_path)
     };
     Ok(vec![
         "--interval-secs".to_string(),
@@ -438,12 +468,10 @@ fn unmanaged_recorder_pids(managed: Option<i64>) -> Result<Vec<i64>> {
 /// pre-flight (A6: the daemon's boot connect auto-migrates; a refusal the
 /// boot path overrides is theater).
 fn start_cmd(args: &Args) -> Result<()> {
-    let config_path = args
-        .config_path
-        .clone()
-        .unwrap_or_else(|| DEFAULT_CONFIG_PATH.to_string());
+    let config_path = resolved_config_path(args);
     fortuna_ops::FortunaConfig::load_file(&config_path)
         .with_context(|| format!("config check failed for {config_path}"))?;
+    let root = repo_root_from_config(Path::new(&config_path));
 
     if args.foreground {
         // Debugging mode: the daemon owns the terminal. No pidfile, no
@@ -455,7 +483,7 @@ fn start_cmd(args: &Args) -> Result<()> {
         bail!("exec {} failed: {err}", bin.display());
     }
 
-    let dir = runtime_dir();
+    let dir = runtime_dir(&root);
     let mut running: Vec<(&str, i64)> = Vec::new();
     let mut to_start: Vec<&str> = Vec::new();
     for component in COMPONENTS {
@@ -508,7 +536,7 @@ fn start_cmd(args: &Args) -> Result<()> {
 
     let mut started: Vec<(&str, i64)> = Vec::new();
     for component in &to_start {
-        let (bin_name, cmd) = match *component {
+        let (bin_name, mut cmd) = match *component {
             "daemon" => {
                 let bin = resolve_component_binary("fortuna-live");
                 let mut cmd = std::process::Command::new(&bin);
@@ -522,6 +550,10 @@ fn start_cmd(args: &Args) -> Result<()> {
                 ("fortuna-recorder", cmd)
             }
         };
+        // A2/F-2: spawn cwd pinned to the repo root, never the invoker's
+        // cwd (the daemon's own .env load and any remaining relative path
+        // resolve identically to a repo-root launch).
+        cmd.current_dir(&root);
         let (pid, child) = spawn_component(&dir, component, bin_name, cmd)?;
         // The child is detached (own process group, redirected stdio);
         // dropping the handle does not signal it.
@@ -648,7 +680,9 @@ fn stop_cmd(args: &Args) -> Result<()> {
             .parse()
             .with_context(|| format!("--timeout-secs {raw:?} is not a number"))?,
     };
-    let dir = runtime_dir();
+    let dir = runtime_dir(&repo_root_from_config(Path::new(&resolved_config_path(
+        args,
+    ))));
     let clock = RealClock;
     let mut warnings = 0usize;
     let mut stopped: Vec<(&str, i64)> = Vec::new();
@@ -821,7 +855,8 @@ fn logs_cmd(args: &Args) -> Result<()> {
     if !COMPONENTS.contains(&component.as_str()) {
         bail!("unknown component {component:?} — components: daemon, recorder");
     }
-    let path = log_path(&runtime_dir(), component);
+    let root = repo_root_from_config(Path::new(&resolved_config_path(args)));
+    let path = log_path(&runtime_dir(&root), component);
     if !path.is_file() {
         bail!(
             "no log file at {} (has `fortuna start` run?)",
@@ -865,15 +900,12 @@ fn config_on_disk(path: &str) -> Result<String, String> {
 /// command (A9 pins exit 0 without DATABASE_URL; I5 visibility is the
 /// daemon's own audit rows, not this read path).
 fn status_cmd(args: &Args) -> Result<()> {
-    let dir = runtime_dir();
+    let config_path = resolved_config_path(args);
+    let dir = runtime_dir(&repo_root_from_config(Path::new(&config_path)));
     println!("processes:");
     for component in COMPONENTS {
         println!("  {component}: {}", process_state_line(&dir, component));
     }
-    let config_path = args
-        .config_path
-        .clone()
-        .unwrap_or_else(|| DEFAULT_CONFIG_PATH.to_string());
     match config_on_disk(&config_path) {
         Ok(line) => println!("config on disk: {line} (daemon may differ until restart)"),
         Err(reason) => println!("config on disk: unavailable ({reason})"),
@@ -907,6 +939,25 @@ fn status_cmd(args: &Args) -> Result<()> {
     }
 }
 
+/// A8 (orphaned minor F-1): the age of the MOST RECENT audit row — a
+/// stale age beside a live daemon pidfile is the crash tell. Unparseable
+/// timestamps degrade honestly; ages render in seconds under two
+/// minutes, whole minutes beyond.
+fn format_audit_age(now: UtcTimestamp, at: &str, kind: &str) -> String {
+    match UtcTimestamp::parse_iso8601(at) {
+        Err(_) => format!("most recent audit row: at unparseable ({at:?}, kind {kind})"),
+        Ok(t) => {
+            let secs = (now.epoch_millis() - t.epoch_millis()).max(0) / 1000;
+            let age = if secs < 120 {
+                format!("{secs}s ago")
+            } else {
+                format!("{}m ago", secs / 60)
+            };
+            format!("most recent audit row: {age} (kind {kind})")
+        }
+    }
+}
+
 /// The pre-T4.4 status body, queries unchanged (design checklist item 9).
 async fn status_db_section(url: &str) -> Result<()> {
     let pool = fortuna_ledger::connect(url).await?;
@@ -935,6 +986,13 @@ async fn status_db_section(url: &str) -> Result<()> {
                 println!("  {} {}", r.at, r.payload);
             }
         }
+    }
+    // A8 crash tell (F-1): the newest row of ANY kind. A stale age while
+    // the process section shows a live daemon = the daemon stopped
+    // writing — investigate before trusting anything above.
+    match audit.latest_at().await? {
+        Some(latest) => println!("{}", format_audit_age(now, &latest.at, &latest.kind)),
+        None => println!("most recent audit row: none yet"),
     }
     Ok(())
 }
@@ -1214,5 +1272,60 @@ mod tests {
             !pidfile_path(&dir, "daemon").exists(),
             "a failed spawn must release the pidfile claim"
         );
+    }
+
+    // ---- orphaned minor F-1: the A8 audit-age crash-tell line ----
+
+    #[test]
+    fn audit_age_line_formats_age_and_kind() {
+        // now = 2026-06-12T08:00:42Z, row at 08:00:00Z => 42s ago.
+        let now = UtcTimestamp::parse_iso8601("2026-06-12T08:00:42.000Z").unwrap();
+        let line = format_audit_age(now, "2026-06-12T08:00:00.000Z", "gate_decision");
+        assert!(line.contains("42s ago"), "{line}");
+        assert!(line.contains("gate_decision"), "{line}");
+        // Older rows render in minutes for the operator's eye.
+        let old = format_audit_age(now, "2026-06-12T07:48:42.000Z", "order");
+        assert!(old.contains("12m ago"), "{old}");
+        // An unparseable at column degrades honestly, never panics.
+        let bad = format_audit_age(now, "not-a-time", "halt");
+        assert!(bad.contains("unparseable"), "{bad}");
+    }
+
+    // ---- orphaned minor F-2: A2 spawn-cwd pinning (repo-root anchor) ----
+
+    #[test]
+    fn repo_root_derives_from_the_config_path() {
+        // /x/repo/config/fortuna.toml => /x/repo (the config dir's parent).
+        let root = repo_root_from_config(Path::new("/x/repo/config/fortuna.toml"));
+        assert_eq!(root, PathBuf::from("/x/repo"));
+        // A relative default resolves against the cwd, exactly as before
+        // for the repo-root invocation; the FUNCTION just exposes it.
+        let cwd = std::env::current_dir().unwrap();
+        let rel = repo_root_from_config(Path::new("config/fortuna.toml"));
+        assert_eq!(rel, cwd);
+        // A bare filename (no config dir) falls back to the cwd — never
+        // an empty or root path.
+        let bare = repo_root_from_config(Path::new("fortuna.toml"));
+        assert_eq!(bare, cwd);
+    }
+
+    #[test]
+    fn recorder_out_dir_anchors_to_the_repo_root_not_the_cwd() {
+        // A2: a cwd-relative out-dir from a wrong cwd would silently fork
+        // the B0 dataset. The invocation anchors relative out-dirs to the
+        // CONFIG-derived root.
+        let dir = scratch("recorder-anchor");
+        let config_dir = dir.join("config");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        let config = config_dir.join("fortuna.toml");
+        std::fs::write(&config, "[recorder]\nout_dir = \"data/perishable\"\n").unwrap();
+        let args = recorder_invocation(config.to_str().unwrap()).unwrap();
+        let out_pos = args.iter().position(|a| a == "--out-dir").unwrap();
+        let out = &args[out_pos + 1];
+        assert!(
+            out.starts_with(dir.to_str().unwrap()),
+            "out-dir anchors to the config's repo root, got {out}"
+        );
+        assert!(out.ends_with("data/perishable"), "{out}");
     }
 }
