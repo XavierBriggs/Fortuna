@@ -961,6 +961,30 @@ observed so far: `INVALID_PARAMETER` (malformed key id) and
 
 ## Kinetics perps module (operator-directed 2026-06-10)
 
+- **TRACK C FINDING (2026-06-12, T5.B2 battery): pre-existing
+  `cargo fmt --check` violation on main** at
+  crates/fortuna-venues/examples/record_kinetics_fixtures.rs:801 (file
+  landed with the fixture-session commits already gated onto main; one
+  rustfmt whitespace diff). The file is under examples/, OUTSIDE track C's
+  enumerated ownership (loop rule: src/kinetics* only => ledger + skip,
+  not fix). Battery impact for track C commits: `cargo fmt --check` fails
+  workspace-wide on that ONE pre-existing file; every file in track C's
+  own diffs is fmt-clean (verified: the only `Diff in` line names that
+  file). Unblock: the owning session (main checkout) runs
+  `cargo fmt -p fortuna-venues` and commits, or the verifier authorizes a
+  track to format it.
+- **T5.B2 core perps types: DONE** (track C, 2026-06-12):
+  fortuna-core/src/perp.rs — InstrumentKind, PerpPrice (i64
+  ten-thousandths, checked ops, Decimal only at payload boundaries),
+  PerpValue with explicit floor/ceil conversion to Cents, FundingAccrual
+  (append-only record; positive rate = longs pay; amount floored against
+  us), signed PerpPosition (floored uPnL, ceiled notional),
+  MarginAccountView (worse-of-venue-vs-conservative mark governs, per the
+  5.15 halt-math rule). 38 tests incl. 7 property suites written from
+  spec text BEFORE implementation. Deferred-with-rationale items in
+  ASSUMPTIONS ("T5.B2 perps core types"); InstrumentKind threading
+  through shared Market structs deliberately deferred to B3/B4 (ownership
+  boundary).
 - **Phase A research: DONE** (2026-06-10/11):
   docs/research/venue/kinetics-perps-2026-06-10/research.md — 844 lines,
   ~50 sources, 110 raw archives including perps_openapi.yaml /

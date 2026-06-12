@@ -490,8 +490,12 @@ code.
       (DONE: spec commit 213e41f [post-rewrite hash]; graded faithful on all
       C3 criteria by the batch gate; tick released by the remediation ACCEPT
       addendum, docs/reviews/perps-b0-b1-remediation-regate-2026-06-11.md.)
-- [ ] T5.B2 Core perps types: PerpPrice, signed PerpPosition, FundingAccrual,
+- [x] T5.B2 Core perps types: PerpPrice, signed PerpPosition, FundingAccrual,
       MarginAccountView w/ conservative marking; property tests on conversions.
+      (DONE track C 2026-06-12, commit 56d07db: fortuna_core::perp — 38 tests
+      incl. 7 property suites written from spec 5.15 before implementation;
+      battery green except ONE pre-existing fmt diff on main outside track-C
+      ownership, ledgered in GAPS.)
 - [ ] T5.B3 Gate extensions: margin headroom, liquidation-distance floor,
       per-asset leverage caps, funding-drag-in-edge, notional caps; worst case =
       liquidation loss. Invariant-crate ADDITIONS only (I2 extension tests).

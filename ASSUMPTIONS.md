@@ -57,6 +57,46 @@ conservative option, and the spec section it interprets.
   proceeded — the operator must read the output; exit 0 is reserved for
   fully-confirmed shutdowns and true idempotent no-ops.
 
+## T5.B2 perps core types (track C, 2026-06-12; interprets spec 5.15)
+
+- **`PerpPosition.avg_entry` is a whole-tick `PerpPrice`:** the venue quotes
+  fixed-point dollar strings at the $0.0001 tick, so whole ten-thousandths
+  cover every observed payload. If a venue-reported average entry ever
+  carries finer precision, the B4 DTO layer converts it with an explicit
+  rounding direction chosen against us — precision policy stays at the
+  payload boundary, not inside the core type.
+- **`FundingAccrual.rate` is `Decimal` inside a core type, deliberately:**
+  the record is an append-only venue-payload boundary artifact whose job is
+  to reproduce the venue's reported rate EXACTLY for reconciliation against
+  funding_history. The venue applies its own ±2% cap and 0.01% zero
+  threshold BEFORE reporting; the constructor records reported rates and
+  never re-derives them (re-deriving would manufacture false discrepancies).
+  No money math rides on the Decimal beyond the single floored conversion
+  to `Cents` at construction.
+- **Funding `amount` sign convention:** positive = received, negative =
+  paid — matches the venue's funding_history `funding_amount` convention so
+  reconciliation is a direct compare. Flooring the signed flow toward -inf
+  is against-us in both directions (receipts never overstated, payments
+  never understated).
+- **Position-update math (fills, flips, realized PnL) is NOT in B2:** spec
+  5.15 defines the types; fill application belongs to the state/paper
+  layers and lands with T5.B5 (SimClock funding accrual + liquidation sim).
+  `PerpPosition` exposes only sign helpers, conservative uPnL, and ceiled
+  notional — the read-side surface B3's gates need.
+- **`MarginAccountView.pending_funding` is caller-supplied:** computing the
+  in-progress window estimate (TWAP accrual on SimClock) is T5.B5 work; the
+  view's contract pins where it lands in equity (balance + unrealized +
+  pending_funding = the I2 drawdown input) without faking an estimator.
+- **`FundingAccrual` carries no id:** ids are assigned by the ledger layer
+  at INSERT (append-only convention); the core type is the record content.
+- **`InstrumentKind` lives in `fortuna_core::perp` but is NOT yet threaded
+  through the shared `Market` structs:** the fortuna-venues market types are
+  outside track-C ownership (orchestration.md); threading lands with B3/B4
+  inside owned files, and any shared-struct edit it forces will be ledgered
+  as a cross-track item instead of made unilaterally.
+- **No new DST scenarios from B2:** pure value types with no event-loop or
+  order-path interaction; the dedicated perp DST arms are T5.B6 (queued).
+
 ## Latency levers: concurrent legs + stream ingestion (operator-directed)
 
 - **Concurrent leg submission preserves the determinism doctrine:** the
