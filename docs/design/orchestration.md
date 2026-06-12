@@ -56,11 +56,32 @@ TRACK C — new session, worktree /Users/xavierbriggs/fortuna-wt-c (branch track
 ## Verifier protocol (the verification session executes this each firing)
 
 1. Survey main + track-b + track-c heads since their last gated commits.
+   (Trigger is EVENT-DRIVEN: a wake-on-commit monitor watches all three
+   heads; the 2h cron is the fallback heartbeat only.)
 2. Gate each track's new range (worktree-pinned, tier-appropriate battery).
-3. Merge each ACCEPT/ACCEPT-WITH-GAPS track head into main (merge is
-   promotion mechanics, not authorship; a BLOCK branch stays unmerged with
-   findings on the bus naming the track).
+3. Merge each ACCEPT/ACCEPT-WITH-GAPS track head into main; THEN run the
+   POST-MERGE INTEGRATION CHECK on merged main — `cargo test --workspace`
+   + clippy at minimum — before declaring main green: per-track gates test
+   pre-merge heads, and only the merged combination tests the interaction.
+   A red post-merge check reverts the merge and buses the conflict. (merge
+   is promotion mechanics, not authorship; a BLOCK branch stays unmerged.)
 4. One findings bus, per-track sections.
+5. MUTATION CHECKS are standard for any commit whose deliverable is a test:
+   the gate stubs/mutates the tested surface and requires the test to go
+   red (three vacuous tests were caught this way; green-only verification
+   of tests is not verification). Mutations run in gate worktrees, never
+   live trees.
+6. Verification-infrastructure backlog (small, any idle capacity, track A
+   domain): commit DST determinism-anchor seeds — the regression corpus
+   has been empty since T0.4, so the corpus-replay arm is a no-op; even
+   without red seeds, committing N high-activity seeds with their byte
+   digests pins replay determinism across refactors.
+7. SOAK WATCH (arms when T4.1 ticks): each firing during the Phase-4 EXIT
+   soak additionally checks daemon uptime, halt count (must be zero
+   unexplained), mind budget burn vs config, dead-man freshness, and
+   belief-persistence growth — logged to docs/reviews/soak-log.md so the
+   week of evidence EXISTS when the exit is graded, rather than being
+   reconstructed.
 
 ## Session starts (operator pastes)
 
