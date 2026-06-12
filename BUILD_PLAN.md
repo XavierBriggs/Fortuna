@@ -384,6 +384,19 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       verbatim to status_db_section. NEXT: `start` (A2 recorder refusal,
       A3 atomic claim, A4 detach), then `stop` LAST against T4.1's asserted
       SIGTERM contract (A1).
+      slice 2 (this commit) = `fortuna start [--foreground]`: config-check
+      gate -> per-component already-running scan (validate-then-decide on
+      existing pidfiles: running/stale/mid-claim) -> A2 unmanaged-recorder
+      refusal via pgrep -f (whole-start refusal, decoy-tested
+      deterministically) -> A3 O_EXCL claim-then-spawn (8-thread race
+      unit-tested, claim released on spawn failure) -> A4 detach
+      (process_group(0), stdin null, append-mode logs unit-tested never to
+      truncate) -> A8 active-halts print + A10 best-effort lifecycle audit
+      row (5s bound); recorder invocation pinned to the A2 live defaults w/
+      optional [recorder] config override; --foreground execs fortuna-live
+      (exit code propagation tested). Success spawn path = manual runbook
+      per §9 (+ this box intentionally hosts the operator's unmanaged
+      recorder). 9 unit + 6 new integration tests. NEXT: `stop` (A1/A7).
 
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)

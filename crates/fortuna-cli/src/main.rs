@@ -11,6 +11,7 @@
 //!   fortuna kill   [--flatten] --journal <path>
 //!   fortuna config check [--config-path <path>]
 //!   fortuna logs   <daemon|recorder> [-f]
+//!   fortuna start  [--foreground] [--config-path <path>]
 //!
 //! halt/rearm write durable halt_events + an audit row; the running system
 //! restores flags from the fold at boot and observes operator events via its
@@ -72,6 +73,7 @@ struct Args {
     config_path: Option<String>,
     flatten: bool,
     follow: bool,
+    foreground: bool,
 }
 
 fn parse_args() -> Result<Args> {
@@ -84,6 +86,7 @@ fn parse_args() -> Result<Args> {
         config_path: None,
         flatten: false,
         follow: false,
+        foreground: false,
     };
     let raw: Vec<String> = std::env::args().skip(1).collect();
     let mut i = 0;
@@ -107,6 +110,7 @@ fn parse_args() -> Result<Args> {
             }
             "--flatten" => args.flatten = true,
             "-f" | "--follow" => args.follow = true,
+            "--foreground" => args.foreground = true,
             other if args.command.is_empty() => args.command = other.to_string(),
             other => args.positional.push(other.to_string()),
         }
@@ -114,9 +118,9 @@ fn parse_args() -> Result<Args> {
     }
     if args.command.is_empty() {
         bail!(
-            "usage: fortuna <status|halt|rearm|kill|config check|logs> [scope|component] \
-             [--reason ..] [--operator ..] [--journal ..] [--flatten] \
-             [--config-path ..] [-f]"
+            "usage: fortuna <status|halt|rearm|kill|config check|logs|start> \
+             [scope|component] [--reason ..] [--operator ..] [--journal ..] \
+             [--flatten] [--config-path ..] [-f] [--foreground]"
         );
     }
     Ok(args)
@@ -129,6 +133,7 @@ fn run() -> Result<()> {
         "config" => config_cmd(&args),
         "logs" => logs_cmd(&args),
         "status" => status_cmd(&args),
+        "start" => start_cmd(&args),
         "halt" | "rearm" => {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -227,6 +232,353 @@ fn process_state_line(dir: &Path, component: &str) -> String {
             None => format!("running (pid {pid})"),
         },
     }
+}
+
+/// What an EXISTING pidfile means to `start` (A3 validate-then-decide).
+#[derive(Debug, PartialEq, Eq)]
+enum ExistingPidfile {
+    /// Parsed, alive, and the live process's comm contains the claimed
+    /// name — genuinely ours and running.
+    Running { pid: i64 },
+    /// Dead pid, name mismatch (PID reuse), or unparseable junk: safe to
+    /// remove and reclaim.
+    Stale,
+    /// EMPTY file: another `start` has claimed it and not yet written the
+    /// pid — contended, never steal it.
+    MidClaim,
+}
+
+/// Classify pidfile CONTENT against an injectable comm lookup (the real
+/// lookup is [`comm_of`]; tests inject fakes — process liveness is not
+/// deterministic from a unit test).
+fn classify_existing(
+    content: &str,
+    comm_lookup: &dyn Fn(i64) -> Option<String>,
+) -> ExistingPidfile {
+    if content.trim().is_empty() {
+        return ExistingPidfile::MidClaim;
+    }
+    let mut lines = content.lines();
+    let pid = lines.next().and_then(|l| l.trim().parse::<i64>().ok());
+    let name = lines.next().map(str::trim).filter(|n| !n.is_empty());
+    let (pid, name) = match (pid, name) {
+        (Some(pid), Some(name)) => (pid, name),
+        _ => return ExistingPidfile::Stale,
+    };
+    match comm_lookup(pid) {
+        Some(comm) if comm.contains(name) => ExistingPidfile::Running { pid },
+        _ => ExistingPidfile::Stale,
+    }
+}
+
+/// A3 atomic claim: O_EXCL create. Exactly one concurrent `start` wins;
+/// the losers see EEXIST and go through validate-then-decide.
+fn claim_pidfile(path: &Path) -> std::io::Result<std::fs::File> {
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+}
+
+/// A4: APPEND-mode log redirection — never truncate; crash backtraces
+/// survive restarts.
+fn open_log_append(dir: &Path, component: &str) -> Result<std::fs::File> {
+    let path = log_path(dir, component);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating log dir {}", parent.display()))?;
+    }
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .with_context(|| format!("opening log {} for append", path.display()))
+}
+
+/// Claim-then-spawn (A3 order: the pidfile is claimed BEFORE the process
+/// exists; the pid is written into the claimed file after). Detach per A4:
+/// own process group, no stdin, append-redirected stdio. Clears any stale
+/// A7 stopping marker so a restart never reads as "stopping". On spawn
+/// failure the claim is released.
+fn spawn_component(
+    dir: &Path,
+    component: &str,
+    claimed_name: &str,
+    mut cmd: std::process::Command,
+) -> Result<(i64, std::process::Child)> {
+    std::fs::create_dir_all(dir)
+        .with_context(|| format!("creating runtime dir {}", dir.display()))?;
+    let pidpath = pidfile_path(dir, component);
+    let mut claimed = claim_pidfile(&pidpath)
+        .with_context(|| format!("claiming pidfile {}", pidpath.display()))?;
+    let _ = std::fs::remove_file(dir.join(format!("{component}.stopping")));
+    let result = (|| {
+        let log = open_log_append(dir, component)?;
+        let log_err = log.try_clone().context("cloning log handle for stderr")?;
+        use std::os::unix::process::CommandExt;
+        cmd.stdin(std::process::Stdio::null())
+            .stdout(log)
+            .stderr(log_err)
+            .process_group(0);
+        let child = cmd
+            .spawn()
+            .with_context(|| format!("spawning {component}"))?;
+        let pid = i64::from(child.id());
+        use std::io::Write;
+        write!(claimed, "{pid}\n{claimed_name}\n")
+            .with_context(|| format!("writing pidfile {}", pidpath.display()))?;
+        Ok((pid, child))
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&pidpath);
+    }
+    result
+}
+
+/// Component binary resolution: FORTUNA_BIN_DIR first (operator pin + test
+/// seam), then siblings of this executable (standard cargo target layout),
+/// then PATH.
+fn resolve_component_binary(bin_name: &str) -> PathBuf {
+    if let Some(dir) = std::env::var_os("FORTUNA_BIN_DIR") {
+        let candidate = PathBuf::from(dir).join(bin_name);
+        if candidate.is_file() {
+            return candidate;
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let candidate = dir.join(bin_name);
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+    }
+    PathBuf::from(bin_name)
+}
+
+/// The recorder invocation (A2: pinned — interval 30s, the three bracket
+/// series, ABSOLUTE out-dir). An optional `[recorder]` table in the config
+/// overrides; the defaults are the recorded live invocation verbatim.
+fn recorder_invocation(config_path: &str) -> Result<Vec<String>> {
+    let mut interval_secs: i64 = 30;
+    let mut bracket_series = "KXBTC15M,KXBTC,KXBTCD".to_string();
+    let mut out_dir = "data/perishable".to_string();
+    if let Ok(text) = std::fs::read_to_string(config_path) {
+        if let Ok(value) = toml::from_str::<toml::Value>(&text) {
+            if let Some(rec) = value.get("recorder") {
+                if let Some(v) = rec.get("interval_secs").and_then(|v| v.as_integer()) {
+                    interval_secs = v;
+                }
+                if let Some(v) = rec.get("bracket_series").and_then(|v| v.as_str()) {
+                    bracket_series = v.to_string();
+                }
+                if let Some(v) = rec.get("out_dir").and_then(|v| v.as_str()) {
+                    out_dir = v.to_string();
+                }
+            }
+        }
+    }
+    // A2: the out-dir must be ABSOLUTE — a relative path under a wrong cwd
+    // would silently fork the sacred B0 dataset.
+    let out_path = PathBuf::from(&out_dir);
+    let abs_out = if out_path.is_absolute() {
+        out_path
+    } else {
+        std::env::current_dir()
+            .context("resolving cwd for the recorder out-dir")?
+            .join(out_path)
+    };
+    Ok(vec![
+        "--interval-secs".to_string(),
+        interval_secs.to_string(),
+        "--bracket-series".to_string(),
+        bracket_series,
+        "--out-dir".to_string(),
+        abs_out.display().to_string(),
+    ])
+}
+
+/// A2: every fortuna-recorder process NOT accounted for by the managed
+/// pidfile. pgrep failing to run is a refusal, not a pass — fail closed.
+fn unmanaged_recorder_pids(managed: Option<i64>) -> Result<Vec<i64>> {
+    let out = std::process::Command::new("pgrep")
+        .args(["-f", "fortuna-recorder"])
+        .output()
+        .context("running pgrep (required for the recorder-collision check)")?;
+    // pgrep exits 1 with empty output when nothing matches.
+    let text = String::from_utf8_lossy(&out.stdout);
+    Ok(text
+        .lines()
+        .filter_map(|l| l.trim().parse::<i64>().ok())
+        .filter(|pid| Some(*pid) != managed)
+        .collect())
+}
+
+/// `fortuna start [--foreground] [--config-path <p>]` (design Section 5 as
+/// amended): config check -> already-running (idempotent exit 0) -> A2
+/// recorder-collision refusal -> claim + spawn missing components -> A8
+/// halt visibility + best-effort lifecycle audit row. No migration
+/// pre-flight (A6: the daemon's boot connect auto-migrates; a refusal the
+/// boot path overrides is theater).
+fn start_cmd(args: &Args) -> Result<()> {
+    let config_path = args
+        .config_path
+        .clone()
+        .unwrap_or_else(|| DEFAULT_CONFIG_PATH.to_string());
+    fortuna_ops::FortunaConfig::load_file(&config_path)
+        .with_context(|| format!("config check failed for {config_path}"))?;
+
+    if args.foreground {
+        // Debugging mode: the daemon owns the terminal. No pidfile, no
+        // recorder, no detach — exec replaces this process entirely.
+        let bin = resolve_component_binary("fortuna-live");
+        println!("foreground: exec {} {config_path}", bin.display());
+        use std::os::unix::process::CommandExt;
+        let err = std::process::Command::new(&bin).arg(&config_path).exec();
+        bail!("exec {} failed: {err}", bin.display());
+    }
+
+    let dir = runtime_dir();
+    let mut running: Vec<(&str, i64)> = Vec::new();
+    let mut to_start: Vec<&str> = Vec::new();
+    for component in COMPONENTS {
+        let pidpath = pidfile_path(&dir, component);
+        match std::fs::read_to_string(&pidpath) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => to_start.push(component),
+            Err(e) => {
+                return Err(e).with_context(|| format!("reading pidfile {}", pidpath.display()))
+            }
+            Ok(content) => match classify_existing(&content, &comm_of) {
+                ExistingPidfile::Running { pid } => {
+                    println!("{component}: already running (pid {pid})");
+                    running.push((component, pid));
+                }
+                ExistingPidfile::Stale => {
+                    std::fs::remove_file(&pidpath)
+                        .with_context(|| format!("removing stale pidfile {}", pidpath.display()))?;
+                    to_start.push(component);
+                }
+                ExistingPidfile::MidClaim => bail!(
+                    "another start appears to be in progress (pidfile {} is claimed \
+                     but empty); re-run shortly, or remove it if you are certain",
+                    pidpath.display()
+                ),
+            },
+        }
+    }
+    if to_start.is_empty() {
+        println!("already running — nothing to start");
+        return Ok(());
+    }
+
+    // A2: never adopt, never double-spawn. Two appenders can tear JSONL
+    // lines in the B0 dataset, so an unmanaged recorder refuses the WHOLE
+    // start (conservative: even a daemon-only spawn) until the operator
+    // migrates.
+    let managed_recorder = running
+        .iter()
+        .find(|(c, _)| *c == "recorder")
+        .map(|(_, pid)| *pid);
+    let unmanaged = unmanaged_recorder_pids(managed_recorder)?;
+    if !unmanaged.is_empty() {
+        bail!(
+            "refusing to start: unmanaged fortuna-recorder process(es) {unmanaged:?} \
+             (two appenders can tear JSONL lines in the B0 dataset). One-time \
+             migration: stop the manual recorder, then re-run `fortuna start` — \
+             the recorder runs managed (pidfile + log redirect) from then on"
+        );
+    }
+
+    let mut started: Vec<(&str, i64)> = Vec::new();
+    for component in &to_start {
+        let (bin_name, cmd) = match *component {
+            "daemon" => {
+                let bin = resolve_component_binary("fortuna-live");
+                let mut cmd = std::process::Command::new(&bin);
+                cmd.arg(&config_path);
+                ("fortuna-live", cmd)
+            }
+            _ => {
+                let bin = resolve_component_binary("fortuna-recorder");
+                let mut cmd = std::process::Command::new(&bin);
+                cmd.args(recorder_invocation(&config_path)?);
+                ("fortuna-recorder", cmd)
+            }
+        };
+        let (pid, child) = spawn_component(&dir, component, bin_name, cmd)?;
+        // The child is detached (own process group, redirected stdio);
+        // dropping the handle does not signal it.
+        drop(child);
+        println!("started {component} (pid {pid})");
+        started.push((component, pid));
+    }
+
+    // A8 + A10: halt visibility and the lifecycle audit row are advisory
+    // attribution — best-effort, bounded, never a start blocker (the
+    // daemon's own boot audit row is the I5 record).
+    match std::env::var("DATABASE_URL") {
+        Err(_) => {
+            println!("db: DATABASE_URL not set — halt visibility and lifecycle audit skipped")
+        }
+        Ok(url) => {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .context("tokio runtime")?;
+            let all: Vec<(&str, i64)> = running.iter().chain(started.iter()).copied().collect();
+            let bounded = runtime.block_on(async {
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(STATUS_DB_TIMEOUT_SECS),
+                    start_db_section(&url, &all),
+                )
+                .await
+            });
+            match bounded {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => println!("db: unavailable — {e:#} (start unaffected)"),
+                Err(_) => println!(
+                    "db: unavailable — no response within {STATUS_DB_TIMEOUT_SECS}s \
+                     (start unaffected)"
+                ),
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Active halts (I2 visibility at start, A8) + the best-effort `lifecycle`
+/// audit row (A10: advisory attribution, `$USER` as actor).
+async fn start_db_section(url: &str, components: &[(&str, i64)]) -> Result<()> {
+    let pool = fortuna_ledger::connect(url).await?;
+    let halts = HaltsRepo::new(pool.clone());
+    let clock = RealClock;
+    let now = clock.now();
+    let active = halts.active().await?;
+    if active.is_empty() {
+        println!("active halts: none");
+    } else {
+        println!(
+            "ACTIVE HALTS ({}) — the daemon will not trade until re-armed:",
+            active.len()
+        );
+        for (scope, reason) in active {
+            println!("  {} — {reason}", fortuna_ledger::halt_scope_string(&scope));
+        }
+    }
+    let user = std::env::var("USER").unwrap_or_else(|_| "unknown".to_string());
+    let audit = AuditWriter::new(
+        pool,
+        std::sync::Arc::new(RealClock),
+        now.epoch_millis() as u64,
+    );
+    let mut payload = serde_json::json!({"action": "start"});
+    for (component, pid) in components {
+        payload[format!("{component}_pid")] = serde_json::json!(pid);
+    }
+    audit
+        .append("lifecycle", Some(&user), None, payload)
+        .await?;
+    Ok(())
 }
 
 /// `fortuna config check [--config-path <p>]`: whole-shape validation via
@@ -465,5 +817,144 @@ async fn db_command(args: &Args) -> Result<()> {
             Ok(())
         }
         _ => bail!("unreachable"),
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    //! Unit tests for the A3/A4 primitives whose properties are not
+    //! deterministically testable through the binary: claim atomicity
+    //! (a race), append-mode redirection (never truncate), pidfile
+    //! classification (injected comm lookup), and the claim-then-spawn
+    //! sequence (pidfile content + stopping-marker clear).
+
+    use super::*;
+
+    fn scratch(case: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("fortuna-cli-unit-{}-{case}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn classify_empty_is_mid_claim() {
+        let lookup = |_: i64| -> Option<String> { panic!("must not look up a mid-claim") };
+        assert_eq!(classify_existing("", &lookup), ExistingPidfile::MidClaim);
+        assert_eq!(
+            classify_existing("  \n", &lookup),
+            ExistingPidfile::MidClaim
+        );
+    }
+
+    #[test]
+    fn classify_garbage_is_stale() {
+        let lookup = |_: i64| -> Option<String> { Some("anything".to_string()) };
+        assert_eq!(
+            classify_existing("not-a-pid\n", &lookup),
+            ExistingPidfile::Stale
+        );
+        assert_eq!(classify_existing("123\n", &lookup), ExistingPidfile::Stale);
+        assert_eq!(
+            classify_existing("123\n  \n", &lookup),
+            ExistingPidfile::Stale
+        );
+    }
+
+    #[test]
+    fn classify_dead_pid_is_stale() {
+        let lookup = |_: i64| -> Option<String> { None };
+        assert_eq!(
+            classify_existing("123\nfortuna-live\n", &lookup),
+            ExistingPidfile::Stale
+        );
+    }
+
+    #[test]
+    fn classify_name_mismatch_is_stale() {
+        // A3: PID reuse — alive, but it is not our process.
+        let lookup = |_: i64| -> Option<String> { Some("/usr/bin/vim".to_string()) };
+        assert_eq!(
+            classify_existing("123\nfortuna-live\n", &lookup),
+            ExistingPidfile::Stale
+        );
+    }
+
+    #[test]
+    fn classify_match_is_running() {
+        let lookup = |pid: i64| -> Option<String> {
+            assert_eq!(pid, 123);
+            Some("/repo/target/release/fortuna-live".to_string())
+        };
+        assert_eq!(
+            classify_existing("123\nfortuna-live\n", &lookup),
+            ExistingPidfile::Running { pid: 123 }
+        );
+    }
+
+    #[test]
+    fn claim_pidfile_race_has_exactly_one_winner() {
+        // A9: two starts, one wins. Raced wider than two for good measure.
+        let dir = scratch("claim-race");
+        let path = dir.join("daemon.pid");
+        let winners: usize = std::thread::scope(|s| {
+            let handles: Vec<_> = (0..8)
+                .map(|_| s.spawn(|| claim_pidfile(&path).is_ok()))
+                .collect();
+            handles
+                .into_iter()
+                .map(|h| h.join().unwrap())
+                .filter(|&won| won)
+                .count()
+        });
+        assert_eq!(winners, 1, "O_EXCL must admit exactly one claimant");
+    }
+
+    #[test]
+    fn log_redirection_appends_and_never_truncates() {
+        // A4: a restart must not erase the previous run's backtrace.
+        use std::io::Write;
+        let dir = scratch("append-log");
+        let mut first = open_log_append(&dir, "daemon").unwrap();
+        writeln!(first, "first-run line").unwrap();
+        drop(first);
+        let mut second = open_log_append(&dir, "daemon").unwrap();
+        writeln!(second, "second-run line").unwrap();
+        drop(second);
+        let text = std::fs::read_to_string(log_path(&dir, "daemon")).unwrap();
+        assert!(text.contains("first-run line"), "log was truncated: {text}");
+        assert!(text.contains("second-run line"), "append failed: {text}");
+    }
+
+    #[test]
+    fn spawn_component_writes_pidfile_and_clears_stopping_marker() {
+        let dir = scratch("spawn");
+        std::fs::write(dir.join("daemon.stopping"), "").unwrap();
+        let mut cmd = std::process::Command::new("sleep");
+        cmd.arg("300");
+        let (pid, mut child) = spawn_component(&dir, "daemon", "sleep", cmd).unwrap();
+        let content = std::fs::read_to_string(pidfile_path(&dir, "daemon")).unwrap();
+        assert_eq!(content, format!("{pid}\nsleep\n"));
+        assert!(
+            !dir.join("daemon.stopping").exists(),
+            "a fresh start must clear the stale A7 stopping marker"
+        );
+        // Test cleanup only — the real stop path never SIGKILLs.
+        child.kill().unwrap();
+        let _ = child.wait();
+    }
+
+    #[test]
+    fn spawn_component_releases_claim_on_spawn_failure() {
+        let dir = scratch("spawn-fail");
+        let cmd = std::process::Command::new("/nonexistent/binary/for/this/test");
+        let result = spawn_component(&dir, "daemon", "ghost", cmd);
+        assert!(result.is_err());
+        assert!(
+            !pidfile_path(&dir, "daemon").exists(),
+            "a failed spawn must release the pidfile claim"
+        );
     }
 }

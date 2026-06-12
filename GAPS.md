@@ -511,6 +511,36 @@ fabricated/zeroed panel). Fix list:
   `env -u DATABASE_URL` so sqlx tests route to the dev server. No operator-DB
   writes occurred (the failure mode is a DENIED `CREATE DATABASE`).
 
+Slice 2 (`start`) additions:
+
+- **`[recorder]` config table is read but not yet in the committed example:**
+  `start` builds the recorder invocation from an optional `[recorder]` table
+  (interval_secs / bracket_series / out_dir) with defaults pinned to the A2
+  live invocation verbatim (30s, KXBTC15M,KXBTC,KXBTCD, data/perishable made
+  ABSOLUTE against cwd). Adding the section to config/fortuna.example.toml is
+  OUTSIDE track-B ownership (config/ is unassigned) — needs track A or an
+  operator edit; until then the defaults govern and are test-visible in
+  recorder_invocation().
+- **A2 refusal scope (conservative interpretation):** an unmanaged
+  fortuna-recorder process refuses the WHOLE start — even a daemon-only
+  spawn — until the operator migrates. Rationale: a managed spawn alongside
+  an unmanaged recorder normalizes the exact double-appender state A2
+  exists to prevent; spec-silent => conservative.
+- **The success spawn path is NOT integration-tested on this box, by
+  design and by necessity:** design §9 makes start->status->stop a manual
+  runbook check (forking is timing-flaky in CI), and this machine
+  intentionally hosts the operator's UNMANAGED recorder, so a clean
+  `fortuna start` here correctly REFUSES (the A2 path — which IS
+  integration-tested, with a planted decoy so it stays deterministic on
+  clean machines too). Claim atomicity (8-thread race), append-mode
+  redirect, claim-release-on-spawn-failure, and pidfile-write+marker-clear
+  are unit-tested at the primitive level.
+- **The `lifecycle` audit row path is not Pg-integration-tested:** the CLI
+  reads DATABASE_URL from env; the sqlx::test harness does not hand a URL
+  to a spawned binary. The append mirrors the existing tested halt/rearm
+  pattern (checklist item 10 signature) and is best-effort by A10. Verifier
+  scratch-test or the manual runbook covers it; flagged honestly here.
+
 ## SECURITY INCIDENT 2026-06-11 (gate finding F1, Critical) — keys were committed
 
 WHAT HAPPENED: both Kalshi PEM private keys (`.keys/fortuna-demo-v1.txt`
