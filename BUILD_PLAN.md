@@ -334,10 +334,15 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       StubMind; tests inject scripted minds) and binds the "synth_events"-scoped
       ledger calibration; a daemon_smoke live test proves the arm prices a
       seeded confirmed edge + a believing mind -> proposes + sizes + submits an
-      order. Surfaced two config gaps (BINDING for S5b's live arm): the synth
-      arm needs a `synthesis_cents` envelope + `[gates.per_strategy.synthesis]`
-      (the example has neither). Loop-doc tail next: S5b (real AnthropicMind +
-      a built AnthropicVetoMind, transport injected) -> S6 digest -> tick.
+      order. Surfaced two config gaps (BINDING for the live arm): the synth arm
+      needs a `synthesis_cents` envelope + `[gates.per_strategy.synthesis]` (the
+      example has neither). S5b mind_from_env DONE (synthesis side): daemon::
+      mind_from_env builds the Claude AnthropicMind from env when keyed (model
+      from [cognition].model, transport injected — scripted in tests, never a
+      real key) else StubMind; main wires it. The VETO side stays blocked
+      (AnthropicVetoMind unbuilt, fortuna-cognition). Loop-doc tail next: S6
+      (belief drain+persist + rich digest) -> tick. Live synthesis additionally
+      awaits the two config gaps + AnthropicVetoMind.
 - [ ] T4.2 POST-FIXTURE tranche (blocked on the operator recording session):
       Kalshi WS dial (signed handshake, keep-alive, redial w/ resubscribe-on-gap),
       venue-generic recorded-stream replay into PaperVenue under both mech

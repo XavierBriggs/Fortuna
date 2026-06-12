@@ -12,12 +12,13 @@
 //! path by firing the same channel.
 
 use anyhow::{bail, Context, Result};
-use fortuna_cognition::mind::StubMind;
+use fortuna_cognition::mind::ReqwestMindTransport;
 use fortuna_core::clock::{Clock, RealClock};
 use fortuna_live::boot::{validate_env, DaemonToml};
 use fortuna_live::compose::DegradeScrape;
 use fortuna_live::daemon::{
-    compose_runner, default_degrade_thresholds, drive, registry_from, PgHaltPoller,
+    compose_runner, default_degrade_thresholds, drive, mind_from_env, registry_from, PgHaltPoller,
+    SYNTH_MIND_TIMEOUT_SECS,
 };
 use fortuna_live::run_loop::{LoopConfig, RealCadence};
 use fortuna_ops::dashboard::{serve_dashboard, DashboardSnapshot};
@@ -66,12 +67,27 @@ async fn main() -> Result<()> {
         .await
         .context("postgres connect + migrate")?;
 
-    // S5a: the synthesis arm's mind is an INERT StubMind in production until S5b
-    // binds the real AnthropicMind (transport from env) — so synthesis drafts no
-    // beliefs and trades nothing yet, while the mechanical arms run live. Do NOT
-    // start the soak expecting synthesis activity until S5b.
-    let synthesis_mind: Arc<dyn fortuna_cognition::mind::Mind> =
-        Arc::new(StubMind::scripted(Vec::new()));
+    // S5b: build the synthesis mind from the environment. ANTHROPIC_API_KEY
+    // present (validated; the boot gate above refused no-key + !allow_stub) =>
+    // the Claude-backed AnthropicMind over the real reqwest transport; absent =>
+    // the inert StubMind. The key reaches ONLY the transport (read from env by
+    // from_env), never config or logs. The mind's cost-budget day boundary runs
+    // on RealClock — the real-time daemon's SimClock tracks wall time, so they
+    // align. NOTE: synthesis still trades nothing until the operator config adds
+    // a `synthesis_cents` envelope + `[gates.per_strategy.synthesis]` (S5a gap).
+    let synthesis_transport = match validated.anthropic_api_key.as_ref() {
+        Some(_) => Some(
+            ReqwestMindTransport::from_env(std::time::Duration::from_secs(SYNTH_MIND_TIMEOUT_SECS))
+                .context("anthropic synthesis transport")?,
+        ),
+        None => None,
+    };
+    let synthesis_mind = mind_from_env(&dcfg.cognition, synthesis_transport, Arc::new(RealClock));
+    if validated.anthropic_api_key.is_some() {
+        eprintln!("fortuna-live: synthesis mind = AnthropicMind (live; model from [cognition])");
+    } else {
+        eprintln!("fortuna-live: synthesis mind = StubMind (no ANTHROPIC_API_KEY; inert)");
+    }
     let mut runner = compose_runner(
         pool.clone(),
         &full,

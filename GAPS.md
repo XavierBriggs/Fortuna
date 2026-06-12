@@ -257,15 +257,17 @@ Build sub-slices (each its own iteration, TDD, battery-gated):
       Remaining T4.1 tail (loop-doc order: synthesis-in-main -> mech_extremes
       +veto -> mind binding): S4 per-segment refresh DONE; mech_extremes+veto
       DONE; S5a mind binding DONE (synthesis mind PARAM + "synth_events"-scoped
-      calibration; arm trades a seeded edge in the live test). NEXT: S5b
-      (mind_from_env: the real AnthropicMind for synthesis + a built
-      AnthropicVetoMind for the veto, transport injected/scripted never a real
-      key) -> S6 belief drain+persist + rich digest -> THEN tick T4.1 (starts
-      the soak). BEFORE S5b's live arm can trade: add `synthesis_cents`
+      calibration; arm trades a seeded edge); S5b mind_from_env DONE (synthesis
+      side: AnthropicMind when keyed, else StubMind; main wires it from env).
+      NEXT (Track A's tail): S6 belief drain+persist + rich digest -> THEN tick
+      T4.1 (starts the soak). PREREQS before the LIVE synthesis arm trades
+      (operator/config + a boundary item, NOT blocking the tick of a soak that
+      can run mechanically-only or with the stub): (1) add `synthesis_cents`
       envelope + `[gates.per_strategy.synthesis]` to the example/operator config
-      (S5a surfaced both gaps). The synth_events_config/effective_stage
-      canonicalization + the [synthesis] CATEGORY filter (events-category join)
-      stay deferred (both inert for the sim soak).
+      (S5a gaps); (2) AnthropicVetoMind must be BUILT by the fortuna-cognition
+      owner (the veto side of mind binding — out of Track A bounds). Deferred +
+      inert for the sim soak: synth_events_config/effective_stage canonicalization;
+      [synthesis] CATEGORY events-join filter; AnthropicMindConfig prices->config.
   S4. drive() per-segment edge refresh (requirement 2): keep last-known on
       failure + count/alert, never crash. DONE (this commit). ORDER REVERSAL
       (honest, vs 1770c1f which leaned "S5a precedes S4"): the GOVERNING
@@ -372,11 +374,28 @@ Build sub-slices (each its own iteration, TDD, battery-gated):
       without them the arm prices but sizes ZERO / is gate-rejected fail-closed.
       The example + operator config MUST add both before S5b binds the real mind.
       main stays StubMind (inert) — production synthesis is dark until S5b.
-  S5b. mind_from_env helper: StubMind when no key + allow_stub; AnthropicMind
-      {model, budgets->CostBudget, reqwest transport} when keyed (transport
-      INJECTED for tests, scripted, NEVER a real key — the kickoff money
-      pitfall). main builds it + passes to compose_runner; the arm goes LIVE.
-      Needs [cognition].model (+ AnthropicMindConfig fields) — config additions.
+  S5b. mind_from_env helper. DONE (this commit) — SYNTHESIS side only
+      (fortuna-live): daemon::mind_from_env<T: MindTransport>(cognition,
+      transport: Option<T>, clock) -> Arc<dyn Mind> — Some(transport) =>
+      AnthropicMind {model from [cognition].model, max_tokens/prices/charter =
+      code consts, CostBudget from [cognition] budgets}; None => StubMind. main
+      builds the transport: ANTHROPIC_API_KEY present (validated) =>
+      Some(ReqwestMindTransport::from_env(timeout)) else None, then mind_from_env
+      + passes to compose_runner. The KEY reaches only the transport (env), never
+      config/logs. Clock = RealClock (the real-time daemon's SimClock tracks wall
+      time, so the budget day-reset aligns; a fully shared clock is a ledgered
+      refinement). [cognition].model added (default "claude-fable-5", spec 5.9
+      synthesis tier). Unit test (daemon.rs): mind_from_env(Some scripted
+      transport).id()=="claude-fable-5" (AnthropicMind, id IS the model — proves
+      config.model flows) vs (None).id()=="stub-mind" — NON-VACUOUS distinct
+      branches; the scripted transport NEVER carries a real key (kickoff money
+      pitfall). FOLLOW-UPS ledgered: (a) AnthropicMindConfig prices/max_tokens
+      are code consts — promote to [cognition] (the comment says prices "are
+      config"); (b) the VETO side is BLOCKED — AnthropicVetoMind does NOT exist
+      (fortuna-cognition; Track A consumes-not-edits) — its owner must build it
+      before the veto goes live; the veto stays StubVetoMind::allow_all. PROD-
+      LIVE PREREQ (S5a gap): synthesis trades only once the operator config adds
+      `synthesis_cents` envelope + [gates.per_strategy.synthesis].
   S6. belief drain+persist wired (path exists); rich digest.
   Then tick T4.1 (starts the soak) -> T4.2 -> T4.5.
 The populated-path test rule (the verifier's vacuous-test lesson) applies to

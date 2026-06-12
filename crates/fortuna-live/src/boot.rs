@@ -143,6 +143,15 @@ pub struct CognitionSection {
     /// (mind_from_env contract). That degrade must be OPTED INTO.
     #[serde(default)]
     pub allow_stub_mind: bool,
+    /// The synthesis model id (spec 5.9 tiering; default the synthesis tier
+    /// "claude-fable-5"). S5b feeds it to AnthropicMindConfig.model when a key
+    /// is present. The model is config; the API KEY is env-only (never here).
+    #[serde(default = "default_synthesis_model")]
+    pub model: String,
+}
+
+fn default_synthesis_model() -> String {
+    "claude-fable-5".to_string()
 }
 
 /// The `[sim]` section: the synthetic market world the Sim-venue daemon
