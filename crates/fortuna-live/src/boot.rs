@@ -160,6 +160,7 @@ struct RawToml {
     daemon: Option<DaemonSection>,
     cognition: Option<CognitionSection>,
     sim: Option<SimSection>,
+    synthesis: Option<crate::compose::SynthesisSection>,
 }
 
 /// The parsed daemon-relevant config.
@@ -168,6 +169,10 @@ pub struct DaemonToml {
     pub daemon: DaemonSection,
     pub cognition: CognitionSection,
     pub sim: Option<SimSection>,
+    /// Optional `[synthesis]` opt-in. Its PRESENCE composes the synthesis
+    /// strategy into the daemon (S3b); its fields only FILTER the confirmed
+    /// edge set. Absent => the daemon runs mechanically-only (fail closed).
+    pub synthesis: Option<crate::compose::SynthesisSection>,
 }
 
 impl DaemonToml {
@@ -191,6 +196,7 @@ impl DaemonToml {
             daemon,
             cognition,
             sim: raw.sim,
+            synthesis: raw.synthesis,
         })
     }
 

@@ -195,19 +195,28 @@ Build sub-slices (each its own iteration, TDD, battery-gated):
       unconfirmed edge and asserts venue/max_edges filtering + the mapped fields
       (NON-VACUOUS). DISK NOTE: a warm fortuna-live battery is ~1-2GB (measured),
       NOT the ~15GB I'd feared — S3 is NOT disk-blocked.
-  S3b VALIDATED WIRING (build next; resolved unknowns): compose_runner gains a
-      synthesis arm GATED on dcfg.synthesis.is_some() (opt-in; absent => daemon
-      mechanically-only, the conservative default — operator flips it on).
-      Pieces, all confirmed present: calibration_for_scope (compose.rs:54),
-      effective_stage (promotion.rs:50), StubMind (placeholder; real mind is
-      S5 via allow_stub_mind/api-key at main.rs:49). compose_runner USES
-      synthesis_edges (no dead_code) + adds DaemonToml.synthesis (Option<
-      SynthesisSection>) + builds SynthesisStrategy(edges, StubMind, calibration,
-      comparator/triage from cfg, derived stage), pushes to strategies with a
-      [per_strategy] gate entry + envelope. Composition test: strategy_ids()
-      contains the synth id
-      with [synthesis]+seeded edges; only mech without. [synthesis] filters may
-      split to S3b if S3 runs large.
+  S3b-1 DONE (this commit): the [synthesis] OPT-IN config —
+      DaemonToml.synthesis: Option<SynthesisSection> (+ RawToml + parse). Its
+      PRESENCE composes synthesis (S3b-2 wires that); ABSENT => mechanically-only
+      (fail closed). Parse test: the committed example has no [synthesis] => None;
+      appending one parses venue/max_edges (NON-VACUOUS).
+  S3b-2 VALIDATED WIRING (build next; ALL unknowns resolved this session):
+      compose_runner gains a synthesis arm GATED on dcfg.synthesis.is_some().
+      Construct SynthesisConfig {id "synthesis", edges: synthesis_edges(&pool,
+      syn).await? (map ComposeError -> DaemonError), comparator
+      {min_edge_cents:5, required_tier:Confirmed}, triage AlwaysAccept,
+      shadow_quota 0, calibration: None (PLACEHOLDER — real calibration binds
+      with the real mind in S5), stage: Stage::Sim (SimRunner::new enforces Sim,
+      runner.rs:338)} + mind Arc::new(StubMind::scripted(vec![])) (PLACEHOLDER;
+      real mind = S5/mind_from_env). Push to `strategies` (make it `mut`; the
+      synth arm is INERT until S5 binds the mind — do NOT tick T4.1/start the
+      soak before then, else the stub degrades every cycle). new() needs NO
+      per-strategy envelope (only the I7 Sim-stage check). compose_runner must
+      return DaemonError -> add From<ComposeError> or map at the `?`. Composition
+      test (sqlx::test in tests/daemon or compose): with [synthesis] + a seeded
+      confirmed edge, compose_runner's runner.strategy_ids() contains
+      "synthesis" (2 strategies); without [synthesis], only the mech id (1).
+      The [synthesis] CATEGORY filter (events-category join) stays deferred.
   S4. drive() per-segment edge refresh: keep last-known on failure + count/alert,
       never crash (requirement 2).
   S5. mind binding (StubMind -> AnthropicMind via allow_stub_mind/CostBudget).

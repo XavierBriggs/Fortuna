@@ -111,6 +111,28 @@ fn daemon_toml_parses_the_committed_example() {
 }
 
 #[test]
+fn synthesis_section_is_optional_and_parses_when_present() {
+    // S3b opt-in: the [synthesis] section's PRESENCE composes synthesis into the
+    // daemon (wired at compose_runner); ABSENT => the daemon runs mechanically-
+    // only (fail closed). Its fields only FILTER the confirmed edge set.
+    let example = include_str!("../../../config/fortuna.example.toml");
+    // The committed example ships WITHOUT [synthesis] -> opt-out.
+    let without = DaemonToml::parse(example).expect("parse ok");
+    assert!(
+        without.synthesis.is_none(),
+        "no [synthesis] => the daemon stays mechanically-only"
+    );
+    // Present: the filters parse into the optional section (NON-VACUOUS values).
+    let with = format!("{example}\n[synthesis]\nvenue = \"kalshi\"\nmax_edges = 8\n");
+    let syn = DaemonToml::parse(&with)
+        .expect("parse with [synthesis] ok")
+        .synthesis
+        .expect("the [synthesis] section is present");
+    assert_eq!(syn.venue.as_deref(), Some("kalshi"));
+    assert_eq!(syn.max_edges, Some(8));
+}
+
+#[test]
 fn venue_kalshi_refuses_until_fixture_clearance() {
     // Kickoff hard requirement 7 / GAPS: sim is the only bootable venue
     // in T4.1; kalshi refuses WITH the reason.
