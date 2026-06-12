@@ -21,7 +21,19 @@ EACH ITERATION, do exactly ONE item, then commit and start the next iteration.
    checkout: /Users/xavierbriggs/fortuna/docs/reviews/GATE-FINDINGS-LATEST.md
    (your worktree copy may be stale); a BLOCK naming track C preempts
    everything; (a2) REBASE onto main before starting (git fetch . main &&
-   git rebase main); resolve conflicts only in files you own, else STOP+ledger; (b) YOUR QUEUE, in order: T5.B2 perp core types -> T5.B3 gate extensions (invariant ADDITIONS only; every protected-crate touch auto-queues an operator waive — expected) -> T5.B5 paper margin -> T5.B6 DST arms -> T5.B4 kinetics adapter vs fixtures/kinetics-perps/ (recorded; never invent beyond captures + research).
+   git rebase main); resolve conflicts only in files you own, else STOP+ledger; (b) YOUR QUEUE, in order (re-armed 2026-06-12 after queue-exhausted stop):
+   FIRST the red-seed harness fix per the bus fix-spec (track-c-final-gate
+   BLOCK: extend curve coverage past the last tier OR designed-refusal arm;
+   COMMIT seed 11819682492387934495 to dst-corpus/ with its failure-mode
+   comment — the doctrine's first true red seed, never delete; green at
+   10000; annotate the stale B5 GAPS wording) -> T5.B7 strategies rung 0
+   (perp_event_basis in Sim; funding_forecast zero-capital; funding_carry
+   DATA-ONLY per amendment B; FEE-TRAP RULE per amendment C: edge floors at
+   5-12bps assumed post-promo fees, promo-$0 never justifies GO; I7
+   unchanged) -> T5.B8 ops (kill-switch perps flatten reduce_only IOC +
+   cancel-all — NOTE the kill switch is a SEPARATE binary, I4: extend IT,
+   never couple it to your crates; margin/funding telemetry; the
+   funding-regime ROTA panel mounts per the T4.5 cross-reference).
 
 2. DESIGN-VALIDATE-BEFORE-BUILD: T4.3 and T4.4 have authoritative design docs
    (docs/design/rota-dashboard.md, docs/design/fortuna-cli.md — INCLUDING their
