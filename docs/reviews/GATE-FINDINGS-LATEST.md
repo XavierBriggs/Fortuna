@@ -1,39 +1,41 @@
 # GATE FINDINGS — latest (verifier-owned; implementer reads at priority (a))
 
-Updated: 2026-06-11 ~21:40Z, covering range 75f4782..2e54c18.
-Verdict: audit-tail-fix-gate-2026-06-11.md (ACCEPT-WITH-GAPS — first
-non-BLOCK after four consecutive BLOCKs; zero Major).
+Updated: 2026-06-12 ~00:50Z, covering range 7e35f51..468c8c1.
+Verdict: r5-pool-gate-2026-06-11.md (ACCEPT-WITH-GAPS — second consecutive
+non-BLOCK; zero Major).
 
-Cleared: the audit-tail cursorless Major (verified by HTTP reproduction —
-newest page on empty cursor, lossless 251/251 forward walk, live pickup of
-post-poll inserts); slice 4 recorder scan clean on all five criteria
-(metadata-only, bounded flat scan 10k files in 80ms, no client-controlled
-paths, degraded-not-500); sqlx compile-time exception properly ledgered
-with live test coverage. Battery green (716/0/0; DST at task-review
-default 2000 — read-path-only range; the 10000 bar stays for
-money-path/phase gates).
+Cleared: both carried Minors (scheduler/digest honesty with committed
+drive()-level assertion; dead-man ledger contradiction reconciled — zero
+raw SystemTime in fortuna-live src). Slice 5 R5 pool VERIFIED on the
+property that matters: distinct reader/writer pools (construction sites
+main.rs:64 vs :93), reader capped at max_connections(2)/acquire 3s/
+statement_timeout 3000 — and the isolation proven empirically: a SATURATED
+reader pool degrades to HTTP 200 in ~3s while a concurrent audit INSERT on
+the writer pool completes in <900ms. Audit tail end-to-end through the
+real pool: cursorless-latest, pagination, past-end, empty-DB, pool-absent
+all green. Money design-block verified REAL and exact (inspect_totals
+returns (Cents, Cents, usize, usize) — no floating component; the mark
+loop is the missing source, as the design critique predicted). Battery:
+720/0/0, DST 2000-tier (read-path range), invariants green, protected
+crate untouched.
 
-Update 2026-06-11 ~23:20Z (cheap-tier gate, range 2e54c18..7e35f51,
-verified directly by the verification session — diffs read, targeted
-tests run): items 1 and 2 below are CLEARED. (1) scan_recorder now maps
-parse failure to unhealthy + null age (`.unwrap_or(0)` -> `.ok()`, None
-flows through; comment cites the finding; new test green — 11/11 rota).
-(2) /favicon.ico serves 204 through the live merged router, test-pinned
-(dashboard.rs:160). clippy -p fortuna-ops clean. Remaining items renumber
-below.
+Fix list:
 
-Fix list (all Minor):
+1. [Minor — only item] The R5 saturation/isolation property has NO
+   committed test: the verifier proved it by scratch reproduction, but
+   nothing in the repo pins reader-pool-saturation => degraded-200 while
+   writer-pool-append proceeds unimpeded. Commit the handler-level
+   version of that test (the verdict file describes the shape) and note
+   it in GAPS. Until pinned, a future refactor can silently merge the
+   pools back.
 
-3. [Carried] DailyScheduler restart-fire + cumulative-vs-daily labeling +
-   missing drive()-level digest assertion — fix or ledger.
-4. [Carried] GAPS.md:142 "No ASSUMPTIONS exception is needed" contradicts
-   ASSUMPTIONS.md:1220 (the SystemTime exception entry exists) — reconcile
-   the two lines.
-
-Remaining for T4.3 (per the honest open list): money/cognition views, the
-R5 dedicated pool, the instrument presentation layer (panels still raw
-JSON), favicon/logo assets. Remaining for T4.1: the synthesis-in-main
-edge-sourcing design question (genuinely blocked, ledgered).
+Remaining for T4.3: money view (design-blocked, ledgered — resolve the
+floating/mark-loop sourcing question or ship the view with the SIM-ONLY
+subset per R6), cognition view (R7's two ledger queries), instrument
+presentation layer (panels still raw JSON), logo asset (favicon 204 stub
+satisfies the console-error criterion; the logo itself is Section 2).
+Remaining for T4.1: synthesis-in-main edge sourcing (design-blocked,
+ledgered).
 
 Operator actions still queued (unchanged): ROTATE both Kalshi keys;
 FINALIZE the purge before any first push.
