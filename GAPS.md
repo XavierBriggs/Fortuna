@@ -18,6 +18,63 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## OPERATOR-INFRA — disk hit ENOSPC mid-session (HARD-BLOCKS the build battery)
+
+2026-06-12 (overnight): the machine disk (/System/Volumes/Data, 926Gi; ~10Gi
+free at session start) reached 100% (ENOSPC) during the post-commit
+investigation after 7cc510f — the clippy --workspace --all-targets + run-dst.sh
+builds consumed the last headroom. At ENOSPC the harness cannot open a
+command's output file, so NO bash command (build/test/commit/even `rm`) can
+launch: the loop's DoD battery is hard-blocked, and no code commit can be
+gate-clean until the disk has stable headroom for a cold workspace build.
+
+REMEDIATION APPLIED (this session): `cargo clean` (frees crates target,
+~21-33G; freed disk from 0 -> 12Gi+ and climbing as it runs). SHARED-TARGET
+RISK noted: per the battery-ops memory, target/ is shared with the verifier
+session + rust-analyzer; cargo clean wipes their artifacts too. No other
+cargo/rustc build was active at clean time (verified via ps), so no in-flight
+build was corrupted — only a cold-rebuild cost imposed on the next battery in
+any session.
+
+OPERATOR UNBLOCK (exact):
+1. Free durable space — the volume is 99% full of NON-target data; a
+   `cargo clean` only buys a temporary window the next cold build re-consumes
+   (a single --workspace --all-targets build is ~35G, right at the edge).
+2. Address data/perishable/ growth (the recorder runs continuously; the
+   purge/retention finalization is already a parked operator item). Do NOT
+   kill the recorder — the operator rotates/purges out-of-band.
+3. Consider a dedicated/larger volume for target/ (it is shared across the
+   implementer + verifier + rust-analyzer, so it churns under every battery).
+
+## TRACK A — NEXT ITEM (scoped, ready to execute when the disk is stable): daily reconciliation wiring
+
+T4.1 (BUILD_PLAN 282-283) requires "daily reconciliation 00:00 UTC;
+weekly/monthly reviews"; both were honestly DEFERRED post-tick (BUILD_PLAN
+375-377) and are the EXIT "boot reconciliation" surface (line 511). The
+cognition logic EXISTS and is Track-A-CONSUMABLE (not a fortuna-cognition
+edit): fortuna_cognition::reconciliation::run_reconciliation(mind,
+context_items, now) -> ReconciliationOutcome { journal, beliefs,
+discarded_proposals, manifest_hash, cost_cents }. It is STRUCTURALLY order-free
+(the outcome type carries no order; mind proposals are counted + discarded) —
+an I6-aligned property worth an explicit test. Wire it into drive's daily block
+(where rich_daily_digest already fires via DailyScheduler.due()):
+  1. Assemble ContextItems from the day: fills + open positions (runner/
+     manager) + originating beliefs (BeliefsRepo, read-only), point-in-time.
+  2. run_reconciliation with the daemon's existing Arc<dyn Mind>. Default
+     unscripted StubMind -> MindOutput::empty() -> journal None ->
+     ReconError::NoJournal: handle as a GRACEFUL SKIP + one audit/alert, never
+     a crash. Journal-producing mind (real Anthropic, or a scripted stub in
+     tests) -> persist JournalDraft + beliefs (existing persist_beliefs) +
+     audit discarded_proposals + cost.
+  3. NO orders placed (structural; assert it).
+  TESTS (daemon_smoke, scripted minds — the S5/S6 pattern): journal-producing
+  mind -> journal persisted + zero orders + discards audited (mutation-proven);
+  empty StubMind -> graceful skip + alert, no crash, zero orders.
+  VERIFY FIRST: does fortuna-ledger have a journal repo/table for JournalDraft?
+  If absent, scope persistence as a non-overlapping ledger addition (like
+  EdgesRepo was) OR ledger as cross-track. This determines whether the slice is
+  fully Track-A or needs a ledger touch.
+
 ## Engineering items F1-F3: CLOSED (gate-verified)
 
 Found OPEN by the independent e-gate; closed by b4c839f (F1: degrade
