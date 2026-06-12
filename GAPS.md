@@ -343,6 +343,37 @@ VERIFIED). New/carried Minors:
   mark-loop accessor + per-strategy PnL attribution for strategies[] + a live
   venue's settled/floating semantics (the account block is sim-only until then).
 
+## T4.3 ROTA — r5test-slice6 + money-view gates (2026-06-12, both ACCEPT-WITH-GAPS)
+
+Two consecutive non-BLOCK verdicts (3rd + 4th). VERIFIED: the R5 isolation test
+has teeth (verifier scratch-merged the pools -> RED); slice 6 is read-path-only;
+slice 7 money is honest (literal nulls, sim-only labeled). The recurring signal
+is the VACUOUS-TEST class (a shape/invariant assertion that passes under a
+fabricated/zeroed panel). Fix list:
+- #1 [Minor] gates "sum == total" test was VACUOUS (the arb run rejects nothing,
+  so total=0 and an empty accessor passes): CLOSED (this commit). New test
+  gates_rejections_by_check_is_non_vacuous_on_a_rejecting_run forces real
+  rejections (unreachable net-edge floor min_net_edge_bps=100000) and asserts a
+  NON-EMPTY by_check summing to a NON-ZERO total — a stubbed/empty accessor now
+  FAILS. Teeth confirmed.
+- COGNITION COUNTER slice: REVERTED before commit (not shipped). Its counters
+  (mind_spend/failures/breaches/shadow/beliefs_drafted) are STRUCTURALLY ZERO
+  under mech_structural (no cognition strategy), so any counter test is
+  vacuous-by-nature (the verifier's escalating defect class) — a non-vacuous
+  test needs cognition-active (non-zero) data, which only synthesis-in-main
+  produces (edge-source design-blocked). Cognition is DEFERRED until synthesis,
+  with the recent_beliefs/calibration_scopes ledger queries owned there.
+- STILL OPEN (follow-ups): #2 add a daemon boot-path assertion that the reader
+  (connect_readonly_pool) and writer (connect) pools are DISTINCT objects (the
+  R5 test self-constructs its pools — a wiring merge at main.rs would fail no
+  test); #3 the gates rationale "number would be a guess" is FALSE —
+  GateCheck::index() (fortuna-gates/src/pipeline.rs) gives the exact spec number
+  (EdgeFloor=6); include the number per §5 OR correct the rationale; #4 the
+  money test is vacuous on the populated path (zeroed panel passes) — assert
+  settled == venue cash from a seeded fills run + a reserved>0 seed for
+  committed. Operator also slotted BUILD_PLAN T4.5 (ROTA v1.1 deferred panels),
+  after T4.2; its TEST RULE bakes in the populated-path-seed lesson.
+
 ## SECURITY INCIDENT 2026-06-11 (gate finding F1, Critical) — keys were committed
 
 WHAT HAPPENED: both Kalshi PEM private keys (`.keys/fortuna-demo-v1.txt`

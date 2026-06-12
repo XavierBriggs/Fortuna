@@ -139,7 +139,8 @@ async fn gates_and_streams_carry_scalars_arrays_and_other_views_deferred() {
         sum, total,
         "the by-check breakdown sums to total_rejections"
     );
-    // recent_rejections still needs the audit pool — a later slice, absent.
+    // The sum==total invariant holds for ANY run; gates_rejections_by_check_is_
+    // non_vacuous_on_a_rejecting_run pins the NON-ZERO, real-rejection case.
     assert!(v["gates"].get("recent_rejections").is_none());
     assert!(v["streams"]["venue_api_errors_total"].is_number());
     // The recorder filesystem scan is a later slice (reads data/perishable).
@@ -148,6 +149,65 @@ async fn gates_and_streams_carry_scalars_arrays_and_other_views_deferred() {
     // with fake zeros that would read as "all clear". (MONEY is now the
     // SIM-ONLY subset — see money_view_is_the_sim_only_account_subset.)
     assert!(v.get("cognition").is_none(), "cognition is a later slice");
+}
+
+#[tokio::test]
+async fn gates_rejections_by_check_is_non_vacuous_on_a_rejecting_run() {
+    // r5test-slice6 gate finding #1: the "sum == total" invariant is VACUOUS
+    // when total is zero (the arb run produces no rejections, so a stubbed/empty
+    // accessor passes). Force REAL rejections with an unreachable net-edge floor
+    // and assert a NON-EMPTY breakdown summing to a NON-ZERO total — now an empty
+    // or fabricated accessor FAILS.
+    let mut cfg = runner_config(20);
+    cfg.gate_config = toml::from_str(
+        "[global]\n\
+         max_total_exposure_cents = 800000\n\
+         max_daily_loss_cents = 50000\n\
+         min_order_contracts = 1\n\
+         max_order_contracts = 1000\n\
+         price_band_cents = 45\n\
+         max_cross_cents = 10\n\
+         per_market_exposure_cents = 100000\n\
+         per_event_exposure_cents = 150000\n\
+         require_event_mapping = false\n\
+         [per_strategy.mech_structural]\n\
+         max_exposure_cents = 200000\n\
+         max_order_notional_cents = 10000\n\
+         min_net_edge_bps = 100000\n\
+         [rate.sim]\n\
+         burst = 100\n\
+         sustained_per_min = 600\n\
+         market_burst = 50\n\
+         market_sustained_per_min = 300\n",
+    )
+    .unwrap();
+    let mut r = SimRunner::new(cfg, vec![strategy()], Box::new(NullSink), t0()).unwrap();
+    set_arb_books(&r);
+    for _ in 0..3 {
+        r.tick().await.unwrap();
+    }
+
+    let v = views_from(&r, GEN);
+    let total = v["gates"]["total_rejections"].as_u64().unwrap();
+    assert!(
+        total > 0,
+        "an unreachable edge floor must REJECT real orders: {v}"
+    );
+    let by_check = v["gates"]["rejections_by_check"].as_array().unwrap();
+    assert!(
+        !by_check.is_empty(),
+        "non-empty breakdown on a rejecting run: {v}"
+    );
+    let sum: u64 = by_check.iter().map(|e| e["count"].as_u64().unwrap()).sum();
+    assert_eq!(
+        sum, total,
+        "the by-check breakdown sums to the NON-ZERO total"
+    );
+    // each entry names a real check.
+    for e in by_check {
+        assert!(e["check"].is_string(), "{e}");
+        assert!(e["count"].as_u64().unwrap() >= 1, "{e}");
+    }
 }
 
 #[tokio::test]
