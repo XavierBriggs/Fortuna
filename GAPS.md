@@ -138,6 +138,45 @@ an I6-aligned property worth an explicit test. Wire it into drive's daily block
   EdgesRepo was) OR ledger as cross-track. This determines whether the slice is
   fully Track-A or needs a ledger touch.
 
+DESIGN-VALIDATED 2026-06-12 (Explore map; ready to build). VERIFY-FIRST
+RESOLVED: JournalRepo EXISTS (repos.rs:1170) => the slice is FULLY Track-A, no
+ledger migration. Validated API:
+- run_reconciliation(mind: &dyn Mind, items: &[ContextItem], now) ->
+  ReconciliationOutcome{journal: Option<JournalDraft{body:String}>, beliefs,
+  discarded_proposals, manifest_hash, cost_cents}; Err(NoJournal) when journal
+  is None (a stub mind's MindOutput::empty()).
+- JournalRepo::insert(journal_id, day, body:&Value, created_at). Table `journal`
+  has a UNIQUE index on `day` (ONE journal/UTC-day) + append-only trigger;
+  JournalRepo::get_day(day) -> Option<JournalRow> gives idempotency.
+- Context: ContextItem{item_id, section: SectionKind, body, content_hash, at};
+  build from runner.manager().intents() (fills, cum_filled>0) +
+  runner.positions().positions() (open positions) as AccountState items.
+- Audit path: runner.apply_external_alert(&mut self, kind, message) writes a
+  kind='alert' audit row {source:'daemon', kind, message} — reuse for the cycle
+  audit (journal-written/discards/cost) AND the graceful-skip/failure alerts.
+- Beliefs: reuse persist_beliefs(pool, drafts, now_iso, id_base).
+SLICING (each a complete, gate-clean slice; the full workspace battery is the
+commit gate — never a -p subset, loop rule 4):
+ - SLICE 1: a `run_daily_reconciliation(runner:&mut SimRunner<PgIntentJournal>,
+   pool:&PgPool, mind:&dyn Mind, now, id_base) -> Result<bool, DaemonError>`
+   helper, NOT yet wired into drive() (no drive() signature ripple). Idempotent
+   via get_day (already-reconciled-today => skip). Tests (daemon_smoke, scripted
+   minds — the S5/S6 pattern): a journal-producing scripted mind => a journal row
+   for the day + discards audited + ZERO orders (structural); an empty StubMind
+   (NoJournal) => graceful skip + skip-alert + no journal row + the call returns
+   Ok (survives). Mutation-proven non-vacuous.
+ - SLICE 2: wire run_daily_reconciliation into drive()'s daily block, INSIDE the
+   SAME `if daily.due(now)` as the digest (one due() check fires both — two
+   separate due() checks would mean the second never fires), via a new
+   `reconciliation: Option<(PgPool, Arc<dyn Mind>)>` drive() param threaded from
+   main; update the ~5 existing drive() call sites + an e2e daemon_smoke test.
+DEFERRED (follow-on, ledgered): beliefs-CONTEXT enrichment (originating beliefs
+into the reconciliation context — needs a BeliefsRepo recent-read; slice 1 uses
+fills+positions context, faithful + sufficient for the scripted-mind tests). The
+weekly/monthly REVIEWS (fortuna_cognition::review) are a SEPARATE M2 sub-item
+AFTER reconciliation. M2 bookkeeping (waive-with-sub-checkboxes vs un-tick) stays
+the operator's call; building these items resolves the underlying gap regardless.
+
 ## Engineering items F1-F3: CLOSED (gate-verified)
 
 Found OPEN by the independent e-gate; closed by b4c839f (F1: degrade
