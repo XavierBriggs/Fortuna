@@ -64,6 +64,9 @@ use fortuna_cognition::mind::{
     AnthropicMind, AnthropicMindConfig, CostBudget, Mind, MindTransport, StubMind,
 };
 use fortuna_cognition::reconciliation::{run_reconciliation, ReconError};
+use fortuna_cognition::review::{
+    weekly_review, ScopeKey, ScopeRecord, StrategyKindView, StrategyRecord, WeeklyReview,
+};
 use fortuna_cognition::veto::{StubVetoMind, VetoMind};
 use fortuna_core::clock::{Clock, UtcTimestamp};
 use fortuna_core::market::{MarketId, StrategyId, VenueId};
@@ -859,6 +862,165 @@ fn reconciliation_context(
     );
     vec![ContextItem {
         item_id: "recon-account".to_string(),
+        section: SectionKind::AccountState,
+        content_hash: content_hash_of(&body),
+        body,
+        at: now,
+    }]
+}
+
+/// The weekly review cycle (spec 5.8 weekly review; fires at the week boundary
+/// once slice B2 wires it into drive()): a DETERMINISTIC calibration audit (per
+/// calibrated scope) + GO/NO-GO recommendations against the [review] thresholds
+/// — RECOMMENDATIONS ONLY, promotion is the human act (I7) — with model
+/// commentary + lesson candidates layered on when a mind produces a journal.
+/// The deterministic core runs even with a StubMind, so this is not inert.
+///
+/// PERSISTENCE: the weekly review does NOT write the `journal` table — that is
+/// the daily reconciliation's one-row-per-UTC-day surface, and the weekly review
+/// fires on the SAME day boundary (a unique-`day` collision). The audit row is
+/// the durable record; the routed #digest summary (slice B2) is the operator
+/// copy; lesson candidates ride #review (propose-only, never promoted here).
+///
+/// SLICE B1 (this commit): the helper + tests. drive() wiring + Slack routing
+/// are slice B2. Returns Ok(true) when the review ran.
+#[allow(clippy::too_many_arguments)]
+pub async fn run_weekly_review(
+    runner: &mut SimRunner<PgIntentJournal>,
+    pool: &PgPool,
+    mind: &dyn Mind,
+    review: &crate::compose::ReviewSection,
+    synth_category: Option<&str>,
+    start: UtcTimestamp,
+    now: UtcTimestamp,
+) -> Result<WeeklyReview, DaemonError> {
+    // 1. Calibration records — only the synthesis arm is calibrated. resolved_
+    //    stats over the [synthesis].category gives the (claimed-p, outcome)
+    //    samples + CLV the audit scores; latest() gives the prior version.
+    let mut records: Vec<ScopeRecord> = Vec::new();
+    let mut prior_versions: std::collections::BTreeMap<ScopeKey, u32> =
+        std::collections::BTreeMap::new();
+    if let Some(category) = synth_category {
+        let stats = BeliefsRepo::new(pool.clone())
+            .resolved_stats(category)
+            .await
+            .map_err(|e| DaemonError::Compose {
+                reason: format!("weekly review resolved_stats: {e}"),
+            })?;
+        let key = ScopeKey {
+            model_id: SYNTH_CALIBRATION_MODEL.to_string(),
+            strategy: SYNTH_CALIBRATION_STRATEGY.to_string(),
+            category: category.to_string(),
+        };
+        records.push(ScopeRecord {
+            key: key.clone(),
+            samples: stats.iter().map(|s| (s.p, s.outcome)).collect(),
+            clv_bps: stats.iter().filter_map(|s| s.clv_bps).collect(),
+        });
+        if let Some(row) = CalibrationParamsRepo::new(pool.clone())
+            .latest(
+                SYNTH_CALIBRATION_MODEL,
+                SYNTH_CALIBRATION_STRATEGY,
+                category,
+                SYNTH_CALIBRATION_KIND,
+            )
+            .await
+            .map_err(|e| DaemonError::Compose {
+                reason: format!("weekly review latest params: {e}"),
+            })?
+        {
+            prior_versions.insert(key, row.version.max(0) as u32);
+        }
+    }
+
+    // 2. Strategy records — per composed strategy, from the digest snapshot +
+    //    DAEMON-LEVEL approximations (no exact per-strategy source; ledgered):
+    //    paper_days = daemon uptime; resolved_beliefs = the synth scope's count
+    //    (0 for mechanical); invariant_violations = 0 (healthy; aggregate is 0).
+    let snap = runner.digest_snapshot();
+    let paper_days =
+        (now.epoch_millis().saturating_sub(start.epoch_millis()) / 86_400_000).max(0) as u32;
+    let synth_clv: Option<f64> = records.first().and_then(|r| {
+        if r.clv_bps.is_empty() {
+            None
+        } else {
+            Some(r.clv_bps.iter().sum::<f64>() / r.clv_bps.len() as f64)
+        }
+    });
+    let synth_resolved = records.first().map(|r| r.samples.len()).unwrap_or(0);
+    let strategies: Vec<StrategyRecord> = snap
+        .strategies
+        .iter()
+        .map(|row| {
+            let is_synth = row.strategy == "synthesis";
+            StrategyRecord {
+                strategy: row.strategy.clone(),
+                kind: if is_synth {
+                    StrategyKindView::Synthesis
+                } else {
+                    StrategyKindView::Mechanical
+                },
+                paper_days,
+                resolved_beliefs: if is_synth { synth_resolved } else { 0 },
+                realized_pnl_cents: row.realized_pnl_cents,
+                fees_cents: row.fees_cents,
+                clv_mean_bps: if is_synth { synth_clv } else { None },
+                invariant_violations: 0,
+            }
+        })
+        .collect();
+
+    // 3. The review (the deterministic core survives any mind outcome).
+    let items = weekly_review_context(runner, now);
+    let thresholds = review.to_thresholds();
+    let wr = weekly_review(
+        mind,
+        &items,
+        &records,
+        &prior_versions,
+        &strategies,
+        &thresholds,
+        now,
+    )
+    .await
+    .map_err(|e| DaemonError::Compose {
+        reason: format!("weekly review: {e}"),
+    })?;
+
+    // 4. Audit the cycle durably (spec 8). I7: recommendations only — the daemon
+    //    NEVER promotes; lesson candidates ride #review (slice B2) for the
+    //    operator to act on.
+    let defect = wr.commentary_defect.as_deref().unwrap_or("none");
+    runner.apply_external_alert(
+        "weekly_review",
+        &format!(
+            "weekly review: {} scope(s), {} GO/NO-GO rec(s), {} lesson candidate(s); \
+             commentary_defect={}; cost {}c",
+            wr.calibration.len(),
+            wr.recommendations.len(),
+            wr.lesson_candidates.len(),
+            defect,
+            wr.cost_cents
+        ),
+    );
+    Ok(wr)
+}
+
+/// Minimal weekly-review framing context (the spec-5.8 inputs are the
+/// calibration + strategy records; this is what the mind reads for commentary).
+fn weekly_review_context(
+    runner: &SimRunner<PgIntentJournal>,
+    now: UtcTimestamp,
+) -> Vec<ContextItem> {
+    let c = runner.counters();
+    let body = format!(
+        "Weekly review as of {} (counters since boot): {} fills applied, {} orders submitted.",
+        now.to_iso8601(),
+        c.fills_applied,
+        c.orders_submitted,
+    );
+    vec![ContextItem {
+        item_id: "weekly-review".to_string(),
         section: SectionKind::AccountState,
         content_hash: content_hash_of(&body),
         body,

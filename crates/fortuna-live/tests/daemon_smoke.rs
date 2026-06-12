@@ -1161,3 +1161,128 @@ async fn drive_runs_daily_reconciliation_at_the_utc_day_boundary(pool: PgPool) {
         "drive() ran the daily reconciliation at the boundary and wrote the journal"
     );
 }
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn weekly_review_audits_the_deterministic_calibration_and_go_nogo(pool: PgPool) {
+    // T4.1/M2 slice B1 (spec 5.8 weekly review): the DETERMINISTIC core — a
+    // calibration audit (per scope from resolved_stats) + GO/NO-GO recommendations
+    // (RECOMMENDATIONS ONLY, I7) — runs even with a StubMind (no commentary).
+    // Seed a synth_events/weather scope (50 resolved beliefs), trade once so the
+    // digest carries a strategy row, run the review, and assert it READ the data
+    // (the calibration scope carries all 50 samples), produced a GO/NO-GO rec,
+    // and audited the cycle. NON-VACUOUS: an empty resolved_stats would give n=0.
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let full = FortunaConfig::load_file(example_path).unwrap();
+
+    fortuna_ledger::CalibrationParamsRepo::new(pool.clone())
+        .insert(
+            "01PARAM0000000000000000990",
+            "claude-fable-5",
+            "synth_events",
+            "weather",
+            "platt",
+            &serde_json::json!({
+                "version": 1,
+                "method": { "Platt": { "a": 0.0, "b": 1.0 } },
+                "extremization_k": 1.0,
+                "fitted_on_n": 50
+            }),
+            1,
+            "2026-06-11T00:00:00.000Z",
+            "2026-06-11T00:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    fortuna_ledger::EventsRepo::new(pool.clone())
+        .create(
+            "evt-hist",
+            "s",
+            "c",
+            "nws",
+            None,
+            "2026-06-12T00:00:00.000Z",
+            "weather",
+            "2026-06-11T00:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    for i in 0..50 {
+        let outcome: i32 = if (i % 10) < 7 { 1 } else { 0 };
+        let brier = if outcome == 1 {
+            (1.0f64 - 0.7).powi(2)
+        } else {
+            (0.7f64).powi(2)
+        };
+        sqlx::query(
+            "INSERT INTO beliefs (belief_id, event_id, p, p_raw, horizon, status,
+                                  outcome, brier, evidence, provenance, created_at)
+             VALUES ($1, 'evt-hist', 0.7, 0.7, '2026-06-12T00:00:00.000Z',
+                     'resolved', $2, $3, '[]'::jsonb, '{}'::jsonb, $4)",
+        )
+        .bind(format!("01BELIEFWK0000000000000{i:02}"))
+        .bind(outcome)
+        .bind(brier)
+        .bind(format!("2026-06-11T00:00:{i:02}.000Z"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    let dcfg = DaemonToml::parse(&format!(
+        "{text}\n[synthesis]\nvenue = \"sim\"\ncategory = \"weather\"\n"
+    ))
+    .unwrap();
+    let review = dcfg.review.clone().expect("the example ships [review]");
+    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 90, stub_mind())
+        .await
+        .unwrap();
+    // Trade once so the digest snapshot carries a strategy row (GO/NO-GO needs a
+    // StrategyRecord; an arb tick gives mech_structural activity).
+    arb_books(&runner);
+    runner.tick().await.unwrap();
+
+    // A week after boot (paper_days > 0). StubMind => no commentary; the
+    // deterministic core still produces the calibration audit + recommendations.
+    let now = fortuna_core::clock::UtcTimestamp::parse_iso8601("2026-06-18T00:00:00.000Z").unwrap();
+    let sm = stub_mind();
+    let wr = fortuna_live::daemon::run_weekly_review(
+        &mut runner,
+        &pool,
+        sm.as_ref(),
+        &review,
+        Some("weather"),
+        t0(),
+        now,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        wr.calibration.len(),
+        1,
+        "one calibrated scope (synth_events/weather)"
+    );
+    assert_eq!(
+        wr.calibration[0].n, 50,
+        "the calibration audit read all 50 resolved beliefs"
+    );
+    assert!(
+        !wr.recommendations.is_empty(),
+        "GO/NO-GO recommendations for the composed strategies (I7: recs only)"
+    );
+    assert!(
+        wr.commentary.is_none(),
+        "StubMind => no commentary; the deterministic core stands"
+    );
+    let audits: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit WHERE kind = 'alert' AND payload->>'kind' = 'weekly_review'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(audits, 1, "the weekly review cycle is audited once");
+}

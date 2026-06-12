@@ -272,11 +272,25 @@ SLICE PLAN (full workspace battery is the commit gate, every slice):
    asserted; week keys computed + verified). Full workspace battery green ON THE
    POST-REVERT TREE (the track-C perps merge a586b4a was reverted 19b3888
    mid-session for client-id instability; slice A is orthogonal to perps).
- - Slice B: weekly_review wiring — assemble ScopeRecord/prior_versions/Strategy
-   Record (approximations above), call weekly_review, persist (journal) + route
-   (Digest; Review for candidates, propose-only), drive() weekly-scheduler param;
-   tests (deterministic core => calibration + GO/NO-GO non-vacuous; mutation-
-   proven). The bulk.
+ - Slice B1 DONE (this commit): daemon::run_weekly_review helper — assembles
+   ScopeRecord (resolved_stats over [synthesis].category) + prior_versions
+   (CalibrationParamsRepo::latest) + StrategyRecord (digest_snapshot + the
+   approximations: paper_days=uptime, resolved_beliefs=scope count, invariant_
+   violations=0), calls weekly_review (deterministic core: calibration + GO/NO-GO
+   recs, I7 recs-only), audits the cycle, returns the WeeklyReview. NOT wired into
+   drive() yet. PERSISTENCE CHOICE: audit-only (NO journal write — the journal is
+   the daily reconciliation's one-row-per-UTC-day surface and the weekly fires on
+   the same day boundary => unique-`day` collision; the audit row is durable, the
+   Slack #digest summary is slice B2). Test (daemon_smoke): seeds 50 resolved
+   beliefs + params, runs with a StubMind, asserts the deterministic core read
+   all 50 (calibration[0].n==50) + produced GO/NO-GO recs + no commentary +
+   audited; mutation-proven (dropping the samples => n=0, RED). Full workspace
+   battery green (daemon_smoke 12/12).
+ - Slice B2 (next): wire run_weekly_review into drive() via WeeklyScheduler (a
+   drive() param threaded from main, reusing the synthesis mind + [synthesis].
+   category + the daemon start time for paper_days); route the WeeklyReview to
+   Slack — #digest (calibration + GO/NO-GO summary), #review (lesson candidates,
+   PROPOSE-ONLY, I7); + an e2e test. Then monthly (Slice C, low soak value).
  - Slice C (LOW soak value — won't fire in a week): monthly_review wiring
    (AllocationInput from envelopes+digest; LessonStatusView from LessonsRepo::
    active).
