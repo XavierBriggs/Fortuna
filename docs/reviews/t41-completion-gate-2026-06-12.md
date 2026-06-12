@@ -246,3 +246,17 @@ clears bidirectionally. M2 needs the operator's waive-or-subtask decision; M3
 The daemon composition itself is mechanically sound: every targeted suite green,
 DST 10000 all stages green, and all three gate mutations (refresh-failure
 last-known, no-params zero-size, zero-budget degrade) hold in the composed daemon.
+
+## ADDENDUM — M1 remediation re-gate (verifier session, 2026-06-12 ~17:30Z)
+
+Fix de0426c verified bidirectionally: the pin was red at 17245de
+(byte-stable across 3 runs, prior gate) and is green at de0426c, with the
+pin TRACKING the deliberate config addition (comment states lockstep-not-
+loosened intent). Full battery at de0426c: workspace 791/0, clippy -D
+warnings clean, run-dst.sh 10000 ALL stages green (3 corpus anchors +
+10000 core; synthesis 10000 w/ 132,786 injected failures; settlement
+10000 all 11 arms; smoke 7/7). M1 CLEARED. The T4.1 verdict converts to
+ACCEPT-WITH-GAPS conditional on: [M2] the operator's tick decision
+(waive-with-subcheckboxes or untick for the two disclosed-unbuilt review
+loops) and [M3] the rearm notices landing before the first soak halt
+drill. The daemon is mechanically FIT TO START THE SOAK.

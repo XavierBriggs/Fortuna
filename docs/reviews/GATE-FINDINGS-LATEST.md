@@ -24,7 +24,7 @@ TRACK C FIX LIST (Minor, ledger each):
    wording (claims "recorded risk curves" — currently false; correct
    visibly, never erase).
 
-## T4.1 COMPLETION GATE: BLOCK (t41-completion-gate-2026-06-12.md) — one line from soak-ready
+## T4.1 COMPLETION GATE: CLEARED to ACCEPT-WITH-GAPS (M1 fixed, addendum in verdict; soak fit pending operator M2) — was: BLOCK (t41-completion-gate-2026-06-12.md) — one line from soak-ready
 
 The daemon is mechanically SOUND (full synthesis chain proven in the booted
 composition; E1 fail-closed THROUGH the composition; budgets bind w/
