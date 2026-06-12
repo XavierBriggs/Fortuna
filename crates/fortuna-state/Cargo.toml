@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+rust_decimal = { workspace = true }
 fortuna-core = { path = "../fortuna-core" }
 fortuna-venues = { path = "../fortuna-venues" }
 thiserror = { workspace = true }
