@@ -496,9 +496,14 @@ code.
       incl. 7 property suites written from spec 5.15 before implementation;
       battery green except ONE pre-existing fmt diff on main outside track-C
       ownership, ledgered in GAPS.)
-- [ ] T5.B3 Gate extensions: margin headroom, liquidation-distance floor,
+- [x] T5.B3 Gate extensions: margin headroom, liquidation-distance floor,
       per-asset leverage caps, funding-drag-in-edge, notional caps; worst case =
       liquidation loss. Invariant-crate ADDITIONS only (I2 extension tests).
+      (DONE track C 2026-06-12, commits 7782f5c + b4561ca: perp gate arm on
+      the shared GatePipeline + equity_with_margin I2 composition + perp
+      I1/I2/I3 invariant ADDITIONS [pure, 0 deletions — operator waive
+      queued in GAPS]; daemon wiring of the composed equity lands with the
+      B4/B5 runtime integration, ledgered.)
 - [ ] T5.B4 Kinetics adapter (own credentials; dedicated 5.14 envelope):
       REST+WS from the archived specs, doc-derived samples, FIXTURES-GATED vs
       fixtures/kinetics-perps/ (18-item list, research section 12).

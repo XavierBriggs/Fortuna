@@ -973,20 +973,30 @@ observed so far: `INVALID_PARAMETER` (malformed key id) and
   file). Unblock: the owning session (main checkout) runs
   `cargo fmt -p fortuna-venues` and commits, or the verifier authorizes a
   track to format it.
-- **T5.B3 gate extensions: SLICE 1 LANDED, box stays unticked** (track C,
-  2026-06-12, commit 7782f5c): the perp gate arm in fortuna-gates —
-  MarginHeadroom/LiquidationDistance/LeverageCap/PerpNotionalCap (spec
-  numbering 11-14) + perp arms of PriceSanity/SizeSanity/EdgeFloor
-  (funding drag + fee-trap assumed fees) + shared rate/idempotency/
-  netting/halts; GatedPerpOrder sealed type; PerpConfig validation.
-  36 spec-first tests. STILL OPEN before the tick: (a) the I2 drawdown
-  extension (funding + margin uPnL into halt math — fortuna-state margin
-  pieces); (b) fortuna-invariants ADDITIONS pinning the perp arm (I1 seal
-  compile-fail for GatedPerpOrder, I2-extension, I3 cross-domain halt) —
-  PROTECTED-CRATE TOUCH: auto-queues the operator waive (expected,
-  orchestration.md). Two design readings FLAGGED for the verifier in
-  ASSUMPTIONS ("T5.B3 perp gate arm, slice 1"): GatedPerpOrder as a
-  second sealed type, and the reduce-only risk-gate/edge-floor skip.
+- **T5.B3 gate extensions: DONE, box ticked** (track C, 2026-06-12,
+  commits 7782f5c slice 1 + b4561ca slice 2): the perp gate arm in
+  fortuna-gates (MarginHeadroom/LiquidationDistance/LeverageCap/
+  PerpNotionalCap, spec numbering 11-14, + perp arms of PriceSanity/
+  SizeSanity/EdgeFloor with funding drag + fee-trap assumed fees, shared
+  rate/idempotency/netting/halts, GatedPerpOrder sealed type, PerpConfig
+  validation, 36 spec-first tests) + fortuna-state equity_with_margin
+  (I2 composition: balance + worse-for-us uPnL + pending funding, 8
+  tests) + fortuna-invariants ADDITIONS (perp I1 seal compile-fails,
+  I2-extension breach lifecycle, I3 cross-domain halt; 3 new files).
+  Two design readings FLAGGED for the verifier in ASSUMPTIONS ("T5.B3
+  perp gate arm, slice 1"): GatedPerpOrder as a second sealed type, and
+  the reduce-only risk-gate/edge-floor skip.
+  DEFERRED with owner: wiring equity_with_margin into the daemon's live
+  drawdown feed is fortuna-live (track A) and only becomes meaningful
+  when perp runtime state exists (B4/B5); until then the composition +
+  invariant pins are the deliverable.
+- **OPERATOR WAIVE QUEUED (protected-crate touch, expected per
+  orchestration.md): commit b4561ca touches crates/fortuna-invariants/ —
+  PURE ADDITIONS: 3 brand-new test files (perp_i1_sealed_order,
+  perp_i2_drawdown_extension, perp_i3_cross_domain_halt) + append-only
+  doc-test additions to src/lib.rs (verified 25 insertions / 0
+  deletions). No existing assertion, tolerance, or test name was
+  touched. Waive request: confirm the additions stand.**
 - **T5.B2 core perps types: DONE** (track C, 2026-06-12):
   fortuna-core/src/perp.rs — InstrumentKind, PerpPrice (i64
   ten-thousandths, checked ops, Decimal only at payload boundaries),

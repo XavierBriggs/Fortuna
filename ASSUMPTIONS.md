@@ -57,6 +57,21 @@ conservative option, and the spec section it interprets.
   proceeded — the operator must read the output; exit 0 is reserved for
   fully-confirmed shutdowns and true idempotent no-ops.
 
+## T5.B3 slice 2: I2 composition + invariant additions (track C, 2026-06-12)
+
+- **`equity_with_margin` is the I2 seam, not the wiring:** the composed
+  number (event equity + Σ margin-account conservative equity) is what the
+  DrawdownMonitor must consume once perp runtime state exists; the daemon
+  feed itself is fortuna-live (track A) and lands with B4/B5 integration.
+  The invariant tests pin the composition's behavior (perp-only losses
+  breach; worse-for-us mark governs; funding paid is drawdown) so the
+  wiring cannot later redefine the math.
+- **The unmarked flag ALERTS, never blocks:** a position valued on the
+  venue's number alone is alert-worthy degradation, but the composed
+  equity is already the conservative number available — halting on
+  missing marks would make a feed outage into a self-inflicted halt
+  (the wide-mark flag in 5.14 has the same posture).
+
 ## T5.B3 perp gate arm, slice 1 (track C, 2026-06-12; interprets spec 5.15)
 
 - **"Same sealed GatedOrder through the same I1 pipeline" is read as: same
