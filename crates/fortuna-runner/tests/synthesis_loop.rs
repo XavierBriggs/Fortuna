@@ -271,6 +271,29 @@ fn empty_edge_set_fails_closed_but_a_present_edge_trades() {
     assert!(present_traded, "a present confirmed edge opens a position");
 }
 
+#[test]
+fn strategy_ids_reports_the_composed_strategy() {
+    // The fortuna-live S3 composition asserts WHICH strategies booted through
+    // this accessor (that synthesis was wired in, or that an empty synthesis
+    // config left the daemon mechanically-only). NON-VACUOUS: a stubbed / empty
+    // accessor FAILS this specific-id assertion.
+    let mind: Arc<dyn Mind> = Arc::new(StubMind::scripted(vec![]));
+    let strategy = SynthesisStrategy::new(synthesis_config(), mind);
+    let r = SimRunner::new(
+        runner_config(70),
+        vec![Box::new(strategy)],
+        Box::new(MemoryAuditSink::default()),
+        t0(),
+    )
+    .unwrap();
+    let ids: Vec<String> = r.strategy_ids().iter().map(|id| id.to_string()).collect();
+    assert_eq!(
+        ids,
+        vec!["synth_sim".to_string()],
+        "strategy_ids reports the composed synthesis strategy by id: {ids:?}"
+    );
+}
+
 // ------------------------------------------------------- cognition failure
 
 /// A mind that always fails, with a scripted error kind.

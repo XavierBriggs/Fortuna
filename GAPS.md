@@ -179,10 +179,27 @@ Build sub-slices (each its own iteration, TDD, battery-gated):
       confirmed edge present produces zero proposals + no position when the edge
       set is empty, proving the edge set load-bearing). The EdgeRow->EdgeView map
       moves to S3 (it belongs at the composition where EdgeRow is loaded).
-  S3. compose_runner composes SynthesisStrategy: confirmed_edges + StubMind +
-      EdgeRow->EdgeView map +
-      calibration_for_scope + [synthesis]-filtered config + derived stage; daemon
-      boots + trades seeded edges; empty-set boots clean (requirements 1,3,4,5).
+  S3-prep DONE (this commit): SimRunner::strategy_ids() accessor — the seam
+      the S3 composition test asserts on (WHICH strategies booted). Was MISSING;
+      without it the composition is untestable (compose_runner builds its own
+      mind, so behaviour-testing needs no injection seam either). TDD red
+      observed (stub Vec::new() -> [] != ["synth_sim"]).
+  S3 VALIDATED WIRING (build next; resolved unknowns): compose_runner gains a
+      synthesis arm GATED on dcfg.synthesis.is_some() (opt-in; absent => daemon
+      mechanically-only, the conservative default — operator flips it on).
+      Pieces, all confirmed present: calibration_for_scope (compose.rs:44),
+      effective_stage (promotion.rs:50), StubMind (S3 placeholder; real mind is
+      S5 via allow_stub_mind/api-key at main.rs:49). Testable CORE =
+      compose::synthesis_edges(pool,&SynthesisToml) -> Vec<EdgeView>: load
+      EdgesRepo::confirmed_edges, map EdgeRow->EdgeView (parse mapping_type;
+      tier=Confirmed), apply [synthesis] filters (categories/venue/max_edges,
+      truncate by edge id) — sqlx::test seeds confirmed edges and asserts the
+      mapped+filtered set (NON-VACUOUS). compose_runner USES it (no dead_code) +
+      builds SynthesisStrategy(edges, StubMind, calibration, comparator/triage
+      from cfg, derived stage), pushes to strategies with a [per_strategy] gate
+      entry + envelope. Composition test: strategy_ids() contains the synth id
+      with [synthesis]+seeded edges; only mech without. [synthesis] filters may
+      split to S3b if S3 runs large.
   S4. drive() per-segment edge refresh: keep last-known on failure + count/alert,
       never crash (requirement 2).
   S5. mind binding (StubMind -> AnthropicMind via allow_stub_mind/CostBudget).

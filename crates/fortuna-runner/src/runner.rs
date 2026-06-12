@@ -2441,6 +2441,14 @@ impl<J: IntentJournal + Send> SimRunner<J> {
         counters
     }
 
+    /// The composed strategies' ids in registration order — the seam the
+    /// fortuna-live composition (S3) asserts on: WHICH strategies booted (that
+    /// synthesis was wired alongside the mechanical strategies, or that an
+    /// empty / disabled synthesis config left the daemon mechanically-only).
+    pub fn strategy_ids(&self) -> Vec<StrategyId> {
+        self.strategies.iter().map(|s| s.id()).collect()
+    }
+
     /// Apply a venue settlement to local books (sim convenience mirroring
     /// what the settlement processors automate at T1.4).
     pub fn apply_settlement(
