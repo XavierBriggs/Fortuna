@@ -308,10 +308,20 @@ SLICE PLAN (full workspace battery is the commit gate, every slice):
    (daemon_smoke): trades once + seeds an active overdue lesson, asserts
    allocations + the lesson due-for-demotion + checklist + audited; mutation-
    proven (a non-matching status filter => 0 lessons, RED). Full workspace
-   battery green (daemon_smoke 14/14). Slice C2 (next): wire run_monthly_review
-   into drive() via a MonthlyScheduler in ReviewWiring (+ an envelopes field) +
-   route #digest/#ops + an e2e test. That completes M2 fully (daily + weekly +
-   monthly).
+   battery green (daemon_smoke 14/14).
+ - Slice C2 DONE (this commit): run_monthly_review wired into drive()'s review
+   block via a MonthlyScheduler + envelopes field on ReviewWiring (no new drive()
+   param — reuses the bundled review param). The month boundary (its own
+   scheduler) routes the allocation/cost summary to #digest + the operator drills
+   (kill-switch test, backup restore) to #ops (I7 — operator action). 6 drive()
+   call sites pass None; e2e drive_runs_the_monthly_review_at_the_month_boundary
+   (mutation-proven). Full workspace battery green (daemon_smoke 15/15).
+   ===> M2 IS FULLY RESOLVED: the verifier's two disclosed-but-unbuilt items
+   (daily reconciliation re-run + weekly/monthly reviews) are ALL BUILT + WIRED +
+   gate-clean. The operator's M2 waive-or-build call is now moot (everything is
+   built). [Honest caveat: the monthly review won't FIRE in a continuous-WEEK
+   soak; it serves longer runs. The weekly + daily — the EXIT-relevant cadences —
+   fire during the soak.]
  - Slice C (LOW soak value — won't fire in a week): monthly_review wiring
    (AllocationInput from envelopes+digest; LessonStatusView from LessonsRepo::
    active).

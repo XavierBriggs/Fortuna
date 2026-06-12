@@ -219,6 +219,8 @@ async fn main() -> Result<()> {
             synth_category: dcfg.synthesis.as_ref().and_then(|s| s.category.clone()),
             start,
             weekly: fortuna_live::daemon::WeeklyScheduler::new(),
+            monthly: fortuna_live::daemon::MonthlyScheduler::new(),
+            envelopes: full.envelopes.clone(),
         });
     let mut poller = PgHaltPoller::new(pool);
     let loop_cfg = LoopConfig {

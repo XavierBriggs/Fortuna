@@ -430,6 +430,10 @@ pub struct ReviewWiring {
     /// Daemon boot time, for the paper_days approximation.
     pub start: UtcTimestamp,
     pub weekly: WeeklyScheduler,
+    /// The monthly review's scheduler (won't fire in a WEEK soak — serves
+    /// longer runs) + the config envelopes for the allocation audit.
+    pub monthly: MonthlyScheduler,
+    pub envelopes: std::collections::BTreeMap<String, i64>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -652,6 +656,44 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                             &[(
                                 fortuna_ops::MessageKind::Ops,
                                 format!("weekly review FAILED: {e}"),
+                            )],
+                        )
+                        .await;
+                    }
+                }
+            }
+            // The MONTHLY review (spec 5.8): same review block, its OWN scheduler
+            // (won't fire in a week soak). Routes the allocation/cost summary to
+            // #digest + the operator drills (kill-switch test, backup restore) to
+            // #ops (I7 — operator action). A failure alerts but never crashes.
+            if rw.monthly.due(now) {
+                match run_monthly_review(runner, &rw.pool, &rw.envelopes, now).await {
+                    Ok(mr) => {
+                        let summary = format!(
+                            "FORTUNA monthly review — {} allocation rec(s); pnl {}c, fees {}c, \
+                             cognition {}c; {} lesson(s) due demotion (operator action, I7)",
+                            mr.allocations.len(),
+                            mr.cost_audit.total_realized_pnl_cents,
+                            mr.cost_audit.total_fees_cents,
+                            mr.cost_audit.total_cognition_cost_cents,
+                            mr.lessons_due_demotion.len(),
+                        );
+                        let mut msgs = vec![(fortuna_ops::MessageKind::Digest, summary)];
+                        for item in &mr.operator_checklist {
+                            msgs.push((
+                                fortuna_ops::MessageKind::Ops,
+                                format!("monthly operator task (I7): {item}"),
+                            ));
+                        }
+                        total_send_failures += route_alerts(slack, runner, &msgs).await;
+                    }
+                    Err(e) => {
+                        total_send_failures += route_alerts(
+                            slack,
+                            runner,
+                            &[(
+                                fortuna_ops::MessageKind::Ops,
+                                format!("monthly review FAILED: {e}"),
                             )],
                         )
                         .await;

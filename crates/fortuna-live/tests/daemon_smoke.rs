@@ -1331,6 +1331,8 @@ async fn drive_runs_the_weekly_review_at_the_week_boundary(pool: PgPool) {
         synth_category: Some("weather".to_string()),
         start: t0(),
         weekly: fortuna_live::daemon::WeeklyScheduler::new(),
+        monthly: fortuna_live::daemon::MonthlyScheduler::new(),
+        envelopes: full.envelopes.clone(),
     });
 
     let (tx, mut stop) = tokio::sync::oneshot::channel::<()>();
@@ -1435,4 +1437,90 @@ async fn monthly_review_audits_allocations_cost_and_lesson_demotion(pool: PgPool
     .await
     .unwrap();
     assert_eq!(audits, 1, "the monthly review cycle is audited once");
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn drive_runs_the_monthly_review_at_the_month_boundary(pool: PgPool) {
+    // T4.1/M2 slice C2: drive() runs the monthly review on the MONTH boundary
+    // (the first MonthlyScheduler.due() fires on boot, like the daily/weekly).
+    // With the review wired, a monthly_review audit lands. NON-VACUOUS: the
+    // sibling drives pass reviews=None and audit none — only the wiring fires it.
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let full = FortunaConfig::load_file(example_path).unwrap();
+    let dcfg = DaemonToml::parse(&format!(
+        "{text}\n[synthesis]\nvenue = \"sim\"\ncategory = \"weather\"\n"
+    ))
+    .unwrap();
+    let review = dcfg.review.clone().expect("the example ships [review]");
+    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 93, stub_mind())
+        .await
+        .unwrap();
+    arb_books(&runner);
+
+    let before: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit WHERE kind = 'alert' AND payload->>'kind' = 'monthly_review'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(before, 0, "no monthly review before drive");
+
+    let reviews = Some(fortuna_live::daemon::ReviewWiring {
+        pool: pool.clone(),
+        mind: stub_mind(),
+        review,
+        synth_category: Some("weather".to_string()),
+        start: t0(),
+        weekly: fortuna_live::daemon::WeeklyScheduler::new(),
+        monthly: fortuna_live::daemon::MonthlyScheduler::new(),
+        envelopes: full.envelopes.clone(),
+    });
+
+    let (tx, mut stop) = tokio::sync::oneshot::channel::<()>();
+    let mut cadence = StopAtCadence {
+        clock: runner.clock.clone(),
+        sleeps: 0,
+        fire_at: 6,
+        tx: Some(tx),
+    };
+    let mut poller = NeverHalted;
+    let loop_cfg = LoopConfig {
+        tick_interval_ms: 1000,
+        halt_poll_ms: 500,
+    };
+    let mut scrape = DegradeScrape::new(default_degrade_thresholds());
+    let mut daily = fortuna_live::daemon::DailyScheduler::new();
+
+    let (_stats, _shutdown) = drive(
+        &mut runner,
+        &mut cadence,
+        &mut poller,
+        &loop_cfg,
+        4,
+        &mut stop,
+        |_r, _s| {},
+        &mut scrape,
+        None,
+        &mut daily,
+        None,    // synthesis_refresh
+        None,    // reconciliation
+        reviews, // M2: weekly + monthly review wiring
+    )
+    .await
+    .expect("daemon drive");
+
+    let after: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit WHERE kind = 'alert' AND payload->>'kind' = 'monthly_review'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        after, 1,
+        "drive() ran the monthly review at the month boundary"
+    );
 }
