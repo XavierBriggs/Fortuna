@@ -259,10 +259,12 @@ Build sub-slices (each its own iteration, TDD, battery-gated):
       DONE; S5a mind binding DONE (synthesis mind PARAM + "synth_events"-scoped
       calibration; arm trades a seeded edge); S5b mind_from_env DONE (synthesis
       side: AnthropicMind when keyed, else StubMind; main wires it from env);
-      S6a belief drain+persist WIRED into drive() DONE. NEXT (Track A's tail):
-      S6b RICH digest (terse -> DigestInputs) + daily reconciliation re-run +
-      weekly/monthly reviews -> THEN tick T4.1 (starts the soak). PREREQS before
-      the LIVE synthesis arm trades
+      S6a belief drain+persist WIRED into drive() DONE; S6b RICH digest (terse ->
+      DigestInputs composition) DONE. NEXT (Track A's tail): TICK T4.1 — tick the
+      box + start the Sim soak (the daemon is built + gated; the soak runs
+      mechanically-only / with the inert stub mind absent a key). The daily
+      reconciliation re-run + weekly/monthly cognition reviews are POST-TICK
+      sub-slices. PREREQS before the LIVE synthesis arm trades
       (operator/config + a boundary item, NOT blocking the tick of a soak that
       can run mechanically-only or with the stub): (1) add `synthesis_cents`
       envelope + `[gates.per_strategy.synthesis]` to the example/operator config
@@ -441,7 +443,20 @@ Build sub-slices (each its own iteration, TDD, battery-gated):
       rich digest text surfaces per-strategy PnL + the honesty numbers + veto
       (non-vacuous). DEFERRED to later sub-slices: the daily reconciliation re-run
       + weekly/monthly cognition reviews (separate review machinery, post-tick).
-  Then tick T4.1 (starts the soak) -> T4.2 -> T4.5.
+      DONE (this commit), built to the plan: (1) fortuna-runner: DigestSnapshot +
+      DigestStrategyRow structs + a digest_snapshot() accessor (per-strategy
+      pnl/fees over positions + FILLED-order count over intents, both via the
+      market_strategy attribution metrics_export uses; reserved_total = exposure;
+      halts/discrepancies/overdue/limbo from the boards_json internals; veto from
+      counters). (2) fortuna-live: rich_daily_digest maps DigestSnapshot ->
+      fortuna_ops DigestInputs -> compose_daily_digest; drive's daily block now
+      emits it (terse_daily_digest kept — still unit-tested). Tests: fortuna-
+      runner digest_snapshot test (a filled synth trade attributes a synth_sim
+      row with fills>=1 + fees>0; non-vacuous); the daemon_smoke gate-#3c digest
+      assertion updated to the rich "FORTUNA daily digest%" prefix (assertion
+      unchanged — exactly one digest; NOT a weakening). FILLS NOTE: per-strategy
+      "fills" = FILLED-order count (Position has no fill-event count), distinct
+      from the aggregate fills_applied (fill events) — documented.
 The populated-path test rule (the verifier's vacuous-test lesson) applies to
 EVERY sub-slice: assert REAL non-empty edge sets / non-zero proposals, never a
 shape that passes under a fabricated/empty fixture.

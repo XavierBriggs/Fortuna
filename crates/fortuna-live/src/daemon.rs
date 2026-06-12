@@ -546,7 +546,7 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
         // are the remaining req-5 surface (ledgered).
         let now = Clock::now(runner.clock.as_ref());
         if daily.due(now) {
-            let digest = terse_daily_digest(runner, now);
+            let digest = rich_daily_digest(runner, now);
             total_send_failures +=
                 route_alerts(slack, runner, &[(fortuna_ops::MessageKind::Digest, digest)]).await;
         }
@@ -849,6 +849,44 @@ pub fn terse_daily_digest<J: fortuna_exec::IntentJournal + Send>(
         c.settlement_notices,
         c.cognition_failures
     )
+}
+
+/// The RICH daily digest (S6b): the full DigestInputs composition —
+/// per-strategy PnL/fees/fills/exposure + the honesty numbers (halts,
+/// discrepancies, overdue settlements, capital in limbo) + veto accounting —
+/// rendered by `fortuna_ops::digest::compose_daily_digest`. Replaces the terse
+/// one-liner in drive's daily-boundary block; the runner composes the raw
+/// inputs (digest_snapshot), this maps them to the ops layer's DigestInputs.
+pub fn rich_daily_digest<J: fortuna_exec::IntentJournal + Send>(
+    runner: &SimRunner<J>,
+    now: fortuna_core::clock::UtcTimestamp,
+) -> String {
+    use fortuna_ops::digest::{compose_daily_digest, DigestInputs, StrategyDigestRow};
+    let snap = runner.digest_snapshot();
+    let iso = now.to_iso8601();
+    let date_utc = iso.get(..10).unwrap_or(&iso).to_string();
+    let strategies = snap
+        .strategies
+        .into_iter()
+        .map(|r| StrategyDigestRow {
+            strategy: r.strategy,
+            realized_pnl_cents: r.realized_pnl_cents,
+            fees_cents: r.fees_cents,
+            fills: r.fills,
+            open_exposure_cents: r.open_exposure_cents,
+        })
+        .collect();
+    compose_daily_digest(&DigestInputs {
+        date_utc,
+        stage: "sim".to_string(),
+        strategies,
+        halts_active: snap.halts_active,
+        discrepancies_open: snap.discrepancies_open,
+        settlements_overdue: snap.settlements_overdue,
+        capital_in_limbo_cents: snap.capital_in_limbo_cents,
+        veto_decisions: snap.veto_decisions,
+        veto_suppressed: snap.veto_suppressed,
+    })
 }
 
 #[cfg(test)]

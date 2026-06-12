@@ -211,6 +211,51 @@ fn synthesis_belief_trades_through_the_full_loop() {
     assert!(pos.yes.qty > 0, "YES position opened (fair 70 > ask 60)");
 }
 
+#[test]
+fn digest_snapshot_attributes_a_filled_trade_to_its_strategy() {
+    // S6b: digest_snapshot composes the RICH daily digest's raw inputs. A
+    // filled synthesis trade attributes a per-strategy row (PnL/fees over
+    // positions, FILLED-order count over intents, both via market->strategy) +
+    // the honesty numbers. NON-VACUOUS: the "synth_sim" row's fills + fees come
+    // from a REAL fill — an empty/stubbed snapshot has no such row.
+    let mind: Arc<dyn Mind> = Arc::new(StubMind::scripted(vec![belief_output("evt-1", 0.70)]));
+    let strategy = SynthesisStrategy::new(synthesis_config(), mind);
+    let mut r = SimRunner::new(
+        runner_config(12),
+        vec![Box::new(strategy)],
+        Box::new(MemoryAuditSink::default()),
+        t0(),
+    )
+    .unwrap();
+    r.set_calibration_quality("synth_sim", 1.0);
+    set_book(&r, 58, 60);
+    let report = futures::executor::block_on(r.tick()).unwrap();
+    assert!(
+        report.fills_applied >= 1,
+        "the synth arm filled: {report:?}"
+    );
+
+    let snap = r.digest_snapshot();
+    let row = snap
+        .strategies
+        .iter()
+        .find(|s| s.strategy == "synth_sim")
+        .expect("a per-strategy digest row for the synth arm");
+    assert!(
+        row.fills >= 1,
+        "the filled order is attributed to synth_sim: {row:?}"
+    );
+    assert!(
+        row.fees_cents > 0,
+        "the fill paid a fee, attributed to synth_sim: {row:?}"
+    );
+    assert_eq!(snap.halts_active, 0, "not halted");
+    assert_eq!(
+        snap.veto_decisions, 0,
+        "no veto enrolled in this composition"
+    );
+}
+
 // ------------------------------------------- requirement 3: empty edge set
 // (synthesis-in-main / docs/design/synthesis-edge-source-decision.md): zero
 // confirmed edges => SynthesisStrategy composes with an empty set => zero

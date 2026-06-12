@@ -343,9 +343,13 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       (AnthropicVetoMind unbuilt, fortuna-cognition). S6a belief drain+persist
       WIRED into drive() DONE — per segment the synth arm's drafts are drained +
       persisted (calibration substrate; persist failure alerts, never crashes);
-      mutation-proven non-vacuous daemon_smoke test. Loop-doc tail next: S6b
-      (terse digest -> rich DigestInputs + reconciliation + reviews) -> tick.
-      Live synthesis additionally awaits the two config gaps + AnthropicVetoMind.
+      mutation-proven non-vacuous daemon_smoke test. S6b RICH digest DONE —
+      a fortuna-runner digest_snapshot() composes per-strategy PnL/fees/fills/
+      exposure + the honesty numbers + veto; fortuna-live rich_daily_digest
+      renders it via fortuna_ops::compose_daily_digest, replacing terse in drive's
+      daily block. Loop-doc tail next: TICK T4.1 (tick the box + start the Sim
+      soak; daily reconciliation + weekly/monthly reviews are post-tick). Live
+      synthesis additionally awaits the two config gaps + AnthropicVetoMind.
 - [ ] T4.2 POST-FIXTURE tranche (blocked on the operator recording session):
       Kalshi WS dial (signed handshake, keep-alive, redial w/ resubscribe-on-gap),
       venue-generic recorded-stream replay into PaperVenue under both mech

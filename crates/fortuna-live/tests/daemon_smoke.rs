@@ -182,15 +182,17 @@ async fn daemon_smoke_boot_ticks_signal_shutdown(pool: PgPool) {
     // the UTC-day boundary (the first due() fires on boot). route_alerts writes
     // the audit row even with no Slack router (spec 8: every outbound message
     // is also an audit row), so the digest is durably in the trail exactly once.
+    // S6b: drive now emits the RICH digest ("FORTUNA daily digest — ...");
+    // the assertion (exactly one digest audited) is unchanged.
     let digest_rows: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM audit WHERE kind = 'alert' AND payload->>'message' LIKE 'FORTUNA digest%'",
+        "SELECT COUNT(*) FROM audit WHERE kind = 'alert' AND payload->>'message' LIKE 'FORTUNA daily digest%'",
     )
     .fetch_one(&pool)
     .await
     .unwrap();
     assert_eq!(
         digest_rows, 1,
-        "drive() emitted + audited exactly one digest"
+        "drive() emitted + audited exactly one RICH digest"
     );
 }
 

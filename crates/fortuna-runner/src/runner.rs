@@ -283,6 +283,37 @@ pub struct RunCounters {
     pub mind_spend_today_cents: i64,
 }
 
+/// One strategy's day in numbers for the rich daily digest (S6b). Plain data;
+/// the ops layer maps it to its DigestInputs and renders dollars. PnL + fees
+/// are summed over the strategy's positions (the same market->strategy
+/// attribution metrics_export uses); `fills` counts the strategy's FILLED
+/// orders (Position carries no fill-event count); exposure is its reserved
+/// capital.
+#[derive(Debug, Clone)]
+pub struct DigestStrategyRow {
+    pub strategy: String,
+    pub realized_pnl_cents: i64,
+    pub fees_cents: i64,
+    pub fills: u64,
+    pub open_exposure_cents: i64,
+}
+
+/// The runner-side raw inputs for the rich daily digest (S6b). The daemon maps
+/// this to `fortuna_ops::digest::DigestInputs` (the runner stays free of the
+/// ops/telemetry layer). Honesty numbers (halts, discrepancies, overdue
+/// settlements, capital in limbo) ride alongside per-strategy PnL so the digest
+/// can never become a PnL-only marketing email.
+#[derive(Debug, Clone)]
+pub struct DigestSnapshot {
+    pub strategies: Vec<DigestStrategyRow>,
+    pub halts_active: u64,
+    pub discrepancies_open: u64,
+    pub settlements_overdue: u64,
+    pub capital_in_limbo_cents: i64,
+    pub veto_decisions: u64,
+    pub veto_suppressed: u64,
+}
+
 /// One exported metric sample (plain data: the ops layer maps these into
 /// its registry; the runner stays free of telemetry dependencies).
 #[derive(Debug, Clone)]
@@ -2425,6 +2456,79 @@ impl<J: IntentJournal + Send> SimRunner<J> {
                     .unwrap_or(-1),
             },
         })
+    }
+
+    /// Compose the rich daily digest's raw inputs (S6b) — per-strategy PnL/
+    /// fees/fills/exposure + the honesty numbers + veto accounting — from the
+    /// runner's own state. The daemon maps this to `fortuna_ops` DigestInputs
+    /// and renders it; the runner stays free of the telemetry layer.
+    pub fn digest_snapshot(&self) -> DigestSnapshot {
+        // market -> strategy, the SAME attribution metrics_export uses
+        // ("shared" when two strategies traded one market; "unattributed" for a
+        // position whose intent did not survive).
+        let mut market_strategy: BTreeMap<MarketId, String> = BTreeMap::new();
+        for (_, rec) in self.manager.intents() {
+            let m = rec.order.market.clone();
+            let strat = rec.order.strategy.to_string();
+            match market_strategy.get(&m) {
+                Some(existing) if existing != &strat => {
+                    market_strategy.insert(m, "shared".to_string());
+                }
+                None => {
+                    market_strategy.insert(m, strat);
+                }
+                _ => {}
+            }
+        }
+        // Per-strategy realized PnL + fees (over positions) and FILLED-order
+        // count (over intents), all attributed via market_strategy.
+        let mut pnl_by: BTreeMap<String, i64> = BTreeMap::new();
+        let mut fees_by: BTreeMap<String, i64> = BTreeMap::new();
+        let mut fills_by: BTreeMap<String, u64> = BTreeMap::new();
+        for p in self.positions.positions() {
+            let owner = market_strategy
+                .get(&p.market)
+                .cloned()
+                .unwrap_or_else(|| "unattributed".to_string());
+            *pnl_by.entry(owner.clone()).or_insert(0) += p.realized_pnl.raw();
+            *fees_by.entry(owner).or_insert(0) += p.fees_paid.raw();
+        }
+        for (_, rec) in self.manager.intents() {
+            if rec.cum_filled.raw() > 0 {
+                let owner = market_strategy
+                    .get(&rec.order.market)
+                    .cloned()
+                    .unwrap_or_else(|| "unattributed".to_string());
+                *fills_by.entry(owner).or_insert(0) += 1;
+            }
+        }
+        let mut names: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        names.extend(pnl_by.keys().cloned());
+        names.extend(fills_by.keys().cloned());
+        let strategies = names
+            .into_iter()
+            .map(|s| DigestStrategyRow {
+                realized_pnl_cents: *pnl_by.get(&s).unwrap_or(&0),
+                fees_cents: *fees_by.get(&s).unwrap_or(&0),
+                fills: *fills_by.get(&s).unwrap_or(&0),
+                open_exposure_cents: self.reserved_total(&s).raw(),
+                strategy: s,
+            })
+            .collect();
+        let c = self.counters();
+        DigestSnapshot {
+            strategies,
+            halts_active: u64::from(self.gates.halts().global_halted().is_some()),
+            discrepancies_open: c.discrepancies,
+            settlements_overdue: self.overdue_alerted.len() as u64,
+            capital_in_limbo_cents: self
+                .settlements
+                .capital_in_limbo()
+                .map(|x| x.raw())
+                .unwrap_or(0),
+            veto_decisions: c.veto_decisions,
+            veto_suppressed: c.veto_suppressed,
+        }
     }
 
     pub fn counters(&self) -> RunCounters {
