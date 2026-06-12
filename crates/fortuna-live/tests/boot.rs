@@ -133,6 +133,38 @@ fn synthesis_section_is_optional_and_parses_when_present() {
 }
 
 #[test]
+fn review_section_parses_from_the_committed_example_and_is_optional() {
+    // T4.1/M2 slice A: the [review] section's PRESENCE composes the weekly/
+    // monthly review cadence (the wiring slice consumes it); its GO/NO-GO
+    // thresholds are REQUIRED (no silent default for a risk gate). The committed
+    // example ships [review].
+    let example = include_str!("../../../config/fortuna.example.toml");
+    let review = DaemonToml::parse(example)
+        .expect("committed example with [review] parses")
+        .review
+        .expect("the example ships a [review] section");
+    assert_eq!(review.min_paper_days_mechanical, 14);
+    assert_eq!(review.min_resolved_beliefs_synthesis, 100);
+    assert_eq!(review.max_fee_pnl_ratio, 0.5);
+    // to_thresholds maps 1:1 into the cognition layer's GoNoGoThresholds.
+    let th = review.to_thresholds();
+    assert_eq!(th.min_paper_days_mechanical, 14);
+    assert_eq!(th.min_resolved_beliefs_synthesis, 100);
+
+    // Opt-in: a config without [review] leaves it None (fail closed). Rename
+    // only the section header (not the comment mention) so it parses as an
+    // ignored unknown section.
+    let without = example.replace("\n[review]\n", "\n[review_disabled]\n");
+    assert!(
+        DaemonToml::parse(&without)
+            .expect("parse ok")
+            .review
+            .is_none(),
+        "no [review] => None (the review cadence is opt-in)"
+    );
+}
+
+#[test]
 fn venue_kalshi_refuses_until_fixture_clearance() {
     // Kickoff hard requirement 7 / GAPS: sim is the only bootable venue
     // in T4.1; kalshi refuses WITH the reason.

@@ -337,6 +337,58 @@ fn daily_scheduler_fires_once_per_utc_day() {
     assert!(s.due(day("2026-06-14T06:00:00.000Z")));
 }
 
+#[test]
+fn weekly_scheduler_fires_once_per_monday_aligned_week() {
+    use fortuna_core::clock::UtcTimestamp;
+    use fortuna_live::daemon::WeeklyScheduler;
+    let t = |iso: &str| UtcTimestamp::parse_iso8601(iso).unwrap();
+    let mut s = WeeklyScheduler::new();
+    // 2026-06-11 is a Thursday; its Monday-aligned week (epoch week 2945) runs
+    // Mon 2026-06-08 .. Sun 2026-06-14.
+    assert!(s.due(t("2026-06-11T00:00:00.000Z")), "first call ever: due");
+    assert!(
+        !s.due(t("2026-06-14T23:59:59.000Z")),
+        "same week (Sun 6-14): not due"
+    );
+    // 2026-06-15 is the next Monday => a new week (2946).
+    assert!(
+        s.due(t("2026-06-15T00:00:00.000Z")),
+        "new Monday-aligned week: due"
+    );
+    assert!(
+        !s.due(t("2026-06-21T12:00:00.000Z")),
+        "same week again (Sun 6-21): not due"
+    );
+    // Three weeks later: due (no double-fire for the skipped weeks).
+    assert!(
+        s.due(t("2026-07-06T06:00:00.000Z")),
+        "weeks later (week 2949): due"
+    );
+}
+
+#[test]
+fn monthly_scheduler_fires_once_per_calendar_month() {
+    use fortuna_core::clock::UtcTimestamp;
+    use fortuna_live::daemon::MonthlyScheduler;
+    let t = |iso: &str| UtcTimestamp::parse_iso8601(iso).unwrap();
+    let mut s = MonthlyScheduler::new();
+    assert!(s.due(t("2026-06-01T00:00:00.000Z")), "first call ever: due");
+    assert!(
+        !s.due(t("2026-06-30T23:59:59.000Z")),
+        "same calendar month: not due"
+    );
+    assert!(s.due(t("2026-07-01T00:00:00.000Z")), "new month: due");
+    assert!(
+        !s.due(t("2026-07-15T12:00:00.000Z")),
+        "same month again: not due"
+    );
+    // Year boundary: a new calendar month.
+    assert!(
+        s.due(t("2027-01-03T06:00:00.000Z")),
+        "new year-month: due (no double-fire for skipped months)"
+    );
+}
+
 #[tokio::test]
 async fn terse_daily_digest_labels_its_counters_honestly_as_since_boot() {
     // audit-tail-fix gate finding #3(b): terse_daily_digest reports the

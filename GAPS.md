@@ -226,8 +226,16 @@ fire-once-per-period pattern (weekly = epoch_days.div_euclid(7); monthly =
 year-month key).
 
 SLICE PLAN (full workspace battery is the commit gate, every slice):
- - Slice A: [review] config (GoNoGoThresholds) + WeeklyScheduler + Monthly
-   Scheduler + their unit tests. Tractable foundation.
+ - Slice A DONE (this commit): [review] config (compose::ReviewSection ->
+   GoNoGoThresholds via to_thresholds; DaemonToml.review opt-in + example.toml +
+   the parse test) + WeeklyScheduler (Monday-aligned 7-day window,
+   (epoch_day+3).div_euclid(7)) + MonthlyScheduler (calendar-month "YYYY-MM"
+   key) in daemon.rs, copying DailyScheduler. Tests:
+   review_section_parses_from_the_committed_example_and_is_optional (boot) +
+   weekly/monthly scheduler fire-once-per-period (run_loop, both transitions
+   asserted; week keys computed + verified). Full workspace battery green ON THE
+   POST-REVERT TREE (the track-C perps merge a586b4a was reverted 19b3888
+   mid-session for client-id instability; slice A is orthogonal to perps).
  - Slice B: weekly_review wiring — assemble ScopeRecord/prior_versions/Strategy
    Record (approximations above), call weekly_review, persist (journal) + route
    (Digest; Review for candidates, propose-only), drive() weekly-scheduler param;

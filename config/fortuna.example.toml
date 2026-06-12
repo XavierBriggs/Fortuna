@@ -50,6 +50,16 @@ synthesis_cents       = 200_000   # the opt-in [synthesis] arm's capital (S5b)
 [sizing]
 kelly_fraction = 0.25
 
+# The opt-in [review] weekly-review GO/NO-GO thresholds (T4.1/M2; spec 5.8).
+# ADVISORY ONLY — the weekly review emits recommendations; promotion is a human
+# action (I7). Its presence composes the weekly/monthly review cadence. Starting
+# values the operator tunes; all three are required (no silent default for a
+# risk gate).
+[review]
+min_paper_days_mechanical = 14         # mechanical: >= 2 weeks of paper before a GO
+min_resolved_beliefs_synthesis = 100   # synthesis: >= 100 resolved beliefs (calibration sample)
+max_fee_pnl_ratio = 0.5                # NO-GO when fees exceed 50% of realized PnL
+
 # spec 5.2: fee schedules are data, verified per fill.
 # Values grounded in docs/research/venue/kalshi-fees-2026-06-09 (official PDF
 # effective 2026-02-05): taker ceil(0.07*C*P*(1-P)); maker 0.0175 (charged only

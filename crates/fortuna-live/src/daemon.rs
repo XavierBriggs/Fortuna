@@ -983,6 +983,57 @@ impl DailyScheduler {
     }
 }
 
+/// UTC-week-boundary scheduler (T4.1/M2): fires the weekly review once per
+/// Monday-aligned 7-day window. Epoch day 0 (1970-01-01) is a Thursday, so
+/// `+3` shifts the 7-day floor to Monday. Deterministic under the injected
+/// clock — no wall-time read.
+#[derive(Debug, Default)]
+pub struct WeeklyScheduler {
+    last_week: Option<i64>,
+}
+
+impl WeeklyScheduler {
+    pub fn new() -> WeeklyScheduler {
+        WeeklyScheduler { last_week: None }
+    }
+
+    /// True iff `now` falls in a UTC week not yet fired (records it).
+    pub fn due(&mut self, now: fortuna_core::clock::UtcTimestamp) -> bool {
+        let day = now.epoch_millis().div_euclid(86_400_000);
+        let week = (day + 3).div_euclid(7);
+        if self.last_week == Some(week) {
+            return false;
+        }
+        self.last_week = Some(week);
+        true
+    }
+}
+
+/// UTC-calendar-month-boundary scheduler (T4.1/M2): fires the monthly review
+/// once per calendar month. Keyed by the "YYYY-MM" prefix of the ISO timestamp
+/// — calendar months vary in length, so this is NOT a fixed epoch division.
+#[derive(Debug, Default)]
+pub struct MonthlyScheduler {
+    last_month: Option<String>,
+}
+
+impl MonthlyScheduler {
+    pub fn new() -> MonthlyScheduler {
+        MonthlyScheduler { last_month: None }
+    }
+
+    /// True iff `now` falls in a calendar month not yet fired (records it).
+    pub fn due(&mut self, now: fortuna_core::clock::UtcTimestamp) -> bool {
+        let iso = now.to_iso8601();
+        let month = iso.get(..7).unwrap_or(iso.as_str()).to_string();
+        if self.last_month.as_deref() == Some(month.as_str()) {
+            return false;
+        }
+        self.last_month = Some(month);
+        true
+    }
+}
+
 /// A terse digest line (req 5): the date (00:00 UTC boundary), stage, and the
 /// runner's headline counters. HONESTY (audit-tail-fix gate #3b): the counters
 /// are CUMULATIVE SINCE BOOT — `RunCounters` accrue for the runner's lifetime,

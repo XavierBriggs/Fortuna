@@ -125,6 +125,35 @@ pub struct MechExtremesSection {
     pub min_ms_to_close: Option<i64>,
 }
 
+/// `[review]` opt-in: the weekly review's GO/NO-GO thresholds (T4.1/M2; spec
+/// 5.8 weekly review). ADVISORY ONLY — the review emits recommendations;
+/// promotion is the human act (I7). Its PRESENCE composes the weekly/monthly
+/// review cadence into the daemon (the wiring slice); absent => no review (fail
+/// closed). Thresholds are REQUIRED — risk gates take no silent default, so a
+/// missing field is a loud parse error.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewSection {
+    /// A mechanical strategy needs at least this many paper days before a GO.
+    pub min_paper_days_mechanical: u32,
+    /// A synthesis strategy needs at least this many resolved beliefs before a GO.
+    pub min_resolved_beliefs_synthesis: usize,
+    /// NO-GO when fees exceed this fraction of realized PnL.
+    pub max_fee_pnl_ratio: f64,
+}
+
+impl ReviewSection {
+    /// Map to the cognition layer's GO/NO-GO thresholds (the weekly review
+    /// consumes `fortuna_cognition::review::GoNoGoThresholds`).
+    pub fn to_thresholds(&self) -> fortuna_cognition::review::GoNoGoThresholds {
+        fortuna_cognition::review::GoNoGoThresholds {
+            min_paper_days_mechanical: self.min_paper_days_mechanical,
+            min_resolved_beliefs_synthesis: self.min_resolved_beliefs_synthesis,
+            max_fee_pnl_ratio: self.max_fee_pnl_ratio,
+        }
+    }
+}
+
 /// The daemon synthesis strategy's tradeable edge set
 /// (docs/design/synthesis-edge-source-decision.md req 1 + 4): EdgesRepo
 /// CONFIRMED-tier edges, mapped to the comparator's `EdgeView`, scoped by the

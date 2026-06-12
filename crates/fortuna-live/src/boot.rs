@@ -173,6 +173,7 @@ struct RawToml {
     sim: Option<SimSection>,
     synthesis: Option<crate::compose::SynthesisSection>,
     mech_extremes: Option<crate::compose::MechExtremesSection>,
+    review: Option<crate::compose::ReviewSection>,
 }
 
 /// The parsed daemon-relevant config.
@@ -189,6 +190,10 @@ pub struct DaemonToml {
     /// favorite-longshot fade strategy (spec Section 6) enrolled in the
     /// reduce-only model veto. Absent => not composed (fail closed).
     pub mech_extremes: Option<crate::compose::MechExtremesSection>,
+    /// Optional `[review]` opt-in (T4.1/M2). Its PRESENCE composes the weekly/
+    /// monthly review cadence (GO/NO-GO thresholds; advisory only, I7). Absent
+    /// => no review fires (fail closed).
+    pub review: Option<crate::compose::ReviewSection>,
 }
 
 impl DaemonToml {
@@ -214,6 +219,7 @@ impl DaemonToml {
             sim: raw.sim,
             synthesis: raw.synthesis,
             mech_extremes: raw.mech_extremes,
+            review: raw.review,
         })
     }
 
