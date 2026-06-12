@@ -298,11 +298,20 @@ SLICE PLAN (full workspace battery is the commit gate, every slice):
    the wiring drops the audit, RED). Full workspace battery green (daemon_smoke
    13/13). ===> WEEKLY REVIEW is now FULLY WIRED (slice A foundation + B1 helper
    + B2 loop).
- - Slice C (DEFERRED — low soak value): the monthly review (monthly_review +
-   MonthlyScheduler). It will NOT fire in a continuous-WEEK soak, so it adds no
-   EXIT-criterion value; AllocationInput (envelopes+digest) + LessonStatusView
-   (LessonsRepo::active) assembly is a ledgered follow-on if the operator wants a
-   longer-than-month run. M2's weekly item (the EXIT-relevant one) is COMPLETE.
+ - Slice C1 DONE (this commit; spec-completeness — won't fire in a WEEK soak,
+   serves longer runs): daemon::run_monthly_review helper — assembles
+   AllocationInput per strategy (digest pnl/fees + config envelopes + cognition
+   cost from counters, synth-attributed) + LessonStatusView (a direct
+   `lessons WHERE status='active'` query_as, no new repo method needed), calls
+   the PURE monthly_review (allocation recs + cost audit + lessons_due_demotion +
+   operator checklist), audits durably. NOT wired into drive() yet. Test
+   (daemon_smoke): trades once + seeds an active overdue lesson, asserts
+   allocations + the lesson due-for-demotion + checklist + audited; mutation-
+   proven (a non-matching status filter => 0 lessons, RED). Full workspace
+   battery green (daemon_smoke 14/14). Slice C2 (next): wire run_monthly_review
+   into drive() via a MonthlyScheduler in ReviewWiring (+ an envelopes field) +
+   route #digest/#ops + an e2e test. That completes M2 fully (daily + weekly +
+   monthly).
  - Slice C (LOW soak value — won't fire in a week): monthly_review wiring
    (AllocationInput from envelopes+digest; LessonStatusView from LessonsRepo::
    active).

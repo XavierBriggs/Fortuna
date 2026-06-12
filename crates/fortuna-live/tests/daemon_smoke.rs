@@ -1377,3 +1377,62 @@ async fn drive_runs_the_weekly_review_at_the_week_boundary(pool: PgPool) {
         "drive() ran the weekly review at the week boundary"
     );
 }
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn monthly_review_audits_allocations_cost_and_lesson_demotion(pool: PgPool) {
+    // T4.1/M2 slice C1 (spec 5.8 monthly review): a PURE allocation + fee/PnL/
+    // cost audit (no mind) + lesson-demotion candidates + the operator checklist
+    // (kill-switch test, backup drill) — RECOMMENDATIONS ONLY (I7). Compose +
+    // trade once (the digest carries a strategy row), seed an active lesson whose
+    // review_at has passed, run the monthly review, and assert: an allocation rec
+    // per traded strategy + the overdue lesson is due for demotion + the operator
+    // checklist + audited. NON-VACUOUS: the active lesson is read (direct query)
+    // and filtered by review_at <= now.
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let full = FortunaConfig::load_file(example_path).unwrap();
+    let dcfg = DaemonToml::parse(&text).unwrap();
+    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 92, stub_mind())
+        .await
+        .unwrap();
+    arb_books(&runner);
+    runner.tick().await.unwrap();
+
+    sqlx::query(
+        "INSERT INTO lessons (lesson_id, body, provenance, status, review_at, created_at)
+         VALUES ('01LESSONMONTHLY000000000AB', 'fade longshots harder', '{}'::jsonb, 'active',
+                 '2026-06-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let now = fortuna_core::clock::UtcTimestamp::parse_iso8601("2026-07-01T00:00:00.000Z").unwrap();
+    let mr = fortuna_live::daemon::run_monthly_review(&mut runner, &pool, &full.envelopes, now)
+        .await
+        .unwrap();
+
+    assert!(
+        !mr.allocations.is_empty(),
+        "an allocation recommendation per traded strategy (recs only, I7)"
+    );
+    assert_eq!(
+        mr.lessons_due_demotion.len(),
+        1,
+        "the active lesson whose review_at passed is due for demotion"
+    );
+    assert!(
+        !mr.operator_checklist.is_empty(),
+        "the operator checklist (kill-switch test, backup drill)"
+    );
+    let audits: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit WHERE kind = 'alert' AND payload->>'kind' = 'monthly_review'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(audits, 1, "the monthly review cycle is audited once");
+}

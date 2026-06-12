@@ -65,7 +65,8 @@ use fortuna_cognition::mind::{
 };
 use fortuna_cognition::reconciliation::{run_reconciliation, ReconError};
 use fortuna_cognition::review::{
-    weekly_review, ScopeKey, ScopeRecord, StrategyKindView, StrategyRecord, WeeklyReview,
+    monthly_review, weekly_review, AllocationInput, LessonStatusView, MonthlyReview, ScopeKey,
+    ScopeRecord, StrategyKindView, StrategyRecord, WeeklyReview,
 };
 use fortuna_cognition::veto::{StubVetoMind, VetoMind};
 use fortuna_core::clock::{Clock, UtcTimestamp};
@@ -1097,6 +1098,87 @@ fn weekly_review_context(
         body,
         at: now,
     }]
+}
+
+/// The monthly review cycle (spec 5.8 monthly review; fires at the month
+/// boundary once slice C2 wires it into drive()): capital-allocation
+/// recommendations + a fee/PnL/cost-of-cognition audit + lesson-demotion
+/// candidates + an operator checklist (kill-switch test, backup-restore drill).
+/// PURE (no mind) and RECOMMENDATIONS ONLY (I7 — the daemon never reallocates,
+/// demotes, or runs the operator drills). Audited durably here; Slack routing is
+/// slice C2.
+///
+/// SOAK NOTE: the monthly review will NOT fire in a continuous-WEEK soak — it
+/// serves longer runs. Built for M2 completeness (spec 218).
+///
+/// SLICE C1 (this commit): the helper + test. drive() wiring is slice C2.
+pub async fn run_monthly_review(
+    runner: &mut SimRunner<PgIntentJournal>,
+    pool: &PgPool,
+    envelopes: &std::collections::BTreeMap<String, i64>,
+    now: UtcTimestamp,
+) -> Result<MonthlyReview, DaemonError> {
+    // AllocationInput per strategy: the envelope (config) + realized PnL/fees
+    // (digest) + cognition cost (the counters aggregate, attributed to the
+    // synthesis arm — the only cognition spender; mechanical arms spend none).
+    let snap = runner.digest_snapshot();
+    let cognition = runner.counters().cognition_cost_cents;
+    let allocations: Vec<AllocationInput> = snap
+        .strategies
+        .iter()
+        .map(|row| AllocationInput {
+            strategy: row.strategy.clone(),
+            envelope_cents: envelopes.get(&row.strategy).copied().unwrap_or(0),
+            realized_pnl_cents: row.realized_pnl_cents,
+            fees_cents: row.fees_cents,
+            cognition_cost_cents: if row.strategy == "synthesis" {
+                cognition
+            } else {
+                0
+            },
+        })
+        .collect();
+
+    // Active lessons whose demotion review is due (direct query — status filter;
+    // a superseding insert is the only mutation, so this reads the live set).
+    let rows: Vec<(String, String)> =
+        sqlx::query_as("SELECT lesson_id, review_at FROM lessons WHERE status = 'active'")
+            .fetch_all(pool)
+            .await
+            .map_err(|e| DaemonError::Compose {
+                reason: format!("monthly review lessons: {e}"),
+            })?;
+    let mut active_lessons = Vec::with_capacity(rows.len());
+    for (lesson_id, review_at_s) in rows {
+        let review_at =
+            UtcTimestamp::parse_iso8601(&review_at_s).map_err(|e| DaemonError::Compose {
+                reason: format!("lesson {lesson_id} review_at {review_at_s:?}: {e}"),
+            })?;
+        active_lessons.push(LessonStatusView {
+            lesson_id,
+            review_at,
+        });
+    }
+
+    let mr = monthly_review(&allocations, &active_lessons, now);
+
+    // Audit durably (spec 8). I7: recommendations only — the daemon never
+    // reallocates capital, demotes a lesson, or runs the operator drills; the
+    // operator acts on the checklist.
+    runner.apply_external_alert(
+        "monthly_review",
+        &format!(
+            "monthly review: {} allocation rec(s); pnl {}c, fees {}c, cognition {}c; \
+             {} lesson(s) due demotion; {} operator checklist item(s)",
+            mr.allocations.len(),
+            mr.cost_audit.total_realized_pnl_cents,
+            mr.cost_audit.total_fees_cents,
+            mr.cost_audit.total_cognition_cost_cents,
+            mr.lessons_due_demotion.len(),
+            mr.operator_checklist.len(),
+        ),
+    );
+    Ok(mr)
 }
 
 /// Route degrade-scrape alerts to Slack and AUDIT every one (spec 8:
