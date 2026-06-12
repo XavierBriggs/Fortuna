@@ -22,3 +22,4 @@ pub mod clock;
 pub mod ids;
 pub mod market;
 pub mod money;
+pub mod perp;
