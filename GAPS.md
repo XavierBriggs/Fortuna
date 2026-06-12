@@ -18,6 +18,42 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK A — perps-revert client-id finding: ADJUDICATED (core idempotency is UPGRADE-SAFE)
+
+The signed perps merge a586b4a was reverted 19b3888 because kinetics_adapter.rs:
+168's deterministic client_order_id shifted in the merged tree (f6384bf5 vs
+c445aeac). GATE-FINDINGS routes "exec id-derivation" to Track A and raises the
+LOAD-BEARING question: is crash-resubmission idempotency (AlreadyExists dedup)
+stable across daemon UPGRADES (code that shifts the id stream)? ADJUDICATED:
+YES — the core is upgrade-safe; NO Track-A code change.
+
+ROOT CAUSE: IntentId = self.ids.next(clock) (runner.rs:910) draws from the
+shared SEEDED IdGen, so it is SEQUENCE-dependent — merging perps (which consumes
+the same stream before an order) shifts NEW-intent IntentIds, hence
+ClientOrderId::from_intent = "fortuna-{intent}" (market.rs:168, pure), hence
+track-C's downstream UUID. EXPECTED for NEW intents: the IdGen gives
+byte-identical WITHIN-build replay; a new build is a new program, and cross-
+build NEW-id stability is not a replay requirement.
+
+WHY IDEMPOTENCY IS SAFE (the scary part does NOT apply): crash-recovery NEVER
+re-derives a crashed order's id via the IdGen. boot_reconcile matches the
+venue's open-order client_order_id against by_coid — rebuilt from the JOURNAL
+FOLD (the PERSISTED ids) — and ADOPTS (manager.rs:778-798) or CLOSES (577 path).
+The persisted "fortuna-{intent}" is reused across builds because it is READ, not
+recomputed. NEW executable pin isolating this (the crash_resubmission test's
+candidate(seed) re-derivation is IdGen-pure and CONFOUNDS the proof):
+crash_recovery_adopts_a_resting_order_via_its_persisted_client_order_id
+(manager.rs) — a resting order is adopted on boot via its persisted id, no
+re-gating; mutation-proven (forcing the by_coid match to None orphans it, RED).
+
+DISPOSITION: the verifier's option 1 (make the derivation context-free) is
+UNNECESSARY and would HARM — it changes the IdGen-based new-intent id generation,
+breaking byte-identical replay determinism, for ZERO idempotency benefit. The
+verifier's option 2 is the RIGHT fix and is TRACK-C domain: kinetics_adapter's
+test pins a tree-state-dependent UUID — derive the expectation THROUGH the same
+path (or make the recorded-create assertion id-agnostic), not pin a UUID. The
+signed merge re-runs after that test fix + re-gate; main is green post-revert.
+
 ## T4.1 completion gate (t41-completion-gate-2026-06-12.md): BLOCK driver M1 FIXED + m3 closed
 
 The independent T4.1 completion gate returned BLOCK (base 8467d0f, head 17245de).

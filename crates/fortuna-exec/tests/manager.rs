@@ -240,6 +240,61 @@ fn crash_resubmission_resolves_via_venue_already_exists() {
 }
 
 #[test]
+fn crash_recovery_adopts_a_resting_order_via_its_persisted_client_order_id() {
+    // Perps-revert finding (2026-06-12): is crash-resubmission idempotency stable
+    // across daemon UPGRADES (code that shifts the IdGen stream)? YES — recovery
+    // recognizes a crashed order by MATCHING the venue's open-order
+    // client_order_id against by_coid, which is rebuilt from the JOURNAL FOLD
+    // (the PERSISTED id) — it is NEVER re-derived via the IdGen. This isolates
+    // that mechanism: crash_resubmission_resolves_via_venue_already_exists re-
+    // gates candidate(seed) (an IdGen-PURE re-derivation that CONFOUNDS the
+    // persisted-id proof); here there is no re-gating, so the IdGen is provably
+    // not consulted. An upgrade that shifts the stream cannot break this — the
+    // persisted "fortuna-{intent}" is read, not recomputed.
+    let clock = Arc::new(SimClock::new(t0()));
+    let venue = venue_with(
+        FaultConfig {
+            place_timeout_but_placed_pm: 1000,
+            ..FaultConfig::none(7)
+        },
+        clock.clone(),
+    );
+    let mut m = manager(clock.clone());
+    let order = gate(candidate(123, "M1", 40, 5), &clock);
+    let intent = order.intent_id();
+    let coid = ClientOrderId::from_intent(intent);
+    // Timeout-but-placed: the order rests at the venue; status folds to Submitted.
+    let out = futures::executor::block_on(m.submit(order, &venue)).unwrap();
+    assert!(matches!(out, SubmitOutcome::Unknown { .. }));
+
+    // CRASH + recover: by_coid is rebuilt from the journal fold (persisted ids).
+    let journal = m.into_journal();
+    let mut m2 = futures::executor::block_on(OrderManager::recover(
+        journal,
+        clock.clone(),
+        ExecPolicy::default(),
+    ))
+    .unwrap();
+    assert!(
+        m2.known_client_order_ids().contains(coid.as_str()),
+        "the persisted client_order_id survives the crash in the journal fold"
+    );
+
+    // boot_reconcile sees the venue's resting order and recognizes it as OURS by
+    // the persisted client_order_id — adopted, NOT orphaned, NOT re-derived.
+    let report = futures::executor::block_on(m2.boot_reconcile(&venue)).unwrap();
+    assert!(
+        report.orphans_cancelled.is_empty(),
+        "our own resting order is recognized via its persisted id, not orphaned: {report:?}"
+    );
+    assert!(
+        report.adopted.contains(&intent),
+        "the crashed order is adopted via its persisted client_order_id: {report:?}"
+    );
+    assert_eq!(m2.intent(intent).unwrap().status, IntentStatus::Acked);
+}
+
+#[test]
 fn submit_timeout_leaves_intent_submitted_for_reconciliation() {
     let clock = Arc::new(SimClock::new(t0()));
     let venue = venue_with(
