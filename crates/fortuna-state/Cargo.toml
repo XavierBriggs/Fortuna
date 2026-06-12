@@ -12,4 +12,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+fortuna-gates = { path = "../fortuna-gates" }
+toml = { workspace = true }
 proptest = { workspace = true }
