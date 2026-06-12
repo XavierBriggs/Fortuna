@@ -1121,5 +1121,34 @@ observed so far: `INVALID_PARAMETER` (malformed key id) and
   5.2 alongside the corrections; the Kalshi event quadratic x0.07 is now
   marked fixture-confirmed (real demo fill, 2026-06-11).
 
+## RALPH STOP 2026-06-12T10:22:01Z (track C — queue exhausted, protocol stop)
+
+Track C's directive queue is COMPLETE; per the loop's rule 6, stopping
+beats inventing unrequested work. Final state:
+
+- T5.B2 core perps types: DONE (0fb2fa6-era; gate-verified).
+- T5.B3 gate extensions + I2 composition + invariant ADDITIONS: DONE
+  (gate-verified; operator waive batch 5 pending on the bus).
+- T5.B5 paper margin (MarginSim): DONE (tick wording corrected per gate
+  fix; recorded-curve converter landed).
+- T5.B6 perp DST battery stage: DONE (6 arms, 7 invariants, in
+  run-dst.sh permanently).
+- T5.B4 kinetics adapter: DONE this session (DTOs -> client -> adapter
+  -> WS session, every layer fixtures-gated against the operator
+  recordings; box ticked at 4fd16de).
+- Cumulative gate verdict: ACCEPT-WITH-GAPS, zero Critical; all 4
+  fix-list Minors CLOSED (3b21b7e).
+
+NOT track-C work (stays with owners): T5.B7 strategies + T5.B8 ops
+panel (unassigned in orchestration.md; B8 mounts in ROTA per the bus);
+operator queue (waive batch 5, F1 disposition, leverage-cap number,
+key rotation, purge, disk); live/demo flips and credentials (operator
+only); fortuna-paper MarginSim wiring + daemon equity feed (track A);
+the live kinetics dial composition (daemon integration).
+
+Final battery at stop: fmt 0 diffs, clippy 0 errors, workspace 939/0,
+DST exit 0 (2000/stage; corpus 3 seeds). Branch track-c at 4fd16de,
+rebased on main f4b4a54-era; all work committed, nothing pushed.
+
 ## Disputed invariant tests
 (none)
