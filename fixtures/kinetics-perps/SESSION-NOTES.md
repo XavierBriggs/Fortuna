@@ -151,3 +151,22 @@ the manifest will carry the details under `open_funding_position`.
 3. After the next 04:00/12:00/20:00 UTC funding time, capture
    `GET /margin/funding_history?start_date=...&end_date=...` (item 10 close-out).
 4. Items 11/15/17 remain PROD/read-only follow-ups per the research doc.
+
+## Re-run 2026-06-12 ~02:50Z (post margin-enablement, verifier session)
+
+- Operator enabled perps on the demo account; rail finding: the intra-exchange
+  transfer endpoint is LIVE on demo (research expected 4xx) — used to fund the
+  margin subaccount ($50 via KINETICS_FUND_CENTICENTS=500000, run 1), then the
+  full order-lifecycle family captured in run 2: create 201, duplicate
+  client_order_id 409, amends (decrease + price), cancels, IOC fill.
+- OPEN FUNDING POSITION (item 10): KXBTCPERP1 long 1.00 @ 6.3587, fee 0 —
+  deliberately left open to cross the 04:00 UTC funding tick; capture
+  funding_history after the tick. DO NOT CLOSE before then.
+- WS private lifecycle: fill=true, order_group_updates=true, but
+  user_orders=false across 21 frames — the user_orders channel never emitted
+  during a live lifecycle; adapter must not assume it (fills arrived on the
+  fill channel).
+- Oddity: auth__margin_balance captured 0.0000 at run-2 start even though
+  run-1's $50 transfer (200 + transfer_id) had completed and run-2 orders
+  succeeded — transfer settlement appears async relative to the balance read;
+  reconcile timestamps in the meta files during the adapter build.

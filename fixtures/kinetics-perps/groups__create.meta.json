@@ -3,11 +3,11 @@
   "environment": "demo",
   "host": "https://external-api.demo.kalshi.co",
   "method": "POST",
-  "note": "item 12 probe: group create while not margin-enabled",
+  "note": "item 12: create group, 10-contract rolling-15s limit",
   "path": "/trade-api/v2/margin/order_groups/create",
-  "recorded_at_epoch_ms": 1781231223411,
+  "recorded_at_epoch_ms": 1781232436613,
   "request_body": {
     "contracts_limit": 10
   },
-  "status": 400
+  "status": 201
 }

@@ -5,7 +5,7 @@
   "method": "GET",
   "note": "maker/taker rate maps (promo period; prod re-check is item 11/17, skipped)",
   "path": "/trade-api/v2/margin/fee_tiers",
-  "recorded_at_epoch_ms": 1781231138668,
+  "recorded_at_epoch_ms": 1781232309569,
   "request_body": null,
   "status": 200
 }

@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "PUT",
+  "note": "item 12: trigger — cancels grouped orders, blocks new ones until reset",
+  "path": "/trade-api/v2/margin/order_groups/644fa4cd-a130-4410-807e-93176ebe7707/trigger",
+  "recorded_at_epoch_ms": 1781232441472,
+  "request_body": {},
+  "status": 200
+}

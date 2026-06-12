@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "item 3: last_update_reason=Decrease expected",
+  "path": "/trade-api/v2/margin/orders/e3e75552-0c6c-4bda-a261-f5b01a735ab2",
+  "recorded_at_epoch_ms": 1781232418862,
+  "request_body": null,
+  "status": 200
+}

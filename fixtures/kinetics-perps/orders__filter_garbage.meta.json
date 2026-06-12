@@ -5,7 +5,7 @@
   "method": "GET",
   "note": "item 14: status-filter vocabulary probe (MarginOrder has no status field; an error body may enumerate accepted values)",
   "path": "/trade-api/v2/margin/orders?status=not-a-real-status&limit=10",
-  "recorded_at_epoch_ms": 1781231227097,
+  "recorded_at_epoch_ms": 1781232451844,
   "request_body": null,
   "status": 200
 }

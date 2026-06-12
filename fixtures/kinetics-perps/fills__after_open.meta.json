@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "item 3: MarginFill shape (entry_price, realized_pnl, fees) after the IOC fill",
+  "path": "/trade-api/v2/margin/fills?ticker=KXBTCPERP1&limit=10",
+  "recorded_at_epoch_ms": 1781232425697,
+  "request_body": null,
+  "status": 200
+}

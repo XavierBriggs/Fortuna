@@ -1,27 +1,30 @@
 {
   "environment": "demo",
-  "margin_enabled": false,
-  "open_funding_position": null,
-  "recorded_at_epoch_ms": 1781231232184,
+  "margin_enabled": true,
+  "open_funding_position": {
+    "average_fee_paid": "0.0000",
+    "average_fill_price": "6.3587",
+    "contracts": "1.00",
+    "purpose": "research §12 item 10 — hold across a 04/12/20 UTC funding time; capture GET /margin/funding_history in a later session; DO NOT CLOSE",
+    "side": "long",
+    "ticker": "KXBTCPERP1"
+  },
+  "recorded_at_epoch_ms": 1781232459161,
   "results": [
     {
       "result": "HTTP 200",
       "stage": "auth__margin_enabled_ok"
     },
     {
-      "result": "HTTP 403",
+      "result": "HTTP 200",
       "stage": "auth__margin_balance"
     },
     {
-      "result": "MARGIN NOT ENABLED for this demo account (enabled=false, balance HTTP 403) — DEGRADED capture: auth probes, public surfaces, WS handshake, one blocked-evidence probe per private item family. Order lifecycle and the item-10 funding position are BLOCKED (operator action: enable margin/perps on the demo account).",
-      "stage": "session"
-    },
-    {
-      "result": "HTTP 403",
+      "result": "HTTP 200",
       "stage": "auth__skew_minus5s"
     },
     {
-      "result": "HTTP 403",
+      "result": "HTTP 200",
       "stage": "auth__skew_plus5s"
     },
     {
@@ -29,7 +32,7 @@
       "stage": "auth__skew_minus30s"
     },
     {
-      "result": "HTTP 403",
+      "result": "HTTP 200",
       "stage": "auth__skew_plus30s"
     },
     {
@@ -117,7 +120,7 @@
       "stage": "ws__public"
     },
     {
-      "result": "ws 101=101 frames=1712 pings=0",
+      "result": "ws 101=101 frames=1625 pings=0",
       "stage": "ws__public_orderbook_ticker"
     },
     {
@@ -125,27 +128,167 @@
       "stage": "ws__private"
     },
     {
-      "result": "HTTP 400",
-      "stage": "orders__create_gtc_blocked"
+      "result": "HTTP 201",
+      "stage": "orders__create_gtc"
+    },
+    {
+      "result": "HTTP 409",
+      "stage": "orders__duplicate_client_order_id"
     },
     {
       "result": "HTTP 200",
-      "stage": "positions__blocked"
+      "stage": "orders__get_after_create"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "orders__cancel"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "orders__get_after_cancel"
+    },
+    {
+      "result": "HTTP 409",
+      "stage": "orders__reuse_canceled_client_id"
+    },
+    {
+      "result": "HTTP 201",
+      "stage": "orders__create_post_only"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "orders__amend_decrease"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "orders__amend_price"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "orders__get_after_amend"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "orders__cancel_after_amend"
+    },
+    {
+      "result": "HTTP 201",
+      "stage": "orders__create_for_decrease"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "orders__decrease_reduce_by"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "orders__get_after_decrease"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "orders__cancel_after_decrease"
+    },
+    {
+      "result": "HTTP 201",
+      "stage": "orders__funding_position_ioc"
+    },
+    {
+      "result": "OPEN FUNDING POSITION: KXBTCPERP1 long fill_count=1.00 avg_price=6.3587 avg_fee=0.0000 — DO NOT CLOSE",
+      "stage": "orders__funding_position_ioc"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "fills__after_open"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "positions__open"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "balance__compute_available"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "risk__account"
     },
     {
       "result": "HTTP 400",
+      "stage": "orders__reduce_only_gtc"
+    },
+    {
+      "result": "HTTP 400",
+      "stage": "orders__insufficient_margin"
+    },
+    {
+      "result": "HTTP 400",
+      "stage": "orders__price_band_violation"
+    },
+    {
+      "result": "HTTP 400",
+      "stage": "orders__off_tick_price"
+    },
+    {
+      "result": "HTTP 201",
       "stage": "groups__create"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "groups__list"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "groups__get"
+    },
+    {
+      "result": "HTTP 201",
+      "stage": "orders__create_in_group"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "groups__update_limit"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "groups__trigger"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "orders__get_after_group_trigger"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "groups__reset"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "groups__get_after_reset"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "groups__delete"
     },
     {
       "result": "HTTP 400",
       "stage": "subaccounts__create_nobody"
     },
     {
-      "result": "HTTP 404",
+      "result": "HTTP 201",
       "stage": "subaccounts__create"
     },
     {
-      "result": "HTTP 403",
+      "result": "HTTP 200",
+      "stage": "subaccounts__transfer_first"
+    },
+    {
+      "result": "HTTP 409",
+      "stage": "subaccounts__transfer_duplicate"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "subaccounts__transfer_back"
+    },
+    {
+      "result": "HTTP 200",
       "stage": "transfer__intra_exchange"
     },
     {
@@ -173,11 +316,23 @@
       "stage": "orders__filter_garbage"
     },
     {
-      "result": "saw user_orders=false fill=false order_group_updates=false",
+      "result": "HTTP 404",
+      "stage": "cleanup__leftover_0"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "orders__final_resting"
+    },
+    {
+      "result": "HTTP 200",
+      "stage": "positions__final"
+    },
+    {
+      "result": "saw user_orders=false fill=true order_group_updates=true",
       "stage": "ws__private_lifecycle"
     },
     {
-      "result": "ws 101=101 frames=3 pings=1",
+      "result": "ws 101=101 frames=21 pings=2",
       "stage": "ws__private_lifecycle"
     }
   ],

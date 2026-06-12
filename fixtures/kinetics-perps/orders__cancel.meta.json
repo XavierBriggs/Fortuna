@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "DELETE",
+  "note": "item 3: happy-path cancel (reduced_by)",
+  "path": "/trade-api/v2/margin/orders/8425763b-4035-4b60-87c7-54e7609f487d",
+  "recorded_at_epoch_ms": 1781232396333,
+  "request_body": null,
+  "status": 200
+}

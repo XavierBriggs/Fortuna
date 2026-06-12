@@ -1,0 +1,16 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "POST",
+  "note": "item 13: 1-cent transfer primary -> subaccount",
+  "path": "/trade-api/v2/portfolio/margin/subaccounts/transfer",
+  "recorded_at_epoch_ms": 1781232447945,
+  "request_body": {
+    "amount_cents": 1,
+    "client_transfer_id": "15a93e6f-87a3-4e78-850e-ca07d5d37844",
+    "from_subaccount": 0,
+    "to_subaccount": 3
+  },
+  "status": 200
+}

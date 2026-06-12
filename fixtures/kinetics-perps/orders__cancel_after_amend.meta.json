@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "DELETE",
+  "note": "item 3: cleanup of ord_b",
+  "path": "/trade-api/v2/margin/orders/ff550827-30d2-46ca-9038-a704ce46f3a8",
+  "recorded_at_epoch_ms": 1781232411226,
+  "request_body": null,
+  "status": 200
+}

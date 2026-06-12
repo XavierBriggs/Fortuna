@@ -1,0 +1,19 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "POST",
+  "note": "item 6: order whose margin requirement exceeds the demo balance — exact 400 code/message (may surface as notional_risk_limit instead)",
+  "path": "/trade-api/v2/margin/orders",
+  "recorded_at_epoch_ms": 1781232431572,
+  "request_body": {
+    "client_order_id": "0b9a371d-8f53-4faa-8cc7-f512d784f162",
+    "count": "10185",
+    "price": "5.3829",
+    "self_trade_prevention_type": "taker_at_cross",
+    "side": "bid",
+    "ticker": "KXBTCPERP1",
+    "time_in_force": "good_till_canceled"
+  },
+  "status": 400
+}

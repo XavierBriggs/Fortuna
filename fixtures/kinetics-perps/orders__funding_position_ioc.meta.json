@@ -1,0 +1,19 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "POST",
+  "note": "item 10 SETUP: IOC buy 1 contract, crossing — position LEFT OPEN deliberately for the 04/12/20 UTC funding capture (later session). Also item 3: average_fill_price/average_fee_paid presence on fills.",
+  "path": "/trade-api/v2/margin/orders",
+  "recorded_at_epoch_ms": 1781232423486,
+  "request_body": {
+    "client_order_id": "2a7e1530-f7aa-4baf-9875-f08d22914864",
+    "count": "1",
+    "price": "6.3616",
+    "self_trade_prevention_type": "taker_at_cross",
+    "side": "bid",
+    "ticker": "KXBTCPERP1",
+    "time_in_force": "immediate_or_cancel"
+  },
+  "status": 201
+}

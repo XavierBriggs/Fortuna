@@ -1629,11 +1629,17 @@ async fn main() -> Result<()> {
             Some(json!({
                 "source": "event_contract",
                 "destination": "margined",
-                "amount": 100,
+                // Default 100 centicents = 1 cent. Overridable so a first run can
+                // FUND the margin subaccount for the order lifecycle of a second
+                // run (the rail proved live on demo: 200 + transfer_id).
+                "amount": std::env::var("KINETICS_FUND_CENTICENTS")
+                    .ok()
+                    .and_then(|v| v.parse::<i64>().ok())
+                    .unwrap_or(100),
             })),
             AuthMode::Signed,
             "item 16: documented 'currently not available' — capture the 4xx body \
-             (amount is in CENTICENTS; 100 = 1 cent)",
+             (amount is in CENTICENTS; 100 = 1 cent; KINETICS_FUND_CENTICENTS overrides)",
         )
         .await;
 

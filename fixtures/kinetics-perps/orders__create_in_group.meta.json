@@ -1,0 +1,21 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "POST",
+  "note": "item 12: GTC order attached to the group",
+  "path": "/trade-api/v2/margin/orders",
+  "recorded_at_epoch_ms": 1781232438852,
+  "request_body": {
+    "client_order_id": "2243d8f1-cdf7-4971-85b9-dc515714d5b2",
+    "count": "1",
+    "order_group_id": "644fa4cd-a130-4410-807e-93176ebe7707",
+    "post_only": false,
+    "price": "5.3829",
+    "self_trade_prevention_type": "taker_at_cross",
+    "side": "bid",
+    "ticker": "KXBTCPERP1",
+    "time_in_force": "good_till_canceled"
+  },
+  "status": 201
+}

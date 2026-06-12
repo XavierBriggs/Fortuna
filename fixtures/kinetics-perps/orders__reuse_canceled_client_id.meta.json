@@ -1,0 +1,20 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "POST",
+  "note": "item 4: does a CANCELED order's client_order_id free up? (event API: NO, 409 forever)",
+  "path": "/trade-api/v2/margin/orders",
+  "recorded_at_epoch_ms": 1781232399960,
+  "request_body": {
+    "client_order_id": "69c8d591-b06f-44bd-87f9-ac87b3778f3d",
+    "count": "1",
+    "post_only": false,
+    "price": "5.3829",
+    "self_trade_prevention_type": "taker_at_cross",
+    "side": "bid",
+    "ticker": "KXBTCPERP1",
+    "time_in_force": "good_till_canceled"
+  },
+  "status": 409
+}

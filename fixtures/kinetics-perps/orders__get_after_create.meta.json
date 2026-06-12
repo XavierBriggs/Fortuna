@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "item 3: MarginOrder read surface (NO status field — derive from counts)",
+  "path": "/trade-api/v2/margin/orders/8425763b-4035-4b60-87c7-54e7609f487d",
+  "recorded_at_epoch_ms": 1781232394922,
+  "request_body": null,
+  "status": 200
+}

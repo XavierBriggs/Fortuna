@@ -5,7 +5,7 @@
   "method": "GET",
   "note": "margin exchange status shape",
   "path": "/trade-api/v2/margin/exchange/status",
-  "recorded_at_epoch_ms": 1781231137089,
+  "recorded_at_epoch_ms": 1781232308425,
   "request_body": null,
   "status": 200
 }

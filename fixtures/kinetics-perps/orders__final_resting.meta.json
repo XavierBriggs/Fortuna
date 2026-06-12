@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "cleanup verification: expect ZERO resting orders at session end",
+  "path": "/trade-api/v2/margin/orders?status=resting&limit=100",
+  "recorded_at_epoch_ms": 1781232453684,
+  "request_body": null,
+  "status": 200
+}

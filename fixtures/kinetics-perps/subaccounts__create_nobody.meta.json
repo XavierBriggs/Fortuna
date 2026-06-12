@@ -3,9 +3,9 @@
   "environment": "demo",
   "host": "https://external-api.demo.kalshi.co",
   "method": "POST",
-  "note": "item 13: body-less POST (OpenAPI declares no requestBody) — the API requires a JSON content type anyway (flat 400 invalid_content_type)",
+  "note": "item 13: body-less POST (OpenAPI declares no requestBody) — first run showed the API requires a JSON content type anyway (flat 400)",
   "path": "/trade-api/v2/portfolio/margin/subaccounts",
-  "recorded_at_epoch_ms": 1781231223821,
+  "recorded_at_epoch_ms": 1781232447127,
   "request_body": null,
   "status": 400
 }

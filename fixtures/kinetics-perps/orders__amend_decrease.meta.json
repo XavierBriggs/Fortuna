@@ -1,0 +1,16 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "POST",
+  "note": "item 3: amend SAME price, count 2->1 — the queue-KEEPING decrease",
+  "path": "/trade-api/v2/margin/orders/ff550827-30d2-46ca-9038-a704ce46f3a8/amend",
+  "recorded_at_epoch_ms": 1781232405393,
+  "request_body": {
+    "count": "1",
+    "price": "5.3830",
+    "side": "bid",
+    "ticker": "KXBTCPERP1"
+  },
+  "status": 200
+}

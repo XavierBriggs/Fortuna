@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "cleanup verification: expect EXACTLY the 1-contract funding position",
+  "path": "/trade-api/v2/margin/positions",
+  "recorded_at_epoch_ms": 1781232454096,
+  "request_body": null,
+  "status": 200
+}

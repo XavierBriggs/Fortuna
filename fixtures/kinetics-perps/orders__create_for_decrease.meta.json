@@ -1,0 +1,20 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "POST",
+  "note": "item 3: GTC 2 contracts for the /decrease probe",
+  "path": "/trade-api/v2/margin/orders",
+  "recorded_at_epoch_ms": 1781232414438,
+  "request_body": {
+    "client_order_id": "78177ad6-9760-49c8-b4f4-dd5c59cf7adb",
+    "count": "2",
+    "post_only": false,
+    "price": "5.3829",
+    "self_trade_prevention_type": "taker_at_cross",
+    "side": "bid",
+    "ticker": "KXBTCPERP1",
+    "time_in_force": "good_till_canceled"
+  },
+  "status": 201
+}

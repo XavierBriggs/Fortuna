@@ -5,7 +5,7 @@
   "method": "GET",
   "note": "in-progress funding period estimate for the session market",
   "path": "/trade-api/v2/margin/funding_rates/estimate?ticker=KXBTCPERP1",
-  "recorded_at_epoch_ms": 1781231139738,
+  "recorded_at_epoch_ms": 1781232310391,
   "request_body": null,
   "status": 200
 }

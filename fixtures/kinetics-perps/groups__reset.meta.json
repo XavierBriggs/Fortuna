@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "PUT",
+  "note": "item 12: reset after trigger — re-allows orders",
+  "path": "/trade-api/v2/margin/order_groups/644fa4cd-a130-4410-807e-93176ebe7707/reset",
+  "recorded_at_epoch_ms": 1781232444096,
+  "request_body": {},
+  "status": 200
+}

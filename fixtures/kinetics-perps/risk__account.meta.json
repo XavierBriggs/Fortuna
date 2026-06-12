@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "item 9: account+position leverage, liquidation prices — IM=1.3xMM and margin-ratio-direction check data (vs risk__parameters)",
+  "path": "/trade-api/v2/margin/risk",
+  "recorded_at_epoch_ms": 1781232426944,
+  "request_body": null,
+  "status": 200
+}

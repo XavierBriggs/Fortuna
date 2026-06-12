@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "DELETE",
+  "note": "end-of-session cancel of any order still tracked live (terminal-state cancels are themselves useful fixtures)",
+  "path": "/trade-api/v2/margin/orders/80912379-0fdd-4e5a-a814-1bf24fc0c60f",
+  "recorded_at_epoch_ms": 1781232453253,
+  "request_body": null,
+  "status": 404
+}

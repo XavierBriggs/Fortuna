@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "item 12: group detail (is_auto_cancel_enabled, orders)",
+  "path": "/trade-api/v2/margin/order_groups/644fa4cd-a130-4410-807e-93176ebe7707",
+  "recorded_at_epoch_ms": 1781232437434,
+  "request_body": null,
+  "status": 200
+}

@@ -1,0 +1,19 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "POST",
+  "note": "item 7: 5-decimal price (off the 0.0001 tick grid) — exact error body",
+  "path": "/trade-api/v2/margin/orders",
+  "recorded_at_epoch_ms": 1781232434403,
+  "request_body": {
+    "client_order_id": "7573705a-d630-4716-bee2-2a33f8dac9ef",
+    "count": "1",
+    "price": "5.38295",
+    "self_trade_prevention_type": "taker_at_cross",
+    "side": "bid",
+    "ticker": "KXBTCPERP1",
+    "time_in_force": "good_till_canceled"
+  },
+  "status": 400
+}

@@ -1,0 +1,20 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "POST",
+  "note": "item 7: bid at 50% of best bid — below the band floor min(80% of bb, 1000 ticks below bb); exact error body",
+  "path": "/trade-api/v2/margin/orders",
+  "recorded_at_epoch_ms": 1781232432985,
+  "request_body": {
+    "client_order_id": "b8884a8f-43c0-4a93-bfe5-fc9f7c276ea9",
+    "count": "1",
+    "post_only": false,
+    "price": "3.1664",
+    "self_trade_prevention_type": "taker_at_cross",
+    "side": "bid",
+    "ticker": "KXBTCPERP1",
+    "time_in_force": "good_till_canceled"
+  },
+  "status": 400
+}

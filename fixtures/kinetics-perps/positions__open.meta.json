@@ -1,0 +1,11 @@
+{
+  "auth": "signed",
+  "environment": "demo",
+  "host": "https://external-api.demo.kalshi.co",
+  "method": "GET",
+  "note": "item 9: signed position, entry_price, margin_used, roe",
+  "path": "/trade-api/v2/margin/positions",
+  "recorded_at_epoch_ms": 1781232426111,
+  "request_body": null,
+  "status": 200
+}
