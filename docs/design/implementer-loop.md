@@ -24,10 +24,7 @@ EACH ITERATION, do exactly ONE item, then commit and start the next iteration.
    synthesis-edge-source-decision.md (EdgesRepo, confirmed-only, binding
    requirements 1-5 there) -> mech_extremes+veto -> mind binding -> rich
    digest -> tick T4.1 (starts the soak) -> T4.2 -> T4.5. T4.3/T4.4 belong
-   to track B; T5.B to track C — do not touch their files. (f-unused)
-   T5.B2, B3, B5, B6 in order (B4 is fixtures-gated — if
-   fixtures/kinetics-perps/ is absent, stub behind the trait, ledger in GAPS,
-   move on).
+   to track B; T5.B belongs to track C — do not touch their files.
 
 2. DESIGN-VALIDATE-BEFORE-BUILD: T4.3 and T4.4 have authoritative design docs
    (docs/design/rota-dashboard.md, docs/design/fortuna-cli.md — INCLUDING their
