@@ -96,7 +96,7 @@ async fn main() -> Result<()> {
         &dcfg,
         start,
         start_ms as u64,
-        synthesis_mind,
+        synthesis_mind.clone(),
     )
     .await
     .context("composition")?;
@@ -202,6 +202,10 @@ async fn main() -> Result<()> {
     // BEFORE `pool` moves into the halt poller. Absent [synthesis] => None =>
     // the loop never reloads (a mechanically-only daemon).
     let synthesis_refresh = dcfg.synthesis.clone().map(|syn| (pool.clone(), syn));
+    // T4.1/M2 (spec 5.8): the daily reconciliation reuses the SAME synthesis
+    // mind (one build, not a second) — a stub mind self-skips. Built BEFORE
+    // `pool` moves into the halt poller below.
+    let reconciliation = Some((pool.clone(), synthesis_mind));
     let mut poller = PgHaltPoller::new(pool);
     let loop_cfg = LoopConfig {
         tick_interval_ms: dcfg.daemon.tick_interval_ms,
@@ -254,6 +258,7 @@ async fn main() -> Result<()> {
         slack_router.as_ref(),
         &mut daily,
         synthesis_refresh,
+        reconciliation,
     )
     .await
     .context("daemon loop")?;

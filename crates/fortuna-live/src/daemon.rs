@@ -430,6 +430,11 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     // every smoke that does not exercise refresh) — the loop then never
     // reloads.
     synthesis_refresh: Option<(PgPool, SynthesisSection)>,
+    // T4.1/M2 (spec 5.8): the daily-reconciliation pool + mind. Some => the
+    // daily boundary runs run_daily_reconciliation (reads the day, writes the
+    // journal, places NO orders); None => no reconciliation (smokes that do not
+    // exercise it). A stub mind (no key) self-skips, so wiring it is always safe.
+    reconciliation: Option<(PgPool, Arc<dyn Mind>)>,
 ) -> Result<(LoopStats, fortuna_runner::ShutdownReport), DaemonError> {
     let mut total = LoopStats::default();
     // Dedup state OWNED ACROSS SEGMENTS (gate finding 2026-06-11: keeping
@@ -552,6 +557,32 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
             let digest = rich_daily_digest(runner, now);
             total_send_failures +=
                 route_alerts(slack, runner, &[(fortuna_ops::MessageKind::Digest, digest)]).await;
+            // T4.1/M2 (spec 5.8): the daily reconciliation re-run rides the SAME
+            // boundary as the digest (one due() check fires both). It reads the
+            // day + writes the journal; NO orders (structural). A DB failure
+            // alerts but never crashes the boundary; a stub mind self-skips.
+            if let Some((recon_pool, recon_mind)) = reconciliation.as_ref() {
+                let recon_id_base = now.epoch_millis().max(0) as u64;
+                if let Err(e) = run_daily_reconciliation(
+                    runner,
+                    recon_pool,
+                    recon_mind.as_ref(),
+                    now,
+                    recon_id_base,
+                )
+                .await
+                {
+                    total_send_failures += route_alerts(
+                        slack,
+                        runner,
+                        &[(
+                            fortuna_ops::MessageKind::Ops,
+                            format!("daily reconciliation FAILED: {e}"),
+                        )],
+                    )
+                    .await;
+                }
+            }
         }
 
         between_segments(runner, &stats);

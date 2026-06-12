@@ -163,6 +163,7 @@ async fn daemon_smoke_boot_ticks_signal_shutdown(pool: PgPool) {
         None,
         &mut daily,
         None, // S4: no per-segment edge refresh in this smoke
+        None, // M2: no reconciliation in this smoke
     )
     .await
     .expect("daemon drive");
@@ -254,6 +255,7 @@ async fn signal_with_working_orders_cancels_them_and_audits(pool: PgPool) {
         None,
         &mut daily,
         None, // S4: no per-segment edge refresh in this smoke
+        None, // M2: no reconciliation in this smoke
     )
     .await
     .expect("daemon drive");
@@ -454,6 +456,7 @@ async fn per_segment_refresh_picks_up_a_newly_confirmed_edge(pool: PgPool) {
         None,
         &mut daily,
         synthesis_refresh,
+        None, // M2: no reconciliation in this smoke
     )
     .await
     .expect("daemon drive");
@@ -581,6 +584,7 @@ async fn refresh_failure_keeps_last_known_edges_alerts_and_survives(pool: PgPool
         None,
         &mut daily,
         Some((broken, syn)),
+        None, // M2: no reconciliation in this smoke
     )
     .await
     .expect("the loop must SURVIVE a failing refresh");
@@ -941,6 +945,7 @@ async fn drive_drains_and_persists_the_synthesis_arms_beliefs(pool: PgPool) {
         None,
         &mut daily,
         synthesis_refresh,
+        None, // M2: no reconciliation in this smoke
     )
     .await
     .expect("daemon drive");
@@ -1084,4 +1089,75 @@ async fn daily_reconciliation_gracefully_skips_when_the_mind_writes_no_journal(p
     .await
     .unwrap();
     assert_eq!(skip_audits, 1, "the skip is audited (never silent)");
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn drive_runs_daily_reconciliation_at_the_utc_day_boundary(pool: PgPool) {
+    // T4.1/M2 slice 2: drive() runs the daily reconciliation on the UTC-day
+    // boundary (the first due() fires on boot, alongside the digest). With a
+    // journaling reconciliation mind wired in, a journal row lands for the day.
+    // NON-VACUOUS: no journal exists before drive, and the FIVE sibling drives
+    // pass reconciliation=None and write none — only the wiring writes it.
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let full = FortunaConfig::load_file(example_path).unwrap();
+    let dcfg = DaemonToml::parse(&text).unwrap();
+    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 80, stub_mind())
+        .await
+        .unwrap();
+    arb_books(&runner);
+
+    let day = "2026-06-11";
+    assert!(
+        fortuna_ledger::JournalRepo::new(pool.clone())
+            .get_day(day)
+            .await
+            .unwrap()
+            .is_none(),
+        "no journal before drive"
+    );
+
+    let (tx, mut stop) = tokio::sync::oneshot::channel::<()>();
+    let mut cadence = StopAtCadence {
+        clock: runner.clock.clone(),
+        sleeps: 0,
+        fire_at: 6,
+        tx: Some(tx),
+    };
+    let mut poller = NeverHalted;
+    let loop_cfg = LoopConfig {
+        tick_interval_ms: 1000,
+        halt_poll_ms: 500,
+    };
+    let mut scrape = DegradeScrape::new(default_degrade_thresholds());
+    let mut daily = fortuna_live::daemon::DailyScheduler::new();
+
+    let (_stats, _shutdown) = drive(
+        &mut runner,
+        &mut cadence,
+        &mut poller,
+        &loop_cfg,
+        4,
+        &mut stop,
+        |_r, _s| {},
+        &mut scrape,
+        None,
+        &mut daily,
+        None,                                                               // synthesis_refresh
+        Some((pool.clone(), journaling_mind("EOD: flat; tomorrow hold."))), // reconciliation
+    )
+    .await
+    .expect("daemon drive");
+
+    let row = fortuna_ledger::JournalRepo::new(pool.clone())
+        .get_day(day)
+        .await
+        .unwrap();
+    assert!(
+        row.is_some(),
+        "drive() ran the daily reconciliation at the boundary and wrote the journal"
+    );
 }

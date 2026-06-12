@@ -170,11 +170,18 @@ commit gate — never a -p subset, loop rule 4):
    skipping the insert turns it RED) + ..._gracefully_skips_when_the_mind_writes_
    no_journal. Full workspace battery green (fmt/clippy --workspace --all-targets/
    cargo test --workspace/run-dst.sh 10000).
- - SLICE 2: wire run_daily_reconciliation into drive()'s daily block, INSIDE the
-   SAME `if daily.due(now)` as the digest (one due() check fires both — two
-   separate due() checks would mean the second never fires), via a new
-   `reconciliation: Option<(PgPool, Arc<dyn Mind>)>` drive() param threaded from
-   main; update the ~5 existing drive() call sites + an e2e daemon_smoke test.
+ - SLICE 2 DONE (this commit): run_daily_reconciliation wired into drive()'s
+   daily block, INSIDE the same `if daily.due(now)` as the digest (one due()
+   fires both); new `reconciliation: Option<(PgPool, Arc<dyn Mind>)>` drive()
+   param threaded from main (reuses the synthesis mind via .clone(), built before
+   `pool` moves into the halt poller); a reconciliation DB failure alerts to #ops
+   but never crashes the boundary; journal id_base = now.epoch_millis() (unique
+   per day — no PK collision across a multi-day run). The 5 existing drive() call
+   sites pass reconciliation=None; new e2e test
+   drive_runs_daily_reconciliation_at_the_utc_day_boundary (mutation-proven:
+   neutering the wiring drops the journal, RED). Full workspace battery green.
+   ===> DAILY RECONCILIATION is now FULLY WIRED (slice 1 helper + slice 2 loop).
+   REMAINING M2 sub-item: the weekly/monthly REVIEWS (fortuna_cognition::review).
 DEFERRED (follow-on, ledgered): beliefs-CONTEXT enrichment (originating beliefs
 into the reconciliation context — needs a BeliefsRepo recent-read; slice 1 uses
 fills+positions context, faithful + sufficient for the scripted-mind tests). The
