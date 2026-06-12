@@ -11,7 +11,11 @@
    tested against fixtures) stand as the resolution; re-gate verified.
 3. REARM SEMANTICS: AGREED. Option (a) restart-gated rearm stands
    (I2-conservative); the CLI/ROTA notices remain queued from the pool.
-4. LEVERAGE CAP: DECISION DEFERRED — operator requested explanation
-   before deciding (provided in-session). Until decided, the binding
-   ceiling is the venue's risk curves via the gate arm; no [perp] config
-   leverage entry exists.
+4. LEVERAGE CAP: 2x CONFIRMED (operator, 2026-06-12 21:30 UTC, after
+   explanation). BUILD ITEM (pool/track-C): a [perp] config entry
+   `max_leverage = 2.0` (or integer bps form per house style), enforced in
+   the leverage-cap gate check as min(config, venue curve), with a pinned
+   test asserting an order at 2.01x is refused while 1.99x passes, and an
+   ASSUMPTIONS note that loosening it later is an I7-style operator
+   review. Until built, the venue curves remain the ceiling — the build
+   item closes that gap.

@@ -1,5 +1,7 @@
 # GATE FINDINGS — latest (verifier-owned)
 
+NEW BUILD ITEM (operator-confirmed 2x leverage cap): see operator-decisions-2026-06-12.md item 4 — [perp] max_leverage config + gate enforcement min(config, venue curve) + boundary-pinned test. Rides with the perps re-merge fix (same files, same track).
+
 ## PERPS MERGE REVERTED (post-merge interaction failure, 2026-06-12 ~21:10Z)
 
 The signed merge (a586b4a) failed the post-merge integration check:
