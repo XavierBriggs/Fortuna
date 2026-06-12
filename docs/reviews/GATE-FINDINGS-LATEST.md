@@ -70,6 +70,31 @@ crash-tell) — implement or ledger. F-2: A2 spawn-cwd pinning (cwd-relative
 out-dir edge). Plus: one manual §13 runbook execution before
 managed-lifecycle adoption (operator).
 
+## TRACK-C FINAL GATE: BLOCK — first true red DST seed (track-c-final-gate-2026-06-12.md)
+
+Seed 11819682492387934495 (master 1781262032255, PERP_DST_SCENARIOS=10000):
+wild-regime mark drift pushes notional past the harness's last risk-curve
+tier ($100k); MarginSim FAIL-CLOSES (correct production behavior) but the
+B6 harness's invariant-1 counts the designed refusal as failure => battery
+exit 101, byte-identical on re-run. Everything else PASSED: all 4 prior
+Minors fixed (surviving mutations now die), adapter fully fixture-traced
+(8/8 behaviors), B4 tick honest, protected crate unchanged since the
+parked waive. NEITHER parked operator decision changes.
+
+FIX (track-c-owned files; track C is STOPPED — ownership released to the
+pool, but this does NOT preempt track A's T4.1/soak critical path; next
+available capacity or an operator-restarted track C takes it):
+1. Harness-local: extend curve coverage past the last tier OR add a
+   designed-refusal arm that asserts the spec-5.15 fail-closed behavior as
+   SUCCESS (+ halt accounting if the spec demands one there).
+2. Commit seed 11819682492387934495 to crates/fortuna-core/dst-corpus/
+   with a comment naming the failure mode (the doctrine's first true red
+   seed — never delete).
+3. Re-run scripts/run-dst.sh at 10000 green end-to-end; then the track-c
+   merge proceeds (after the operator waive batch 5 + F1 disposition).
+4. [Minor, ride-along] annotate the stale "from recorded risk curves"
+   wording in the GAPS B5 done-entry (verdict Finding 4).
+
 ## PIPELINE
 
 Track B: final cumulative gate RUNNING (CLI slices 2+3 + ROTA cognition/
