@@ -237,3 +237,85 @@ async fn signal_with_working_orders_cancels_them_and_audits(pool: PgPool) {
             .unwrap();
     assert_eq!(final_rows, 1, "exactly one final audit row on signal");
 }
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn compose_runner_composes_synthesis_only_when_configured(pool: PgPool) {
+    // T4.1/S3b: a [synthesis] section composes the synthesis strategy ALONGSIDE
+    // mech (strategy_ids contains "synthesis"); its absence leaves the daemon
+    // mechanically-only (fail closed). Asserts the OPT-IN wiring end-to-end:
+    // compose_runner -> synthesis_edges -> SynthesisStrategy -> strategies.
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let full = FortunaConfig::load_file(example_path).unwrap();
+    // Seed a confirmed sim edge so synthesis_edges loads a real edge.
+    let events = fortuna_ledger::EventsRepo::new(pool.clone());
+    events
+        .create(
+            "evt-1",
+            "s",
+            "c",
+            "src",
+            None,
+            "2026-06-20T18:00:00.000Z",
+            "weather",
+            "2026-06-10T12:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    fortuna_ledger::EdgesRepo::new(pool.clone())
+        .insert_edge(
+            "e1",
+            "KX-A",
+            "sim",
+            "evt-1",
+            "direct",
+            0.9,
+            "model:stub",
+            Some("op"),
+            None,
+            "2026-06-10T12:01:00.000Z",
+        )
+        .await
+        .unwrap();
+
+    // WITH [synthesis]: synthesis composed alongside mech.
+    let dcfg_with = DaemonToml::parse(&format!("{text}\n[synthesis]\nvenue = \"sim\"\n")).unwrap();
+    let runner = compose_runner(pool.clone(), &full, &dcfg_with, t0(), 1)
+        .await
+        .unwrap();
+    let ids: Vec<String> = runner
+        .strategy_ids()
+        .iter()
+        .map(|i| i.to_string())
+        .collect();
+    assert!(
+        ids.iter().any(|i| i == "synthesis"),
+        "[synthesis] present => synthesis composed: {ids:?}"
+    );
+    assert!(
+        ids.iter().any(|i| i == "mech_structural"),
+        "mech still composed: {ids:?}"
+    );
+
+    // WITHOUT [synthesis]: mechanically-only (fail closed).
+    let dcfg_without = DaemonToml::parse(&text).unwrap();
+    let runner2 = compose_runner(pool, &full, &dcfg_without, t0(), 2)
+        .await
+        .unwrap();
+    let ids2: Vec<String> = runner2
+        .strategy_ids()
+        .iter()
+        .map(|i| i.to_string())
+        .collect();
+    assert!(
+        !ids2.iter().any(|i| i == "synthesis"),
+        "no [synthesis] => mechanically-only: {ids2:?}"
+    );
+    assert!(
+        ids2.iter().any(|i| i == "mech_structural"),
+        "mech composed: {ids2:?}"
+    );
+}

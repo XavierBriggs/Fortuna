@@ -6,7 +6,8 @@
 //! What composes here (and is smoke-tested deterministically):
 //! boot-validated config -> PgIntentJournal (recovery fold = the
 //! journal-side boot reconciliation) + PgAuditSink (I5 fail-synchronous)
-//! -> SimRunner over the [sim] bracket world with mech_structural ->
+//! -> SimRunner over the [sim] bracket world with mech_structural + the
+//! opt-in [synthesis] arm (S3b) ->
 //! run_loop (halt poll via HaltsRepo, ticks on the injected clock) ->
 //! stop signal -> SimRunner::shutdown (cancel working orders + final
 //! audit row).
@@ -25,25 +26,35 @@
 //! The daily-boundary scheduler (DailyScheduler) fires once per UTC day,
 //! emitting a terse daily digest to #fortuna-digest.
 //!
-//! HONESTLY NOT HERE YET (ledgered in GAPS; claims must match code):
-//! the synthesis strategy in main (compose::calibration_for_scope +
-//! persist_beliefs are tested, not yet fed into a daemon-booted
-//! SynthesisStrategy — edge-source design-blocked); the RICH daily
-//! digest (full DigestInputs) + daily reconciliation re-run + weekly/
-//! monthly cognition reviews (need belief/review data, synthesis-blocked).
+//! The OPT-IN synthesis arm (S3b): a [synthesis] config section composes a
+//! SynthesisStrategy from the confirmed-tier edge load (compose::
+//! synthesis_edges) ALONGSIDE mech_structural. Its mind is a StubMind
+//! PLACEHOLDER and calibration is None until S5 binds the real mind +
+//! measured calibration, so the arm is INERT (prices no edge, makes no
+//! trade) until then — do NOT start the soak before S5.
+//!
+//! HONESTLY NOT HERE YET (ledgered in GAPS; claims must match code): the
+//! real-mind binding (S5: StubMind -> AnthropicMind via mind_from_env +
+//! CostBudget) + belief drain/persist into the booted synthesis strategy
+//! (S6); the RICH daily digest (full DigestInputs) + daily reconciliation
+//! re-run + weekly/monthly cognition reviews (need belief/review data, S5/S6).
 
 use crate::audit_bridge::PgAuditSink;
 use crate::boot::{BootError, DaemonToml};
 use crate::compose::DegradeScrape;
 use crate::run_loop::{run_loop, CadenceDriver, HaltPoller, LoopConfig, LoopStats};
+use fortuna_cognition::cycle::{ComparatorConfig, TriageDecision};
+use fortuna_cognition::events::EdgeTier;
+use fortuna_cognition::mind::StubMind;
 use fortuna_core::clock::{Clock, UtcTimestamp};
-use fortuna_core::market::{MarketId, VenueId};
+use fortuna_core::market::{MarketId, StrategyId, VenueId};
 use fortuna_core::money::Cents;
 use fortuna_ledger::{HaltsRepo, PgIntentJournal};
 use fortuna_ops::alerts::DegradeThresholds;
 use fortuna_ops::FortunaConfig;
 use fortuna_runner::mech_structural::{MechStructural, MechStructuralConfig};
-use fortuna_runner::{RunnerConfig, RunnerError, SimRunner, Strategy};
+use fortuna_runner::synthesis::{SynthesisConfig, SynthesisStrategy};
+use fortuna_runner::{RunnerConfig, RunnerError, SimRunner, Stage, Strategy};
 use fortuna_state::MarkPolicy;
 use fortuna_venues::fees::{FeeSchedule, ScheduleFeeModel};
 use fortuna_venues::sim::FaultConfig;
@@ -127,7 +138,7 @@ pub async fn compose_runner(
         reason: format!("fee schedule rejected: {e}"),
     })?;
 
-    let strategies: Vec<Box<dyn Strategy>> = vec![Box::new(
+    let mut strategies: Vec<Box<dyn Strategy>> = vec![Box::new(
         MechStructural::new(MechStructuralConfig {
             bracket_sets: sets,
             min_edge_cents_per_set: 2,
@@ -139,6 +150,40 @@ pub async fn compose_runner(
             reason: format!("mech_structural rejected its config: {e}"),
         })?,
     )];
+
+    // T4.1/S3b: the OPT-IN synthesis arm. A `[synthesis]` section composes the
+    // synthesis strategy ALONGSIDE the mechanical ones (I1: it rides the same
+    // gate/exec path); its absence leaves the daemon mechanically-only (fail
+    // closed). The edge set is the confirmed-tier load filtered by the config
+    // (synthesis-edge-source-decision.md req 1+4); an empty set is VALID. The
+    // mind is a StubMind PLACEHOLDER and calibration is None until S5 binds the
+    // real mind + measured calibration, so the arm is INERT (structurally
+    // prices no edge, makes no trade) until then — do NOT start the soak first.
+    if let Some(syn) = &dcfg.synthesis {
+        let edges = crate::compose::synthesis_edges(&pool, syn)
+            .await
+            .map_err(|e| DaemonError::Compose {
+                reason: format!("synthesis edge load: {e}"),
+            })?;
+        let synth = SynthesisStrategy::new(
+            SynthesisConfig {
+                id: StrategyId::new("synthesis").map_err(|e| DaemonError::Compose {
+                    reason: format!("synthesis strategy id: {e}"),
+                })?,
+                edges,
+                comparator: ComparatorConfig {
+                    min_edge_cents: 5,
+                    required_tier: EdgeTier::Confirmed,
+                },
+                triage: TriageDecision::AlwaysAccept,
+                shadow_quota: 0,
+                calibration: None,
+                stage: Stage::Sim,
+            },
+            Arc::new(StubMind::scripted(Vec::new())),
+        );
+        strategies.push(Box::new(synth));
+    }
 
     let envelopes = full
         .envelopes

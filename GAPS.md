@@ -105,24 +105,28 @@ AFTER they were wired — a claim-vs-reality stale-ledger defect; corrected
 here. The dfb849f commit MESSAGE claimed a GAPS dead-man flip that the
 commit did not contain; the flip landed shortly after — recorded for the
 trail since commit messages cannot be edited.]
-HONESTLY STILL OPEN before the T4.1 tick (the box stays unticked): the
-SYNTHESIS strategy in the daemon main (compose::calibration_for_scope +
-persist_beliefs tested but not fed into a daemon-booted
-SynthesisStrategy — UNBLOCKED 2026-06-12 by docs/design/
-synthesis-edge-source-decision.md [EdgesRepo, confirmed-tier only,
-refreshed per drive() segment]; TRACK A is now building it — see the
-SYNTHESIS-IN-MAIN PLAN below); the
-mech_extremes-WITH-VETO strategy binding (the daemon composes only
-mech_structural today — mech_extremes + its reduce-only model veto is
-unwired); the mind_from_env / CostBudget binding into the daemon (the
-allow_stub_mind gate exists, but no AnthropicMind is actually composed
-into a booted strategy — it has no consumer until synthesis-in-main);
-the RICH daily digest + daily reconciliation re-run + weekly/monthly
-cognition reviews (need belief/review data, synthesis-blocked). Belief
-persistence (req 6): the PATH exists + is tested (Strategy::drain_beliefs
--> runner.drain_pending_beliefs -> daemon::persist_beliefs, FK-correct,
-idempotent); the daemon drains+persists once a belief-producing strategy
-is composed (mech_structural holds none) — lands with synthesis-in-main.
+HONESTLY STILL OPEN before the T4.1 tick (the box stays unticked):
+- SYNTHESIS COMPOSITION: DONE (S1-S3b, 2026-06-12). compose_runner composes a
+  SynthesisStrategy from the confirmed-tier edge load, OPT-IN on [synthesis],
+  alongside mech_structural. BUT the arm is INERT: its mind is a StubMind
+  PLACEHOLDER and calibration is None, so it structurally prices no edge + makes
+  no trade until S5. (The earlier "not fed into a daemon-booted
+  SynthesisStrategy" / "composes only mech_structural" claims are now stale —
+  corrected here + in daemon.rs.)
+- S4: per-segment edge REFRESH in drive() (keep last-known on failure +
+  count/alert, never crash) — unwired (edges load once at composition today).
+- S5: the mind_from_env / CostBudget binding (StubMind -> AnthropicMind). The
+  allow_stub_mind gate exists and the StubMind placeholder now HAS a consumer
+  (the composed synthesis arm), but the REAL AnthropicMind is not yet composed.
+- S6: belief drain+persist into the booted strategy. The PATH exists + is tested
+  (Strategy::drain_beliefs -> runner.drain_pending_beliefs ->
+  daemon::persist_beliefs, FK-correct, idempotent); but the StubMind produces NO
+  beliefs, so nothing drains until S5's real mind. Then the RICH daily digest +
+  daily reconciliation re-run + weekly/monthly cognition reviews.
+- mech_extremes-WITH-VETO strategy binding (reduce-only model veto) — separate,
+  still unwired.
+DO NOT tick T4.1 / start the soak until S5 (the real mind) — else the StubMind
+degrades every cycle and pollutes the soak metrics.
 
 ## TRACK A — SYNTHESIS-IN-MAIN build plan (validated 2026-06-12, no code)
 
@@ -200,22 +204,23 @@ Build sub-slices (each its own iteration, TDD, battery-gated):
       PRESENCE composes synthesis (S3b-2 wires that); ABSENT => mechanically-only
       (fail closed). Parse test: the committed example has no [synthesis] => None;
       appending one parses venue/max_edges (NON-VACUOUS).
-  S3b-2 VALIDATED WIRING (build next; ALL unknowns resolved this session):
-      compose_runner gains a synthesis arm GATED on dcfg.synthesis.is_some().
-      Construct SynthesisConfig {id "synthesis", edges: synthesis_edges(&pool,
-      syn).await? (map ComposeError -> DaemonError), comparator
-      {min_edge_cents:5, required_tier:Confirmed}, triage AlwaysAccept,
-      shadow_quota 0, calibration: None (PLACEHOLDER — real calibration binds
-      with the real mind in S5), stage: Stage::Sim (SimRunner::new enforces Sim,
-      runner.rs:338)} + mind Arc::new(StubMind::scripted(vec![])) (PLACEHOLDER;
-      real mind = S5/mind_from_env). Push to `strategies` (make it `mut`; the
-      synth arm is INERT until S5 binds the mind — do NOT tick T4.1/start the
-      soak before then, else the stub degrades every cycle). new() needs NO
-      per-strategy envelope (only the I7 Sim-stage check). compose_runner must
-      return DaemonError -> add From<ComposeError> or map at the `?`. Composition
-      test (sqlx::test in tests/daemon or compose): with [synthesis] + a seeded
-      confirmed edge, compose_runner's runner.strategy_ids() contains
-      "synthesis" (2 strategies); without [synthesis], only the mech id (1).
+  S3b-2 DONE (this commit): compose_runner composes the synthesis arm GATED on
+      dcfg.synthesis.is_some(). SynthesisConfig {id "synthesis", edges via
+      synthesis_edges (ComposeError mapped to DaemonError::Compose), comparator
+      {5, Confirmed}, triage AlwaysAccept, shadow_quota 0, calibration: None
+      PLACEHOLDER, stage Stage::Sim} + Arc::new(StubMind::scripted(vec![]))
+      PLACEHOLDER, pushed to `strategies`. Composition test (daemon_smoke.rs,
+      sqlx::test): with [synthesis]+a seeded confirmed sim edge, runner.
+      strategy_ids() contains BOTH "synthesis" and "mech_structural"; without
+      [synthesis], only "mech_structural" (fail closed). Battery 47/0. daemon.rs
+      doc corrected (the stale "synthesis not yet fed into a daemon-booted
+      SynthesisStrategy" claim is now FALSE — replaced with the S3b reality +
+      the S5/S6 remainder). ===> S3 (the daemon synthesis COMPOSITION) is
+      COMPLETE: S1 edge source + S2 fail-closed PIN + S3a load/filter/map +
+      S3b-1 opt-in config + S3b-2 wiring. The arm is INERT (StubMind, calibration
+      None) — do NOT tick T4.1 / start the soak until S5 binds the real mind.
+      Remaining T4.1 tail: S4 per-segment edge refresh -> S5 mind binding ->
+      S6 belief drain+persist + rich digest -> THEN tick T4.1 (starts the soak).
       The [synthesis] CATEGORY filter (events-category join) stays deferred.
   S4. drive() per-segment edge refresh: keep last-known on failure + count/alert,
       never crash (requirement 2).
