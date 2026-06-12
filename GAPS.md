@@ -18,6 +18,37 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK A — T4.1/M2 COMPLETE; buildable valuable work EXHAUSTED (holding, not hard-stopped)
+
+Overnight 2026-06-12→13: Track A's buildable, valuable T4.1 surface is DONE and
+gate-clean (the FULL workspace battery — fmt/clippy --workspace --all-targets/
+cargo test --workspace/run-dst.sh 10000 — ran green on every commit). Delivered:
+- ALL T4.1 completion-gate findings adjudicated: M1 BLOCK fix (de0426c,
+  verifier-cleared in 4daa103), m1 categories-allowlist re-ledger (93844eb),
+  m2 refresh-failure integration test (c9edd00), m3 stale-comment fix (de0426c);
+  + the R12 halt-rearm option-(a) regression pin (7cc510f).
+- Perps-revert client-id finding ADJUDICATED + an executable upgrade-safety pin
+  (c25b368): the core idempotency is sound (crash-recovery reads the
+  journal-persisted id, never re-derives via the IdGen); the actual fix is
+  TRACK-C's kinetics test (verifier option 2). No Track-A code change needed.
+- M2 FULLY RESOLVED: daily reconciliation (dbcd941+3d5c18b) + weekly review
+  (2fd0d77, 6018ca6, 542e5f3) + monthly review (4cb3391, 8ea8a4d) — all built,
+  wired into drive(), tested + mutation-proven. The daemon is feature-complete
+  + soak-ready (boot, run-loop, halt poll, graceful shutdown, synthesis arm w/
+  mind+calibration+edges+belief-persist, mech_extremes+veto, rich digest, all
+  review cadences + schedulers).
+REMAINING Track-A items are ALL blocked or other-track: T4.2 (operator Kalshi
+fixture-recording session — boot.rs refuses venue=kalshi until clearance), M3
+(track-B rearm CLI/ROTA notices — the loop-doc boundary "do not touch track B's
+files" holds over the pool offer), the perps re-merge + the operator-confirmed
+2x leverage cap (track-C). No buildable VALUABLE Track-A work remains without
+inventing bloat — and idle-and-stopped beats bloat.
+STANCE: NOT hard-cancelled. The perps re-merge re-gate MIGHT surface a new
+Track-A finding (as the client-id one did) — so each re-fire I re-check
+priority (a) (GATE-FINDINGS + GAPS) and address anything new; absent a finding I
+yield WITHOUT manufacturing low-value work. The operator may cancel the loop in
+the morning if no further Track-A work materializes.
+
 ## TRACK A — perps-revert client-id finding: ADJUDICATED (core idempotency is UPGRADE-SAFE)
 
 The signed perps merge a586b4a was reverted 19b3888 because kinetics_adapter.rs:
