@@ -303,22 +303,45 @@ Build sub-slices (each its own iteration, TDD, battery-gated):
       by the concurrent multi-track load (load ~29, disk near the 10GB floor) — the
       VERIFIER's independent full battery is the backstop for the unaffected crates.
       The arm is STILL INERT (StubMind, calibration None) — do NOT tick T4.1 until S5.
-  S5a. make synthesis TRADEABLE (mind-injection + calibration) — the high-value
-      step; SCOPE RESOLVED 2026-06-12 (more tractable than feared — NO
-      events-category join needed). (1) compose_runner takes a mind: Arc<dyn
-      Mind> PARAM (5 call sites: main + daemon_smoke x4; existing pass StubMind,
-      the live test passes a scripted believing mind) — resolves the
-      mind-injection testability. (2) The synth arm needs CALIBRATION to price
-      (today calibration=None => prices nothing): add [synthesis].category
-      (operator-specified scope; NOT the edges' category, so no events-join) +
-      compose_runner calls calibration_for_scope(MODEL_CONST e.g.
-      "claude-fable-5", "synthesis", cfg.category, "platt") -> bind calibration
-      + runner.set_calibration_quality("synthesis", quality). (3) Live test
-      (daemon_smoke sqlx::test): seed an event(category="weather") + a confirmed
-      sim-market edge + a calibration_params row for that scope + a SCRIPTED
-      believing mind + a book -> tick -> the synth arm TRADES (proposal +
-      position; the non-vacuous populated path). main stays StubMind (inert) =>
-      production-live is S5b.
+  S5a. make synthesis TRADEABLE (mind-injection + calibration). SCOPE
+      RE-RESOLVED 2026-06-12 — design-validate found the prior note WRONG on two
+      load-bearing points (corrected visibly):
+      * CORRECTION 1 (correctness): the calibration scope strategy is NOT
+        "synthesis". The CANONICAL synthesis strategy is synth_events (fortuna-
+        runner/src/synth_events.rs, spec S6 item 4: id "synth_events",
+        SYNTH_EVENTS_STAGE_CAP=Paper, MIN_EDGE 5, shadow_quota 3), and the
+        calibration convention keys on "synth_events" (the existing compose.rs
+        test seeds model="claude-fable-5" / strategy="synth_events" / category /
+        "platt"). Querying "synthesis" would fetch NOTHING => silent no-trade
+        (the OPPOSITE of tradeable). Scope = ("claude-fable-5","synth_events",
+        cfg.category,"platt").
+      * CORRECTION 2 (stale): "5 call sites" is now EIGHT (main + daemon_smoke
+        x7 after S4 + mech_extremes added tests).
+      * ALSO DISCOVERED: the S3b daemon arm is an AD-HOC SynthesisConfig (id
+        "synthesis", HARDCODED Stage::Sim, shadow 0, AlwaysAccept) that diverges
+        from canonical synth_events AND from GAPS line 198's own stated rule
+        ("composition derives via effective_stage ... never self-promote, I7")
+        — the hardcoded Sim is a latent I7 drift.
+      RESOLUTION (build to this next iteration): canonicalize the daemon
+      synthesis arm to synth_events_config(edges, triage, calibration) — id
+      "synth_events", stage = promotion::effective_stage(SYNTH_EVENTS_STAGE_CAP,
+      operator_promotion_records) [= Sim with no promotions; I7-correct],
+      shadow 3; bind calibration_for_scope("claude-fable-5","synth_events",
+      cfg.category,"platt") -> SynthesisConfig.calibration + set_calibration_
+      quality("synth_events", quality). compose_runner gains mind: Arc<dyn Mind>
+      (8 call sites: StubMind for existing, a scripted believing mind for the
+      live test). [synthesis].category added = the calibration scope. TEST
+      CHURN: the S3b/S4/mech_extremes assertions on strategy_ids "synthesis"
+      become "synth_events". MODEL_CONST -> [cognition].model in S5b. Live test
+      (daemon_smoke sqlx::test): event(category weather) + a confirmed sim edge
+      + a calibration_params row + RESOLVED beliefs (quality>0 => non-zero size,
+      per compose.rs's calibration seeding) + a scripted believing mind + a book
+      -> tick -> the arm TRADES (proposal + position; non-vacuous populated
+      path). main stays StubMind (inert) => production-live is S5b. VETO-MIND
+      GAP (separate, OUT of Track A): AnthropicVetoMind does NOT exist (fortuna-
+      cognition, which Track A consumes-not-edits; veto.rs said "arrives in
+      Phase 2 T2.5" but it never landed) — the mech_extremes veto stays
+      StubVetoMind::allow_all until its fortuna-cognition owner builds it.
   S5b. mind_from_env helper: StubMind when no key + allow_stub; AnthropicMind
       {model, budgets->CostBudget, reqwest transport} when keyed (transport
       INJECTED for tests, scripted, NEVER a real key — the kickoff money
