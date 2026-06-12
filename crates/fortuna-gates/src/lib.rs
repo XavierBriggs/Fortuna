@@ -25,10 +25,14 @@
 mod config;
 mod halt;
 mod order;
+pub mod perp;
 mod pipeline;
 mod rate;
 
-pub use config::{GateConfig, GateError, GlobalLimits, RateLimits, StrategyLimits};
+pub use config::{
+    GateConfig, GateError, GlobalLimits, PerpAssetLimits, PerpConfig, PerpVenueLimits, RateLimits,
+    StrategyLimits,
+};
 pub use halt::{HaltFlags, HaltScope};
 pub use order::GatedOrder;
 pub use pipeline::{

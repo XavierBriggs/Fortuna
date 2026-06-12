@@ -27,6 +27,8 @@
 
 mod accounts;
 mod drawdown;
+mod margin;
+mod margin_sim;
 mod marks;
 mod positions;
 mod reservations;
@@ -35,6 +37,10 @@ mod sizing;
 
 pub use accounts::{build_account_view, AccountView, PositionValuation};
 pub use drawdown::{DrawdownMonitor, DrawdownVerdict};
+pub use margin::{equity_with_margin, HaltEquity};
+pub use margin_sim::{
+    funding_times_between, FillOutcome, Liquidation, MarginSim, MarginSimConfig, RiskCurve,
+};
 pub use marks::{mark_lots, Mark, MarkPolicy};
 pub use positions::{Lot, Position, PositionBook, PositionLifecycle};
 pub use reservations::ReservationLedger;
@@ -106,4 +112,8 @@ pub enum StateError {
     /// Reservation amounts are non-negative by construction.
     #[error("negative reservation amount {amount} for intent {intent}")]
     NegativeReservation { intent: IntentId, amount: Cents },
+    /// The margin simulator cannot bound or value the account (spec 5.15 /
+    /// plan B5: a liquidation under-modeled is a failure, never a guess).
+    #[error("margin sim ({scope}): {reason}")]
+    MarginSim { scope: String, reason: String },
 }
