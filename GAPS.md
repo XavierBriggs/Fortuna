@@ -319,6 +319,17 @@ VERIFIED). New/carried Minors:
   present) — F1 cursorless-latest at the handler layer. The audit TAIL is now
   LIVE on the running daemon; this pool also unblocks the cognition view's two
   ledger queries (next).
+- R5-POOL GATE finding #1 (the only Minor): CLOSED (this commit). The R5
+  saturation/ISOLATION property is now PINNED by a committed handler-level test
+  (exhausted_rota_pool_degrades_to_200_while_the_writer_is_unimpeded,
+  #[sqlx::test] with PoolOptions/ConnectOptions injection): a bounded 2-conn
+  reader saturated (both conns held) => GET /audit degrades to HTTP 200,
+  available:false, bounded by acquire_timeout (never hung/500), WHILE a
+  concurrent INSERT on a SEPARATE writer pool proceeds <1s and commits. A future
+  refactor that merged the pools back would now fail this test. Also addressed
+  the paired informational note: the audit_tail Err arm no longer returns
+  available:true with raw sqlx text — it degrades to available:false + a neutral
+  detail (no error-text leak; the cause is logged server-side).
 - MONEY VIEW — DESIGN-BLOCKED (validated, not guessed): §5 specifies account
   fields settled_cents / committed_cents / floating_cents / total_cents (with
   total = settled + floating per the example), populated "from inspect_totals".

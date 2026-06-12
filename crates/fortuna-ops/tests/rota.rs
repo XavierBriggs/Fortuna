@@ -447,6 +447,90 @@ async fn audit_handler_serves_the_live_tail_when_a_pool_is_present(pool: sqlx::P
     h.abort();
 }
 
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn exhausted_rota_pool_degrades_to_200_while_the_writer_is_unimpeded(
+    pool_opts: sqlx::postgres::PgPoolOptions,
+    conn_opts: sqlx::postgres::PgConnectOptions,
+) {
+    // r5-pool gate, finding #1: pin R5's saturation/isolation property so a
+    // future refactor cannot silently merge the reader/writer pools back. The
+    // ROTA reader is bounded to 2 connections with a short acquire_timeout (the
+    // daemon uses 3s; 1s here proves degraded-not-hung fast); the audit WRITER
+    // is a SEPARATE pool. When the reader is saturated, the dashboard degrades
+    // (HTTP 200, never 500/hung) while the writer's audit append proceeds
+    // UNIMPEDED — exactly what connect_readonly_pool buys (never the writer's
+    // pool).
+    use std::time::{Duration, Instant};
+    let rota_pool = pool_opts
+        .clone()
+        .max_connections(2)
+        .acquire_timeout(Duration::from_secs(1))
+        .connect_with(conn_opts.clone())
+        .await
+        .unwrap();
+    let writer_pool = pool_opts.connect_with(conn_opts).await.unwrap();
+    insert_audit(&writer_pool, "01AAAAAAAAAAAAAAAAAAAAAAA0", "seed").await;
+
+    // SATURATE the reader: hold both of its connections for the whole test.
+    let _c1 = rota_pool.acquire().await.unwrap();
+    let _c2 = rota_pool.acquire().await.unwrap();
+
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(rota_pool.clone()),
+        perishable_dir: None,
+    };
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+
+    // Concurrently: the dashboard read DEGRADES (bounded) while the audit
+    // writer PROCEEDS — the isolation property.
+    let read = async {
+        let t = Instant::now();
+        let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/audit"))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        (j, t.elapsed())
+    };
+    let write = async {
+        let t = Instant::now();
+        insert_audit(&writer_pool, "01BBBBBBBBBBBBBBBBBBBBBBB0", "concurrent").await;
+        t.elapsed()
+    };
+    let ((j, read_dur), write_dur) = tokio::join!(read, write);
+
+    // Exhausted reader => HTTP 200, available:false (degraded like no-pool),
+    // bounded — never hung, never 500.
+    assert_eq!(j["available"], false, "saturated reader pool degrades: {j}");
+    assert!(j["rows"].as_array().unwrap().is_empty(), "{j}");
+    assert!(
+        read_dur < Duration::from_secs(3),
+        "bounded by acquire_timeout, not hung: {read_dur:?}"
+    );
+    // ISOLATION: the audit writer was UNIMPEDED by the dashboard saturation
+    // (distinct pools) — fast, and the row actually committed.
+    assert!(
+        write_dur < Duration::from_secs(1),
+        "the audit writer proceeds despite ROTA saturation: {write_dur:?}"
+    );
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM audit")
+        .fetch_one(&writer_pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 2, "the concurrent writer append committed");
+
+    drop(_c1);
+    drop(_c2);
+    h.abort();
+}
+
 // ---- rota-slices gate F2: /favicon.ico must not 404 ----
 
 #[tokio::test]

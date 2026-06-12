@@ -268,12 +268,19 @@ async fn audit_tail(State(s): State<RotaState>, Query(q): Query<AuditQuery>) -> 
                 .collect();
             Json(json!({ "available": true, "rows": json_rows, "next_after": next_after }))
         }
-        Err(e) => Json(json!({
-            "available": true,
-            "error": e.to_string(),
-            "rows": [],
-            "next_after": null,
-        })),
+        Err(e) => {
+            // A FAILED read is not "available" — degrade exactly like the
+            // no-pool case (available:false + a neutral detail), HTTP 200 not
+            // 500. Never leak raw sqlx/Pg error text to the client; the cause
+            // is logged server-side (localhost, read-only surface).
+            eprintln!("rota: audit-tail read degraded: {e}");
+            Json(json!({
+                "available": false,
+                "detail": "audit read unavailable (dashboard pool degraded)",
+                "rows": [],
+                "next_after": null,
+            }))
+        }
     }
 }
 
