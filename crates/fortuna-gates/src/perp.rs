@@ -724,7 +724,7 @@ fn check_leverage_cap(
     let rhs = i128::from(i.account.equity.raw()) * i128::from(asset_cfg.max_leverage_x10);
     if lhs > rhs {
         return Err(format!(
-            "worst-case notional {} exceeds {}x{} leverage on equity {}",
+            "worst-case notional {} exceeds the {}.{}x leverage cap on equity {}",
             profile.worst_notional,
             asset_cfg.max_leverage_x10 / 10,
             asset_cfg.max_leverage_x10 % 10,

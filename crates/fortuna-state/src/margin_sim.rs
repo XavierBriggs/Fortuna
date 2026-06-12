@@ -28,6 +28,9 @@ use std::collections::BTreeMap;
 
 const MILLIS_PER_HOUR: i64 = 3_600_000;
 const MILLIS_PER_UTC_DAY: i64 = 86_400_000;
+/// The venue's funding-rate cap: +/-2% per 8h window (research §4).
+const FUNDING_RATE_CAP: Decimal = Decimal::from_parts(2, 0, 0, false, 2);
+
 /// Funding times: 04:00, 12:00, 20:00 UTC (research §4, confirmed live).
 const FUNDING_OFFSETS_MS: [i64; 3] = [
     4 * MILLIS_PER_HOUR,
@@ -75,6 +78,55 @@ impl RiskCurve {
             .iter()
             .find(|(threshold, _)| notional <= *threshold)
             .map(|(_, bps)| *bps)
+    }
+
+    /// Build the maintenance approximation from the venue's RECORDED
+    /// `leverage_estimates` (gate-fix F1 follow-on, BINDING for B4):
+    /// notional-dollar tier key -> estimated max leverage. mm_bps =
+    /// ceil(10_000 / leverage), rounding UP (more margin required =
+    /// conservative). Tier keys sort NUMERICALLY (lexicographic map
+    /// order is wrong for numeric strings). A notional between tiers
+    /// takes the larger tier's (worse) leverage via the lookup's
+    /// first-covering-tier rule; beyond the last tier stays unboundable.
+    /// Leverage below 1 (mm > 100% of notional) or non-finite fails
+    /// closed — never guessed.
+    pub fn from_leverage_estimates(
+        estimates: &BTreeMap<String, f64>,
+    ) -> Result<RiskCurve, StateError> {
+        let err = |reason: String| StateError::MarginSim {
+            scope: "risk curve".into(),
+            reason,
+        };
+        if estimates.is_empty() {
+            return Err(err("empty leverage_estimates: no curve, no bound".into()));
+        }
+        let mut tiers: Vec<(i64, i64)> = Vec::with_capacity(estimates.len());
+        for (key, leverage) in estimates {
+            let dollars: i64 = key
+                .parse()
+                .map_err(|_| err(format!("tier key {key:?} is not an integer dollar amount")))?;
+            if dollars <= 0 {
+                return Err(err(format!("tier key {key:?} must be positive")));
+            }
+            let threshold = dollars
+                .checked_mul(100)
+                .ok_or_else(|| err(format!("tier key {key:?} overflows cents")))?;
+            if !leverage.is_finite() || *leverage < 1.0 {
+                return Err(err(format!(
+                    "leverage {leverage} at tier {key:?} is outside [1, inf): cannot                      derive a maintenance fraction"
+                )));
+            }
+            // f64 only at this venue-payload boundary; output is integer bps.
+            let bps = (10_000.0 / leverage).ceil() as i64;
+            tiers.push((threshold, bps.clamp(1, 10_000)));
+        }
+        tiers.sort_by_key(|(threshold, _)| *threshold);
+        let curve = RiskCurve {
+            tiers: tiers.into_iter().map(|(t, b)| (Cents::new(t), b)).collect(),
+        };
+        // Reuse the construction-time validation (ascending, bps range).
+        curve.validate(&MarketId::new("risk-curve").map_err(|e| err(e.to_string()))?)?;
+        Ok(curve)
     }
 }
 
@@ -285,6 +337,19 @@ impl MarginSim {
         settlement_mark: PerpPrice,
         funding_time: UtcTimestamp,
     ) -> Result<Option<FundingAccrual>, StateError> {
+        // Gate-fix F3 (track-c-perp-gates-gate-2026-06-12): the venue
+        // clamps funding to +/-2% per 8h window BEFORE reporting
+        // (research §4) — a larger |rate| in our inputs is corrupt data.
+        // Error, never a silent clamp: clamping would alter
+        // venue-reported data on its way into an append-only record.
+        if rate.abs() > FUNDING_RATE_CAP {
+            return Err(StateError::MarginSim {
+                scope: market.to_string(),
+                reason: format!(
+                    "funding rate {rate} exceeds the venue cap of +/-{FUNDING_RATE_CAP}                      per window: corrupt input, refusing"
+                ),
+            });
+        }
         let Some(position) = self.positions.get(market) else {
             return Ok(None);
         };

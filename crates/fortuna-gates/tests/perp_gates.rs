@@ -440,6 +440,69 @@ fn liquidation_distance_floor_rejects_thin_buffer() {
 }
 
 #[test]
+fn liquidation_distance_exactly_at_floor_passes() {
+    // Gate-fix F2 (track-c-perp-gates-gate-2026-06-12, mutation M1): the
+    // floor is a MINIMUM — distance EXACTLY equal to it passes; one cent
+    // of equity less rejects. mark = limit = $5.0000, qty 100: notional
+    // 50,000c -> mm 2,500c -> required 3,250c; drag 20c. buffer = equity
+    // - 20 - 3,250; move_tt = buffer x 100 / 100; distance = move_tt x
+    // 10^4 / 50,000. Equity 8,270 -> buffer 5,000 -> distance 1,000 ==
+    // floor: PASS. Equity 8,269 -> 999 bps: reject.
+    let cfg = config_with("max_leverage_x10 = 50", "max_leverage_x10 = 100");
+    let mut p = GatePipeline::new(cfg).unwrap();
+    let ctx = Ctx {
+        mark: PerpPrice::new(50_000),
+        ..Ctx::new(8_270)
+    };
+    let mut c = candidate(1);
+    c.limit_price = PerpPrice::new(50_000);
+    c.fair_value = PerpPrice::new(51_000);
+    assert_eq!(reject_check(&mut p, &c, &ctx), None);
+
+    let cfg = config_with("max_leverage_x10 = 50", "max_leverage_x10 = 100");
+    let mut p = GatePipeline::new(cfg).unwrap();
+    let ctx = Ctx {
+        mark: PerpPrice::new(50_000),
+        ..Ctx::new(8_269)
+    };
+    let mut c = candidate(2);
+    c.limit_price = PerpPrice::new(50_000);
+    c.fair_value = PerpPrice::new(51_000);
+    assert_eq!(
+        reject_check(&mut p, &c, &ctx),
+        Some(GateCheck::LiquidationDistance)
+    );
+}
+
+#[test]
+fn leverage_exactly_at_cap_passes() {
+    // Gate-fix F2 (mutation M3): the cap is inclusive — worst-case
+    // notional x 10 EXACTLY equal to equity x cap passes; one contract
+    // more rejects. Cap 0.5x (x10 = 5), equity 1,000,000c, mark = limit
+    // = $6.2500: qty 800 -> notional exactly 500,000c -> 5,000,000 ==
+    // 5,000,000: PASS. qty 801 -> 5,006,250 > 5,000,000: reject.
+    let cfg = config_with("max_leverage_x10 = 50", "max_leverage_x10 = 5");
+    let mut p = GatePipeline::new(cfg).unwrap();
+    let ctx = Ctx {
+        mark: PerpPrice::new(62_500),
+        ..Ctx::new(1_000_000)
+    };
+    let mut c = candidate(1);
+    c.limit_price = PerpPrice::new(62_500);
+    c.fair_value = PerpPrice::new(63_500);
+    c.qty = Contracts::new(800);
+    assert_eq!(reject_check(&mut p, &c, &ctx), None);
+
+    let cfg = config_with("max_leverage_x10 = 50", "max_leverage_x10 = 5");
+    let mut p = GatePipeline::new(cfg).unwrap();
+    let mut c = candidate(2);
+    c.limit_price = PerpPrice::new(62_500);
+    c.fair_value = PerpPrice::new(63_500);
+    c.qty = Contracts::new(801);
+    assert_eq!(reject_check(&mut p, &c, &ctx), Some(GateCheck::LeverageCap));
+}
+
+#[test]
 fn liquidation_distance_floor_is_monotone_in_config() {
     // The baseline (equity $10,000) passes at floor 1,000 bps; the same
     // order rejects when the operator demands a wider floor than the

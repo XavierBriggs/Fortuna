@@ -576,3 +576,130 @@ proptest! {
         prop_assert!(s.position(&mkt("KXBTCPERP")).is_none());
     }
 }
+
+// ---- gate-fix F3 (track-c-perp-gates-gate-2026-06-12): funding cap ----
+
+#[test]
+fn funding_rate_beyond_venue_cap_is_error_not_clamp() {
+    // Research §4: the venue clamps funding to +/-2% per window BEFORE
+    // reporting. A larger |rate| in our inputs is corrupt data — error,
+    // never a silent clamp (clamping would alter venue-reported data).
+    let mut s = sim(100_000);
+    s.apply_fill(
+        &mkt("KXBTCPERP"),
+        Action::Buy,
+        Contracts::new(100),
+        PerpPrice::new(62_600),
+        Cents::ZERO,
+    )
+    .unwrap();
+    // Exactly at the cap: accepted, both signs.
+    assert!(s
+        .apply_funding(
+            &mkt("KXBTCPERP"),
+            dec("0.02"),
+            PerpPrice::new(62_600),
+            ts("2026-06-12T12:00:00.000Z")
+        )
+        .is_ok());
+    assert!(s
+        .apply_funding(
+            &mkt("KXBTCPERP"),
+            dec("-0.02"),
+            PerpPrice::new(62_600),
+            ts("2026-06-12T20:00:00.000Z")
+        )
+        .is_ok());
+    // Beyond the cap: error, balance untouched.
+    let before = s.balance();
+    assert!(s
+        .apply_funding(
+            &mkt("KXBTCPERP"),
+            dec("0.020001"),
+            PerpPrice::new(62_600),
+            ts("2026-06-13T04:00:00.000Z")
+        )
+        .is_err());
+    assert!(s
+        .apply_funding(
+            &mkt("KXBTCPERP"),
+            dec("-0.21"),
+            PerpPrice::new(62_600),
+            ts("2026-06-13T04:00:00.000Z")
+        )
+        .is_err());
+    assert_eq!(s.balance(), before);
+}
+
+// ---- gate-fix F1 follow-on (BINDING for B4): recorded-curve converter ----
+
+#[test]
+fn risk_curve_from_recorded_leverage_estimates_shape() {
+    // The RECORDED fixture is the ground truth: markets__single.json
+    // leverage_estimates {"1000": 5.899, "10000": 5.899, "100000": 5.899,
+    // "1000000": 5.8143} -> tiers in CENTS with mm_bps = ceil(10000/L)
+    // (rounding UP = more margin = conservative).
+    let raw = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/kinetics-perps/markets__single.json"),
+    )
+    .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let estimates: BTreeMap<String, f64> =
+        serde_json::from_value(v["market"]["leverage_estimates"].clone()).unwrap();
+    let curve = RiskCurve::from_leverage_estimates(&estimates).unwrap();
+    assert_eq!(
+        curve.tiers,
+        vec![
+            (Cents::new(100_000), 1_696),     // $1k tier, ceil(10000/5.899)
+            (Cents::new(1_000_000), 1_696),   // $10k
+            (Cents::new(10_000_000), 1_696),  // $100k
+            (Cents::new(100_000_000), 1_720), // $1M, ceil(10000/5.8143)
+        ]
+    );
+    // The converted curve drives the sim directly.
+    let mut curves = BTreeMap::new();
+    curves.insert(mkt("KXBTCPERP"), curve);
+    assert!(MarginSim::new(
+        Cents::new(1_000),
+        MarginSimConfig {
+            mm_multiplier_pct: 130,
+            liquidation_penalty_bps: 100,
+            curves,
+        }
+    )
+    .is_ok());
+}
+
+#[test]
+fn risk_curve_converter_sorts_numerically_and_fails_closed() {
+    // Lexicographic key order is NOT numeric ("9" > "10000"): the
+    // converter must sort by parsed value.
+    let mut estimates = BTreeMap::new();
+    estimates.insert("9".to_string(), 2.0);
+    estimates.insert("10000".to_string(), 1.5);
+    let curve = RiskCurve::from_leverage_estimates(&estimates).unwrap();
+    assert_eq!(
+        curve.tiers,
+        vec![(Cents::new(900), 5_000), (Cents::new(1_000_000), 6_667)]
+    );
+
+    // Leverage below 1 implies mm > 100% of notional: outside the curve
+    // domain, fail closed.
+    let mut bad = BTreeMap::new();
+    bad.insert("1000".to_string(), 0.5);
+    assert!(RiskCurve::from_leverage_estimates(&bad).is_err());
+
+    // Non-numeric tier key: fail closed.
+    let mut bad = BTreeMap::new();
+    bad.insert("not-a-number".to_string(), 5.0);
+    assert!(RiskCurve::from_leverage_estimates(&bad).is_err());
+
+    // Empty input: no curve, no bound.
+    assert!(RiskCurve::from_leverage_estimates(&BTreeMap::new()).is_err());
+
+    // Non-finite leverage: fail closed.
+    let mut bad = BTreeMap::new();
+    bad.insert("1000".to_string(), f64::NAN);
+    assert!(RiskCurve::from_leverage_estimates(&bad).is_err());
+}

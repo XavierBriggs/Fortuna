@@ -514,6 +514,13 @@ code.
       append-only accrual log, whole-account liquidation at worse-mark +
       penalty with unbounded-curve/missing-mark = error; 20 spec-first
       tests; fortuna-paper wiring ledgered for that crate's owner.)
+      [CORRECTED 2026-06-12 per gate fix F1, never erased: the original
+      note's "liquidation sim from recorded risk curves" OVERSTATED the
+      data source — at e8fe069 the sim consumed operator-CONFIG curves
+      and no recorded-curve path existed. The converter landed with the
+      gate-fix batch: RiskCurve::from_leverage_estimates builds the
+      curve from the RECORDED venue leverage_estimates, shape-tested
+      against fixtures/kinetics-perps/markets__single.json.]
 - [x] T5.B6 DST arms: funding-tick chaos, liquidation under ack-delay/api-error,
       system-fill ingestion, margin-call sequences, demo-divergence confusion.
       (DONE track C 2026-06-12, commit 335e5e6: perp_dst battery stage —
