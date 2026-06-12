@@ -7,7 +7,8 @@
 //! boot-validated config -> PgIntentJournal (recovery fold = the
 //! journal-side boot reconciliation) + PgAuditSink (I5 fail-synchronous)
 //! -> SimRunner over the [sim] bracket world with mech_structural + the
-//! opt-in [synthesis] arm (S3b) ->
+//! opt-in [synthesis] arm (S3b) + the opt-in [mech_extremes] arm enrolled in
+//! the reduce-only model veto ->
 //! run_loop (halt poll via HaltsRepo, ticks on the injected clock) ->
 //! stop signal -> SimRunner::shutdown (cancel working orders + final
 //! audit row).
@@ -37,9 +38,10 @@
 //! makes no trade) until then — do NOT start the soak before S5.
 //!
 //! HONESTLY NOT HERE YET (ledgered in GAPS; claims must match code): the
-//! real-mind binding (S5: StubMind -> AnthropicMind via mind_from_env +
-//! CostBudget) + belief drain/persist into the booted synthesis strategy
-//! (S6); the RICH daily digest (full DigestInputs) + daily reconciliation
+//! real-mind binding (S5: the synthesis StubMind -> AnthropicMind AND the
+//! mech_extremes StubVetoMind::allow_all -> the Anthropic-backed veto mind, via
+//! mind_from_env + CostBudget) + belief drain/persist into the booted synthesis
+//! strategy (S6); the RICH daily digest (full DigestInputs) + daily reconciliation
 //! re-run + weekly/monthly cognition reviews (need belief/review data, S5/S6).
 
 use crate::audit_bridge::PgAuditSink;
@@ -49,12 +51,14 @@ use crate::run_loop::{run_loop, CadenceDriver, HaltPoller, LoopConfig, LoopStats
 use fortuna_cognition::cycle::{ComparatorConfig, TriageDecision};
 use fortuna_cognition::events::EdgeTier;
 use fortuna_cognition::mind::StubMind;
+use fortuna_cognition::veto::{StubVetoMind, VetoMind};
 use fortuna_core::clock::{Clock, UtcTimestamp};
 use fortuna_core::market::{MarketId, StrategyId, VenueId};
 use fortuna_core::money::Cents;
 use fortuna_ledger::{HaltsRepo, PgIntentJournal};
 use fortuna_ops::alerts::DegradeThresholds;
 use fortuna_ops::FortunaConfig;
+use fortuna_runner::mech_extremes::{MechExtremes, MechExtremesConfig};
 use fortuna_runner::mech_structural::{MechStructural, MechStructuralConfig};
 use fortuna_runner::synthesis::{SynthesisConfig, SynthesisStrategy};
 use fortuna_runner::{RunnerConfig, RunnerError, SimRunner, Stage, Strategy};
@@ -188,6 +192,33 @@ pub async fn compose_runner(
         strategies.push(Box::new(synth));
     }
 
+    // T4.1/mech_extremes+veto: the OPT-IN favorite-longshot fade (spec Section
+    // 6 item 2), composed ALONGSIDE the mechanical/synthesis arms and ENROLLED
+    // in the reduce-only model veto — the strategy ships WITH its veto. The
+    // veto mind is a StubVetoMind::allow_all PLACEHOLDER (inert: allows every
+    // candidate) until S5 binds the real (Anthropic) veto mind, mirroring the
+    // synthesis arm's StubMind. A veto-enrolled strategy with no veto mind
+    // FAILS to boot (runner.rs), so enrollment + the stub mind go together.
+    // NOTE: sim markets carry no volume/close metadata, so mech_extremes is
+    // INERT in pure-sim (it skips ineligible markets) until real markets arrive
+    // (T4.2) — the composition + veto enrollment is the deliverable here.
+    let mut veto_mind: Option<Arc<dyn VetoMind>> = None;
+    let mut veto_strategies: Vec<StrategyId> = Vec::new();
+    if let Some(mx) = &dcfg.mech_extremes {
+        let strat = MechExtremes::new(MechExtremesConfig {
+            extreme_min_cents: mx.extreme_min_cents.unwrap_or(90),
+            bias_premium_cents: mx.bias_premium_cents.unwrap_or(2),
+            max_volume_contracts: mx.max_volume_contracts.unwrap_or(100_000),
+            min_ms_to_close: mx.min_ms_to_close.unwrap_or(3_600_000),
+        })
+        .map_err(|e| DaemonError::Compose {
+            reason: format!("mech_extremes rejected its config: {e}"),
+        })?;
+        veto_strategies.push(strat.id());
+        veto_mind = Some(Arc::new(StubVetoMind::allow_all()));
+        strategies.push(Box::new(strat));
+    }
+
     let envelopes = full
         .envelopes
         .iter()
@@ -210,8 +241,8 @@ pub async fn compose_runner(
         },
         max_sets_per_proposal: 50,
         kelly_fraction: full.sizing.kelly_fraction,
-        veto_mind: None,
-        veto_strategies: Vec::new(),
+        veto_mind,
+        veto_strategies,
     };
 
     let journal_clock: Arc<dyn Clock> = Arc::new(fortuna_core::clock::SimClock::new(start));

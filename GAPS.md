@@ -123,8 +123,25 @@ HONESTLY STILL OPEN before the T4.1 tick (the box stays unticked):
   daemon::persist_beliefs, FK-correct, idempotent); but the StubMind produces NO
   beliefs, so nothing drains until S5's real mind. Then the RICH daily digest +
   daily reconciliation re-run + weekly/monthly cognition reviews.
-- mech_extremes-WITH-VETO strategy binding (reduce-only model veto) — separate,
-  still unwired.
+- mech_extremes-WITH-VETO strategy binding (reduce-only model veto). DONE (this
+  commit): compose_runner composes the OPT-IN [mech_extremes] arm (spec Section
+  6 item 2) ALONGSIDE mech_structural/synthesis, ENROLLED in veto_strategies
+  with veto_mind = StubVetoMind::allow_all() (REQUIRED — a veto-enrolled
+  strategy with no mind FAILS to boot, runner.rs:347). The strategy + the veto
+  application machinery (consult_veto, counterfactual scoring) ALREADY EXIST +
+  are tested (mech_extremes.rs, veto_loop.rs) — this is COMPOSITION wiring only,
+  touching ONLY fortuna-live (compose.rs section, boot.rs field+parse, daemon.rs
+  arm). [mech_extremes] is a presence-toggle: empty table => conservative
+  defaults (extreme_min_cents 90, bias_premium 2, max_volume_contracts 100_000,
+  min_ms_to_close 1h), fields optionally override; an out-of-range value is a
+  LOUD compose error. INERT in pure-sim: sim markets carry no volume/close
+  metadata so market_eligible() skips them — mech_extremes activates only with
+  real markets (T4.2); the wiring + veto enrollment is the deliverable. The
+  veto mind is a STUB (allow_all, inert) until S5 binds the Anthropic-backed
+  veto mind (alongside the synthesis StubMind->AnthropicMind). Test
+  (daemon_smoke sqlx::test, TDD red observed): WITH [mech_extremes] the runner
+  BOOTS (proving the veto mind wired — else boot fails) + strategy_ids contains
+  "mech_extremes"; WITHOUT it, neither (fail closed).
 DO NOT tick T4.1 / start the soak until S5 (the real mind) — else the StubMind
 degrades every cycle and pollutes the soak metrics.
 
@@ -238,10 +255,12 @@ Build sub-slices (each its own iteration, TDD, battery-gated):
       S3b-1 opt-in config + S3b-2 wiring. The arm is INERT (StubMind, calibration
       None) — do NOT tick T4.1 / start the soak until S5 binds the real mind.
       Remaining T4.1 tail (loop-doc order: synthesis-in-main -> mech_extremes
-      +veto -> mind binding): S4 per-segment refresh is now DONE (req 2 closes
-      synthesis-in-main) -> mech_extremes+veto -> S5 mind binding -> S6 belief
-      drain+persist + rich digest -> THEN tick T4.1 (starts the soak). The
-      [synthesis] CATEGORY filter (events-category join) stays deferred.
+      +veto -> mind binding): S4 per-segment refresh DONE (req 2 closes
+      synthesis-in-main); mech_extremes+veto DONE (opt-in arm + veto enrollment
+      + stub veto mind) -> NEXT: S5 mind binding (synthesis StubMind +
+      mech_extremes StubVetoMind -> Anthropic-backed) -> S6 belief drain+persist
+      + rich digest -> THEN tick T4.1 (starts the soak). The [synthesis]
+      CATEGORY filter (events-category join) stays deferred.
   S4. drive() per-segment edge refresh (requirement 2): keep last-known on
       failure + count/alert, never crash. DONE (this commit). ORDER REVERSAL
       (honest, vs 1770c1f which leaned "S5a precedes S4"): the GOVERNING

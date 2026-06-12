@@ -323,8 +323,13 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       refresh_synthesis_edges; fail-closed: empty=valid, reload-failure keeps
       last-known + alerts once, never crashes) with 3 non-vacuous tests (runner
       swap; integration count 0->1 on a mid-run confirmation; the dedup latch).
-      The arm is still INERT (StubMind, calibration None). Loop-doc tail next:
-      mech_extremes+veto -> S5 mind binding -> S6 digest -> tick.
+      The arm is still INERT (StubMind, calibration None). mech_extremes+veto
+      DONE — compose_runner composes the opt-in [mech_extremes] favorite-longshot
+      fade (spec Section 6) enrolled in the reduce-only model veto with a
+      StubVetoMind::allow_all placeholder (real veto mind = S5); composition
+      wiring only (strategy + veto machinery already exist + tested), inert in
+      pure-sim (no volume/close metadata) until real markets (T4.2). Loop-doc
+      tail next: S5 mind binding (synthesis + veto minds) -> S6 digest -> tick.
 - [ ] T4.2 POST-FIXTURE tranche (blocked on the operator recording session):
       Kalshi WS dial (signed handshake, keep-alive, redial w/ resubscribe-on-gap),
       venue-generic recorded-stream replay into PaperVenue under both mech

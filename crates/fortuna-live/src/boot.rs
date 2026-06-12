@@ -161,6 +161,7 @@ struct RawToml {
     cognition: Option<CognitionSection>,
     sim: Option<SimSection>,
     synthesis: Option<crate::compose::SynthesisSection>,
+    mech_extremes: Option<crate::compose::MechExtremesSection>,
 }
 
 /// The parsed daemon-relevant config.
@@ -173,6 +174,10 @@ pub struct DaemonToml {
     /// strategy into the daemon (S3b); its fields only FILTER the confirmed
     /// edge set. Absent => the daemon runs mechanically-only (fail closed).
     pub synthesis: Option<crate::compose::SynthesisSection>,
+    /// Optional `[mech_extremes]` opt-in. Its PRESENCE composes the
+    /// favorite-longshot fade strategy (spec Section 6) enrolled in the
+    /// reduce-only model veto. Absent => not composed (fail closed).
+    pub mech_extremes: Option<crate::compose::MechExtremesSection>,
 }
 
 impl DaemonToml {
@@ -197,6 +202,7 @@ impl DaemonToml {
             cognition,
             sim: raw.sim,
             synthesis: raw.synthesis,
+            mech_extremes: raw.mech_extremes,
         })
     }
 

@@ -424,3 +424,56 @@ async fn per_segment_refresh_picks_up_a_newly_confirmed_edge(pool: PgPool) {
         "the per-segment refresh loaded the edge confirmed mid-run (0 -> 1)"
     );
 }
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn compose_runner_composes_mech_extremes_with_veto_only_when_configured(pool: PgPool) {
+    // T4.1/mech_extremes+veto: a [mech_extremes] section composes the
+    // favorite-longshot fade strategy (spec Section 6) ALONGSIDE
+    // mech_structural, ENROLLED in the reduce-only model veto (the strategy
+    // ships WITH its veto). Its absence leaves it out (fail closed).
+    // NON-VACUOUS: WITH [mech_extremes] the runner BOOTS — which a broken
+    // wiring could not, because a veto-enrolled strategy with no veto mind
+    // FAILS to boot (runner.rs) — and strategy_ids contains "mech_extremes";
+    // WITHOUT it, neither holds.
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let full = FortunaConfig::load_file(example_path).unwrap();
+
+    // WITH [mech_extremes] (empty table => conservative defaults): composed +
+    // veto-enrolled, and the runner boots clean (the stub veto mind is wired).
+    let dcfg_with = DaemonToml::parse(&format!("{text}\n[mech_extremes]\n")).unwrap();
+    let runner = compose_runner(pool.clone(), &full, &dcfg_with, t0(), 1)
+        .await
+        .expect("boots with mech_extremes veto-enrolled + a stub veto mind");
+    let ids: Vec<String> = runner
+        .strategy_ids()
+        .iter()
+        .map(|i| i.to_string())
+        .collect();
+    assert!(
+        ids.iter().any(|i| i == "mech_extremes"),
+        "[mech_extremes] present => composed: {ids:?}"
+    );
+    assert!(
+        ids.iter().any(|i| i == "mech_structural"),
+        "mech_structural still composed alongside: {ids:?}"
+    );
+
+    // WITHOUT [mech_extremes]: not composed (fail closed).
+    let dcfg_without = DaemonToml::parse(&text).unwrap();
+    let runner2 = compose_runner(pool, &full, &dcfg_without, t0(), 2)
+        .await
+        .unwrap();
+    let ids2: Vec<String> = runner2
+        .strategy_ids()
+        .iter()
+        .map(|i| i.to_string())
+        .collect();
+    assert!(
+        !ids2.iter().any(|i| i == "mech_extremes"),
+        "no [mech_extremes] => not composed: {ids2:?}"
+    );
+}

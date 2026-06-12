@@ -98,6 +98,27 @@ pub struct SynthesisSection {
     //  join; the EdgeRow carries `venue` but not the event's category.)
 }
 
+/// `[mech_extremes]` opt-in for the favorite-longshot fade strategy (spec
+/// Section 6 item 2). Its mere PRESENCE composes mech_extremes into the daemon
+/// ALONGSIDE mech_structural, enrolled in the reduce-only model veto (the
+/// strategy ships WITH its veto). Absent fields take conservative defaults; an
+/// out-of-range value is a LOUD compose error (MechExtremes::new validates).
+/// NOTE: sim markets carry no volume/close metadata, so mech_extremes is INERT
+/// in pure-sim (it skips ineligible markets) until real markets arrive (T4.2);
+/// the composition + veto enrollment is the deliverable here.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct MechExtremesSection {
+    /// Own-space best-bid "extreme" threshold (51..=99; default 90).
+    pub extreme_min_cents: Option<i64>,
+    /// Honest edge premium added to the join limit for fair_value (>=1;
+    /// default 2).
+    pub bias_premium_cents: Option<i64>,
+    /// Volume cap in CONTRACTS (the sub-$100k-volume rule; default 100_000).
+    pub max_volume_contracts: Option<i64>,
+    /// Skip markets closing sooner than this in ms (default 3_600_000 = 1h).
+    pub min_ms_to_close: Option<i64>,
+}
+
 /// The daemon synthesis strategy's tradeable edge set
 /// (docs/design/synthesis-edge-source-decision.md req 1 + 4): EdgesRepo
 /// CONFIRMED-tier edges, mapped to the comparator's `EdgeView`, scoped by the
