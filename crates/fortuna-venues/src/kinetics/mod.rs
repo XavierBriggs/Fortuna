@@ -14,5 +14,6 @@
 //! the adapter proper land in the next slices; the order path will
 //! accept only `GatedPerpOrder` (type-level I1).
 
+pub mod adapter;
 pub mod client;
 pub mod dto;
