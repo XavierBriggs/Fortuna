@@ -211,6 +211,66 @@ fn synthesis_belief_trades_through_the_full_loop() {
     assert!(pos.yes.qty > 0, "YES position opened (fair 70 > ask 60)");
 }
 
+// ------------------------------------------- requirement 3: empty edge set
+// (synthesis-in-main / docs/design/synthesis-edge-source-decision.md): zero
+// confirmed edges => SynthesisStrategy composes with an empty set => zero
+// candidates => the daemon runs mechanically-only. An empty edge set is a
+// VALID state, not an error. This is the invariant S3 (compose_runner) relies
+// on when the EdgesRepo confirmed-tier load returns nothing.
+
+#[test]
+fn empty_edge_set_fails_closed_but_a_present_edge_trades() {
+    // Non-vacuous by CONTRAST: the SAME mind (believes 0.70) + the SAME book
+    // (asks 60) that DOES trade with the KX-A confirmed edge present produces
+    // NOTHING when the edge set is empty. So the empty-set zero is real
+    // fail-closed behaviour, not a dead mind or a one-sided book.
+    let run = |edges: Vec<EdgeView>| -> (usize, bool) {
+        let mind: Arc<dyn Mind> = Arc::new(StubMind::scripted(vec![belief_output("evt-1", 0.70)]));
+        let mut cfg = synthesis_config();
+        cfg.edges = edges;
+        let strategy = SynthesisStrategy::new(cfg, mind);
+        let mut r = SimRunner::new(
+            runner_config(61),
+            vec![Box::new(strategy)],
+            Box::new(MemoryAuditSink::default()),
+            t0(),
+        )
+        .unwrap();
+        r.set_calibration_quality("synth_sim", 1.0);
+        set_book(&r, 58, 60);
+        let report = futures::executor::block_on(r.tick()).unwrap();
+        (
+            report.proposals,
+            r.positions().position(&mkt("KX-A")).is_some(),
+        )
+    };
+
+    // Empty edge set: the book event matches no edge -> zero proposals, no trade.
+    let (empty_proposals, empty_traded) = run(Vec::new());
+    assert_eq!(
+        empty_proposals, 0,
+        "fail-closed: an empty confirmed-edge set proposes nothing"
+    );
+    assert!(
+        !empty_traded,
+        "fail-closed: an empty confirmed-edge set trades nothing"
+    );
+
+    // The SAME mind + book WITH the confirmed KX-A edge present DOES trade:
+    // the edge set is load-bearing, proving the zero above is genuine.
+    let (present_proposals, present_traded) = run(vec![EdgeView {
+        market: "KX-A".to_string(),
+        event_id: "evt-1".to_string(),
+        mapping: MappingType::Direct,
+        tier: EdgeTier::Confirmed,
+    }]);
+    assert!(
+        present_proposals >= 1,
+        "a present confirmed edge trades (the contrast that makes the zero real)"
+    );
+    assert!(present_traded, "a present confirmed edge opens a position");
+}
+
 // ------------------------------------------------------- cognition failure
 
 /// A mind that always fails, with a scripted error kind.

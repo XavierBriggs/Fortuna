@@ -163,9 +163,15 @@ Build sub-slices (each its own iteration, TDD, battery-gated):
   S1. EdgesRepo::confirmed_edges() (+ sqlx prepare) — load CONFIRMED + CURRENT
       edges; test: confirmed-current returned, unconfirmed + superseded excluded
       (requirement 1 + the requirement-5 exclusion case). [touches shared repos.rs]
-  S2. SynthesisStrategy empty-edge fail-closed PIN (fortuna-runner test) +
-      EdgeRow->EdgeView map helper (requirement 3).
+  S2. SynthesisStrategy empty-edge fail-closed PIN (fortuna-runner test).
+      DONE (this commit): empty_edge_set_fails_closed_but_a_present_edge_trades
+      in synthesis_loop.rs — requirement 3 pinned NON-VACUOUSLY by the
+      empty-vs-present contrast (the SAME mind+book that trades with the KX-A
+      confirmed edge present produces zero proposals + no position when the edge
+      set is empty, proving the edge set load-bearing). The EdgeRow->EdgeView map
+      moves to S3 (it belongs at the composition where EdgeRow is loaded).
   S3. compose_runner composes SynthesisStrategy: confirmed_edges + StubMind +
+      EdgeRow->EdgeView map +
       calibration_for_scope + [synthesis]-filtered config + derived stage; daemon
       boots + trades seeded edges; empty-set boots clean (requirements 1,3,4,5).
   S4. drive() per-segment edge refresh: keep last-known on failure + count/alert,
