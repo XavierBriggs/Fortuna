@@ -16,6 +16,13 @@ use fortuna_core::ids::{AuditId, IdGen};
 use sqlx::PgPool;
 use std::sync::{Arc, Mutex, PoisonError};
 
+/// The newest audit row's timestamp + kind (the A8 status crash-tell).
+#[derive(Debug, Clone)]
+pub struct LatestAudit {
+    pub at: String,
+    pub kind: String,
+}
+
 /// One audit record as read back.
 #[derive(Debug, Clone)]
 pub struct AuditRow {
@@ -69,6 +76,22 @@ impl AuditWriter {
         .execute(&self.pool)
         .await?;
         Ok(id)
+    }
+
+    /// The newest audit row of ANY kind (ULID order == insertion order);
+    /// None on an empty table. T4.4 A8: `fortuna status` renders its age —
+    /// a stale age beside a live daemon pidfile is the crash tell. Kind-
+    /// agnostic by design: a kind-filtered variant would read a healthy
+    /// daemon writing only cognition/veto rows as stale (a false crash
+    /// tell is worse than none).
+    pub async fn latest_at(&self) -> Result<Option<LatestAudit>, LedgerError> {
+        let row = sqlx::query!(r#"SELECT at, kind FROM audit ORDER BY audit_id DESC LIMIT 1"#)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(|r| LatestAudit {
+            at: r.at,
+            kind: r.kind,
+        }))
     }
 
     /// Most recent records of a kind (audit query tooling; newest first).
