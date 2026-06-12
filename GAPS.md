@@ -440,6 +440,45 @@ fabricated/zeroed panel). Fix list:
   also slotted BUILD_PLAN T4.5 (ROTA v1.1 deferred panels), after T4.2; its
   TEST RULE bakes in the populated-path-seed lesson.
 
+## T4.4 CLI — slice 1 (track B; box unticked; 2026-06-12)
+
+- **SIGTERM mechanism (design checklist item 8, decided at fit-validation):**
+  `nix` is not in the workspace tree, so the `stop` slice will shell out to
+  `kill -15 <pid>` (never `Child::kill` — that is SIGKILL). Recorded per the
+  design's else-branch; the code lands with the stop slice.
+- **Design §6 deviation — `toml` added to fortuna-cli:** the A6 status line
+  ("config on disk: venue=…") needs `[daemon].venue`, which FortunaConfig
+  deliberately drops (the daemon owns that section — live/src/boot.rs).
+  Implemented as a raw `toml::Value` read; `toml` was already a workspace
+  dep (ops uses it), zero new external code. Flagged for the gate.
+- **A8 audit-age status line DEFERRED:** "age of the most recent audit row"
+  needs a max(at)-over-all-kinds ledger query; AuditWriter (ledger/src/
+  audit.rs) is outside track-B ownership (only the two R7 repos.rs query
+  additions are track-B's). A kind-filtered approximation through the
+  existing `recent()` API would be a FALSE crash-tell — a healthy daemon
+  writing only cognition/veto rows would read stale — worse than absent.
+  Wire it once a one-line `AuditWriter` addition can land (track A or
+  operator waive).
+- **"Degradable" status interpretation (test-pinned):** A9 pins only the
+  no-DATABASE_URL case (exit 0). This slice extends the same posture to
+  DATABASE_URL-set-but-unreachable: status prints `db: unavailable — …` and
+  still exits 0, bounded at 5s (sqlx's own pool timeout is 30s — a status
+  command must not hang the operator's view during a Pg outage). Pinned by
+  `status_db_unreachable_still_exits_zero`.
+- **CROSS-TRACK finding (not track B's to fix; for the bus):**
+  `crates/fortuna-venues/examples/record_kinetics_fixtures.rs:801` is
+  unformatted AT HEAD — `cargo fmt --check` is red workspace-wide before any
+  track-B change (verified on a clean tree 2026-06-12; track B's own diff is
+  fmt-clean and the sweep `cargo fmt` produced was deliberately REVERTED to
+  stay inside ownership). Owner: track A (fortuna-venues). One `cargo fmt`
+  there clears it.
+- **Battery environment note (track B session):** the interactive shell
+  exports the OPERATOR's DATABASE_URL, which outranks the `.cargo/config.toml`
+  dev default (`force = false`) and reproduces the documented 42501
+  `i5_audit_append_only` canary. Track-B batteries therefore run under
+  `env -u DATABASE_URL` so sqlx tests route to the dev server. No operator-DB
+  writes occurred (the failure mode is a DENIED `CREATE DATABASE`).
+
 ## SECURITY INCIDENT 2026-06-11 (gate finding F1, Critical) — keys were committed
 
 WHAT HAPPENED: both Kalshi PEM private keys (`.keys/fortuna-demo-v1.txt`

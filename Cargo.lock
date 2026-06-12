@@ -496,8 +496,10 @@ dependencies = [
  "fortuna-core",
  "fortuna-gates",
  "fortuna-ledger",
+ "fortuna-ops",
  "serde_json",
  "tokio",
+ "toml",
 ]
 
 [[package]]
