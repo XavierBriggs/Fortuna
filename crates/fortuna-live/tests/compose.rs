@@ -264,6 +264,7 @@ async fn synthesis_edges_loads_confirmed_mapped_and_filtered(pool: PgPool) {
         &SynthesisSection {
             venue: Some("kalshi".into()),
             max_edges: None,
+            category: None,
         },
     )
     .await
@@ -296,6 +297,7 @@ async fn synthesis_edges_loads_confirmed_mapped_and_filtered(pool: PgPool) {
         &SynthesisSection {
             venue: None,
             max_edges: Some(1),
+            category: None,
         },
     )
     .await

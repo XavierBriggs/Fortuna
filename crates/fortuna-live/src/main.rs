@@ -12,6 +12,7 @@
 //! path by firing the same channel.
 
 use anyhow::{bail, Context, Result};
+use fortuna_cognition::mind::StubMind;
 use fortuna_core::clock::{Clock, RealClock};
 use fortuna_live::boot::{validate_env, DaemonToml};
 use fortuna_live::compose::DegradeScrape;
@@ -65,9 +66,22 @@ async fn main() -> Result<()> {
         .await
         .context("postgres connect + migrate")?;
 
-    let mut runner = compose_runner(pool.clone(), &full, &dcfg, start, start_ms as u64)
-        .await
-        .context("composition")?;
+    // S5a: the synthesis arm's mind is an INERT StubMind in production until S5b
+    // binds the real AnthropicMind (transport from env) — so synthesis drafts no
+    // beliefs and trades nothing yet, while the mechanical arms run live. Do NOT
+    // start the soak expecting synthesis activity until S5b.
+    let synthesis_mind: Arc<dyn fortuna_cognition::mind::Mind> =
+        Arc::new(StubMind::scripted(Vec::new()));
+    let mut runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        start,
+        start_ms as u64,
+        synthesis_mind,
+    )
+    .await
+    .context("composition")?;
     eprintln!("fortuna-live: composed (venue=sim, markets from [sim], journal+audit in Postgres)");
 
     // Metrics endpoint (GET-only; bind from config — localhost default).

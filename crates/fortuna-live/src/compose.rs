@@ -96,6 +96,12 @@ pub struct SynthesisSection {
     pub max_edges: Option<usize>,
     // (a category allowlist is deferred to S3b: it needs an events-category
     //  join; the EdgeRow carries `venue` but not the event's category.)
+    /// The CALIBRATION scope category (S5a). The synthesis arm prices an edge
+    /// only when this is set AND a calibration_params row exists for the scope
+    /// (model, "synth_events", this category, "platt"); absent => calibration
+    /// None => the arm structurally prices nothing (fail closed). This is the
+    /// OPERATOR-declared calibration scope, NOT a per-edge category filter.
+    pub category: Option<String>,
 }
 
 /// `[mech_extremes]` opt-in for the favorite-longshot fade strategy (spec

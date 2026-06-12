@@ -46,16 +46,16 @@
 
 use crate::audit_bridge::PgAuditSink;
 use crate::boot::{BootError, DaemonToml};
-use crate::compose::{synthesis_edges, DegradeScrape, SynthesisSection};
+use crate::compose::{calibration_for_scope, synthesis_edges, DegradeScrape, SynthesisSection};
 use crate::run_loop::{run_loop, CadenceDriver, HaltPoller, LoopConfig, LoopStats};
 use fortuna_cognition::cycle::{ComparatorConfig, TriageDecision};
 use fortuna_cognition::events::EdgeTier;
-use fortuna_cognition::mind::StubMind;
+use fortuna_cognition::mind::Mind;
 use fortuna_cognition::veto::{StubVetoMind, VetoMind};
 use fortuna_core::clock::{Clock, UtcTimestamp};
 use fortuna_core::market::{MarketId, StrategyId, VenueId};
 use fortuna_core::money::Cents;
-use fortuna_ledger::{HaltsRepo, PgIntentJournal};
+use fortuna_ledger::{BeliefsRepo, CalibrationParamsRepo, HaltsRepo, PgIntentJournal};
 use fortuna_ops::alerts::DegradeThresholds;
 use fortuna_ops::FortunaConfig;
 use fortuna_runner::mech_extremes::{MechExtremes, MechExtremesConfig};
@@ -102,15 +102,28 @@ fn sim_market(id: &str) -> Result<Market, DaemonError> {
     })
 }
 
+/// The model whose calibration scopes the synthesis arm (S5a). The synthesis
+/// belief source's reliability is fit per (model, strategy, category, kind);
+/// "synth_events" is the canonical synthesis strategy (spec S6 item 4) the
+/// calibration pipeline keys on, independent of the daemon arm's runtime id.
+/// S5b makes this model id config-driven ([cognition].model).
+const SYNTH_CALIBRATION_MODEL: &str = "claude-fable-5";
+const SYNTH_CALIBRATION_STRATEGY: &str = "synth_events";
+const SYNTH_CALIBRATION_KIND: &str = "platt";
+
 /// Assemble the Sim composition over Postgres journal + audit. The
 /// returned runner has already completed the journal-side boot
-/// reconciliation (OrderManager::recover inside the constructor).
+/// reconciliation (OrderManager::recover inside the constructor). `mind` is
+/// the synthesis arm's cognition (S5a: injected so tests script it and main
+/// passes a StubMind until S5b binds the real AnthropicMind); it is consulted
+/// only when a `[synthesis]` arm is composed.
 pub async fn compose_runner(
     pool: PgPool,
     full: &FortunaConfig,
     dcfg: &DaemonToml,
     start: UtcTimestamp,
     audit_seed: u64,
+    mind: Arc<dyn Mind>,
 ) -> Result<SimRunner<PgIntentJournal>, DaemonError> {
     let sim = dcfg.sim.as_ref().ok_or_else(|| DaemonError::Compose {
         reason: "venue sim without [sim] section (validate_bootable should have refused)"
@@ -158,20 +171,45 @@ pub async fn compose_runner(
         })?,
     )];
 
-    // T4.1/S3b: the OPT-IN synthesis arm. A `[synthesis]` section composes the
-    // synthesis strategy ALONGSIDE the mechanical ones (I1: it rides the same
-    // gate/exec path); its absence leaves the daemon mechanically-only (fail
-    // closed). The edge set is the confirmed-tier load filtered by the config
-    // (synthesis-edge-source-decision.md req 1+4); an empty set is VALID. The
-    // mind is a StubMind PLACEHOLDER and calibration is None until S5 binds the
-    // real mind + measured calibration, so the arm is INERT (structurally
-    // prices no edge, makes no trade) until then — do NOT start the soak first.
+    // T4.1/S3b+S5a: the OPT-IN synthesis arm. A `[synthesis]` section composes
+    // the synthesis strategy ALONGSIDE the mechanical ones (I1: same gate/exec
+    // path); its absence leaves the daemon mechanically-only (fail closed). The
+    // edge set is the confirmed-tier load filtered by the config
+    // (synthesis-edge-source-decision.md req 1+4); an empty set is VALID. S5a:
+    // the `mind` is the INJECTED cognition (a StubMind in main until S5b binds
+    // the real AnthropicMind), and the arm PRICES only when [synthesis].category
+    // selects a calibration scope with a fitted params row — calibration None
+    // (no category, or no row) => structurally prices nothing (fail closed). The
+    // calibration SCOPE strategy is the canonical "synth_events" (spec S6 item 4
+    // — the belief source the pipeline fits), independent of this arm's runtime
+    // id. (The arm id "synthesis" + Stage::Sim + the synth_events_config /
+    // effective_stage canonicalization are a ledgered follow-on — inert until
+    // operator promotions exist, since effective_stage(Paper, []) == Sim.)
+    let mut synth_calibration_quality: Option<f64> = None;
     if let Some(syn) = &dcfg.synthesis {
-        let edges = crate::compose::synthesis_edges(&pool, syn)
+        let edges = synthesis_edges(&pool, syn)
             .await
             .map_err(|e| DaemonError::Compose {
                 reason: format!("synthesis edge load: {e}"),
             })?;
+        let calibration = if let Some(category) = &syn.category {
+            let (ctx, quality) = calibration_for_scope(
+                &CalibrationParamsRepo::new(pool.clone()),
+                &BeliefsRepo::new(pool.clone()),
+                SYNTH_CALIBRATION_MODEL,
+                SYNTH_CALIBRATION_STRATEGY,
+                category,
+                SYNTH_CALIBRATION_KIND,
+            )
+            .await
+            .map_err(|e| DaemonError::Compose {
+                reason: format!("synthesis calibration load: {e}"),
+            })?;
+            synth_calibration_quality = Some(quality);
+            ctx
+        } else {
+            None
+        };
         let synth = SynthesisStrategy::new(
             SynthesisConfig {
                 id: StrategyId::new("synthesis").map_err(|e| DaemonError::Compose {
@@ -184,10 +222,10 @@ pub async fn compose_runner(
                 },
                 triage: TriageDecision::AlwaysAccept,
                 shadow_quota: 0,
-                calibration: None,
+                calibration,
                 stage: Stage::Sim,
             },
-            Arc::new(StubMind::scripted(Vec::new())),
+            mind,
         );
         strategies.push(Box::new(synth));
     }
@@ -248,7 +286,16 @@ pub async fn compose_runner(
     let journal_clock: Arc<dyn Clock> = Arc::new(fortuna_core::clock::SimClock::new(start));
     let journal = PgIntentJournal::new(pool.clone(), "sim", journal_clock.clone());
     let sink = PgAuditSink::spawn(pool, journal_clock, audit_seed);
-    Ok(SimRunner::new_with_journal(config, strategies, Box::new(sink), start, journal).await?)
+    let mut runner =
+        SimRunner::new_with_journal(config, strategies, Box::new(sink), start, journal).await?;
+    // S5a: feed the synthesis arm's MEASURED calibration quality (the haircut-
+    // Kelly sizing input; unwired => zero size by design). Keyed by the arm's
+    // runtime id "synthesis"; the fit was loaded from the canonical
+    // "synth_events" scope above. None category => no quality => sizes zero.
+    if let Some(quality) = synth_calibration_quality {
+        runner.set_calibration_quality("synthesis", quality);
+    }
+    Ok(runner)
 }
 
 /// HaltsRepo-backed poller for the run loop (the durable halt store the

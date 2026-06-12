@@ -255,12 +255,17 @@ Build sub-slices (each its own iteration, TDD, battery-gated):
       S3b-1 opt-in config + S3b-2 wiring. The arm is INERT (StubMind, calibration
       None) — do NOT tick T4.1 / start the soak until S5 binds the real mind.
       Remaining T4.1 tail (loop-doc order: synthesis-in-main -> mech_extremes
-      +veto -> mind binding): S4 per-segment refresh DONE (req 2 closes
-      synthesis-in-main); mech_extremes+veto DONE (opt-in arm + veto enrollment
-      + stub veto mind) -> NEXT: S5 mind binding (synthesis StubMind +
-      mech_extremes StubVetoMind -> Anthropic-backed) -> S6 belief drain+persist
-      + rich digest -> THEN tick T4.1 (starts the soak). The [synthesis]
-      CATEGORY filter (events-category join) stays deferred.
+      +veto -> mind binding): S4 per-segment refresh DONE; mech_extremes+veto
+      DONE; S5a mind binding DONE (synthesis mind PARAM + "synth_events"-scoped
+      calibration; arm trades a seeded edge in the live test). NEXT: S5b
+      (mind_from_env: the real AnthropicMind for synthesis + a built
+      AnthropicVetoMind for the veto, transport injected/scripted never a real
+      key) -> S6 belief drain+persist + rich digest -> THEN tick T4.1 (starts
+      the soak). BEFORE S5b's live arm can trade: add `synthesis_cents`
+      envelope + `[gates.per_strategy.synthesis]` to the example/operator config
+      (S5a surfaced both gaps). The synth_events_config/effective_stage
+      canonicalization + the [synthesis] CATEGORY filter (events-category join)
+      stay deferred (both inert for the sim soak).
   S4. drive() per-segment edge refresh (requirement 2): keep last-known on
       failure + count/alert, never crash. DONE (this commit). ORDER REVERSAL
       (honest, vs 1770c1f which leaned "S5a precedes S4"): the GOVERNING
@@ -342,6 +347,31 @@ Build sub-slices (each its own iteration, TDD, battery-gated):
       cognition, which Track A consumes-not-edits; veto.rs said "arrives in
       Phase 2 T2.5" but it never landed) — the mech_extremes veto stays
       StubVetoMind::allow_all until its fortuna-cognition owner builds it.
+      DONE (this commit) — MINIMAL variant built (fortuna-live only): compose_
+      runner gains mind: Arc<dyn Mind> (8 call sites — main + daemon_smoke x7
+      pass StubMind, the live test a believing mind); [synthesis].category added;
+      when set, calibration_for_scope(SYNTH_CALIBRATION_MODEL "claude-fable-5",
+      "synth_events", category, "platt") -> SynthesisConfig.calibration +
+      set_calibration_quality("synthesis", quality). DEVIATION from a814f56's
+      "canonicalize to synth_events_config" plan (honest): kept the arm id
+      "synthesis" + the calibration SCOPE "synth_events" DECOUPLED (the scope
+      keys the fitting pipeline; the id keys set_calibration_quality) — this is
+      correct + smaller + needs NO strategy_ids test churn. The synth_events_
+      config / effective_stage / id-rename canonicalization is DEFERRED as a
+      follow-up: it is INERT until operator promotions exist (effective_stage(
+      Paper,[])==Sim, which the hardcoded Sim already equals) and needs an audit
+      -> PromotionRecord loader that does not yet exist. Live test (daemon_smoke
+      sqlx::test) proves the NON-VACUOUS populated path: seeded calibration_params
+      + 50 RESOLVED beliefs (==FULL_AUTONOMY_N so the shrink weight w==1 — at
+      n<50 the belief shrinks toward the quote mid and prices NO edge) + a
+      confirmed sim edge + a believing mind + a book -> tick -> the synth arm
+      PROPOSES + sizes + SUBMITS an order. NEW CONFIG GAPS surfaced (BINDING for
+      S5b's live arm; the live test injects both): the synth arm needs (1) a
+      `synthesis_cents` ENVELOPE and (2) a `[gates.per_strategy.synthesis]` block
+      — the example config has NEITHER (mech_structural + mech_extremes only), so
+      without them the arm prices but sizes ZERO / is gate-rejected fail-closed.
+      The example + operator config MUST add both before S5b binds the real mind.
+      main stays StubMind (inert) — production synthesis is dark until S5b.
   S5b. mind_from_env helper: StubMind when no key + allow_stub; AnthropicMind
       {model, budgets->CostBudget, reqwest transport} when keyed (transport
       INJECTED for tests, scripted, NEVER a real key — the kickoff money

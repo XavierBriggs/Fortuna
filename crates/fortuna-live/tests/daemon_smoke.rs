@@ -6,6 +6,7 @@
 //! the signal path end-to-end minus the OS delivery (operator amendment:
 //! SIGTERM -> cancel working orders + final audit row).
 
+use fortuna_cognition::mind::{Mind, MindOutput, StubMind};
 use fortuna_core::clock::SimClock;
 use fortuna_core::market::{Contracts, MarketId};
 use fortuna_core::money::Cents;
@@ -22,6 +23,30 @@ use std::sync::Arc;
 
 fn t0() -> fortuna_core::clock::UtcTimestamp {
     fortuna_core::clock::UtcTimestamp::parse_iso8601("2026-06-11T12:00:00.000Z").unwrap()
+}
+
+/// The inert mind every smoke passes (no beliefs => no synthesis proposals);
+/// the synthesis arm is exercised only by the S5a live-trading test below.
+fn stub_mind() -> Arc<dyn Mind> {
+    Arc::new(StubMind::scripted(Vec::new()))
+}
+
+/// A mind that BELIEVES `p` for `event` (the S5a live test's scripted
+/// cognition; mirrors the synthesis_loop believing-mind fixture).
+fn believing_mind(event: &str, p: f64) -> Arc<dyn Mind> {
+    let out: MindOutput = serde_json::from_value(serde_json::json!({
+        "beliefs": [{
+            "event_id": event,
+            "p": p,
+            "p_raw": p,
+            "horizon": "2026-06-20T18:00:00.000Z",
+            "evidence": [{"source": "stub", "ref": "sig-1"}]
+        }],
+        "proposals": [],
+        "journal": null
+    }))
+    .unwrap();
+    Arc::new(StubMind::scripted(vec![out]))
 }
 
 /// Sim cadence that FIRES THE STOP CHANNEL at a chosen wake — the
@@ -91,7 +116,7 @@ async fn daemon_smoke_boot_ticks_signal_shutdown(pool: PgPool) {
     dcfg.validate_bootable().expect("example boots sim");
     let full = FortunaConfig::load_file(example_path).expect("example full-config parses");
 
-    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 42)
+    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 42, stub_mind())
         .await
         .expect("composition");
     arb_books(&runner);
@@ -182,7 +207,7 @@ async fn signal_with_working_orders_cancels_them_and_audits(pool: PgPool) {
     let text = std::fs::read_to_string(example_path).unwrap();
     let dcfg = DaemonToml::parse(&text).unwrap();
     let full = FortunaConfig::load_file(example_path).unwrap();
-    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 7)
+    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 7, stub_mind())
         .await
         .unwrap();
     books(&runner, 1); // depth 1 => partial fill, remainder rests working
@@ -285,7 +310,7 @@ async fn compose_runner_composes_synthesis_only_when_configured(pool: PgPool) {
 
     // WITH [synthesis]: synthesis composed alongside mech.
     let dcfg_with = DaemonToml::parse(&format!("{text}\n[synthesis]\nvenue = \"sim\"\n")).unwrap();
-    let runner = compose_runner(pool.clone(), &full, &dcfg_with, t0(), 1)
+    let runner = compose_runner(pool.clone(), &full, &dcfg_with, t0(), 1, stub_mind())
         .await
         .unwrap();
     let ids: Vec<String> = runner
@@ -304,7 +329,7 @@ async fn compose_runner_composes_synthesis_only_when_configured(pool: PgPool) {
 
     // WITHOUT [synthesis]: mechanically-only (fail closed).
     let dcfg_without = DaemonToml::parse(&text).unwrap();
-    let runner2 = compose_runner(pool, &full, &dcfg_without, t0(), 2)
+    let runner2 = compose_runner(pool, &full, &dcfg_without, t0(), 2, stub_mind())
         .await
         .unwrap();
     let ids2: Vec<String> = runner2
@@ -342,7 +367,7 @@ async fn per_segment_refresh_picks_up_a_newly_confirmed_edge(pool: PgPool) {
     // Boot WITH [synthesis] scoped to the sim venue, but with NO edges yet.
     let dcfg = DaemonToml::parse(&format!("{text}\n[synthesis]\nvenue = \"sim\"\n")).unwrap();
 
-    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 9)
+    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 9, stub_mind())
         .await
         .expect("composition");
     assert_eq!(
@@ -445,7 +470,7 @@ async fn compose_runner_composes_mech_extremes_with_veto_only_when_configured(po
     // WITH [mech_extremes] (empty table => conservative defaults): composed +
     // veto-enrolled, and the runner boots clean (the stub veto mind is wired).
     let dcfg_with = DaemonToml::parse(&format!("{text}\n[mech_extremes]\n")).unwrap();
-    let runner = compose_runner(pool.clone(), &full, &dcfg_with, t0(), 1)
+    let runner = compose_runner(pool.clone(), &full, &dcfg_with, t0(), 1, stub_mind())
         .await
         .expect("boots with mech_extremes veto-enrolled + a stub veto mind");
     let ids: Vec<String> = runner
@@ -464,7 +489,7 @@ async fn compose_runner_composes_mech_extremes_with_veto_only_when_configured(po
 
     // WITHOUT [mech_extremes]: not composed (fail closed).
     let dcfg_without = DaemonToml::parse(&text).unwrap();
-    let runner2 = compose_runner(pool, &full, &dcfg_without, t0(), 2)
+    let runner2 = compose_runner(pool, &full, &dcfg_without, t0(), 2, stub_mind())
         .await
         .unwrap();
     let ids2: Vec<String> = runner2
@@ -475,5 +500,186 @@ async fn compose_runner_composes_mech_extremes_with_veto_only_when_configured(po
     assert!(
         !ids2.iter().any(|i| i == "mech_extremes"),
         "no [mech_extremes] => not composed: {ids2:?}"
+    );
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn synthesis_arm_trades_with_ledger_calibration_and_an_injected_mind(pool: PgPool) {
+    // T4.1/S5a (the high-value step): the daemon-composed synthesis arm TRADES
+    // when [synthesis].category selects a calibration scope the ledger has
+    // FITTED params + resolved history for, AND the injected mind believes. The
+    // NON-VACUOUS populated path: REAL ledger calibration (fetched by
+    // compose_runner, not hand-built) + a scripted belief produce a sized,
+    // gated order. Isolation: the synth edge is ONE sim bracket whose book is
+    // the only one set, so mech_structural (which arbs complete SETS) trades
+    // nothing -- any SIM-BKT-LO position is the synthesis arm's.
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let mut full = FortunaConfig::load_file(example_path).unwrap();
+    // The example config has NO synthesis capital envelope NOR per-strategy
+    // gate (only mech_structural + mech_extremes) -- without them the synth arm
+    // prices but sizes ZERO / is gate-rejected fail-closed. Grant both here; the
+    // production gap (the example + operator config need `synthesis_cents` +
+    // `[gates.per_strategy.synthesis]` for S5b's live arm) is ledgered in GAPS.
+    full.envelopes.insert("synthesis".to_string(), 200_000);
+    full.gates.per_strategy.insert(
+        "synthesis".to_string(),
+        fortuna_gates::StrategyLimits {
+            max_exposure_cents: 200_000,
+            max_order_notional_cents: 10_000,
+            min_net_edge_bps: 100,
+        },
+    );
+
+    // (1) The FITTED params row (identity-ish platt) for the canonical
+    // "synth_events" calibration scope the daemon queries.
+    fortuna_ledger::CalibrationParamsRepo::new(pool.clone())
+        .insert(
+            "01PARAM0000000000000000901",
+            "claude-fable-5",
+            "synth_events",
+            "weather",
+            "platt",
+            &serde_json::json!({
+                "version": 1,
+                "method": { "Platt": { "a": 0.0, "b": 1.0 } },
+                "extremization_k": 1.0,
+                "fitted_on_n": 10
+            }),
+            1,
+            "2026-06-11T00:00:00.000Z",
+            "2026-06-11T00:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    // (2) Resolved, well-calibrated history (p=0.7 resolving true ~70%) =>
+    // quality > 0 => non-zero Kelly sizing.
+    fortuna_ledger::EventsRepo::new(pool.clone())
+        .create(
+            "evt-hist",
+            "s",
+            "c",
+            "nws",
+            None,
+            "2026-06-12T00:00:00.000Z",
+            "weather",
+            "2026-06-11T00:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    // FULL_AUTONOMY_N resolved beliefs (50) => shrink weight w == 1 => the
+    // belief does NOT shrink toward the market prior, so fair stays ~70 > ask
+    // 60. `i % 10 < 7` keeps p=0.7 resolving true 70% of the time (well-
+    // calibrated => positive quality => non-zero size).
+    for i in 0..50 {
+        let outcome: i32 = if (i % 10) < 7 { 1 } else { 0 };
+        let brier = if outcome == 1 {
+            (1.0f64 - 0.7).powi(2)
+        } else {
+            (0.7f64).powi(2)
+        };
+        sqlx::query(
+            "INSERT INTO beliefs (belief_id, event_id, p, p_raw, horizon, status,
+                                  outcome, brier, evidence, provenance, created_at)
+             VALUES ($1, 'evt-hist', 0.7, 0.7, '2026-06-12T00:00:00.000Z',
+                     'resolved', $2, $3, '[]'::jsonb, '{}'::jsonb, $4)",
+        )
+        .bind(format!("01BELIEFHIST00000000000{i:02}"))
+        .bind(outcome)
+        .bind(brier)
+        .bind(format!("2026-06-11T00:00:{i:02}.000Z"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    // (3) The LIVE event + a confirmed sim edge mapping SIM-BKT-LO -> evt-1.
+    fortuna_ledger::EventsRepo::new(pool.clone())
+        .create(
+            "evt-1",
+            "s",
+            "c",
+            "nws",
+            None,
+            "2026-06-20T18:00:00.000Z",
+            "weather",
+            "2026-06-10T12:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    fortuna_ledger::EdgesRepo::new(pool.clone())
+        .insert_edge(
+            "e-synth",
+            "SIM-BKT-LO",
+            "sim",
+            "evt-1",
+            "direct",
+            0.9,
+            "model:stub",
+            Some("op"),
+            None,
+            "2026-06-10T12:01:00.000Z",
+        )
+        .await
+        .unwrap();
+
+    // [synthesis] venue=sim + category=weather (the calibration scope).
+    let dcfg = DaemonToml::parse(&format!(
+        "{text}\n[synthesis]\nvenue = \"sim\"\ncategory = \"weather\"\n"
+    ))
+    .unwrap();
+    assert_eq!(
+        dcfg.synthesis.as_ref().unwrap().category.as_deref(),
+        Some("weather"),
+        "[synthesis].category parses => the calibration scope is selected"
+    );
+    let mut runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        t0(),
+        50,
+        believing_mind("evt-1", 0.70),
+    )
+    .await
+    .expect("composition");
+    assert_eq!(
+        runner.synthesis_edge_count(),
+        Some(1),
+        "the confirmed sim edge loaded into the synth arm"
+    );
+
+    // The ONLY book is SIM-BKT-LO (ask 60 < fair ~70 => a realistic 10c edge
+    // that sizes through the gates; mech_structural cannot arb a one-market
+    // set, so it trades nothing — any order here is the synthesis arm's).
+    let lvl = |p: i64, q: i64| PriceLevel {
+        price: Cents::new(p),
+        qty: Contracts::new(q),
+    };
+    runner
+        .venue()
+        .set_book(
+            &MarketId::new("SIM-BKT-LO").unwrap(),
+            vec![lvl(58, 80)],
+            vec![lvl(60, 80)],
+        )
+        .unwrap();
+
+    let report = runner.tick().await.unwrap();
+    // The non-vacuous populated path: a PROPOSAL proves the injected mind +
+    // the LEDGER calibration priced the edge (the cycle would price nothing
+    // without either); a SUBMITTED order proves the measured calibration
+    // quality fed non-zero sizing through the gates. (The fill/position is an
+    // execution-policy detail proven in fortuna-runner's synthesis_loop.)
+    assert!(
+        report.proposals >= 1,
+        "the synthesis arm priced the edge and proposed (ledger calibration + \
+         injected belief): {report:?}"
+    );
+    assert!(
+        report.orders_submitted >= 1,
+        "the proposal sized (quality > 0) + gated + submitted an order: {report:?}"
     );
 }

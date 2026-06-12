@@ -328,8 +328,16 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       fade (spec Section 6) enrolled in the reduce-only model veto with a
       StubVetoMind::allow_all placeholder (real veto mind = S5); composition
       wiring only (strategy + veto machinery already exist + tested), inert in
-      pure-sim (no volume/close metadata) until real markets (T4.2). Loop-doc
-      tail next: S5 mind binding (synthesis + veto minds) -> S6 digest -> tick.
+      pure-sim (no volume/close metadata) until real markets (T4.2).
+      PROGRESS 2026-06-12 (box STILL UNTICKED): S5a mind binding DONE —
+      compose_runner takes a synthesis mind PARAM (main passes an inert
+      StubMind; tests inject scripted minds) and binds the "synth_events"-scoped
+      ledger calibration; a daemon_smoke live test proves the arm prices a
+      seeded confirmed edge + a believing mind -> proposes + sizes + submits an
+      order. Surfaced two config gaps (BINDING for S5b's live arm): the synth
+      arm needs a `synthesis_cents` envelope + `[gates.per_strategy.synthesis]`
+      (the example has neither). Loop-doc tail next: S5b (real AnthropicMind +
+      a built AnthropicVetoMind, transport injected) -> S6 digest -> tick.
 - [ ] T4.2 POST-FIXTURE tranche (blocked on the operator recording session):
       Kalshi WS dial (signed handshake, keep-alive, redial w/ resubscribe-on-gap),
       venue-generic recorded-stream replay into PaperVenue under both mech
