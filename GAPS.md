@@ -141,7 +141,10 @@ raw SystemTime::now() remain in fortuna-live/src. The dead-man deliberately
 reads the WALL via RealClock (not the runner's SimClock) so its heartbeat
 stays real-time during a sim soak. No ASSUMPTIONS exception is needed — the
 clean fix (route through the Clock impl) was taken over the ledger-it
-alternative.
+alternative. [RECONCILED 2026-06-11, audit-tail-fix gate minor 4: the
+ASSUMPTIONS dead-man entry is now a DESIGN NOTE (dead-man reads wall via
+RealClock, not SimClock — NOT an exception), no longer the stale
+"reads SystemTime::now()" claim; the two ledgers agree.]
 
 T41-DAEMON-GATE FIXES (2026-06-11, the daemon gate's BLOCK):
 - F1 clippy-red (drive too_many_args at 77588c5/817d2e7): FIXED at
@@ -279,9 +282,14 @@ VERIFIED). New/carried Minors:
   (c) drive()-level assertion: ADDED — daemon_smoke now asserts drive() emits AND
   audits exactly one digest (kind 'alert', message LIKE 'FORTUNA digest%';
   route_alerts audits even with no Slack router, spec 8).
-- STILL OPEN (next iteration): #4 ASSUMPTIONS/GAPS dead-man contradiction
-  (GAPS.md:142 "no exception needed" vs the ASSUMPTIONS SystemTime entry) +
-  stale "SystemTime::now post-RealClock-fix" wording — a doc reconcile.
+- #4 [Minor] ASSUMPTIONS/GAPS dead-man contradiction: CLOSED (this commit,
+  docs-only). The ASSUMPTIONS entry was stale ("the task reads
+  SystemTime::now()") and mis-framed as a "justified exception"; corrected to a
+  DESIGN NOTE — the dead-man reads wall via RealClock (a Clock impl, the legal
+  source), NOT the SimClock, so NO exception is needed, matching GAPS:142. The
+  GAPS line gained a reconcile clause. Code verified: main.rs:144 reads
+  RealClock.now(); zero raw SystemTime::now() in fortuna-live/src.
+  => the audit-tail-fix gate's Minor list is now fully remediated (1-4 closed).
 - INFORMATIONAL (not a ROTA code fix): raw-JSON panels (Phase-3 presentation);
   LIVE recorder risk_parameters stale-on-boot (recorder/B0 capture-loop
   investigation — do NOT touch the running recorder).

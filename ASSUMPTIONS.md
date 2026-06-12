@@ -1217,11 +1217,15 @@ crates/fortuna-venues/tests/kalshi_doc_samples/ are NOT recordings.
   the day files. Nothing enforces this today beyond operator discipline; the
   T4.4 CLI `start` refusal on an unmanaged recorder process (design A2) is the
   planned enforcement. Until then: never start a second instance.
-- **The dead-man pinger task reads SystemTime::now() at the IO edge**
-  (gate finding 2026-06-11, minor 4): main's spawned heartbeat stamps each
-  ping with wall time. The injected-Clock rule governs the deterministic
-  core (bus/audit/replay); the dead-man heartbeat is a wall-clock liveness
-  signal to an EXTERNAL monitor — its timestamps ARE wall time by
-  definition, and it feeds nothing deterministic. Same justified exception
-  as the recorder/fixture tools. The deadman_tick LOGIC is clock-injected
-  and mock-tested; only the main-spawned task reads the wall clock.
+- **The dead-man heartbeat reads wall time via `RealClock`, not the runner's
+  SimClock** (gate finding 2026-06-11 minor 4 — RECONCILED 2026-06-11 after
+  the RealClock fix; the earlier "the task reads SystemTime::now()" wording
+  was STALE and is corrected here): main's spawned heartbeat stamps each ping
+  with `RealClock.now()` (clock.rs — the ONE legal wall-time source, and a
+  `Clock` impl) so the liveness signal to the EXTERNAL monitor stays real-time
+  even while the trading composition runs on a SimClock during a sim soak.
+  This is NOT an exception to the injected-Clock rule — `RealClock` IS that
+  rule's sanctioned wall source — so NO ledger exception is needed (consistent
+  with the GAPS note). The `deadman_tick` LOGIC takes `now` as a parameter
+  (clock-injected, mock-tested); only main supplies it, from the wall via
+  RealClock. Zero raw `SystemTime::now()` remain in fortuna-live/src.
