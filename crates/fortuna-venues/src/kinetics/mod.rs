@@ -17,3 +17,4 @@
 pub mod adapter;
 pub mod client;
 pub mod dto;
+pub mod ws;
