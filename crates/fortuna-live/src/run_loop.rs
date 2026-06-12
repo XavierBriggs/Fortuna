@@ -124,8 +124,18 @@ where
                 }
             }
             Ok(None) => {
-                // The halt cleared out-of-band (operator re-arm); a later
-                // halt with the same reason is a NEW event to audit.
+                // The DURABLE store shows no active halt (an operator re-arm
+                // folds set->rearm away). I2 is RESTART-GATED by deliberate
+                // design (apply_external_halt: "nothing in the daemon clears a
+                // halt"): the running daemon NEVER auto-clears the gate halt —
+                // a re-arm takes effect on the next RESTART, whose boot fold
+                // reads set->rearm. "No automatic resumption" is strongest when
+                // resumption needs a human restart, not a polled DB state. So
+                // we only reset the dedup latch here: a NEW halt with the same
+                // reason re-applies + re-audits. (Adjudicated 2026-06-12, R12
+                // halt-rearm finding, option (a); the operator-facing "re-arm
+                // pending restart" notice in the CLI + ROTA health is a track-B
+                // fortuna-cli/fortuna-ops item, ledgered in GAPS.)
                 *last_halt = None;
             }
             Err(_store) => {

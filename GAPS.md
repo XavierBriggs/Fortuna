@@ -128,6 +128,24 @@ HONESTLY STILL OPEN before the T4.1 tick (the box stays unticked):
 DO NOT tick T4.1 / start the soak until S5 (the real mind) — else the StubMind
 degrades every cycle and pollutes the soak metrics.
 
+## T4.1 — R12 halt-rearm finding: ADJUDICATED (option a, restart-gated)
+The R12 drill flagged that the running daemon's halt poll APPLIES halts but
+never CLEARS on a re-arm (a halt_events kind='rearm' left the daemon halted
+until restart; the boot fold DID read set->rearm correctly). ADJUDICATED (a):
+this is DELIBERATE + correct per I2 ("no automatic resumption") — the running
+daemon never auto-clears; a re-arm requires a human DB rearm PLUS a deliberate
+RESTART (boot fold reads set->rearm). A restart is the unambiguous human
+resumption act; a poll-driven clear edges toward the daemon resuming on its
+own (CLAUDE.md: when the spec is silent, choose the conservative option).
+Documented: ASSUMPTIONS.md (the posture) + the run_loop.rs Ok(None) comment
+(was misleading — "the halt cleared out-of-band" — now clarifies the GATE stays
+halted; the latch reset only re-audits a fresh same-reason halt). Option (b)
+(poller clears on rearm) REJECTED: it reverses the deliberate I2 design.
+CROSS-TRACK follow-on (track B files, NOT track A's — released to the
+orphaned-minor pool): surface "re-arm pending daemon restart" in the `fortuna`
+re-arm output (fortuna-cli) + the ROTA health panel (fortuna-ops) so the
+operator knows to restart.
+
 ## TRACK A — SYNTHESIS-IN-MAIN build plan (validated 2026-06-12, no code)
 
 Ownership (orchestration.md): Track A owns fortuna-live, fortuna-runner,

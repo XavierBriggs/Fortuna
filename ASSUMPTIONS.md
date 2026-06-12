@@ -3,6 +3,23 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T4.1 — daemon halt re-arm is RESTART-GATED (I2; R12 halt-rearm finding)
+
+- **The running daemon NEVER auto-clears a gate halt; a re-arm takes effect on
+  the next daemon RESTART** (whose boot fold reads the halt_events set->rearm
+  fold). The halt poll (PgHaltPoller -> drive) only ever APPLIES halts; on a
+  polled `None` (the durable store shows the halt re-armed) it resets the dedup
+  latch but does NOT clear the gate. Conservative reading of I2 ("no automatic
+  resumption"): resumption requires a deliberate human RESTART, not the daemon
+  auto-resuming on a polled DB state — even a human-written re-arm row. A
+  restart is the unambiguous human resumption act; a poll-driven clear edges
+  toward the daemon resuming on its own. Adjudicated 2026-06-12 (option a)
+  against the R12 drill finding; interprets spec I2 / Section 3. OPERATOR-FACING
+  follow-on (track B — fortuna-cli + fortuna-ops ROTA, NOT track A's files): the
+  `fortuna` re-arm output + the ROTA health panel should surface "re-arm pending
+  daemon restart" so the operator knows to restart — ledgered in GAPS for track
+  B / the orphaned-minor pool.
+
 ## T4.4 — operator CLI lifecycle, slice 1 (track B)
 
 - **Pidfile format is `<pid>\n<name>\n`** (design A3 names the fields, not
