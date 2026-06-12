@@ -108,9 +108,10 @@ trail since commit messages cannot be edited.]
 HONESTLY STILL OPEN before the T4.1 tick (the box stays unticked): the
 SYNTHESIS strategy in the daemon main (compose::calibration_for_scope +
 persist_beliefs tested but not fed into a daemon-booted
-SynthesisStrategy — BLOCKED on the edge-source design: where the
-daemon's synthesis edges come from [EdgesRepo load vs config vs the
-discovery loop] is a deliberate design call, not a guess); the
+SynthesisStrategy — UNBLOCKED 2026-06-12 by docs/design/
+synthesis-edge-source-decision.md [EdgesRepo, confirmed-tier only,
+refreshed per drive() segment]; TRACK A is now building it — see the
+SYNTHESIS-IN-MAIN PLAN below); the
 mech_extremes-WITH-VETO strategy binding (the daemon composes only
 mech_structural today — mech_extremes + its reduce-only model veto is
 unwired); the mind_from_env / CostBudget binding into the daemon (the
@@ -122,6 +123,59 @@ persistence (req 6): the PATH exists + is tested (Strategy::drain_beliefs
 -> runner.drain_pending_beliefs -> daemon::persist_beliefs, FK-correct,
 idempotent); the daemon drains+persists once a belief-producing strategy
 is composed (mech_structural holds none) — lands with synthesis-in-main.
+
+## TRACK A — SYNTHESIS-IN-MAIN build plan (validated 2026-06-12, no code)
+
+Ownership (orchestration.md): Track A owns fortuna-live, fortuna-runner,
+fortuna-venues/src/kalshi*, fortuna-paper. fortuna-ledger is NOT track A's, but
+EdgesRepo is DISJOINT from track B's R7 additions (BeliefsRepo::recent +
+calibration scopes), so an EdgesRepo method is a non-overlapping addition to
+repos.rs (clean merge). fortuna-cognition (Mind/StubMind, EdgeView,
+DecisionCycle) is consumed, not edited.
+
+Survey (against synthesis-edge-source-decision.md requirements 1-5):
+- SynthesisStrategy (fortuna-runner/src/synthesis.rs, MINE) = SynthesisConfig
+  {id, edges: Vec<EdgeView>, comparator, triage, shadow_quota, calibration:
+  Option<CalibrationContext>, stage} + new(config, mind: Arc<dyn Mind>). Empty
+  edges => quotes() empty => zero proposals (requirement 3 fail-closed already
+  holds at the strategy layer; PIN it with a test).
+- Edge source: market_event_edges table (edge_id, market_id, venue, event_id,
+  mapping_type, confidence, proposed_by, confirmed_by NULLABLE, supersedes,
+  created_at). CONFIRMED = confirmed_by IS NOT NULL; CURRENT = NOT EXISTS a row
+  superseding it. EdgesRepo has current_edges_for_event/_market but NO
+  confirmed-load. NEEDS: EdgesRepo::confirmed_edges() (+ filters). NOTE:
+  fortuna-ledger uses compile-time sqlx::query! -> a new query! needs `cargo
+  sqlx prepare` to refresh the .sqlx offline cache (else clippy/offline build
+  misses); verify sqlx-cli before that sub-slice.
+- EdgeView (fortuna-cognition/src/cycle.rs) is the strategy's edge type; map
+  EdgeRow -> EdgeView at the composition (fortuna-live).
+- Mind: compose_runner composes only mech_structural today (vec![MechStructural]).
+  SynthesisStrategy needs a Mind; allow_stub_mind gate exists (boot.rs). StubMind
+  first; AnthropicMind via mind_from_env is the mind-binding sub-slice.
+- Calibration: compose::calibration_for_scope EXISTS + tested (fortuna-live, MINE).
+- Config: [synthesis] filters (categories allowlist, venue, max_edges with
+  deterministic truncation by edge id) belong in DaemonToml (fortuna-live/boot.rs,
+  MINE), NOT fortuna-ops/config.rs.
+- Stage: composition derives via promotion::effective_stage(declared_cap,
+  operator_records) — never self-promote (I7).
+
+Build sub-slices (each its own iteration, TDD, battery-gated):
+  S1. EdgesRepo::confirmed_edges() (+ sqlx prepare) — load CONFIRMED + CURRENT
+      edges; test: confirmed-current returned, unconfirmed + superseded excluded
+      (requirement 1 + the requirement-5 exclusion case). [touches shared repos.rs]
+  S2. SynthesisStrategy empty-edge fail-closed PIN (fortuna-runner test) +
+      EdgeRow->EdgeView map helper (requirement 3).
+  S3. compose_runner composes SynthesisStrategy: confirmed_edges + StubMind +
+      calibration_for_scope + [synthesis]-filtered config + derived stage; daemon
+      boots + trades seeded edges; empty-set boots clean (requirements 1,3,4,5).
+  S4. drive() per-segment edge refresh: keep last-known on failure + count/alert,
+      never crash (requirement 2).
+  S5. mind binding (StubMind -> AnthropicMind via allow_stub_mind/CostBudget).
+  S6. belief drain+persist wired (path exists); rich digest.
+  Then tick T4.1 (starts the soak) -> T4.2 -> T4.5.
+The populated-path test rule (the verifier's vacuous-test lesson) applies to
+EVERY sub-slice: assert REAL non-empty edge sets / non-zero proposals, never a
+shape that passes under a fabricated/empty fixture.
 Slack send-failure count is now SURFACED (drive sums total_send_failures
 and audits a final Ops alert if >0) — the earlier "_send_failures
 discarded" is fixed.
@@ -363,16 +417,28 @@ fabricated/zeroed panel). Fix list:
   test needs cognition-active (non-zero) data, which only synthesis-in-main
   produces (edge-source design-blocked). Cognition is DEFERRED until synthesis,
   with the recent_beliefs/calibration_scopes ledger queries owned there.
-- STILL OPEN (follow-ups): #2 add a daemon boot-path assertion that the reader
-  (connect_readonly_pool) and writer (connect) pools are DISTINCT objects (the
-  R5 test self-constructs its pools — a wiring merge at main.rs would fail no
+- #4 [Minor, vacuous-test 2nd occ] money test vacuous on the populated path
+  (a zeroed panel passed): CLOSED (this commit). money_view_is_the_sim_only_
+  account_subset now pins the REAL 11/3 arb seed — settled_cents == 995_639
+  (= 1_000_000 starting cash − 4_361 spent: 50×(25+28+30) notional + 66+71+74
+  taker fees), three legs each yes_qty == 50 with per-leg fees 66/71/74 and
+  realized_pnl == 0; committed == 0 because every leg FILLED (nothing rests). A
+  NEW test money_view_committed_is_non_zero_when_capital_is_reserved injects
+  ack_delay_pm=1000 so the legs reserve but never fill: committed == 4_361
+  (> 0), settled == 1_000_000, zero positions. MUTATION-PROVEN: zeroing the
+  source money block (settled/committed → 0, positions → []) turns BOTH tests
+  RED. Teeth confirmed.
+- STILL OPEN — TRACK A follow-ups (these are fortuna-live files — views.rs +
+  main.rs — owned by Track A per orchestration.md, NOT track B; the "T4.3 ROTA
+  slice" label names the FEATURE, but the view-shaping + boot path live in
+  Track A's crate): #2 add a daemon boot-path assertion that the reader
+  (connect_readonly_pool, main.rs:93) and writer (connect) pools are DISTINCT
+  objects (the R5 test self-constructs its pools — a wiring merge would fail no
   test); #3 the gates rationale "number would be a guess" is FALSE —
   GateCheck::index() (fortuna-gates/src/pipeline.rs) gives the exact spec number
-  (EdgeFloor=6); include the number per §5 OR correct the rationale; #4 the
-  money test is vacuous on the populated path (zeroed panel passes) — assert
-  settled == venue cash from a seeded fills run + a reserved>0 seed for
-  committed. Operator also slotted BUILD_PLAN T4.5 (ROTA v1.1 deferred panels),
-  after T4.2; its TEST RULE bakes in the populated-path-seed lesson.
+  (EdgeFloor=6); include the number per §5 OR correct the rationale. Operator
+  also slotted BUILD_PLAN T4.5 (ROTA v1.1 deferred panels), after T4.2; its
+  TEST RULE bakes in the populated-path-seed lesson.
 
 ## SECURITY INCIDENT 2026-06-11 (gate finding F1, Critical) — keys were committed
 

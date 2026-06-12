@@ -17,6 +17,7 @@
 
 use fortuna_live::views::views_from;
 use fortuna_runner::{AuditSink, RunnerError, SimRunner};
+use fortuna_venues::sim::FaultConfig;
 
 mod common;
 use common::{runner_config, set_arb_books, strategy, t0};
@@ -217,16 +218,25 @@ async fn money_view_is_the_sim_only_account_subset() {
     // cash, committed = reserved exposure (both real); floating + total are
     // NULL because the mark loop (their only source) is not exposed — honestly
     // null, never a faked zero. Positions carry the per-market detail.
+    //
+    // r5test-slice6 gate finding #4 (vacuous-test class, 2nd occurrence): the
+    // shape-only `is_number()`/`is_some()` asserts here passed under a
+    // fabricated/zeroed panel. Pin the REAL ground truth of the 11/3 arb seed
+    // instead. The three legs fill at their asks (25/28/30 cents) for 50 each:
+    // notional 50*(25+28+30) = 4150, taker fees 66+71+74 = 211, so the venue
+    // spends 4361 and cash falls 1_000_000 -> 995_639. committed is 0 because
+    // every leg FILLED (nothing rests); the non-zero committed case is pinned
+    // by money_view_committed_is_non_zero_when_capital_is_reserved below.
     let r = ticked_runner(11, 3).await;
     let m = &views_from(&r, GEN)["money"];
+    assert_eq!(m["basis"], "sim-only", "labeled SIM-ONLY: {m}");
     assert_eq!(
-        m["basis"], "sim-only",
-        "the account block is labeled SIM-ONLY: {m}"
+        m["settled_cents"], 995_639,
+        "settled = venue cash after the 4361 spent on fills: {m}"
     );
-    assert!(m["settled_cents"].is_number(), "settled = venue cash: {m}");
-    assert!(
-        m["committed_cents"].is_number(),
-        "committed = reserved exposure: {m}"
+    assert_eq!(
+        m["committed_cents"], 0,
+        "every leg filled, so nothing is reserved: {m}"
     );
     assert!(
         m["floating_cents"].is_null(),
@@ -236,10 +246,63 @@ async fn money_view_is_the_sim_only_account_subset() {
         m["total_cents"].is_null(),
         "total = settled + floating, undefined without floating: {m}"
     );
+    // The three bracket legs, keyed by market (order-independent): 50 contracts
+    // each, the exact per-leg taker fee, no realized pnl yet (none settled).
     let positions = m["positions"].as_array().expect("positions array");
-    for p in positions {
-        assert!(p["market"].is_string(), "{p}");
-        assert!(p.get("yes_qty").is_some(), "§5 names it yes_qty: {p}");
-        assert!(p["realized_pnl_cents"].is_number(), "{p}");
+    let by_market: std::collections::BTreeMap<&str, &serde_json::Value> = positions
+        .iter()
+        .map(|p| (p["market"].as_str().expect("market is a string"), p))
+        .collect();
+    assert_eq!(by_market.len(), 3, "all three legs present: {m}");
+    for (market, fees) in [("BKT-LO", 66), ("BKT-MID", 71), ("BKT-HI", 74)] {
+        let p = by_market
+            .get(market)
+            .unwrap_or_else(|| panic!("{market} missing: {m}"));
+        assert_eq!(p["yes_qty"], 50, "{market} filled 50 YES: {p}");
+        assert_eq!(p["fees_cents"], fees, "{market} taker fee: {p}");
+        assert_eq!(p["realized_pnl_cents"], 0, "{market} unsettled: {p}");
     }
+}
+
+#[tokio::test]
+async fn money_view_committed_is_non_zero_when_capital_is_reserved() {
+    // r5test-slice6 gate finding #4: committed_cents (= venue reserved) must be
+    // asserted NON-ZERO at least once, or a fabricated zero passes silently.
+    // Inject an ack delay (FaultConfig doc: "accepted but processes only at the
+    // next tick") so the three arb legs are PLACED and reserve their worst-case
+    // cash but never fill — settled stays at the full starting cash while
+    // committed holds the 4361 reservation and no position is booked.
+    let mut cfg = runner_config(11);
+    cfg.faults = FaultConfig {
+        ack_delay_pm: 1000,
+        ..FaultConfig::none(11)
+    };
+    let mut r = SimRunner::new(cfg, vec![strategy()], Box::new(NullSink), t0()).unwrap();
+    set_arb_books(&r);
+    r.tick().await.unwrap();
+
+    let m = &views_from(&r, GEN)["money"];
+    assert_eq!(m["basis"], "sim-only", "{m}");
+    let committed = m["committed_cents"]
+        .as_i64()
+        .expect("committed is a number");
+    assert!(
+        committed > 0,
+        "capital is reserved, committed must be > 0: {m}"
+    );
+    assert_eq!(
+        committed, 4361,
+        "exact worst-case reservation of the three legs: {m}"
+    );
+    assert_eq!(
+        m["settled_cents"], 1_000_000,
+        "nothing filled while reserved, so cash is untouched: {m}"
+    );
+    assert!(
+        m["positions"]
+            .as_array()
+            .expect("positions array")
+            .is_empty(),
+        "orders are reserved but unfilled — no position booked yet: {m}"
+    );
 }
