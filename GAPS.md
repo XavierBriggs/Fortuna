@@ -970,7 +970,8 @@ observed so far: `INVALID_PARAMETER` (malformed key id) and
   outside track C ownership (examples/, not src/kinetics*), so track C
   ledgered + skipped per loop rule 7 while its own diffs stayed
   fmt-clean.
-- **T5.B4 kinetics adapter: SLICES 1+2 LANDED, box stays unticked**
+- **T5.B4 kinetics adapter: ALL 4 SLICES LANDED, BOX TICKED** [heading
+  updated per final-gate Info; the slice trail below is preserved]
   (track C, 2026-06-12, commits dd82ca1 + c4f6248): slice 1 = the DTO
   layer, fixtures-gated with FULL coverage (all 76 bodies classified +
   parsed vs recorded statuses, both WS streams zero-unknown); slice 2 =
@@ -999,6 +1000,11 @@ observed so far: `INVALID_PARAMETER` (malformed key id) and
   until a populated capture or the PROD parity sweep); notional risk
   limit per-market values uncaptured (empty map on demo);
   duplicate-resolution list scan is first-page-only (pagination);
+  the WS `fill` channel's frame SHAPE is UNCAPTURED in the corpus (the
+  committed private stream carries zero fill frames — see the
+  SESSION-NOTES committed-capture annotation): real-time fill/
+  liquidation notification rests on REST fills polling until a
+  fill-frame capture or the PROD parity sweep lands;
   the LIVE dial (TLS + signed WS handshake + redial policy, reqwest
   transport wiring with the kinetics credential pair from env) is
   composition work that lands with the daemon integration — no live
@@ -1034,6 +1040,11 @@ observed so far: `INVALID_PARAMETER` (malformed key id) and
   mark-based PnL with VWAP-against-us entries, 04/12/20-UTC funding
   schedule (funding_times_between) + append-only accrual log,
   whole-account liquidation sim from recorded risk curves at worse-mark
+  [ANNOTATION 2026-06-12 per final-gate Minor 4, never erased: at e8fe069
+  "recorded risk curves" overstated the data source (config curves only);
+  the recorded-curve path landed later via
+  RiskCurve::from_leverage_estimates in the gate-fix batch 3b21b7e —
+  same correction BUILD_PLAN carries visibly]
   + penalty, negative balances modeled. DEFERRED with owner: driving
   MarginSim from recorded streams inside fortuna-paper belongs to that
   crate's owner (track A); the engine + tests are the track-C

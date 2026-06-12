@@ -182,3 +182,17 @@ stays open (zero carry cost at rate 0); future verification-loop firings
 opportunistically re-capture when funding_rate != 0; the entry SHAPE can
 alternatively come from the PROD read-only parity sweep (item 17, operator).
 Item 10 = PARTIAL (blocked by venue state, not by us).
+
+## Committed-capture annotation (2026-06-12, track-c final gate Minor 2)
+
+The COMMITTED `ws__private_lifecycle.jsonl` is from the ~04:08Z capture
+(see its .meta.json timestamp), which OVERWROTE the ~02:50Z run described
+in the re-run note above. The committed stream contains 12 `user_order`
+frames, 5 `order_group_updates` frames, 3 `subscribed` acks, and ZERO
+`fill` frames — the INVERSE of the ~02:50Z narrative ("fill=true,
+user_orders=false"). Both behaviors were observed live at different
+times; the corpus carries only the later one. Consequence for adapters:
+neither private channel's emission is guaranteed per lifecycle; the
+`fill` channel's frame SHAPE remains UNCAPTURED in this corpus (the
+typed WS layer degrades unknown/uncaptured frames to Ignored, and REST
+fills remain the reconciliation source of truth — ledgered in GAPS).

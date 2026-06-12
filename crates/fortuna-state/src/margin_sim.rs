@@ -346,7 +346,8 @@ impl MarginSim {
             return Err(StateError::MarginSim {
                 scope: market.to_string(),
                 reason: format!(
-                    "funding rate {rate} exceeds the venue cap of +/-{FUNDING_RATE_CAP}                      per window: corrupt input, refusing"
+                    "funding rate {rate} exceeds the venue cap of +/-{FUNDING_RATE_CAP} per window: \
+                     corrupt input, refusing"
                 ),
             });
         }

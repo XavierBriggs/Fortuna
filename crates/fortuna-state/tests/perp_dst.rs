@@ -48,6 +48,9 @@ use rust_decimal::Decimal;
 use std::collections::{BTreeMap, BTreeSet};
 
 const MARKET: &str = "KXBTCPERP";
+/// The harness curve's last tier. Mark drift can push a HELD position's
+/// notional past this with no new order — the designed fail-closed path.
+const CURVE_TOP_CENTS: i64 = 10_000_000;
 const DEMO_MARKET: &str = "KXBTCPERP1";
 
 fn t0() -> UtcTimestamp {
@@ -111,7 +114,10 @@ fn sim_config() -> MarginSimConfig {
     curves.insert(
         mkt(MARKET),
         RiskCurve {
-            tiers: vec![(Cents::new(2_000_000), 500), (Cents::new(10_000_000), 800)],
+            tiers: vec![
+                (Cents::new(2_000_000), 500),
+                (Cents::new(CURVE_TOP_CENTS), 800),
+            ],
         },
     );
     MarginSimConfig {
@@ -125,6 +131,7 @@ fn sim_config() -> MarginSimConfig {
 enum Arm {
     FundingTick,
     Liquidation,
+    CurveExceeded,
     MarginReject,
     AckDelayFill,
     ApiErrorRetry,
@@ -139,6 +146,7 @@ impl ArmCounts {
         let key = match arm {
             Arm::FundingTick => "funding_tick",
             Arm::Liquidation => "liquidation",
+            Arm::CurveExceeded => "curve_exceeded",
             Arm::MarginReject => "margin_reject",
             Arm::AckDelayFill => "ack_delay_fill",
             Arm::ApiErrorRetry => "api_error_retry",
@@ -170,6 +178,7 @@ struct Digest {
     funding_entries: usize,
     fills_applied: u64,
     liquidated: bool,
+    curve_exceeded: bool,
     gated_ok: u64,
     gated_rejected: u64,
 }
@@ -205,6 +214,7 @@ fn run_scenario(seed: u64, arms: &mut ArmCounts) -> Result<Digest, String> {
     let mut pending: Vec<PendingFill> = Vec::new();
     let mut expected_balance: i128 = i128::from(initial_balance);
     let mut halted = false;
+    let mut curve_exceeded = false;
     let mut fills_applied: u64 = 0;
     let mut gated_ok: u64 = 0;
     let mut gated_rejected: u64 = 0;
@@ -492,19 +502,57 @@ fn run_scenario(seed: u64, arms: &mut ArmCounts) -> Result<Digest, String> {
                     );
                 }
             }
-            let liq = sim
-                .check_liquidation(&marks, Cents::ZERO)
-                .map_err(|e| format!("seed {seed}: liq check: {e}"))?;
-            if let Some(event) = liq {
-                arms.hit(Arm::Liquidation);
-                // System-fill ingestion: every position was closed.
-                if !event.closed.is_empty() && sim.position(&mkt(MARKET)).is_some() {
-                    return Err(format!("seed {seed}: liquidation left a position standing"));
+            // Spec-5.15 fail-closed path (regression seed
+            // 11819682492387934495): mark drift can push the HELD
+            // position's notional past the last curve tier with no new
+            // order. MarginSim must REFUSE (designed, conservative —
+            // "under-modeled = failure, not surprise"), and the
+            // composition's move is a HALT: trading on a margin model
+            // that cannot bound the position does not continue. The
+            // refusal is a DESIGNED arm, pinned by asserting the error
+            // actually fires. Coverage rides on the regression seed
+            // (deterministic every battery run), not the random floor —
+            // the path needs ~10k scenarios to arise by chance.
+            let over_tier = match sim.position(&mkt(MARKET)) {
+                Some(p) => {
+                    let worse = venue_mark.max(cons_mark);
+                    p.notional_at(PerpPrice::new(worse))
+                        .map_err(|e| format!("seed {seed}: notional: {e}"))?
+                        > Cents::new(CURVE_TOP_CENTS)
                 }
-                expected_balance = i128::from(event.balance_after.raw());
-                // Spec 5.15: mandatory halt evaluation follows.
-                gates.set_halt(HaltScope::Global, "liquidation: margin model was wrong");
+                None => false,
+            };
+            if over_tier {
+                if sim.check_liquidation(&marks, Cents::ZERO).is_ok() {
+                    return Err(format!(
+                        "seed {seed}: notional beyond the last tier did NOT refuse \
+                         (the fail-closed path is the designed behavior)"
+                    ));
+                }
+                arms.hit(Arm::CurveExceeded);
+                gates.set_halt(
+                    HaltScope::Global,
+                    "margin model cannot bound the position: refusing to continue",
+                );
                 halted = true;
+                curve_exceeded = true;
+                // The refusal changes nothing (balance untouched): fall
+                // through to the conservation check like every step.
+            } else {
+                let liq = sim
+                    .check_liquidation(&marks, Cents::ZERO)
+                    .map_err(|e| format!("seed {seed}: liq check: {e}"))?;
+                if let Some(event) = liq {
+                    arms.hit(Arm::Liquidation);
+                    // System-fill ingestion: every position was closed.
+                    if !event.closed.is_empty() && sim.position(&mkt(MARKET)).is_some() {
+                        return Err(format!("seed {seed}: liquidation left a position standing"));
+                    }
+                    expected_balance = i128::from(event.balance_after.raw());
+                    // Spec 5.15: mandatory halt evaluation follows.
+                    gates.set_halt(HaltScope::Global, "liquidation: margin model was wrong");
+                    halted = true;
+                }
             }
         }
 
@@ -528,6 +576,7 @@ fn run_scenario(seed: u64, arms: &mut ArmCounts) -> Result<Digest, String> {
         funding_entries: sim.funding_log().len(),
         fills_applied,
         liquidated: halted,
+        curve_exceeded,
         gated_ok,
         gated_rejected,
     })
@@ -598,5 +647,35 @@ fn perp_plane_survives_seeded_chaos() {
                 "[perp-dst] master {master}: arm {arm} never fired across {scenarios} scenarios"
             );
         }
+    }
+}
+
+/// Regression set (definition-of-done #3): seeds that once produced a red
+/// battery replay deterministically in EVERY run. Never delete entries.
+/// Each pins the arm its failure mechanism must now hit.
+const REGRESSION_SEEDS: &[(u64, &str)] = &[
+    // track-c-final-gate-2026-06-12 [Major]: a wild-regime mark drift
+    // pushed the held position's notional past the last risk-curve tier
+    // ($100,068.43 > $100k) with no new order; MarginSim fail-closed
+    // correctly but the harness counted the designed refusal as a
+    // failure. Now the curve_exceeded designed arm (+ spec-5.15 halt).
+    (11819682492387934495, "curve_exceeded"),
+];
+
+#[test]
+fn regression_seeds_replay_green() {
+    for (seed, expected_arm) in REGRESSION_SEEDS {
+        let mut arms = ArmCounts::default();
+        let digest = run_scenario(*seed, &mut arms)
+            .unwrap_or_else(|e| panic!("regression seed {seed}: {e}"));
+        assert!(
+            arms.0.get(expected_arm).copied().unwrap_or(0) > 0,
+            "regression seed {seed}: arm {expected_arm} did not fire"
+        );
+        // Determinism holds on the regression path too.
+        let mut rerun_arms = ArmCounts::default();
+        let rerun = run_scenario(*seed, &mut rerun_arms)
+            .unwrap_or_else(|e| panic!("regression seed {seed} rerun: {e}"));
+        assert_eq!(digest, rerun, "regression seed {seed}: non-deterministic");
     }
 }
