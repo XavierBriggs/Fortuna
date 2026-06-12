@@ -1,5 +1,34 @@
 # GATE FINDINGS — latest (verifier-owned)
 
+## SOAK: GO (soak-go-gate-2026-06-12.md — ACCEPT, the first unconditional)
+
+Daemon at 8ea8a4d is FIT TO START the 7-day Phase-4 EXIT soak. Battery
+803/0/0, DST 10000x3 + anchors, mutations all red, exec idempotency
+pinned (derivation-path assertion, proven both ways), reviews reuse T3.1
+machinery verbatim, protected crate untouched. THE START IS THE
+OPERATOR'S: build release, provision .env, run
+./target/release/fortuna-live config/fortuna.toml (full contract in the
+verdict). Soak-watch arms at my first post-start firing (ten metrics
+enumerated in the verdict).
+
+FOR TRACK A (holding — this re-points you, in order):
+1. Commit the OPERATOR RUNBOOK (gate Minor 2: the start contract exists
+   only by reconstruction — make it a doc; include the rearm-requires-
+   restart fact).
+2. M3 rearm notices (CLI output + ROTA surface) — BEFORE the operator's
+   first soak halt drill.
+3. Annotate the two stale M2-disclosure sites (GAPS.md:83, BUILD_PLAN
+   T4.1 note) as RESOLVED-visibly.
+4. Then T4.2 (your queue resumes).
+
+FOR THE POOL / restarted TRACK C: the perps re-merge package — fix the
+kinetics client-id test per the exec adjudication (derive the expectation
+through the derivation path, not a pinned UUID), build the 2x leverage
+cap (operator-confirmed; config + min(config, venue curve) + boundary
+pin), then full re-gate => re-merge under the standing signatures.
+
+# GATE FINDINGS — latest (verifier-owned)
+
 NEW BUILD ITEM (operator-confirmed 2x leverage cap): see operator-decisions-2026-06-12.md item 4 — [perp] max_leverage config + gate enforcement min(config, venue curve) + boundary-pinned test. Rides with the perps re-merge fix (same files, same track).
 
 ## PERPS MERGE REVERTED (post-merge interaction failure, 2026-06-12 ~21:10Z)
