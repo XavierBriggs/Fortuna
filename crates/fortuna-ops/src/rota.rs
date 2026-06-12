@@ -23,6 +23,7 @@ use axum::response::{Html, IntoResponse};
 use axum::routing::get;
 use axum::{Json, Router};
 use fortuna_core::clock::UtcTimestamp;
+use fortuna_ledger::{BeliefsRepo, CalibrationParamsRepo};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -60,6 +61,7 @@ pub fn rota_router(state: RotaState) -> Router {
         .route("/api/rota/v1/health", get(view_health))
         .route("/api/rota/v1/money", get(view_money))
         .route("/api/rota/v1/gates", get(view_gates))
+        .route("/api/rota/v1/cognition", get(view_cognition))
         .route("/api/rota/v1/settlement", get(view_settlement))
         .route("/api/rota/v1/streams", get(view_streams))
         .route("/api/rota/v1/audit", get(audit_tail))
@@ -95,6 +97,123 @@ async fn view_gates(State(s): State<RotaState>) -> impl IntoResponse {
 }
 async fn view_settlement(State(s): State<RotaState>) -> impl IntoResponse {
     Json(read_view(&s, "settlement").await)
+}
+
+/// Evidence payloads are operator-readable JSONB of unbounded size; the
+/// panel truncates at 4KB per row (design §5 operator amendment). The
+/// LEDGER row stays whole — only this payload is cut, and the cut is
+/// explicit (`truncated: true` + byte count), never silent.
+fn truncate_evidence(evidence: &Value) -> Value {
+    let serialized = evidence.to_string();
+    if serialized.len() <= 4096 {
+        return evidence.clone();
+    }
+    let mut end = 4096;
+    while !serialized.is_char_boundary(end) {
+        end -= 1;
+    }
+    json!({
+        "truncated": true,
+        "bytes_total": serialized.len(),
+        "preview": &serialized[..end],
+    })
+}
+
+/// An unavailable ledger sub-surface (uniform shape for the two arrays).
+fn ledger_unavailable(detail: &str) -> Value {
+    json!({ "available": false, "detail": detail, "rows": [] })
+}
+
+/// R7 — the cognition panel. Counters and budgets ride the daemon-shaped
+/// "cognition" view, which stays ABSENT until synthesis-in-main composes a
+/// cognition strategy: structurally-zero counters would read as "all
+/// clear" to an operator (the verifier's escalating vacuous-data class),
+/// so absence renders as an explicit status, never fabricated zeros. The
+/// belief listing (evidence + provenance, click-to-expand in the shell)
+/// and the calibration-scope enumeration are ROTA's OWN R7 ledger queries
+/// over the R5 read pool. RotaState deliberately gains NO budget fields:
+/// the daemon constructs RotaState as a struct literal (fortuna-live
+/// main.rs — track A's file), so budgets ride the view when synthesis
+/// wires them rather than breaking that construction site.
+async fn view_cognition(State(s): State<RotaState>) -> impl IntoResponse {
+    let (generated_at, counters) = {
+        let snap = s.snapshot.read().await;
+        (
+            snap.generated_at.clone(),
+            snap.views.get("cognition").cloned(),
+        )
+    }; // R8: snapshot lock released before any query below.
+    let mut out = match counters {
+        Some(Value::Object(map)) => Value::Object(map),
+        _ => json!({
+            "counters_status": "unavailable",
+            "detail": "no cognition strategy composed yet (synthesis-in-main pending)",
+        }),
+    };
+    let (beliefs, scopes) = match &s.pool {
+        None => (
+            ledger_unavailable("postgres capability absent (standalone ROTA)"),
+            ledger_unavailable("postgres capability absent (standalone ROTA)"),
+        ),
+        Some(pool) => {
+            let beliefs = match BeliefsRepo::new(pool.clone()).recent(20).await {
+                Ok(rows) => {
+                    let rows: Vec<Value> = rows
+                        .into_iter()
+                        .map(|r| {
+                            json!({
+                                "belief_id": r.belief_id,
+                                "created_at": r.created_at,
+                                "event_id": r.event_id,
+                                "p": r.p,
+                                "p_raw": r.p_raw,
+                                "status": r.status,
+                                "brier": r.brier,
+                                "clv_bps": r.clv_bps,
+                                "evidence": truncate_evidence(&r.evidence),
+                                "provenance": r.provenance,
+                            })
+                        })
+                        .collect();
+                    json!({ "available": true, "rows": rows })
+                }
+                Err(e) => {
+                    // Neutral detail only — never raw sqlx text to the view.
+                    eprintln!("rota: cognition belief read degraded: {e}");
+                    ledger_unavailable("belief read unavailable (dashboard pool degraded)")
+                }
+            };
+            let scopes = match CalibrationParamsRepo::new(pool.clone()).scopes().await {
+                Ok(rows) => {
+                    let rows: Vec<Value> = rows
+                        .into_iter()
+                        .map(|r| {
+                            json!({
+                                "model_id": r.model_id,
+                                "strategy": r.strategy,
+                                "category": r.category,
+                                "kind": r.kind,
+                                "version": r.version,
+                                "effective_at": r.effective_at,
+                            })
+                        })
+                        .collect();
+                    json!({ "available": true, "rows": rows })
+                }
+                Err(e) => {
+                    eprintln!("rota: cognition scope read degraded: {e}");
+                    ledger_unavailable("calibration read unavailable (dashboard pool degraded)")
+                }
+            };
+            (beliefs, scopes)
+        }
+    };
+    if let Some(obj) = out.as_object_mut() {
+        obj.insert("generated_at".to_string(), json!(generated_at));
+        obj.insert("recent_beliefs".to_string(), beliefs);
+        obj.insert("calibration_scopes".to_string(), scopes);
+    }
+    Json(out)
 }
 /// Cheap liveness stat of the recorder's perishable JSONL streams (the
 /// /streams panel's `recorder` section). Reads only file METADATA (mtime +
@@ -331,6 +450,7 @@ const ROTA_SHELL: &str = r#"<!doctype html><html lang="en"><head>
   <div class="panel"><h2>Health</h2><pre id="health">…</pre></div>
   <div class="panel"><h2>Money</h2><pre id="money">…</pre></div>
   <div class="panel"><h2>Gates</h2><pre id="gates">…</pre></div>
+  <div class="panel"><h2>Cognition</h2><pre id="cognition">…</pre></div>
   <div class="panel"><h2>Settlement</h2><pre id="settlement">…</pre></div>
   <div class="panel"><h2>Streams</h2><pre id="streams">…</pre></div>
   <div class="panel"><h2>Audit tail</h2><pre id="audit">…</pre></div>
@@ -343,6 +463,7 @@ async function poll(name,el){try{const r=await fetch(B+name);const j=await r.jso
     j.halt_active?"flex":"none";}}catch(e){
   document.getElementById(el).textContent="(unreachable: "+e+")";}}
 function tick(){poll("health","health");poll("money","money");poll("gates","gates");
-  poll("settlement","settlement");poll("streams","streams");poll("audit","audit");}
+  poll("cognition","cognition");poll("settlement","settlement");
+  poll("streams","streams");poll("audit","audit");}
 tick();setInterval(tick,2000);
 </script></body></html>"#;

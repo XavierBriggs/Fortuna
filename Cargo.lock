@@ -651,6 +651,7 @@ dependencies = [
  "axum",
  "fortuna-core",
  "fortuna-gates",
+ "fortuna-ledger",
  "futures",
  "reqwest",
  "serde",

@@ -361,6 +361,18 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       REMAINING: cognition view (R7, pool-unblocked); the FULL §5 money model
       (mark-loop floating + per-strategy attribution — operator/design call);
       Phase-3 shell/assets; R12 browser pass.
+      slice 8 (track B, this commit) = COGNITION panel (R7): the two
+      T4.3-owned ledger queries (BeliefsRepo::recent w/ evidence+provenance,
+      CalibrationParamsRepo::scopes DISTINCT-ON max version) + sqlx prepare
+      (2 new cache JSONs committed), /api/rota/v1/cognition merging the
+      daemon counters view (explicit unavailable until synthesis-in-main —
+      never fabricated zeros) with ROTA's own ledger arrays over the R5
+      pool, 4KB evidence truncation (explicit truncated:true), shell panel
+      + poll. 4 ledger + 5 ops tests, populated-path seeds throughout.
+      RotaState budget fields deliberately omitted (track A's struct-
+      literal construction site — GAPS note). REMAINING: full §5 money
+      model (operator call), recent_rejections/recent_watchdog audit
+      queries, Phase-3 logo/shell assets, R12 browser pass.
 - [x] T4.4 Operator CLI lifecycle (operator-directed 2026-06-11; design
       AUTHORITATIVE at docs/design/fortuna-cli.md INCLUDING its amendments
       section): `fortuna start/stop/status/logs/config-check` extending

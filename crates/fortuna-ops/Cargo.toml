@@ -6,6 +6,10 @@ edition = "2021"
 [dependencies]
 fortuna-core = { path = "../fortuna-core" }
 fortuna-gates = { path = "../fortuna-gates" }
+# R7 (ROTA cognition panel): BeliefsRepo::recent + CalibrationParamsRepo::
+# scopes. Cycle-checked (design V-5): ledger's runtime deps are core/venues/
+# exec/gates — ops is not among them.
+fortuna-ledger = { path = "../fortuna-ledger" }
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

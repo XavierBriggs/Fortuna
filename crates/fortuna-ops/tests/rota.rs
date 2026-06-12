@@ -66,11 +66,12 @@ async fn serve() -> (String, tokio::task::JoinHandle<()>) {
     (format!("http://{addr}"), handle)
 }
 
-const PATHS: [&str; 7] = [
+const PATHS: [&str; 8] = [
     "/rota",
     "/api/rota/v1/health",
     "/api/rota/v1/money",
     "/api/rota/v1/gates",
+    "/api/rota/v1/cognition",
     "/api/rota/v1/settlement",
     "/api/rota/v1/streams",
     "/api/rota/v1/audit",
@@ -554,4 +555,183 @@ async fn favicon_is_a_204_not_a_404() {
         405,
         "POST /favicon.ico must be 405 (read-only)"
     );
+}
+
+// ------------------------------------------------------------------ cognition
+//
+// R7: the cognition panel = the daemon-shaped counters view (absent until
+// synthesis-in-main composes a cognition strategy — rendered as an explicit
+// status, never fabricated zeros) + ROTA's OWN two ledger queries
+// (recent beliefs incl. evidence/provenance; calibration scopes) over the
+// R5 pool. Populated-path seeds per the verifier's vacuous-test rule.
+
+async fn seed_event(pool: &sqlx::PgPool, event_id: &str) {
+    sqlx::query(
+        "INSERT INTO events (event_id, statement, resolution_criteria,
+                             resolution_source, benchmark_at, category,
+                             unscoreable, created_at)
+         VALUES ($1, 'seed', 'seed', 'nws', '2026-06-12T00:00:00.000Z',
+                 'weather', FALSE, '2026-06-11T00:00:00.000Z')",
+    )
+    .bind(event_id)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+async fn get_cognition(state: RotaState) -> serde_json::Value {
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/cognition"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    h.abort();
+    j
+}
+
+#[tokio::test]
+async fn cognition_degrades_without_pool_but_stays_200() {
+    let j = get_cognition(RotaState::standalone(empty_snapshot())).await;
+    assert_eq!(
+        j["recent_beliefs"]["available"], false,
+        "no pool => beliefs unavailable, explicit: {j}"
+    );
+    assert_eq!(j["calibration_scopes"]["available"], false, "{j}");
+    assert!(
+        j["counters_status"]
+            .as_str()
+            .unwrap_or("")
+            .contains("unavailable"),
+        "counters absent until synthesis populates the view: {j}"
+    );
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn cognition_serves_seeded_beliefs_and_scopes(pool: sqlx::PgPool) {
+    use fortuna_ledger::{BeliefsRepo, CalibrationParamsRepo};
+    seed_event(&pool, "01EVENTROTA000000000000001").await;
+    let beliefs = BeliefsRepo::new(pool.clone());
+    beliefs
+        .insert(
+            "01BELIEFROTA00000000000001",
+            "2026-06-12T01:00:00.000Z",
+            "01EVENTROTA000000000000001",
+            0.67,
+            0.71,
+            "2026-06-13T00:00:00.000Z",
+            &serde_json::json!({"reasoning": "structural underpricing of the middle bracket"}),
+            &serde_json::json!({"model_id": "claude-fable-5", "cost_cents": 12}),
+            None,
+        )
+        .await
+        .unwrap();
+    let cal = CalibrationParamsRepo::new(pool.clone());
+    for version in [1, 2] {
+        cal.insert(
+            &format!("01CALROTA000000000000000{version}"),
+            "claude-fable-5",
+            "synth_events",
+            "weather",
+            "platt",
+            &serde_json::json!({"a": 0.1}),
+            version,
+            "2026-06-11T00:00:00.000Z",
+            "2026-06-11T00:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    }
+
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+    };
+    let j = get_cognition(state).await;
+
+    // Real seeded values — a fabricated/empty panel cannot satisfy these.
+    let rows = j["recent_beliefs"]["rows"].as_array().unwrap_or_else(|| {
+        panic!("recent_beliefs.rows must be an array: {j}");
+    });
+    assert_eq!(rows.len(), 1, "{j}");
+    assert_eq!(rows[0]["belief_id"], "01BELIEFROTA00000000000001");
+    assert_eq!(rows[0]["p"], 0.67, "{j}");
+    assert_eq!(rows[0]["p_raw"], 0.71);
+    assert_eq!(rows[0]["status"], "open");
+    assert_eq!(
+        rows[0]["evidence"]["reasoning"], "structural underpricing of the middle bracket",
+        "the model's persisted reasoning surfaces: {j}"
+    );
+    assert_eq!(rows[0]["provenance"]["cost_cents"], 12);
+    let scopes = j["calibration_scopes"]["rows"].as_array().unwrap();
+    assert_eq!(scopes.len(), 1, "one distinct scope: {j}");
+    assert_eq!(scopes[0]["version"], 2, "max version wins: {j}");
+    assert_eq!(scopes[0]["model_id"], "claude-fable-5");
+    assert_eq!(scopes[0]["kind"], "platt");
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn cognition_truncates_evidence_over_4kb(pool: sqlx::PgPool) {
+    use fortuna_ledger::BeliefsRepo;
+    seed_event(&pool, "01EVENTROTA000000000000002").await;
+    let big = "x".repeat(8000);
+    BeliefsRepo::new(pool.clone())
+        .insert(
+            "01BELIEFROTA00000000000002",
+            "2026-06-12T01:00:00.000Z",
+            "01EVENTROTA000000000000002",
+            0.5,
+            0.5,
+            "2026-06-13T00:00:00.000Z",
+            &serde_json::json!({"reasoning": big}),
+            &serde_json::json!({"model_id": "m"}),
+            None,
+        )
+        .await
+        .unwrap();
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+    };
+    let j = get_cognition(state).await;
+    let ev = &j["recent_beliefs"]["rows"][0]["evidence"];
+    assert_eq!(ev["truncated"], true, "oversized evidence truncates: {j}");
+    let preview = ev["preview"].as_str().unwrap();
+    assert!(
+        preview.len() <= 4096,
+        "preview bounded at 4KB, got {}",
+        preview.len()
+    );
+    assert!(preview.contains("xxx"), "preview carries real content");
+}
+
+#[tokio::test]
+async fn cognition_carries_daemon_counters_when_the_view_is_populated() {
+    let snap = empty_snapshot();
+    {
+        let mut s = snap.try_write().unwrap();
+        s.views = serde_json::json!({
+            "cognition": { "mind_spend_today_cents": 1240,
+                           "budget_breaches_total": 0 }
+        });
+    }
+    let j = get_cognition(RotaState::standalone(snap)).await;
+    assert_eq!(
+        j["mind_spend_today_cents"], 1240,
+        "daemon counters merge to the top level: {j}"
+    );
+    assert!(
+        j.get("counters_status").is_none(),
+        "no status when real: {j}"
+    );
+    // The ledger arrays still degrade independently (no pool here).
+    assert_eq!(j["recent_beliefs"]["available"], false);
 }

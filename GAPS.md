@@ -472,6 +472,36 @@ fabricated/zeroed panel). Fix list:
   also slotted BUILD_PLAN T4.5 (ROTA v1.1 deferred panels), after T4.2; its
   TEST RULE bakes in the populated-path-seed lesson.
 
+## T4.3 cognition slice (track B; 2026-06-12) — ownership notes for the gate
+
+- **fortuna-ledger/src/lib.rs gained ONE additive pub-use line** (the two
+  new row types). Track-B ledger ownership reads "the two R7 query
+  additions in repos.rs"; the queries are unreachable from fortuna-ops
+  without the export, so the line is read as PART of the query addition.
+  Zero existing exports moved or changed; flagged here for the gate.
+- **R7 query tests live in a NEW file crates/fortuna-ledger/tests/
+  rota_queries.rs** (R7 mandates "both with tests"): purely additive —
+  no existing ledger test file was touched.
+- **.sqlx cache: only track B's two query JSONs are committed.** A full
+  `cargo sqlx prepare --workspace` regenerated 41 missing entries — 39 of
+  them are PRE-EXISTING staleness from other tracks' queries (cache not
+  refreshed for several commits); committing those would put track B's
+  name on surfaces it doesn't own. They remain untracked; owners/verifier
+  should run prepare at the next gate.
+- **Design §3 deviation — RotaState gains NO budget fields:** fortuna-live
+  main.rs (track A) constructs RotaState as a STRUCT LITERAL; adding
+  fields breaks a file track B may not edit. Budgets (daily/per-cycle)
+  ride the daemon-shaped cognition view when track A's synthesis-in-main
+  populates it — same channel as the counters. If the literal ever
+  becomes a builder, the §3 shape can be revisited.
+- **Cognition counters render as explicit absence, not zeros:** under
+  mech_structural the counters are structurally zero (the r5test-slice6
+  gate's vacuous-data class); the panel shows counters_status:
+  "unavailable" until synthesis-in-main composes a cognition strategy.
+  The LEDGER arrays are live and populated-path-tested with real seeded
+  values (p=0.67/0.71, evidence reasoning text, provenance cost, max
+  version 2) — a fabricated panel cannot pass them.
+
 ## T4.4 CLI — slice 1 (track B; box unticked; 2026-06-12)
 
 - **SIGTERM mechanism (design checklist item 8, decided at fit-validation):**
@@ -580,6 +610,13 @@ Slice 3 (`stop` — T4.4 commands complete) additions:
   FORTUNA-side lever — verifier/operator call. Risk while pressure
   lasts: ENOSPC could hit the B0 recorder's JSONL appends and any
   track's battery mid-link.
+  RECURRED same night (next iteration): 0 bytes free again — briefly
+  blocked even session tooling temp-files; track-B target/ deleted a
+  second time (~14Gi back). The pattern is a TREADMILL: each track
+  battery rebuild is ~8GB across three tracks; headroom lasts roughly
+  one battery. Operator re-notified live. Track B continues but every
+  battery now starts from a cold build (slower iterations) and may
+  ENOSPC mid-link if another track builds concurrently.
 
 ## SECURITY INCIDENT 2026-06-11 (gate finding F1, Critical) — keys were committed
 

@@ -522,6 +522,30 @@ queries), the full §5 money model (mark-loop floating + per-strategy attributio
 — operator/design call), recent_rejections/recent_watchdog (audit queries),
 Phase-3 shell/assets, R12 browser pass.
 
+SLICE 8 BUILT (2026-06-12, track B): the COGNITION panel (R7). The two
+T4.3-owned ledger queries landed in repos.rs with populated-path tests:
+`BeliefsRepo::recent(limit)` (newest-first by belief_id ULID order,
+evidence + provenance JSONB included, limit clamped [1,500]) and
+`CalibrationParamsRepo::scopes()` (DISTINCT ON scope at MAX version);
+sqlx prepare refreshed (only the two new query JSONs committed — the
+cache had 39 PRE-EXISTING stale entries left for their owners). lib.rs
+gained exactly one additive pub-use line (BeliefPanelRow,
+CalibrationScopeRow) — flagged as an ownership-interpretation note in
+GAPS. /api/rota/v1/cognition: counters/budgets ride the daemon-shaped
+view (ABSENT until synthesis-in-main; rendered as explicit
+counters_status:"unavailable", never fabricated zeros — the vacuous-data
+lesson); recent_beliefs (evidence truncated at 4KB, explicit
+truncated:true + bytes_total) + calibration_scopes are ROTA's own
+queries over the R5 pool, each degrading independently. §3's RotaState
+budget fields are DELIBERATELY NOT ADDED: fortuna-live main.rs (track A)
+constructs RotaState as a struct literal; new fields would break a file
+track B cannot edit — budgets ride the view when synthesis wires them.
+Shell gained the Cognition panel + poll. 5 new ops tests (degraded,
+seeded populated-path with real values, 4KB truncation, counters merge,
+route-table extension) + 4 ledger tests. REMAINING: full §5 money model
+(operator/design call), recent_rejections/recent_watchdog audit queries,
+Phase-3 shell/assets (logo.svg §9), R12 browser pass (verifier).
+
 - V-1 PASS: serve_dashboard + the three routes present (dashboard.rs ~52-68;
   `route("/")`, `/metrics`, `/api/boards`); POST-405 loop at
   tests/dashboard.rs:74-80 exactly as cited.
