@@ -978,13 +978,21 @@ observed so far: `INVALID_PARAMETER` (malformed key id) and
   at composition; same RSA-PSS recipe — fixture item 1), request-shaping
   fixtures-gated against every .meta.json (method/path/query/body
   equality; the meta-equality test caught a real divergence: group
-  trigger/reset send {}). STILL OPEN before the tick: (a) the adapter
-  proper — order path accepting ONLY GatedPerpOrder (type-level I1),
-  reduce_only=>IOC/FOK enforcement, system-fill (liquidation) ingestion
-  as the dedicated 5.15 lifecycle class, fee reconciliation vs
-  fee_tiers; (b) WS session layer; (c) the BINDING gate-fix item: the
-  leverage_estimates->RiskCurve converter + shape test (bus fix 4).
-  DATA GAPS held open honestly in the DTOs (never invented):
+  trigger/reset send {}). SLICE 3 LANDED (commit e3d0dde): the adapter
+  proper — place accepts ONLY GatedPerpOrder (I1 structural in the test
+  suite: orders are gated through the real pipeline), reduce_only+GTC
+  refused BEFORE the wire, 409 duplicate resolves to
+  AlreadyExists{existing} via first-page client-id scan (PAGINATION GAP:
+  a duplicate beyond the first 100 listed orders stays Rejected —
+  acceptable for crash resubmission which retries promptly, ledgered),
+  system fills classify as the distinct Liquidation arm (never silently
+  absorbed), per-fill fee reconciliation vs posted tiers (the RECORDED
+  promo-\$0 fill correctly yields a discrepancy vs the 0.0012 taker
+  tier — fee-trap surfacing as designed). The RiskCurve converter
+  (bus fix 4) landed with the gate-fix batch (3b21b7e).
+  STILL OPEN before the tick: the WS session layer (connect/subscribe/
+  resync over the recorded streams; frame parsing already covered in
+  slice 1). DATA GAPS held open honestly in the DTOs (never invented):
   funding_history ENTRY shape uncaptured (item 10 partial — demo rate
   was 0; raw JSON until a populated capture or the PROD parity sweep),
   notional risk limit per-market values uncaptured (empty map on demo).
