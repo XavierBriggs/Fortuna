@@ -57,6 +57,40 @@ conservative option, and the spec section it interprets.
   proceeded — the operator must read the output; exit 0 is reserved for
   fully-confirmed shutdowns and true idempotent no-ops.
 
+## T5.B6 perp DST (track C, 2026-06-12; interprets plan B6)
+
+- **OPERATOR CONFIG GUIDANCE (discovered by the gate-pass=>no-instant-
+  liquidation invariant): set `min_liquidation_distance_bps` AT OR ABOVE
+  `price_band_bps`.** A gated buy may fill up to band_bps above the mark;
+  the instant mark-to-limit equity drop can reach notional x band/10^4,
+  while the distance floor guarantees a buffer of at least notional x
+  distance/10^4 above the (multiplied) maintenance level. distance >= band
+  makes a gated fill mathematically unable to liquidate at the marks it
+  was gated against; the perp DST pins the property under that config.
+  With distance < band, a thin-headroom fill far above the mark COULD
+  instantly liquidate — that is venue reality, not a gate defect, but
+  operators should know the knob relationship.
+- **Liquidation coverage needs shaped scenarios:** under calm random flow
+  the gates kept every account >5% from liquidation across 200 scenarios
+  (the coverage floor caught it — working as designed). Wild-regime
+  scenarios (small seeded account, large directionally-biased orders,
+  +/-4.8% walks with 5-15% gaps) are what reach real liquidations. Gaps
+  of that size are documented crypto behavior, not adversarial fantasy.
+- **The harness models the venue at the fill level** (immediate/delayed/
+  retried/dropped fills against gated orders) rather than through a venue
+  adapter — T5.B4's kinetics adapter doesn't exist yet; when it lands,
+  its sim/fixture surface can replace the harness's fill roll without
+  touching the invariants.
+- **Conservation resyncs at liquidation:** the i128 balance mirror tracks
+  fills and funding exactly; at a liquidation it adopts the event's
+  balance_after (the per-position liquidation arithmetic is pinned by
+  hand-computed margin_sim unit tests; re-deriving close prices in the
+  harness would test the implementation against itself).
+- **Wall-clock master-seed fallback** (when DST_MASTER_SEED is unset)
+  follows the established DST-harness convention (settlement_dst,
+  synthesis_dst) — seed-source only, printed for reproduction; per-seed
+  scenarios remain fully deterministic.
+
 ## T5.B5 margin simulator (track C, 2026-06-12; interprets spec 5.15 / plan B5)
 
 - **VWAP entry rounding is by the POSITION's side:** long entries ceil

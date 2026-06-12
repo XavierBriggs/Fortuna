@@ -970,6 +970,17 @@ observed so far: `INVALID_PARAMETER` (malformed key id) and
   outside track C ownership (examples/, not src/kinetics*), so track C
   ledgered + skipped per loop rule 7 while its own diffs stayed
   fmt-clean.
+- **T5.B6 perp DST: DONE, box ticked** (track C, 2026-06-12, commit
+  335e5e6): run-dst.sh gains the perp_dst stage (fortuna-state, same
+  seed count as the other stages) — 6 accounted arms with a coverage
+  floor, 7 per-seed invariants, all green at 2000 scenarios. NOTE FOR
+  BATTERY OPERATORS (2nd occurrence today): a `cargo test --workspace`
+  FIRST run under parallel-battery load was killed/contended (495/4,
+  binaries vanishing mid-run); the immediate clean isolated re-run was
+  853/0. If a track's battery reds with vanishing binaries, isolate and
+  re-run before judging — and prefer one battery at a time per box.
+  Operator config guidance discovered by invariant 3 is in ASSUMPTIONS
+  ("T5.B6 perp DST"): set min_liquidation_distance_bps >= price_band_bps.
 - **T5.B5 paper margin: DONE, box ticked** (track C, 2026-06-12, commit
   e8fe069): MarginSim in fortuna-state (track-C margin ownership) —
   mark-based PnL with VWAP-against-us entries, 04/12/20-UTC funding

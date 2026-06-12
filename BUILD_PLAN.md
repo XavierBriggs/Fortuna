@@ -514,8 +514,13 @@ code.
       append-only accrual log, whole-account liquidation at worse-mark +
       penalty with unbounded-curve/missing-mark = error; 20 spec-first
       tests; fortuna-paper wiring ledgered for that crate's owner.)
-- [ ] T5.B6 DST arms: funding-tick chaos, liquidation under ack-delay/api-error,
+- [x] T5.B6 DST arms: funding-tick chaos, liquidation under ack-delay/api-error,
       system-fill ingestion, margin-call sequences, demo-divergence confusion.
+      (DONE track C 2026-06-12, commit 335e5e6: perp_dst battery stage —
+      6 accounted arms incl. wild-regime margin-call sequences reaching
+      real liquidations [786 @ 2000 scenarios]; 7 per-seed invariants
+      incl. gate-pass=>no-instant-liquidation, never-silent liquidation,
+      exact conservation, same-seed determinism; coverage floor at 100+.)
 - [ ] T5.B7 Strategies rung 0: perp_event_basis (Sim), funding_forecast
       (zero-capital scalar claims), funding_carry DATA-ONLY until >=60d regime
       evidence (amendment B). FEE-TRAP RULE (amendment C): edge floors at assumed
