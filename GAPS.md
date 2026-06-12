@@ -240,9 +240,32 @@ Build sub-slices (each its own iteration, TDD, battery-gated):
       Remaining T4.1 tail: S4 per-segment edge refresh -> S5 mind binding ->
       S6 belief drain+persist + rich digest -> THEN tick T4.1 (starts the soak).
       The [synthesis] CATEGORY filter (events-category join) stays deferred.
-  S4. drive() per-segment edge refresh: keep last-known on failure + count/alert,
-      never crash (requirement 2).
-  S5. mind binding (StubMind -> AnthropicMind via allow_stub_mind/CostBudget).
+  S4. drive() per-segment edge refresh (requirement 2): keep last-known on
+      failure + count/alert, never crash. MECHANISM VALIDATED 2026-06-12
+      (substantial + WIDE — build with focused context): drive() cannot reach
+      the synth strategy's edges today (private Vec<EdgeView>, no setter; the
+      runner exposes no strategy-mut access; the between_segments closure is
+      &SimRunner = immutable). Build path: (1) SynthesisStrategy::set_edges(
+      Vec<EdgeView>) + edge_count() getter (for the test); (2) Strategy::
+      as_any_mut(&mut self) -> &mut dyn Any (1 line per impl) + runner.
+      refresh_synthesis_edges(edges) -> Option<usize> (downcast, set, return
+      count); (3) drive() gains the pool + SynthesisSection AS AN OPTION so the
+      MANY existing callers (daemon_smoke x2, run_loop tests, main) pass None,
+      and per segment re-loads compose::synthesis_edges + calls
+      refresh_synthesis_edges; on Err keep last-known + count/alert (mirror the
+      halt-poll-failure TRANSITION dedup). Test: refresh swaps edges (edge_count
+      changes); an Err-injecting load keeps the prior count + bumps a counter.
+      NOTE: refresh is MOOT until S5 (the StubMind arm trades nothing), so S5
+      could reasonably PRECEDE S4 — but req 2 is binding, so S4 completes
+      synthesis-in-main.
+  S5. mind binding (StubMind -> AnthropicMind). compose_runner builds the mind
+      INTERNALLY today, so a real-API test is BOTH expensive AND the kickoff
+      money pitfall. TESTABILITY VALIDATED: a compose::mind_from_env helper that
+      takes the TRANSPORT injected (StubMind when no key + allow_stub;
+      AnthropicMind{model, budgets -> CostBudget, injected transport} when
+      keyed). Test with a SCRIPTED transport (the synthesis_loop
+      anthropic_mind_trades pattern), NEVER a real key; compose_runner uses it
+      with the real reqwest transport in the binary.
   S6. belief drain+persist wired (path exists); rich digest.
   Then tick T4.1 (starts the soak) -> T4.2 -> T4.5.
 The populated-path test rule (the verifier's vacuous-test lesson) applies to
