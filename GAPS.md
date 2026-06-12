@@ -961,18 +961,28 @@ observed so far: `INVALID_PARAMETER` (malformed key id) and
 
 ## Kinetics perps module (operator-directed 2026-06-10)
 
-- **TRACK C FINDING (2026-06-12, T5.B2 battery): pre-existing
-  `cargo fmt --check` violation on main** at
-  crates/fortuna-venues/examples/record_kinetics_fixtures.rs:801 (file
-  landed with the fixture-session commits already gated onto main; one
-  rustfmt whitespace diff). The file is under examples/, OUTSIDE track C's
-  enumerated ownership (loop rule: src/kinetics* only => ledger + skip,
-  not fix). Battery impact for track C commits: `cargo fmt --check` fails
-  workspace-wide on that ONE pre-existing file; every file in track C's
-  own diffs is fmt-clean (verified: the only `Diff in` line names that
-  file). Unblock: the owning session (main checkout) runs
-  `cargo fmt -p fortuna-venues` and commits, or the verifier authorizes a
-  track to format it.
+- **TRACK C FINDING — RESOLVED upstream (2026-06-12): the pre-existing
+  `cargo fmt --check` violation** at
+  crates/fortuna-venues/examples/record_kinetics_fixtures.rs:801 was
+  fixed on main and reached track C via rebase onto f4b4a54;
+  `cargo fmt --check` is now FULLY clean workspace-wide (verified at the
+  T5.B5 battery). Original finding kept for the trail: the file was
+  outside track C ownership (examples/, not src/kinetics*), so track C
+  ledgered + skipped per loop rule 7 while its own diffs stayed
+  fmt-clean.
+- **T5.B5 paper margin: DONE, box ticked** (track C, 2026-06-12, commit
+  e8fe069): MarginSim in fortuna-state (track-C margin ownership) —
+  mark-based PnL with VWAP-against-us entries, 04/12/20-UTC funding
+  schedule (funding_times_between) + append-only accrual log,
+  whole-account liquidation sim from recorded risk curves at worse-mark
+  + penalty, negative balances modeled. DEFERRED with owner: driving
+  MarginSim from recorded streams inside fortuna-paper belongs to that
+  crate's owner (track A); the engine + tests are the track-C
+  deliverable. NOTE for all tracks: a disk-full (3 parallel batteries +
+  36G main target) interrupted one DST stage mid-battery; track C freed
+  15.4GiB by cleaning ITS OWN worktree target and re-ran the battery in
+  full. Main's 36G target may want a quiet-moment `cargo clean` by its
+  owner.
 - **T5.B3 gate extensions: DONE, box ticked** (track C, 2026-06-12,
   commits 7782f5c slice 1 + b4561ca slice 2): the perp gate arm in
   fortuna-gates (MarginHeadroom/LiquidationDistance/LeverageCap/

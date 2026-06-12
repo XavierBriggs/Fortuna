@@ -57,6 +57,40 @@ conservative option, and the spec section it interprets.
   proceeded — the operator must read the output; exit 0 is reserved for
   fully-confirmed shutdowns and true idempotent no-ops.
 
+## T5.B5 margin simulator (track C, 2026-06-12; interprets spec 5.15 / plan B5)
+
+- **VWAP entry rounding is by the POSITION's side:** long entries ceil
+  (a higher entry is worse for a long), short entries floor. Realized PnL
+  floors toward -inf on every reduce/flip (sub-cent gains drop, sub-cent
+  losses round to a full cent against us) — same conversion doctrine as
+  the core perp types.
+- **Liquidation closes the WHOLE account** (portfolio margin: the venue's
+  API accounts are portfolio-margined and the liquidation ratio is 1.0):
+  every position closes at its worse-for-us mark pushed FURTHER against
+  us by `liquidation_penalty_bps` (ceiled). Post-liquidation balances may
+  be NEGATIVE — clawback exposure is modeled, never clamped to zero.
+- **The portfolio maintenance requirement is the SUM of per-market curve
+  lookups** at worse-notional marks x multiplier (>= 100 validated). The
+  venue's true portfolio formula is unpublished; summing per-market
+  requirements is the bounded approximation available from recorded
+  leverage_estimates, and an unboundable notional is an ERROR ("a
+  liquidation under-modeled = test failure, not surprise").
+- **Funding entries exist only for held positions** (mirrors the venue's
+  funding_history); the schedule helper is exclusive-after /
+  inclusive-until so a tick is processed exactly once across consecutive
+  windows. Maintenance-window funding DEFERRAL (research: funding due
+  during Thursday maintenance processes after reopen) is NOT modeled —
+  the amount is identical, only the application timestamp differs;
+  ledgered as a B6 chaos-arm candidate rather than sim complexity.
+- **`apply_fill` does not margin-check:** pre-trade enforcement is the
+  gate pipeline's job (I1); the sim applies what fills and the
+  liquidation check catches under-margined states — exactly the venue
+  split. A market with NO risk curve refuses fills outright (it could
+  never be margin-checked later).
+- **No new DST scenarios in B5 itself:** the dedicated perp DST arms
+  (funding-tick chaos, liquidation under ack-delay, margin-call
+  sequences) are T5.B6, next in queue.
+
 ## T5.B3 slice 2: I2 composition + invariant additions (track C, 2026-06-12)
 
 - **`equity_with_margin` is the I2 seam, not the wiring:** the composed

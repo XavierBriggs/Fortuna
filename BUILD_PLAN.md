@@ -507,8 +507,13 @@ code.
 - [ ] T5.B4 Kinetics adapter (own credentials; dedicated 5.14 envelope):
       REST+WS from the archived specs, doc-derived samples, FIXTURES-GATED vs
       fixtures/kinetics-perps/ (18-item list, research section 12).
-- [ ] T5.B5 Paper engine margin semantics: funding accrual on SimClock,
+- [x] T5.B5 Paper engine margin semantics: funding accrual on SimClock,
       liquidation sim from recorded risk curves, mark-based PnL.
+      (DONE track C 2026-06-12, commit e8fe069: fortuna-state MarginSim —
+      VWAP-against-us position math, 04/12/20-UTC funding schedule +
+      append-only accrual log, whole-account liquidation at worse-mark +
+      penalty with unbounded-curve/missing-mark = error; 20 spec-first
+      tests; fortuna-paper wiring ledgered for that crate's owner.)
 - [ ] T5.B6 DST arms: funding-tick chaos, liquidation under ack-delay/api-error,
       system-fill ingestion, margin-call sequences, demo-divergence confusion.
 - [ ] T5.B7 Strategies rung 0: perp_event_basis (Sim), funding_forecast
