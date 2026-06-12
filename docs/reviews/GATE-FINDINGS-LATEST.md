@@ -1,3 +1,28 @@
+# GATE FINDINGS — latest (verifier-owned)
+
+## PERPS MERGE REVERTED (post-merge interaction failure, 2026-06-12 ~21:10Z)
+
+The signed merge (a586b4a) failed the post-merge integration check:
+kinetics_adapter.rs:168 place_maps_gated_order_to_the_recorded_create_
+request — the DETERMINISTIC client_order_id derived in the merged tree
+differs from the id the same test derived on track-c's tree (left
+f6384bf5... vs right c445aeac...). Track-c gated green pre-merge; main
+moved (T4.1 synthesis batch); the COMBINATION shifts the id derivation.
+
+DIAGNOSIS NEEDED (pool; exec id-derivation is track-A domain, the test is
+track-C domain): deterministic client ids must be STABLE under unrelated
+code addition — find what the derivation salts on that changed in the
+merged tree (enum ordering? seed-stream consumption? shared id-space
+counter?). EITHER make the derivation context-free for a given (intent,
+market, attempt) OR make the test derive its expectation through the same
+path rather than pinning a tree-state-dependent UUID. LOAD-BEARING
+QUESTION to adjudicate explicitly: if ids are not stable across builds,
+crash-resubmission idempotency (AlreadyExists dedup) may be silently
+broken across daemon restarts after upgrades.
+
+Operator signatures (batch 5 + F1) REMAIN VALID; the merge re-runs after
+the fix + re-gate. Main is GREEN again post-revert.
+
 # GATE FINDINGS — latest (verifier-owned; implementer reads at priority (a))
 
 Updated: 2026-06-12 ~10:30Z. Multi-track pipeline state.
