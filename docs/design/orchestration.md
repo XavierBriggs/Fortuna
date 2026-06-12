@@ -66,6 +66,17 @@ TRACK C — new session, worktree /Users/xavierbriggs/fortuna-wt-c (branch track
    A red post-merge check reverts the merge and buses the conflict. (merge
    is promotion mechanics, not authorship; a BLOCK branch stays unmerged.)
 4. One findings bus, per-track sections.
+4b. DISK HYGIENE v2 (two disk-full incidents 2026-06-12; the second took
+    the machine to literal zero bytes mid-gate): ALL gate builds share ONE
+    target dir — every gate/battery command runs with
+    CARGO_TARGET_DIR=/tmp/fortuna-gate-target — bounding total gate
+    transients to a single warm cache regardless of worktree count (cargo's
+    lock serializes concurrent gate builds; therefore GATES RUN ONE AT A
+    TIME, queued, full-tier first). Gate worktrees stay persistent but
+    carry NO per-worktree target. Verifier checks free space each firing:
+    <10GB => bus alert + cargo clean the shared gate target (self-owned).
+    The main checkout's 35GB target is cleaned only at operator-approved
+    idle windows; the perishable dataset is NEVER touched.
 5. MUTATION CHECKS are standard for any commit whose deliverable is a test:
    the gate stubs/mutates the tested surface and requires the test to go
    red (three vacuous tests were caught this way; green-only verification
