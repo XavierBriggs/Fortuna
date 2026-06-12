@@ -57,6 +57,30 @@ conservative option, and the spec section it interprets.
   proceeded — the operator must read the output; exit 0 is reserved for
   fully-confirmed shutdowns and true idempotent no-ops.
 
+## T5.B4 slice 1: kinetics DTOs (track C, 2026-06-12; fixtures-first)
+
+- **DTO fields are exactly as recorded, optionality included:** required
+  where every capture carries the field, `Option` ONLY where a recording
+  shows absence (inactive TEST-EQUITY markets lack all quote/mark/
+  leverage fields; group "triggered" WS events lack contracts_limit_fp;
+  order_source absent on some order reads). Optionality is evidence-
+  driven, never defensive blanket-Option — a field the venue always
+  sends going missing should FAIL parse, not silently None.
+- **Uncaptured shapes stay raw JSON with a doc note** (funding_history
+  entries — demo funding rate was 0, zero payments post no entries;
+  notional-risk per-market limit values — empty map on demo). Typing
+  them from the OpenAPI spec alone would be inventing untested shapes;
+  they type up when a populated capture or the PROD parity sweep lands.
+- **Dollar strings stay `Decimal` in DTOs** (equity/notional carry six
+  decimals); conversion to `Cents`/`PerpPrice` happens through the
+  explicit parse primitives at adapter boundaries with the rounding
+  direction chosen there. Prices parse EXACT (sub-tick = error);
+  counts parse WHOLE (fractional trading disabled).
+- **WS unknown-type frames degrade to `WsFrame::Unknown` (preserved)**:
+  the demo API build is NEWER than prod (research §9) — failing the
+  whole stream on a new frame type would turn a venue deploy into an
+  outage; the recorded streams must (and do) parse with zero unknowns.
+
 ## T5.B6 perp DST (track C, 2026-06-12; interprets plan B6)
 
 - **OPERATOR CONFIG GUIDANCE (discovered by the gate-pass=>no-instant-

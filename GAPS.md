@@ -970,6 +970,21 @@ observed so far: `INVALID_PARAMETER` (malformed key id) and
   outside track C ownership (examples/, not src/kinetics*), so track C
   ledgered + skipped per loop rule 7 while its own diffs stayed
   fmt-clean.
+- **T5.B4 kinetics adapter: SLICE 1 LANDED, box stays unticked** (track
+  C, 2026-06-12, commit dd82ca1): the DTO layer for the full recorded
+  REST + WS surface, fixtures-gated with FULL coverage (all 76 bodies
+  classified + parsed, classification cross-checked against recorded
+  HTTP statuses, both WS streams zero-unknown). STILL OPEN before the
+  tick: (a) signing + REST transport (same RSA-PSS recipe under
+  /trade-api/v2/margin/*, asymmetric skew window per fixture finding 3);
+  (b) the adapter proper — order path accepting ONLY GatedPerpOrder
+  (type-level I1), reduce_only=>IOC/FOK enforcement, system-fill
+  (liquidation) ingestion as the dedicated 5.15 lifecycle class, fee
+  reconciliation vs fee_tiers; (c) WS session layer. DATA GAPS held
+  open honestly in the DTOs (never invented): funding_history ENTRY
+  shape uncaptured (item 10 partial — demo rate was 0; raw JSON values
+  until a populated capture or the PROD parity sweep), notional risk
+  limit per-market values uncaptured (empty map on demo).
 - **T5.B6 perp DST: DONE, box ticked** (track C, 2026-06-12, commit
   335e5e6): run-dst.sh gains the perp_dst stage (fortuna-state, same
   seed count as the other stages) — 6 accounted arms with a coverage
