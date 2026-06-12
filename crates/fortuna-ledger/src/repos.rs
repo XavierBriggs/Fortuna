@@ -654,6 +654,41 @@ impl EdgesRepo {
             })
             .collect())
     }
+
+    /// All CONFIRMED (confirmed_by IS NOT NULL) and CURRENT (non-superseded)
+    /// edges — the daemon synthesis composition's tradeable edge set
+    /// (docs/design/synthesis-edge-source-decision.md requirement 1). The
+    /// `[synthesis]` config filters (category / venue / max_edges) apply at the
+    /// composition, never here; this is the raw confirmed-tier load.
+    pub async fn confirmed_edges(&self) -> Result<Vec<EdgeRow>, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT edge_id, market_id, venue, event_id, mapping_type,
+                      confidence, proposed_by, confirmed_by, supersedes
+               FROM market_event_edges e
+               WHERE e.confirmed_by IS NOT NULL
+                 AND NOT EXISTS (
+                     SELECT 1 FROM market_event_edges n
+                     WHERE n.supersedes = e.edge_id
+                 )
+               ORDER BY created_at, edge_id"#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| EdgeRow {
+                edge_id: r.edge_id,
+                market_id: r.market_id,
+                venue: r.venue,
+                event_id: r.event_id,
+                mapping_type: r.mapping_type,
+                confidence: r.confidence,
+                proposed_by: r.proposed_by,
+                confirmed_by: r.confirmed_by,
+                supersedes: r.supersedes,
+            })
+            .collect())
+    }
 }
 
 /// One persisted CLV price snapshot row (spec 5.5; append-only table).

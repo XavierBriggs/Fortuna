@@ -160,9 +160,18 @@ Survey (against synthesis-edge-source-decision.md requirements 1-5):
   operator_records) — never self-promote (I7).
 
 Build sub-slices (each its own iteration, TDD, battery-gated):
-  S1. EdgesRepo::confirmed_edges() (+ sqlx prepare) — load CONFIRMED + CURRENT
-      edges; test: confirmed-current returned, unconfirmed + superseded excluded
-      (requirement 1 + the requirement-5 exclusion case). [touches shared repos.rs]
+  S1. EdgesRepo::confirmed_edges() (+ sqlx prepare). DONE (this commit):
+      confirmed_edges() loads confirmed_by IS NOT NULL AND non-superseded edges
+      (ORDER BY created_at, edge_id); test confirmed_edges_returns_confirmed_
+      current_heads_only seeds 6 edges and asserts the load == exactly the 2
+      confirmed-current heads [cf-head, cf-new], with the unconfirmed (unconf),
+      the superseded confirmed (cf-old), and the req-5 conservative case
+      (cf-base confirmed but superseded by an UNCONFIRMED reproposal -> neither)
+      all excluded. TDD red was OBSERVED (stub -> Ok(vec![]) -> assertion
+      left:[] right:[cf-head,cf-new]); .sqlx offline cache refreshed. The
+      EdgesRepo addition is DISJOINT from track B's R7 BeliefsRepo/calibration
+      additions in repos.rs (decision-authorized by synthesis-edge-source-
+      decision.md req 1; clean merge anticipated).
   S2. SynthesisStrategy empty-edge fail-closed PIN (fortuna-runner test).
       DONE (this commit): empty_edge_set_fails_closed_but_a_present_edge_trades
       in synthesis_loop.rs — requirement 3 pinned NON-VACUOUSLY by the

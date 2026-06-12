@@ -545,6 +545,146 @@ async fn edges_propose_confirm_by_superseding_row(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn confirmed_edges_returns_confirmed_current_heads_only(pool: PgPool) {
+    // docs/design/synthesis-edge-source-decision.md requirement 1 (CONFIRMED
+    // tier only) + requirement 5 (unconfirmed / superseded excluded). The daemon
+    // synthesis composition loads its tradeable edge set through confirmed_edges;
+    // it must return exactly the CONFIRMED + CURRENT heads and nothing else.
+    let events = fortuna_ledger::EventsRepo::new(pool.clone());
+    events
+        .create(
+            "evt-1",
+            "s",
+            "c",
+            "src",
+            None,
+            "2026-06-20T18:00:00.000Z",
+            "sports",
+            "2026-06-10T12:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    let repo = fortuna_ledger::EdgesRepo::new(pool);
+
+    // 1. confirmed + current -> RETURNED.
+    repo.insert_edge(
+        "cf-head",
+        "MKT-HEAD",
+        "kalshi",
+        "evt-1",
+        "direct",
+        0.9,
+        "model:stub",
+        Some("operator:x"),
+        None,
+        "2026-06-10T12:01:00.000Z",
+    )
+    .await
+    .unwrap();
+    // 2. unconfirmed + current -> EXCLUDED (confirmed_by IS NULL).
+    repo.insert_edge(
+        "unconf",
+        "MKT-UNCONF",
+        "kalshi",
+        "evt-1",
+        "direct",
+        0.5,
+        "model:stub",
+        None,
+        None,
+        "2026-06-10T12:02:00.000Z",
+    )
+    .await
+    .unwrap();
+    // 3. confirmed but SUPERSEDED by a newer confirmed head -> old EXCLUDED
+    //    (not current), new RETURNED.
+    repo.insert_edge(
+        "cf-old",
+        "MKT-CHAIN",
+        "kalshi",
+        "evt-1",
+        "direct",
+        0.8,
+        "model:stub",
+        Some("operator:x"),
+        None,
+        "2026-06-10T12:03:00.000Z",
+    )
+    .await
+    .unwrap();
+    repo.insert_edge(
+        "cf-new",
+        "MKT-CHAIN",
+        "kalshi",
+        "evt-1",
+        "direct",
+        0.9,
+        "model:stub",
+        Some("operator:y"),
+        Some("cf-old"),
+        "2026-06-10T12:04:00.000Z",
+    )
+    .await
+    .unwrap();
+    // 4. requirement-5 conservative case: a confirmed edge superseded by an
+    //    UNCONFIRMED re-proposal -> the current head is unconfirmed, so NEITHER
+    //    is returned (never trade a mapping whose current state is unconfirmed).
+    repo.insert_edge(
+        "cf-base",
+        "MKT-REPROP",
+        "kalshi",
+        "evt-1",
+        "direct",
+        0.8,
+        "model:stub",
+        Some("operator:x"),
+        None,
+        "2026-06-10T12:05:00.000Z",
+    )
+    .await
+    .unwrap();
+    repo.insert_edge(
+        "reproposal",
+        "MKT-REPROP",
+        "kalshi",
+        "evt-1",
+        "direct",
+        0.7,
+        "model:stub",
+        None,
+        Some("cf-base"),
+        "2026-06-10T12:06:00.000Z",
+    )
+    .await
+    .unwrap();
+
+    let edges = repo.confirmed_edges().await.unwrap();
+    let ids: Vec<&str> = edges.iter().map(|e| e.edge_id.as_str()).collect();
+
+    // NON-VACUOUS: exactly the two confirmed-current heads, ordered by
+    // (created_at, edge_id). An empty / stubbed load FAILS this assertion.
+    assert_eq!(
+        ids,
+        vec!["cf-head", "cf-new"],
+        "confirmed + current heads only: {ids:?}"
+    );
+    // Real fields on the returned heads (never a shape that passes on empty).
+    let head = edges.iter().find(|e| e.edge_id == "cf-head").unwrap();
+    assert_eq!(head.confirmed_by.as_deref(), Some("operator:x"));
+    assert_eq!(head.market_id, "MKT-HEAD");
+    let chain_head = edges.iter().find(|e| e.edge_id == "cf-new").unwrap();
+    assert_eq!(chain_head.confirmed_by.as_deref(), Some("operator:y"));
+    assert_eq!(chain_head.supersedes.as_deref(), Some("cf-old"));
+    // Explicit exclusions (unconfirmed, superseded, and the req-5 conservative case).
+    for excluded in ["unconf", "cf-old", "cf-base", "reproposal"] {
+        assert!(
+            !ids.contains(&excluded),
+            "{excluded} must be excluded: {ids:?}"
+        );
+    }
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn snapshots_insert_and_latest_liquid_pre_benchmark_query(pool: PgPool) {
     let events = fortuna_ledger::EventsRepo::new(pool.clone());
     events
