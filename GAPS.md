@@ -182,6 +182,64 @@ commit gate — never a -p subset, loop rule 4):
    neutering the wiring drops the journal, RED). Full workspace battery green.
    ===> DAILY RECONCILIATION is now FULLY WIRED (slice 1 helper + slice 2 loop).
    REMAINING M2 sub-item: the weekly/monthly REVIEWS (fortuna_cognition::review).
+
+## TRACK A — M2 weekly/monthly REVIEWS: DESIGN-VALIDATED 2026-06-12 (Explore map)
+
+HONEST FRAMING FIRST: the daemon North Star (built, gated, soak-ready + daily
+reconciliation) is MET. The reviews are M2's SECOND disclosed-but-unbuilt item;
+M2 is an OPERATOR waive-or-build decision. The weekly review fires ~ONCE in a
+soak week (EXIT-relevant); the MONTHLY won't fire in a week (low soak value).
+Both are ADVISORY ONLY (recommendations; promotion is the human act, I7).
+
+weekly_review(mind, context_items, records:&[ScopeRecord], prior_versions:
+&BTreeMap<ScopeKey,u32>, strategies:&[StrategyRecord], thresholds:
+&GoNoGoThresholds, now) -> WeeklyReview. DETERMINISTIC CORE (calibration_report
++ go_nogo) computes FIRST and survives any mind outcome; commentary + lesson
+candidates layer on top (so it produces output even with a StubMind — unlike
+reconciliation's NoJournal-skip). monthly_review(strategies:&[AllocationInput],
+active_lessons:&[LessonStatusView], now) -> MonthlyReview (NO mind; pure).
+
+INPUT SOURCES (validated):
+- ScopeRecord{key:ScopeKey{model_id,strategy,category}, samples:Vec<(f64,bool)>,
+  clv_bps:Vec<f64>} <- BeliefsRepo::resolved_stats(category) (repos.rs:1118,
+  returns ResolvedStat{p,outcome,brier,clv_bps}). MEDIUM (~80 LOC assembly loop
+  per scope).
+- prior_versions <- CalibrationParamsRepo::latest(model,strategy,category,kind)
+  .version, once per scope. EASY-MEDIUM.
+- StrategyRecord{strategy,kind,paper_days,resolved_beliefs,realized_pnl_cents,
+  fees_cents,clv_mean_bps,invariant_violations} <- digest_snapshot()'s
+  DigestStrategyRow covers strategy/pnl/fees EXACTLY; the rest by DAEMON-LEVEL
+  APPROXIMATION (no exact per-strategy source — documented honestly):
+  paper_days = daemon uptime in days; resolved_beliefs = resolved_stats(synth
+  category).len() for the synthesis arm / 0 for mechanical; clv_mean_bps from
+  resolved_stats; invariant_violations = 0 (healthy daemon; aggregate is 0 — a
+  per-strategy histogram is a ledgered refinement). HONEST-MEDIUM.
+- GoNoGoThresholds{min_paper_days_mechanical,min_resolved_beliefs_synthesis,
+  max_fee_pnl_ratio}: NO config source exists -> NEW [review] config section
+  (FortunaConfig + example.toml + validate). MEDIUM, multi-file.
+
+PERSISTENCE: WeeklyReview -> JournalRepo::insert (JSON body) + MessageKind::
+Digest to #fortuna-digest. lesson_candidates -> MessageKind::Review (PROPOSE
+ONLY, I7 — the daemon NEVER calls LessonsRepo::insert; the operator promotes).
+CADENCE: NO WeeklyScheduler/MonthlyScheduler exist -> NEW, copy DailyScheduler's
+fire-once-per-period pattern (weekly = epoch_days.div_euclid(7); monthly =
+year-month key).
+
+SLICE PLAN (full workspace battery is the commit gate, every slice):
+ - Slice A: [review] config (GoNoGoThresholds) + WeeklyScheduler + Monthly
+   Scheduler + their unit tests. Tractable foundation.
+ - Slice B: weekly_review wiring — assemble ScopeRecord/prior_versions/Strategy
+   Record (approximations above), call weekly_review, persist (journal) + route
+   (Digest; Review for candidates, propose-only), drive() weekly-scheduler param;
+   tests (deterministic core => calibration + GO/NO-GO non-vacuous; mutation-
+   proven). The bulk.
+ - Slice C (LOW soak value — won't fire in a week): monthly_review wiring
+   (AllocationInput from envelopes+digest; LessonStatusView from LessonsRepo::
+   active).
+RECOMMENDATION: building Slice A+B completes M2's weekly review (EXIT-relevant);
+monthly (Slice C) is deferrable. The daemon is soak-ready WITHOUT any of this, so
+this is gate-clean COMPLETENESS work, not soak-blocking — the operator's M2
+waive-or-build call governs whether it ships.
 DEFERRED (follow-on, ledgered): beliefs-CONTEXT enrichment (originating beliefs
 into the reconciliation context — needs a BeliefsRepo recent-read; slice 1 uses
 fills+positions context, faithful + sufficient for the scripted-mind tests). The
