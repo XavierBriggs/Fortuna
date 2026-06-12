@@ -47,6 +47,9 @@ EACH ITERATION, do exactly ONE item, then commit and start the next iteration.
    scripts/run-dst.sh ALL green; new failure modes become DST scenarios;
    GAPS.md/ASSUMPTIONS.md updated for anything assumed or deferred; BUILD_PLAN
    box ticked with a one-line note + commit hash.
+   THE WORKSPACE IS THE UNIT: `cargo test --workspace` and the full
+   run-dst.sh — a per-crate battery (-p <crate>) does NOT satisfy DoD
+   (the T4.1 gate's only red escaped exactly this way).
    THE BATTERY IS A COMMIT-GATE (added after clippy shipped red at TWO
    consecutive gates): run the FULL battery in the SAME iteration as the
    commit; if any step is red, the commit DOES NOT HAPPEN this iteration —

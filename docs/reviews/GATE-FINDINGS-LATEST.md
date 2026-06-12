@@ -24,6 +24,48 @@ TRACK C FIX LIST (Minor, ledger each):
    wording (claims "recorded risk curves" — currently false; correct
    visibly, never erase).
 
+## T4.1 COMPLETION GATE: BLOCK (t41-completion-gate-2026-06-12.md) — one line from soak-ready
+
+The daemon is mechanically SOUND (full synthesis chain proven in the booted
+composition; E1 fail-closed THROUGH the composition; budgets bind w/
+degrade audit rows; no silent unhalt; DST 10000 all stages clean; sweeps
+clean; protected crate untouched). The BLOCK:
+
+FOR TRACK A (priority (a), fix in ONE iteration):
+1. [M1, the red] config/fortuna.example.toml gained synthesis entries
+   (304f746) but the example-config pin (fortuna-ops/tests/config.rs:84)
+   was never updated — ONE-LINE pin fix, then the FULL WORKSPACE battery +
+   DST green. ROOT CAUSE: per-crate batteries (-p fortuna-live) were run
+   instead of `cargo test --workspace`. THE COMMIT-GATE MEANS THE WORKSPACE
+   BATTERY — a per-crate battery does not satisfy DoD, ever. (Loop rule 4
+   now says so explicitly.)
+2. [m1-m4 Minors] R4 categories-allowlist stale deferral; committed
+   integration test for R2 refresh-failure (gate proved it by mutation —
+   pin it); + two in the verdict file.
+
+FOR THE POOL (track-B-owned files; track B stopped):
+3. [M3] Rearm option-(a) notices landed 1 of 3 places — ASSUMPTIONS yes;
+   the CLI rearm output ("re-armed {scope}" must say "pending restart")
+   and a ROTA health-surface notice are MISSING. Land both before the
+   first soak halt drill or the operator WILL be confused mid-drill.
+
+OPERATOR (added to your queue):
+4. [M2] The T4.1 tick stands with two disclosed-but-unbuilt items (daily
+   reconciliation re-run + weekly/monthly reviews -> digest). Decide:
+   waive with explicit BUILD_PLAN sub-checkboxes, or un-tick until built.
+5. Runbook line: the fortuna_app Pg role cannot CREATE DATABASE, which
+   fails every sqlx::test under the operator .env — document or grant.
+6. DISK IS URGENT AGAIN (~10GB): machine-wide space + the 35GB cargo-clean
+   window.
+
+VERIFIER SELF-FINDING (owned): commit 8b8b222 bundled a 111-file kinetics
+fixture re-record beyond its message (the funding-tick recorder refreshes
+swept in via `git add fixtures/`). Inert content, dishonest commit shape —
+the verifier's own claim-vs-reality slip, logged here for symmetry.
+
+SOAK: NOT started (correctly — no process, operator-start documented).
+Starts after M1 clears + your M2 decision.
+
 ## OPERATOR DECISIONS PARKED (morning queue)
 
 1. PROTECTED-CRATE WAIVE batch 5: track-C invariant additions (perp I1
