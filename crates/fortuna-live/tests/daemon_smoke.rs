@@ -164,6 +164,7 @@ async fn daemon_smoke_boot_ticks_signal_shutdown(pool: PgPool) {
         &mut daily,
         None, // S4: no per-segment edge refresh in this smoke
         None, // M2: no reconciliation in this smoke
+        None, // M2: no reviews in this smoke
     )
     .await
     .expect("daemon drive");
@@ -256,6 +257,7 @@ async fn signal_with_working_orders_cancels_them_and_audits(pool: PgPool) {
         &mut daily,
         None, // S4: no per-segment edge refresh in this smoke
         None, // M2: no reconciliation in this smoke
+        None, // M2: no reviews in this smoke
     )
     .await
     .expect("daemon drive");
@@ -457,6 +459,7 @@ async fn per_segment_refresh_picks_up_a_newly_confirmed_edge(pool: PgPool) {
         &mut daily,
         synthesis_refresh,
         None, // M2: no reconciliation in this smoke
+        None, // M2: no reviews in this smoke
     )
     .await
     .expect("daemon drive");
@@ -585,6 +588,7 @@ async fn refresh_failure_keeps_last_known_edges_alerts_and_survives(pool: PgPool
         &mut daily,
         Some((broken, syn)),
         None, // M2: no reconciliation in this smoke
+        None, // M2: no reviews in this smoke
     )
     .await
     .expect("the loop must SURVIVE a failing refresh");
@@ -946,6 +950,7 @@ async fn drive_drains_and_persists_the_synthesis_arms_beliefs(pool: PgPool) {
         &mut daily,
         synthesis_refresh,
         None, // M2: no reconciliation in this smoke
+        None, // M2: no reviews in this smoke
     )
     .await
     .expect("daemon drive");
@@ -1148,6 +1153,7 @@ async fn drive_runs_daily_reconciliation_at_the_utc_day_boundary(pool: PgPool) {
         &mut daily,
         None,                                                               // synthesis_refresh
         Some((pool.clone(), journaling_mind("EOD: flat; tomorrow hold."))), // reconciliation
+        None, // M2: no reviews in this e2e
     )
     .await
     .expect("daemon drive");
@@ -1285,4 +1291,89 @@ async fn weekly_review_audits_the_deterministic_calibration_and_go_nogo(pool: Pg
     .await
     .unwrap();
     assert_eq!(audits, 1, "the weekly review cycle is audited once");
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn drive_runs_the_weekly_review_at_the_week_boundary(pool: PgPool) {
+    // T4.1/M2 slice B2: drive() runs the weekly review on the WEEK boundary (the
+    // first WeeklyScheduler.due() fires on boot, like the daily digest). With the
+    // review wired, a weekly_review audit lands. NON-VACUOUS: the sibling drives
+    // pass reviews=None and audit none — only the wiring fires it. (The review's
+    // DATA path is covered by weekly_review_audits_*; this proves the WIRING.)
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let full = FortunaConfig::load_file(example_path).unwrap();
+    let dcfg = DaemonToml::parse(&format!(
+        "{text}\n[synthesis]\nvenue = \"sim\"\ncategory = \"weather\"\n"
+    ))
+    .unwrap();
+    let review = dcfg.review.clone().expect("the example ships [review]");
+    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 91, stub_mind())
+        .await
+        .unwrap();
+    arb_books(&runner);
+
+    let before: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit WHERE kind = 'alert' AND payload->>'kind' = 'weekly_review'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(before, 0, "no weekly review before drive");
+
+    let reviews = Some(fortuna_live::daemon::ReviewWiring {
+        pool: pool.clone(),
+        mind: stub_mind(),
+        review,
+        synth_category: Some("weather".to_string()),
+        start: t0(),
+        weekly: fortuna_live::daemon::WeeklyScheduler::new(),
+    });
+
+    let (tx, mut stop) = tokio::sync::oneshot::channel::<()>();
+    let mut cadence = StopAtCadence {
+        clock: runner.clock.clone(),
+        sleeps: 0,
+        fire_at: 6,
+        tx: Some(tx),
+    };
+    let mut poller = NeverHalted;
+    let loop_cfg = LoopConfig {
+        tick_interval_ms: 1000,
+        halt_poll_ms: 500,
+    };
+    let mut scrape = DegradeScrape::new(default_degrade_thresholds());
+    let mut daily = fortuna_live::daemon::DailyScheduler::new();
+
+    let (_stats, _shutdown) = drive(
+        &mut runner,
+        &mut cadence,
+        &mut poller,
+        &loop_cfg,
+        4,
+        &mut stop,
+        |_r, _s| {},
+        &mut scrape,
+        None,
+        &mut daily,
+        None,    // synthesis_refresh
+        None,    // reconciliation
+        reviews, // M2: weekly review wiring
+    )
+    .await
+    .expect("daemon drive");
+
+    let after: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit WHERE kind = 'alert' AND payload->>'kind' = 'weekly_review'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        after, 1,
+        "drive() ran the weekly review at the week boundary"
+    );
 }

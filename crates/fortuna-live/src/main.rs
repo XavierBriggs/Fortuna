@@ -205,7 +205,21 @@ async fn main() -> Result<()> {
     // T4.1/M2 (spec 5.8): the daily reconciliation reuses the SAME synthesis
     // mind (one build, not a second) — a stub mind self-skips. Built BEFORE
     // `pool` moves into the halt poller below.
-    let reconciliation = Some((pool.clone(), synthesis_mind));
+    let reconciliation = Some((pool.clone(), synthesis_mind.clone()));
+    // T4.1/M2 slice B2: the opt-in [review] weekly-review wiring, reusing the
+    // synthesis mind + [synthesis].category + the boot time (paper_days). Absent
+    // [review] => None => no weekly review fires. Built BEFORE `pool` moves.
+    let reviews = dcfg
+        .review
+        .clone()
+        .map(|review| fortuna_live::daemon::ReviewWiring {
+            pool: pool.clone(),
+            mind: synthesis_mind,
+            review,
+            synth_category: dcfg.synthesis.as_ref().and_then(|s| s.category.clone()),
+            start,
+            weekly: fortuna_live::daemon::WeeklyScheduler::new(),
+        });
     let mut poller = PgHaltPoller::new(pool);
     let loop_cfg = LoopConfig {
         tick_interval_ms: dcfg.daemon.tick_interval_ms,
@@ -259,6 +273,7 @@ async fn main() -> Result<()> {
         &mut daily,
         synthesis_refresh,
         reconciliation,
+        reviews,
     )
     .await
     .context("daemon loop")?;

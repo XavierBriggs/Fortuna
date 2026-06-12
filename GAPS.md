@@ -286,11 +286,23 @@ SLICE PLAN (full workspace battery is the commit gate, every slice):
    all 50 (calibration[0].n==50) + produced GO/NO-GO recs + no commentary +
    audited; mutation-proven (dropping the samples => n=0, RED). Full workspace
    battery green (daemon_smoke 12/12).
- - Slice B2 (next): wire run_weekly_review into drive() via WeeklyScheduler (a
-   drive() param threaded from main, reusing the synthesis mind + [synthesis].
-   category + the daemon start time for paper_days); route the WeeklyReview to
+ - Slice B2 DONE (this commit): run_weekly_review wired into drive() via a
+   ReviewWiring struct (bundles pool+mind+ReviewSection+synth_category+start+
+   WeeklyScheduler into ONE Option drive() param, threaded from main reusing the
+   synthesis mind via .clone()). The WEEK boundary (separate scheduler from
+   `daily`; both fire on a Monday) runs the review + routes the WeeklyReview to
    Slack — #digest (calibration + GO/NO-GO summary), #review (lesson candidates,
-   PROPOSE-ONLY, I7); + an e2e test. Then monthly (Slice C, low soak value).
+   PROPOSE-ONLY, I7); a failure alerts #ops but never crashes the boundary. The 6
+   existing drive() call sites pass None; e2e test
+   drive_runs_the_weekly_review_at_the_week_boundary (mutation-proven: neutering
+   the wiring drops the audit, RED). Full workspace battery green (daemon_smoke
+   13/13). ===> WEEKLY REVIEW is now FULLY WIRED (slice A foundation + B1 helper
+   + B2 loop).
+ - Slice C (DEFERRED — low soak value): the monthly review (monthly_review +
+   MonthlyScheduler). It will NOT fire in a continuous-WEEK soak, so it adds no
+   EXIT-criterion value; AllocationInput (envelopes+digest) + LessonStatusView
+   (LessonsRepo::active) assembly is a ledgered follow-on if the operator wants a
+   longer-than-month run. M2's weekly item (the EXIT-relevant one) is COMPLETE.
  - Slice C (LOW soak value — won't fire in a week): monthly_review wiring
    (AllocationInput from envelopes+digest; LessonStatusView from LessonsRepo::
    active).

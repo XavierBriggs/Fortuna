@@ -415,6 +415,22 @@ fn edge_refresh_transition(failed: bool, refresh_failing: &mut bool, failures: &
 /// refreshes whatever needs refreshing (the metrics snapshot in main); the
 /// loop itself re-loads the synthesis edge set per segment (S4, req 2).
 /// Returns accumulated stats + the shutdown report.
+/// The weekly-review wiring drive() consumes (T4.1/M2 slice B2). Owns its
+/// WeeklyScheduler (mutated in place across drive segments). main builds it from
+/// the [review] config + the synthesis mind/category + the boot time; the smokes
+/// that do not exercise the review pass `None`.
+pub struct ReviewWiring {
+    pub pool: PgPool,
+    pub mind: Arc<dyn Mind>,
+    pub review: crate::compose::ReviewSection,
+    /// The [synthesis].category whose calibration scope the audit reads (None =>
+    /// no calibrated scope; GO/NO-GO over the strategies still runs).
+    pub synth_category: Option<String>,
+    /// Daemon boot time, for the paper_days approximation.
+    pub start: UtcTimestamp,
+    pub weekly: WeeklyScheduler,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     runner: &mut SimRunner<PgIntentJournal>,
@@ -438,6 +454,11 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     // journal, places NO orders); None => no reconciliation (smokes that do not
     // exercise it). A stub mind (no key) self-skips, so wiring it is always safe.
     reconciliation: Option<(PgPool, Arc<dyn Mind>)>,
+    // T4.1/M2 slice B2: the weekly-review wiring (bundled to keep drive()'s
+    // signature manageable; owns its WeeklyScheduler). Some => the week boundary
+    // runs the calibration audit + GO/NO-GO recs (recs only, I7) and routes them;
+    // None => no review fires (the smokes that do not exercise it).
+    mut reviews: Option<ReviewWiring>,
 ) -> Result<(LoopStats, fortuna_runner::ShutdownReport), DaemonError> {
     let mut total = LoopStats::default();
     // Dedup state OWNED ACROSS SEGMENTS (gate finding 2026-06-11: keeping
@@ -584,6 +605,56 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                         )],
                     )
                     .await;
+                }
+            }
+        }
+
+        // T4.1/M2 (spec 5.8 weekly review): on the WEEK boundary (a SEPARATE
+        // scheduler from `daily` — both fire on a Monday), run the calibration
+        // audit + GO/NO-GO recommendations (recs only, I7) and route the summary
+        // to #digest + lesson candidates to #review (propose-only — the daemon
+        // never promotes). A failure alerts but never crashes the boundary.
+        if let Some(rw) = reviews.as_mut() {
+            if rw.weekly.due(now) {
+                match run_weekly_review(
+                    runner,
+                    &rw.pool,
+                    rw.mind.as_ref(),
+                    &rw.review,
+                    rw.synth_category.as_deref(),
+                    rw.start,
+                    now,
+                )
+                .await
+                {
+                    Ok(wr) => {
+                        let summary = format!(
+                            "FORTUNA weekly review — {} calibrated scope(s), {} GO/NO-GO \
+                             recommendation(s), {} lesson candidate(s) (operator action, I7)",
+                            wr.calibration.len(),
+                            wr.recommendations.len(),
+                            wr.lesson_candidates.len()
+                        );
+                        let mut msgs = vec![(fortuna_ops::MessageKind::Digest, summary)];
+                        for cand in &wr.lesson_candidates {
+                            msgs.push((
+                                fortuna_ops::MessageKind::Review,
+                                format!("weekly lesson candidate (operator review): {}", cand.body),
+                            ));
+                        }
+                        total_send_failures += route_alerts(slack, runner, &msgs).await;
+                    }
+                    Err(e) => {
+                        total_send_failures += route_alerts(
+                            slack,
+                            runner,
+                            &[(
+                                fortuna_ops::MessageKind::Ops,
+                                format!("weekly review FAILED: {e}"),
+                            )],
+                        )
+                        .await;
+                    }
                 }
             }
         }
