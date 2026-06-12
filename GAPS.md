@@ -264,14 +264,20 @@ Build sub-slices (each its own iteration, TDD, battery-gated):
       box + start the Sim soak (the daemon is built + gated; the soak runs
       mechanically-only / with the inert stub mind absent a key). The daily
       reconciliation re-run + weekly/monthly cognition reviews are POST-TICK
-      sub-slices. PREREQS before the LIVE synthesis arm trades
-      (operator/config + a boundary item, NOT blocking the tick of a soak that
-      can run mechanically-only or with the stub): (1) add `synthesis_cents`
-      envelope + `[gates.per_strategy.synthesis]` to the example/operator config
-      (S5a gaps); (2) AnthropicVetoMind must be BUILT by the fortuna-cognition
-      owner (the veto side of mind binding — out of Track A bounds). Deferred +
-      inert for the sim soak: synth_events_config/effective_stage canonicalization;
-      [synthesis] CATEGORY events-join filter; AnthropicMindConfig prices->config.
+      sub-slices. DEMO-CONFIG PREP (this commit): (1) the S5a config gaps are
+      CLOSED in config/fortuna.example.toml — synthesis_cents=200_000 envelope +
+      [gates.per_strategy.synthesis] (so the operator's copy supports the
+      synthesis arm); (2) FIXED an S5b bug — CognitionSection's field was `model`
+      but the example uses `synthesis_model`, so the operator's model choice was
+      SILENTLY dropped to the default; renamed the field to `synthesis_model` to
+      match. REMAINING PREREQ before LIVE synthesis (boundary, NOT blocking the
+      sim soak which runs mechanically-only / with the stub): AnthropicVetoMind
+      must be BUILT by the fortuna-cognition owner (the veto side of mind binding
+      — out of Track A bounds). Deferred + inert for the sim soak:
+      synth_events_config/effective_stage canonicalization; [synthesis] CATEGORY
+      events-join filter; AnthropicMindConfig prices->config; the daemon's
+      triage_model/shadow_budget_cents (example fields the synth arm does not use
+      yet — AlwaysAccept triage, shadow_quota 0).
   S4. drive() per-segment edge refresh (requirement 2): keep last-known on
       failure + count/alert, never crash. DONE (this commit). ORDER REVERSAL
       (honest, vs 1770c1f which leaned "S5a precedes S4"): the GOVERNING

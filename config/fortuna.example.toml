@@ -21,6 +21,13 @@ max_exposure_cents = 150_000
 max_order_notional_cents = 5_000
 min_net_edge_bps = 150
 
+# The opt-in [synthesis] arm's per-strategy gate (S5b): without it a composed
+# synthesis order is rejected fail-closed.
+[gates.per_strategy.synthesis]
+max_exposure_cents = 200_000
+max_order_notional_cents = 10_000
+min_net_edge_bps = 100
+
 # I3 dual token buckets. Researched Kalshi limits (2026-06-09): Basic tier
 # ~10 write req/s with a 2s burst window; these defaults sit far below that.
 [gates.rate.kalshi]
@@ -38,6 +45,7 @@ market_sustained_per_min = 300
 [envelopes]                # spec 5.14: the ONLY capital allocation tier
 mech_structural_cents = 300_000
 mech_extremes_cents   = 200_000
+synthesis_cents       = 200_000   # the opt-in [synthesis] arm's capital (S5b)
 
 [sizing]
 kelly_fraction = 0.25

@@ -153,7 +153,7 @@ pub fn mind_from_env<T: MindTransport + 'static>(
     match transport {
         Some(transport) => Arc::new(AnthropicMind::new(
             AnthropicMindConfig {
-                model: cognition.model.clone(),
+                model: cognition.synthesis_model.clone(),
                 max_tokens: SYNTH_MIND_MAX_TOKENS,
                 input_price_cents_per_mtok: SYNTH_MIND_INPUT_PRICE_CENTS_PER_MTOK,
                 output_price_cents_per_mtok: SYNTH_MIND_OUTPUT_PRICE_CENTS_PER_MTOK,
@@ -924,7 +924,7 @@ mod tests {
     fn mind_from_env_builds_anthropic_when_a_transport_is_present_else_stub() {
         // S5b: the mind_from_env contract. A transport (main's reqwest, tests'
         // scripted) => the Claude-backed AnthropicMind whose id IS the
-        // configured model (proving cognition.model flows into
+        // configured model (proving cognition.synthesis_model flows into
         // AnthropicMindConfig); no transport => the deterministic StubMind.
         // NON-VACUOUS: the two branches yield DIFFERENT ids — a helper that
         // ignored the transport would fail the model-id assertion. The scripted
@@ -948,7 +948,7 @@ mod tests {
             daily_budget_cents: 10_000,
             per_cycle_budget_cents: 1_000,
             allow_stub_mind: true,
-            model: "claude-fable-5".to_string(),
+            synthesis_model: "claude-fable-5".to_string(),
         };
         let clock: Arc<dyn Clock> = Arc::new(SimClock::new(
             UtcTimestamp::parse_iso8601("2026-06-11T12:00:00.000Z").unwrap(),

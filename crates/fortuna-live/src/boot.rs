@@ -146,8 +146,10 @@ pub struct CognitionSection {
     /// The synthesis model id (spec 5.9 tiering; default the synthesis tier
     /// "claude-fable-5"). S5b feeds it to AnthropicMindConfig.model when a key
     /// is present. The model is config; the API KEY is env-only (never here).
+    /// NAME matches the committed example's `[cognition].synthesis_model` — a
+    /// mismatched name would silently drop the operator's choice to the default.
     #[serde(default = "default_synthesis_model")]
-    pub model: String,
+    pub synthesis_model: String,
 }
 
 fn default_synthesis_model() -> String {

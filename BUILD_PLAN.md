@@ -347,9 +347,16 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       a fortuna-runner digest_snapshot() composes per-strategy PnL/fees/fills/
       exposure + the honesty numbers + veto; fortuna-live rich_daily_digest
       renders it via fortuna_ops::compose_daily_digest, replacing terse in drive's
-      daily block. Loop-doc tail next: TICK T4.1 (tick the box + start the Sim
-      soak; daily reconciliation + weekly/monthly reviews are post-tick). Live
-      synthesis additionally awaits the two config gaps + AnthropicVetoMind.
+      daily block. DEMO-CONFIG PREP 2026-06-12: closed the S5a config gaps in
+      config/fortuna.example.toml (synthesis_cents envelope + [gates.per_strategy.
+      synthesis]) AND fixed an S5b bug — CognitionSection's field was `model` but
+      the example uses `synthesis_model`, silently dropping the operator's choice;
+      renamed to `synthesis_model`. The demo config now supports the synthesis
+      arm. Loop-doc tail next: TICK T4.1 (tick the box; the Sim soak is operator-
+      started — it needs operator secrets [Slack/deadman, outward-facing], the
+      ANTHROPIC_API_KEY for live synthesis, + a release build). Daily
+      reconciliation + weekly/monthly reviews are post-tick; the veto's
+      AnthropicVetoMind (fortuna-cognition) is the remaining live-synthesis prereq.
 - [ ] T4.2 POST-FIXTURE tranche (blocked on the operator recording session):
       Kalshi WS dial (signed handshake, keep-alive, redial w/ resubscribe-on-gap),
       venue-generic recorded-stream replay into PaperVenue under both mech
