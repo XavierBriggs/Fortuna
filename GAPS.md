@@ -1134,6 +1134,19 @@ observed so far: `INVALID_PARAMETER` (malformed key id) and
 
 ## RALPH STOP 2026-06-12T10:22:01Z (track C — queue exhausted, protocol stop)
 
+[POST-STOP ADDENDUM ~10:50Z, operator-resumed: the final gate
+(track-c-final-gate-2026-06-12.md) BLOCKED on one red B6 seed — the
+harness miscounted MarginSim's DESIGNED over-tier refusal as a failure
+(nothing failed open). Fixed at e0d4ae2: designed curve_exceeded arm +
+spec-5.15 halt, the production fail-closed path now ASSERTED rather
+than dodged, seed 11819682492387934495 in the in-harness regression set
+(deterministic every battery run), the gate's exact master green at
+10000, full run-dst.sh 10000 exit 0. All three gate Minors + both
+actionable Infos closed in the same commit (SESSION-NOTES
+committed-capture annotation, fill-frame gap named here, B5 wording
+annotated, B4 heading unstale'd, error-string whitespace). The merge
+conditions in the verdict are met; re-gate when convenient.]
+
 Track C's directive queue is COMPLETE; per the loop's rule 6, stopping
 beats inventing unrequested work. Final state:
 
