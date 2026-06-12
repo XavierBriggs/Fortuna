@@ -1,0 +1,7 @@
+# DETERMINISM ANCHOR (no regression). Verifier orchestration §6 — the DST
+# regression corpus has been empty since T0.4. Fault-dense anchor: ~23
+# placements / 11 fills / 1 settlement under ~13 injected faults (the densest
+# fault stream of the three anchors), pinning replay determinism through the
+# fault-handling paths across refactors. Replays GREEN; committed 2026-06-12.
+# Reproduce: scripts/replay.sh --seed 8675309
+8675309

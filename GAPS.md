@@ -208,6 +208,19 @@ Build sub-slices (each its own iteration, TDD, battery-gated):
 The populated-path test rule (the verifier's vacuous-test lesson) applies to
 EVERY sub-slice: assert REAL non-empty edge sets / non-zero proposals, never a
 shape that passes under a fabricated/empty fixture.
+
+## TRACK A — DST determinism anchors (verifier orchestration §6) — DONE
+The DST regression corpus has been empty since T0.4, so the corpus-replay arm
+was a no-op. Committed 3 high-activity PASSING anchor seeds to
+crates/fortuna-core/dst-corpus/ (31337: crash+boot quiesce + outage, 23
+orders/13 fills; 8675309: fault-dense, 13 faults; 777: fill-dense, 13/13) —
+they pin replay determinism across refactors (a refactor that breaks
+determinism now reds the corpus). Validated: `cargo test -p fortuna-core
+--test dst -- --seeds 0` => "3 corpus + 0 random seeds, zero invariant
+violations". Chosen DISK-SAFE (fortuna-core harness, NOT a fortuna-live
+battery) while the volume sits at ~20Gi/98% and S3's fortuna-live battery
+risks a 3rd ENOSPC; S3 build resumes on a calmer disk per the validated plan
+above.
 Slack send-failure count is now SURFACED (drive sums total_send_failures
 and audits a final Ops alert if >0) — the earlier "_send_failures
 discarded" is fixed.

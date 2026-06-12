@@ -1,0 +1,8 @@
+# DETERMINISM ANCHOR (no regression). Verifier orchestration §6: the DST
+# regression corpus has been empty since T0.4, so the corpus-replay arm is a
+# no-op; this high-activity seed pins replay determinism across refactors.
+# Exercises ~23 placements / 13 fills / 1 settlement under ~10 injected faults
+# INCLUDING an outage window AND a crash+boot quiesce (closed=2, missing=1,
+# adopted=0, orphans=0; final cash $783.16). Replays GREEN; committed
+# 2026-06-12. Reproduce: scripts/replay.sh --seed 31337
+31337
