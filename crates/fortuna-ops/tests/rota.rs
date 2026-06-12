@@ -66,8 +66,9 @@ async fn serve() -> (String, tokio::task::JoinHandle<()>) {
     (format!("http://{addr}"), handle)
 }
 
-const PATHS: [&str; 8] = [
+const PATHS: [&str; 9] = [
     "/rota",
+    "/assets/rota/logo.svg",
     "/api/rota/v1/health",
     "/api/rota/v1/money",
     "/api/rota/v1/gates",
@@ -533,15 +534,24 @@ async fn exhausted_rota_pool_degrades_to_200_while_the_writer_is_unimpeded(
 }
 
 // ---- rota-slices gate F2: /favicon.ico must not 404 ----
+// Phase-3 asset slice: the interim 204 stub (which the original test
+// pinned while anticipating its own replacement here) is now the real §9
+// mark — the F2 intent (no 404, no console error) holds with STRONGER
+// asserts: 200, SVG content type, the wheel actually present.
 
 #[tokio::test]
-async fn favicon_is_a_204_not_a_404() {
-    // F2: /favicon.ico 404 was the only live-browser console error (an R12
-    // pass criterion). A 204 (No Content) clears it with no asset dependency;
-    // the real §9 cornucopia/wheel mark lands in the Phase-3 asset slice.
+async fn favicon_serves_the_wheel_mark_never_a_404() {
     let (base, _h) = serve().await;
     let resp = reqwest::get(format!("{base}/favicon.ico")).await.unwrap();
-    assert_eq!(resp.status(), 204, "favicon stubbed 204, never 404");
+    assert_eq!(resp.status(), 200, "favicon serves the §9 mark, never 404");
+    assert_eq!(
+        resp.headers()["content-type"],
+        "image/svg+xml",
+        "SVG favicon content type"
+    );
+    let body = resp.text().await.unwrap();
+    assert!(body.contains("<circle"), "the wheel renders: {body}");
+    assert!(body.contains("#D4AF37"), "gold mark");
 
     // The read-only doctrine holds for this route too.
     let post = reqwest::Client::new()
@@ -555,6 +565,58 @@ async fn favicon_is_a_204_not_a_404() {
         405,
         "POST /favicon.ico must be 405 (read-only)"
     );
+}
+
+// ---- T4.3 Phase 3 (track B): the §9 logo asset + presentation shell ----
+
+#[tokio::test]
+async fn logo_asset_serves_the_section9_geometry() {
+    let (base, _h) = serve().await;
+    let resp = reqwest::get(format!("{base}/assets/rota/logo.svg"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.headers()["content-type"], "image/svg+xml");
+    let svg = resp.text().await.unwrap();
+    assert!(svg.contains("viewBox=\"0 0 48 48\""), "§9 viewBox: {svg}");
+    assert_eq!(
+        svg.matches("<line").count(),
+        8,
+        "eight spokes at 45-degree steps: {svg}"
+    );
+    assert!(svg.contains("<ellipse"), "cornucopia mouth ellipse: {svg}");
+    assert!(svg.contains("#D4AF37"), "all gold");
+    assert!(
+        !svg.to_lowercase().contains("gradient"),
+        "flat gold-line aesthetic — no gradients (§2)"
+    );
+}
+
+#[tokio::test]
+async fn shell_carries_the_presentation_layer() {
+    let (base, _h) = serve().await;
+    let body = reqwest::get(format!("{base}/rota"))
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    // The header carries the inlined §9 mark, not a broken placeholder.
+    assert!(body.contains("<svg"), "logo inlined in the header");
+    assert!(
+        !body.contains("<!--ROTA_LOGO-->"),
+        "placeholder must be replaced"
+    );
+    // Panel renderers: formatted money, UTC-labeled freshness, and the
+    // cognition click-to-expand (operator amendment: evidence/provenance
+    // surface as expandable rows).
+    assert!(body.contains("fmtCents"), "money formatter present");
+    assert!(body.contains("UTC"), "times render labeled UTC (R6)");
+    assert!(
+        body.contains("<details") || body.contains("details"),
+        "click-to-expand rows for cognition evidence"
+    );
+    assert!(body.contains("raw"), "raw JSON expander per panel");
 }
 
 // ------------------------------------------------------------------ cognition

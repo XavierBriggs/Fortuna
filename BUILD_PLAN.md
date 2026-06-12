@@ -373,6 +373,17 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       literal construction site — GAPS note). REMAINING: full §5 money
       model (operator call), recent_rejections/recent_watchdog audit
       queries, Phase-3 logo/shell assets, R12 browser pass.
+      slice 9 (track B, this commit) = Phase-3 presentation + §9 logo:
+      assets/rota/logo.svg (8-spoke wheel + cornucopia, all gold, asserted
+      geometry) served at /assets/rota/logo.svg + as the SVG favicon
+      (interim 204 stub replaced w/ STRONGER test asserts per the stub
+      test's own anticipation note); shell upgraded to per-panel renderers
+      — cents→dollars, UTC labels (R6), halt pill, cognition click-to-
+      expand evidence rows, per-panel raw expander, §0.4 poll cadences.
+      Track B's T4.3 queue items are now COMPLETE (cognition view + R7
+      queries + presentation layer + logo). Box stays unticked: full §5
+      money model (operator call), audit-recents queries, and the R12
+      browser pass (verifier) remain.
 - [x] T4.4 Operator CLI lifecycle (operator-directed 2026-06-11; design
       AUTHORITATIVE at docs/design/fortuna-cli.md INCLUDING its amendments
       section): `fortuna start/stop/status/logs/config-check` extending

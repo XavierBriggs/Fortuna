@@ -546,6 +546,25 @@ route-table extension) + 4 ledger tests. REMAINING: full §5 money model
 (operator/design call), recent_rejections/recent_watchdog audit queries,
 Phase-3 shell/assets (logo.svg §9), R12 browser pass (verifier).
 
+SLICE 9 BUILT (2026-06-12, track B): Phase-3 presentation layer + the §9
+logo asset. assets/rota/logo.svg committed (viewBox 48, 8-spoke wheel,
+hub, cornucopia tip→lower-right with rotated mouth ellipse, all #D4AF37,
+no gradients) and baked in via include_str! (missing asset = build error,
+never a 404); served at /assets/rota/logo.svg AND as the favicon
+(image/svg+xml — replaces the interim 204 stub; the F2 test evolved to
+STRONGER asserts per its own anticipation note: 200 + svg + wheel
+present). Shell upgraded from raw JSON dumps to per-panel renderers:
+§2 tokens kept, cents→dollars (fmtCents), times labeled UTC (R6), halt
+pill + red takeover, cognition beliefs as click-to-expand <details> rows
+(evidence + provenance, operator amendment), per-panel raw-JSON expander
+(the formatted view never hides the payload), §0.4 poll cadences honored
+(2s/5s/10s/15s instead of uniform 2s), header carries the inlined mark.
+R11 unchanged: the auto-fit grid line stays the only responsive rule.
+3 new/evolved ops tests (route table 9 paths, §9 geometry asserts,
+presentation markers). REMAINING: full §5 money model (operator call),
+recent_rejections/recent_watchdog audit queries, R12 browser pass
+(verifier-layer; screenshots to docs/reviews/rota-visual/).
+
 - V-1 PASS: serve_dashboard + the three routes present (dashboard.rs ~52-68;
   `route("/")`, `/metrics`, `/api/boards`); POST-405 loop at
   tests/dashboard.rs:74-80 exactly as cited.

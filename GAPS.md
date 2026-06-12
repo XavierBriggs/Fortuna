@@ -501,6 +501,16 @@ fabricated/zeroed panel). Fix list:
   The LEDGER arrays are live and populated-path-tested with real seeded
   values (p=0.67/0.71, evidence reasoning text, provenance cost, max
   version 2) — a fabricated panel cannot pass them.
+- **Slice 9 test evolution (declared, not a weakening):** the favicon
+  test `favicon_is_a_204_not_a_404` asserted the INTERIM 204 stub and its
+  own comment said the §9 mark "replaces this in the Phase-3 asset
+  slice". That slice is here: the test became
+  `favicon_serves_the_wheel_mark_never_a_404` with STRONGER asserts
+  (200 + image/svg+xml + wheel markup + the unchanged POST-405). The F2
+  intent (no 404 / no console error) is preserved and tightened. The
+  serve_dashboard merge test pinned the same interim 204 at its own
+  assertion site — evolved identically (200 + content-type), found red
+  by the battery before commit.
 
 ## T4.4 CLI — slice 1 (track B; box unticked; 2026-06-12)
 
