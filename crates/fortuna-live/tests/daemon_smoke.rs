@@ -453,6 +453,144 @@ async fn per_segment_refresh_picks_up_a_newly_confirmed_edge(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn refresh_failure_keeps_last_known_edges_alerts_and_survives(pool: PgPool) {
+    // T4.1/S4 (synthesis-edge-source-decision req 2, the failure arm): a FAILING
+    // per-segment edge refresh KEEPS the last-known set, ALERTS (audit row), and
+    // the loop SURVIVES to a clean shutdown — a transient ledger outage never
+    // crashes the daemon nor silently drops the synth arm to empty. The T4.1
+    // completion gate proved this by a scratch mutation (verdict finding m2);
+    // this is its committed equivalent.
+    // NON-VACUOUS BY CONSTRUCTION: the booted edge is SUPERSEDED by an
+    // UNCONFIRMED successor before drive (asserted: confirmed_edges() now empty),
+    // so a SUCCESSFUL refresh would read ZERO confirmed-current edges — a
+    // post-drive count of 1 can ONLY mean the failure path retained last-known.
+    // (Mutation-checked in dev: swapping the broken pool for the live `pool`
+    // turns it RED — count drops to 0 and no alert is written.)
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let full = FortunaConfig::load_file(example_path).unwrap();
+    let dcfg = DaemonToml::parse(&format!("{text}\n[synthesis]\nvenue = \"sim\"\n")).unwrap();
+
+    // A confirmed sim edge KX-A -> evt-1: the last-known set.
+    fortuna_ledger::EventsRepo::new(pool.clone())
+        .create(
+            "evt-1",
+            "s",
+            "c",
+            "nws",
+            None,
+            "2026-06-20T18:00:00.000Z",
+            "weather",
+            "2026-06-10T12:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    fortuna_ledger::EdgesRepo::new(pool.clone())
+        .insert_edge(
+            "e1",
+            "KX-A",
+            "sim",
+            "evt-1",
+            "direct",
+            0.9,
+            "model:stub",
+            Some("op"),
+            None,
+            "2026-06-10T12:01:00.000Z",
+        )
+        .await
+        .unwrap();
+
+    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 901, stub_mind())
+        .await
+        .expect("composition");
+    assert_eq!(runner.synthesis_edge_count(), Some(1), "booted with 1 edge");
+
+    // Supersede the edge (the append-only DB refuses DELETE — I5) with an
+    // UNCONFIRMED successor: a SUCCESSFUL refresh now reads 0 confirmed heads.
+    fortuna_ledger::EdgesRepo::new(pool.clone())
+        .insert_edge(
+            "e2",
+            "KX-A",
+            "sim",
+            "evt-1",
+            "direct",
+            0.5,
+            "model:stub",
+            None,
+            Some("e1"),
+            "2026-06-10T12:02:00.000Z",
+        )
+        .await
+        .unwrap();
+    let confirmed_now = fortuna_ledger::EdgesRepo::new(pool.clone())
+        .confirmed_edges()
+        .await
+        .unwrap();
+    assert!(
+        confirmed_now.is_empty(),
+        "a successful refresh would now read ZERO confirmed-current edges"
+    );
+
+    // A lazily-connected pool to a nonexistent DB: every refresh query fails.
+    let broken: PgPool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://xavierbriggs@localhost:5432/zz_refresh_no_such_db")
+        .unwrap();
+
+    let (tx, mut stop) = tokio::sync::oneshot::channel::<()>();
+    let mut cadence = StopAtCadence {
+        clock: runner.clock.clone(),
+        sleeps: 0,
+        fire_at: 10, // two full 4-wake segments refresh (and fail) before stop
+        tx: Some(tx),
+    };
+    let mut poller = NeverHalted;
+    let loop_cfg = LoopConfig {
+        tick_interval_ms: 1000,
+        halt_poll_ms: 500,
+    };
+    let mut scrape = DegradeScrape::new(default_degrade_thresholds());
+    let mut daily = fortuna_live::daemon::DailyScheduler::new();
+    let syn = dcfg.synthesis.clone().unwrap();
+
+    let (_stats, _shutdown) = drive(
+        &mut runner,
+        &mut cadence,
+        &mut poller,
+        &loop_cfg,
+        4,
+        &mut stop,
+        |_r, _s| {},
+        &mut scrape,
+        None,
+        &mut daily,
+        Some((broken, syn)),
+    )
+    .await
+    .expect("the loop must SURVIVE a failing refresh");
+
+    assert_eq!(
+        runner.synthesis_edge_count(),
+        Some(1),
+        "failure path retained LAST-KNOWN (a successful refresh would read 0)"
+    );
+    let alert_rows: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit WHERE kind = 'alert'
+         AND payload->>'message' LIKE '%edge-refresh failure%'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        alert_rows >= 1,
+        "the refresh-failure run is alerted/audited (got {alert_rows})"
+    );
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
 async fn compose_runner_composes_mech_extremes_with_veto_only_when_configured(pool: PgPool) {
     // T4.1/mech_extremes+veto: a [mech_extremes] section composes the
     // favorite-longshot fade strategy (spec Section 6) ALONGSIDE

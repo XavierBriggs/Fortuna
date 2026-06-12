@@ -54,9 +54,13 @@ REMAINING gate findings (NOT this commit; queued):
   verdict) added the explicit option-(a) regression pin.
 - [Minor m1] R4 categories-allowlist filter absent + stale "deferred to S3b"
   pointer — implement or re-ledger as a current open item.
-- [Minor m2] R5 refresh-failure INTEGRATION test not committed (only the latch
-  unit test); shape preserved at /tmp/t41-gate-scratch-mutations.rs.preserved
-  (the I5 trigger refuses DELETE — use a superseding insert).
+- [Minor m2] CLOSED: the R5/R2 refresh-failure INTEGRATION test is now committed
+  — daemon_smoke.rs::refresh_failure_keeps_last_known_edges_alerts_and_survives:
+  a failing per-segment edge refresh KEEPS last-known + ALERTS (audit row) + the
+  loop survives to clean shutdown. Non-vacuous by the superseding-UNCONFIRMED
+  construction (confirmed_edges() asserted empty pre-drive, so a successful
+  refresh would read 0); mutation-proven (swapping the live pool for the broken
+  one drops the count 1->0 + no alert, RED). Full workspace battery green.
 
 ## OPERATOR-INFRA — disk hit ENOSPC mid-session (HARD-BLOCKS the build battery)
 
