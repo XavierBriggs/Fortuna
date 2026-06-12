@@ -1,0 +1,76 @@
+# Multi-implementer orchestration (operator-directed 2026-06-12: "more fable implementers, code complete")
+
+Three implementer tracks, one verifier. The quality bar is unchanged — every
+track ships under the same loop rules (design-validate-before-build, battery
+as commit-gate, DoD, boundaries, STOP conditions) and every batch passes the
+independent gate. Parallelism comes from file-ownership partitioning, not
+from relaxing anything.
+
+## Tracks and ownership
+
+TRACK A — the original session, MAIN checkout (/Users/xavierbriggs/fortuna):
+  Queue: T4.1 tail (synthesis-in-main per docs/design/
+  synthesis-edge-source-decision.md -> mech_extremes+veto -> mind binding ->
+  rich digest) -> T4.2 post-fixture tranche -> T4.5.
+  Owns: crates/fortuna-live, crates/fortuna-runner, crates/fortuna-venues/
+  src/kalshi*, crates/fortuna-paper (T4.2 replay seam).
+
+TRACK B — new session, worktree /Users/xavierbriggs/fortuna-wt-b (branch track-b):
+  Queue: T4.4 CLI -> T4.3 cognition view + R7 ledger queries + the
+  instrument presentation layer + logo asset.
+  Owns: crates/fortuna-cli, crates/fortuna-ops (rota + shell), assets/rota/,
+  the two R7 query additions in crates/fortuna-ledger/src/repos.rs.
+
+TRACK C — new session, worktree /Users/xavierbriggs/fortuna-wt-c (branch track-c):
+  Queue: T5.B2 perp core types -> T5.B3 gate extensions -> T5.B5 paper
+  margin -> T5.B6 DST arms -> T5.B4 adapter (fixtures/kinetics-perps/ is
+  recorded; kinetics/ dir is disjoint from track A's kalshi/).
+  Owns: perp types module in fortuna-core, crates/fortuna-gates perp
+  extensions, crates/fortuna-state margin pieces, crates/fortuna-venues/src/
+  kinetics*, perp arms in the DST harnesses.
+  PROTECTED-CRATE NOTE: T5.B3 adds I2-extension invariant tests — ADDITIONS
+  ONLY; every touch still auto-flags for the operator waive queue (expected,
+  batch them).
+
+## Hard rules (all tracks)
+
+- NEVER edit a file another track owns. If a task needs one, ledger it in
+  your GAPS section and skip to your next queue item.
+- Shared ledgers (BUILD_PLAN.md, GAPS.md, ASSUMPTIONS.md): append/edit ONLY
+  within your own track's entries; tick ONLY your own boxes.
+- The findings bus is read at the MAIN checkout absolute path:
+  /Users/xavierbriggs/fortuna/docs/reviews/GATE-FINDINGS-LATEST.md
+  (it is verifier-owned and lives on main; your worktree copy may be stale).
+  A BLOCK naming your track preempts your queue.
+- Tracks B/C: REBASE onto main at the start of every iteration
+  (git fetch . main && git rebase main) — the verifier merges gated work
+  into main between your iterations; rebase keeps you current and keeps
+  merges trivial. Resolve only conflicts inside files you own; anything
+  else, STOP and ledger.
+- Worktrees have NO .env by design — tracks B/C need no venue credentials;
+  the cargo [env] dev-DB default covers sqlx tests. Do not copy .env in.
+- Each worktree builds in its own target dir automatically (cargo default
+  per worktree). Batteries will contend for CPU across tracks — that is
+  accepted; never skip the battery to dodge contention.
+
+## Verifier protocol (the verification session executes this each firing)
+
+1. Survey main + track-b + track-c heads since their last gated commits.
+2. Gate each track's new range (worktree-pinned, tier-appropriate battery).
+3. Merge each ACCEPT/ACCEPT-WITH-GAPS track head into main (merge is
+   promotion mechanics, not authorship; a BLOCK branch stays unmerged with
+   findings on the bus naming the track).
+4. One findings bus, per-track sections.
+
+## Session starts (operator pastes)
+
+Track B session (cd /Users/xavierbriggs/fortuna-wt-b first):
+  /ralph-loop Read docs/design/implementer-loop-track-b.md at the start of
+  every iteration and follow it exactly.
+
+Track C session (cd /Users/xavierbriggs/fortuna-wt-c first):
+  /ralph-loop Read docs/design/implementer-loop-track-c.md at the start of
+  every iteration and follow it exactly.
+
+Track A continues unchanged (its loop file now carries the track-A
+ownership note and the edge-source decision pointer).

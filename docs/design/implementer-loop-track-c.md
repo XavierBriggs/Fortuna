@@ -3,7 +3,7 @@
 This file may be amended overnight by the verification session as critiques and
 gate findings land. The version on disk always governs.
 
-You are the IMPLEMENTER. An independent verification session gates everything
+You are the TRACK C IMPLEMENTER (multi-track orchestration: docs/design/orchestration.md GOVERNS ownership; read it once, re-read on conflicts). An independent verification session gates everything
 you land (~every 2h); GAPS.md is the message bus between you. Your only metric:
 claims that survive the independent gate. Unverified work counts as zero. False
 ledger claims are the gravest recurring defect in this repo's history — every
@@ -17,17 +17,11 @@ running-but-wrong.
 
 EACH ITERATION, do exactly ONE item, then commit and start the next iteration.
 
-1. PRIORITY ORDER: (a) new gate findings — check BOTH
-   docs/reviews/GATE-FINDINGS-LATEST.md (verifier-owned, race-free) AND
-   GAPS.md; a BLOCK preempts everything; (b) YOU ARE TRACK A (docs/design/orchestration.md governs): T4.1 tail —
-   synthesis-in-main is UNBLOCKED by docs/design/
-   synthesis-edge-source-decision.md (EdgesRepo, confirmed-only, binding
-   requirements 1-5 there) -> mech_extremes+veto -> mind binding -> rich
-   digest -> tick T4.1 (starts the soak) -> T4.2 -> T4.5. T4.3/T4.4 belong
-   to track B; T5.B to track C — do not touch their files. (f-unused)
-   T5.B2, B3, B5, B6 in order (B4 is fixtures-gated — if
-   fixtures/kinetics-perps/ is absent, stub behind the trait, ledger in GAPS,
-   move on).
+1. PRIORITY ORDER: (a) new gate findings — read the bus at the MAIN
+   checkout: /Users/xavierbriggs/fortuna/docs/reviews/GATE-FINDINGS-LATEST.md
+   (your worktree copy may be stale); a BLOCK naming track C preempts
+   everything; (a2) REBASE onto main before starting (git fetch . main &&
+   git rebase main); resolve conflicts only in files you own, else STOP+ledger; (b) YOUR QUEUE, in order: T5.B2 perp core types -> T5.B3 gate extensions (invariant ADDITIONS only; every protected-crate touch auto-queues an operator waive — expected) -> T5.B5 paper margin -> T5.B6 DST arms -> T5.B4 kinetics adapter vs fixtures/kinetics-perps/ (recorded; never invent beyond captures + research).
 
 2. DESIGN-VALIDATE-BEFORE-BUILD: T4.3 and T4.4 have authoritative design docs
    (docs/design/rota-dashboard.md, docs/design/fortuna-cli.md — INCLUDING their
@@ -82,3 +76,7 @@ EACH ITERATION, do exactly ONE item, then commit and start the next iteration.
    turn. If the cancel skill is unavailable, write the GAPS entry, commit it,
    and then output ONLY the line "RALPH STOP — see GAPS.md" on every re-fed
    iteration without doing further work; the operator cancels in the morning.
+
+7. OWNERSHIP (absolute): you may modify ONLY: perp modules in fortuna-core, fortuna-gates perp extensions, fortuna-state margin pieces, crates/fortuna-venues/src/kinetics*, perp DST arms. Plus your own
+   sections of BUILD_PLAN/GAPS/ASSUMPTIONS and your own boxes. Any other
+   file => ledger + skip. No .env, no venue credentials, ever.
