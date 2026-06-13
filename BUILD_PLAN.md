@@ -694,6 +694,13 @@ at E.3 (the PersonaOutcome no-order/size field-surface pin) under operator waive
       fortuna_persona_beliefs_total (the beliefs metric folds into the §19 counters at wiring).]
 - [ ] E.5 Scoring scope extension — ScopeKey + weekly-review promote/retire proposal (baseline +
       market comparison; recommendation-only); resolved_beliefs/clv_bp metrics.
+      [E.5a DONE this commit: fortuna_cognition::persona_scoring — PersonaScope + score_persona
+      (Brier/quality/CLV via the existing calibration primitives) + propose_promotion (the §11
+      beat-both-baselines gate: Evaluating/Promotable/RetireCandidate; recommendation-only, I7);
+      9 tests; full battery green. BOUNDARY (Fit-validation §21): additive parallel PersonaScope —
+      folding persona dims into the shared review::ScopeKey + the daemon weekly-review wiring is a
+      GATED Track-A coordination (GAPS). REMAINING E.5: the ScopeKey/daemon wiring (Track-A coord)
+      + the resolved_beliefs/clv_bp metric labels (fold into §19 at wiring).]
 - [ ] E.6 End-to-end meteorologist proof over Aeolus (+ NWS/fixture) + the macro mechanism test;
       the §11 evaluation gate wired; full battery green.
 

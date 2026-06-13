@@ -1719,3 +1719,24 @@ domain-analysis artifact (authoritative design: docs/design/domain-analysis-pers
   the canonical ones.
 - **The fan-out builds on the existing BINARY belief ledger** (BeliefDraft) and depends
   on NO scalar/multi-outcome claim type — Track E is independent of the prob_claims pass (§9).
+
+## Track E — E.5a (persona scoring & promotion; design §10/§11)
+
+- **The persona scope is an ADDITIVE parallel `PersonaScope`, not a mutation of the
+  shared `review::ScopeKey`** (Fit-validation §21): ScopeKey is a struct literal in
+  Track A's daemon.rs:1024, so adding fields breaks Track A's composition (loop forbids
+  the unilateral touch). The persona scoring reuses the SAME calibration arithmetic
+  (calibration_curve/quality/Brier/CLV), so there is no parity loss; folding the dims
+  into ScopeKey + the daemon wiring is a gated Track-A coordination (GAPS).
+- **The §11 gate is three INDEPENDENT conditions** (kept as separate named booleans):
+  after `min_resolved` resolved beliefs, PROMOTABLE iff Brier ≤ the no-persona baseline
+  AND Brier ≤ the market baseline AND CLV > 0. A tie (`<=`) counts as beating (§11
+  "Brier ≤ market"). A None CLV (no measurable CLV) is treated as 0 → not promotable
+  (no demonstrated edge net of fees). Below the floor → EVALUATING (scored, zero-capital,
+  §11); at/above but not beating both → RETIRE-CANDIDATE.
+- **Recommendation-only (the I7 analog):** `propose_promotion` returns a proposal struct
+  with NO side effect; the daemon never self-promotes. The operator promotes (file edit +
+  superseding registry insert) or retires (status='retired') out-of-band.
+- **The baselines are INPUTS** (the no-persona raw-source-direct beliefs + the
+  market-implied beliefs, both over the same events) — the composition computes them; the
+  scoring just compares, keeping the slice pure + testable.

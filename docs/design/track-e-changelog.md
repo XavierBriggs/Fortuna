@@ -10,7 +10,30 @@ commit gate, `fortuna-invariants` untouched except at E.3 (operator-waive-flagge
 
 ---
 
-## E.4a — belief consumption: μ/σ→p backbone + artifact→belief fan-out (this commit)
+## E.5a — persona scoring & promote/retire proposal (§10/§11) (this commit)
+
+New `fortuna_cognition::persona_scoring`: `PersonaScope{persona_id, persona_version}` +
+`score_persona` (Brier / calibration-quality / CLV via the existing
+`calibration_curve`/`calibration_quality` primitives) + `propose_promotion` — the §11
+evaluation gate: below `min_resolved` → `Evaluating` (scored, ZERO capital); at/above →
+`Promotable` iff it beats the no-persona AND the market baseline (Brier ≤ both) with
+positive CLV, else `RetireCandidate`. RECOMMENDATION-ONLY (the I7 analog — the daemon
+never self-promotes); compares against the prior version too.
+
+BOUNDARY DECISION (Fit-validation §21): §10 says "extend the review ScopeKey", but
+`ScopeKey` is a struct literal in Track A's `daemon.rs:1024` — mutating it breaks Track
+A's composition (loop forbids touching it unilaterally). So this is an ADDITIVE parallel
+`PersonaScope` reusing the SAME calibration arithmetic; folding persona dims into the
+shared ScopeKey + the daemon wiring is a GATED Track-A coordination (GAPS). No arithmetic
+loss; I7 preserved.
+
+9 tests (incl. the exact-floor boundary + empty-record quality-finite). FULL workspace
+battery green. feature-dev:code-reviewer: 2 Important — the CLV check was structurally
+tied to the market check (→ refactored to three independent §11 booleans) and the
+ScopeKey deferral needs a GAPS entry (→ added) — plus 2 Minors (exact-floor + quality
+tests → added). fortuna-invariants UNTOUCHED. Shared-doc: design §21 Fit-validation note.
+
+## E.4a — belief consumption: μ/σ→p backbone + artifact→belief fan-out (commit c1c1b55)
 
 New `fortuna_cognition::persona_beliefs` (design §9):
 - `normal_cdf` / `prob_at_least` — the μ/σ→p backbone (`1 − Φ((t−μ)/σ)`) via an

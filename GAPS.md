@@ -18,17 +18,39 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
-## TRACK E — BUILD PHASE (operator-approved 2026-06-13); E.1 + E.2 + E.3 + E.4a DONE
+## TRACK E — BUILD PHASE (operator-approved 2026-06-13); E.1 + E.2 + E.3 + E.4a + E.5a DONE
 
 STATUS 2026-06-13 (SUPERSEDES the design-phase RALPH STOP preserved below): the operator
 APPROVED the design ("looks good, rearm"; commit b4eaae3) and re-armed Track E in worktree
 fortuna-wt-e. BUILD PHASE active — building design §18's six slices, one gate-clean slice
 per iteration. E.3 done: E.3a (runner+firewall, 4e8b9e4) + E.3b (triggers §7, 96cdb79) + E.3c
-(seeded DST, 510ee8e) + telemetry §19 (f65fd64). E.4a (belief consumption core) DONE this commit.
-REMAINING: E.4b (SectionKind::DomainAnalysis context item), E.5 (scoring), E.6 (e2e proof), and
-the PersonaOutcome invariant pin §15 (operator-waive, below).
+(seeded DST, 510ee8e) + telemetry §19 (f65fd64). E.4a (belief consumption, c1c1b55) DONE.
+E.5a (persona scoring §10/§11) DONE this commit.
+REMAINING: E.4b (SectionKind::DomainAnalysis context item), E.6 (e2e proof), the §15 invariant
+pin (operator-waive, below), and the §10 ScopeKey/daemon-wiring coordination (below).
 
-**E.4a (belief consumption: μ/σ→p backbone + artifact→belief fan-out §9) DONE this commit.** New
+**E.5a (persona scoring & promote/retire proposal §10/§11) DONE this commit.** New
+`fortuna_cognition::persona_scoring`: `PersonaScope{persona_id, persona_version}` + `score_persona`
+(Brier/quality/CLV via the existing calibration primitives) + `propose_promotion` (the §11 gate —
+below min_resolved → Evaluating/zero-capital; at/above → Promotable iff it beats the no-persona AND
+market baseline (Brier ≤ both) with positive CLV, else RetireCandidate; vs-prior-version reported).
+RECOMMENDATION-ONLY (I7 analog). 9 tests; full battery green. feature-dev review: 2 Important (CLV
+made an independent §11 condition; this GAPS entry) + 2 Minors (exact-floor + quality tests) — all
+applied. fortuna-invariants UNTOUCHED.
+
+**TRACK-A COORDINATION (gated, design §10 + Fit-validation §21): fold persona dims into the shared
+`review::ScopeKey` + wire persona scopes into the daemon's weekly review.** E.5a delivered the
+persona scoring as an ADDITIVE parallel `PersonaScope` because `review::ScopeKey` is a struct literal
+in Track A's fortuna-live/src/daemon.rs:1024 — adding fields there breaks Track A's composition, which
+the loop forbids Track E touching unilaterally. The persona scoring reuses the SAME calibration
+arithmetic, so no parity is lost. UNBLOCK (Track A or an operator boundary-waiver): (1) add
+`persona_id: Option<String>, persona_version: Option<i32>` to review::ScopeKey (review.rs:37), default
+None for model scopes; (2) update the daemon.rs:1024 literal (+ the review test) with the two None
+fields; (3) feed persona-attributed resolved beliefs (grouped by provenance.persona_id/version) into
+run_weekly_review so the existing calibration_report + Slack #review proposal cover personas. Until
+then persona scoring runs through `fortuna_cognition::persona_scoring` (E.5a) — wired at E.6.
+
+**E.4a (belief consumption: μ/σ→p backbone + artifact→belief fan-out §9) DONE (commit c1c1b55).** New
 `fortuna_cognition::persona_beliefs`: `normal_cdf`/`prob_at_least` (the deterministic μ/σ→p
 backbone the runner feeds the persona — LLM does no arithmetic; clamped to (ε,1-ε) for deep tails;
 reproduces the §12 spike backbone) + `map_persona_analysis` (fans a persisted artifact's findings
@@ -174,11 +196,10 @@ and any fortuna-invariants touch is an operator-waive item per the loop — so s
 correctly does NOT touch the protected crate. The `domain_analyses`/`PersonaRow` row types are
 already structurally order-free (review-confirmed).
 
-NEXT: E.5 (scoring scope extension §10 — extend review.rs ScopeKey by adding persona_id/
-persona_version dims, keeping the spec-mandated strategy dim; weekly-review promote/retire
-proposal vs the no-persona + market baselines, recommendation-only). E.4b (the
-SectionKind::DomainAnalysis context item for the synthesis-Mind path) and the §15 invariant pin
-(operator-waive, below) are also open. Then E.6 (the end-to-end meteorologist proof + §11 gate).
+NEXT: E.6 (the end-to-end meteorologist proof — wire the runner→persist domain_analyses→fan-out
+beliefs→persist_beliefs path on real Aeolus + NWS/fixture signals; the §11 evaluation gate live;
+full battery). Also open: E.4b (SectionKind::DomainAnalysis context item), the §15 invariant pin
+(operator-waive, below), and the §10 ScopeKey/daemon-wiring Track-A coordination (above).
 
 --- HISTORICAL (design-phase RALPH STOP — SUPERSEDED by the operator approval above) ---
 
