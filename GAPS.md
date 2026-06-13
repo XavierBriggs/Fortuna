@@ -932,11 +932,24 @@ gate, feature-dev:code-reviewer per slice):
   migration deny-list). Verified: targeted 2/2; FULL `cargo test --workspace --no-fail-fast` =
   144 suites green, 1 pre-existing unrelated red (see GATE FINDING); fmt + `clippy --workspace
   --all-targets -D warnings` clean.
-- **Slice 2 — live-daemon wiring (NEXT).** Run due/triggered personas on `fortuna-live`'s
-  `drive()` loop (trigger → budgeted firewalled `run_persona_analysis` → persist
-  `domain_analyses` → fan out to beliefs via the existing `persist_beliefs` path), opt-in via a
-  `[personas]` config section. Touches Track A's `fortuna-live` (operator-approved); via
-  subagent-dev.
+  OPERATOR DECISION (2026-06-13): for the live wiring, **Track E exposes the building blocks;
+  Track A wires `drive()`** (don't edit their core loop), and the orchestrator supports **both**
+  trigger modes (signal + cadence) from the start.
+- **Slice 2a — ledger `SignalsRepo::recent_by_kind` — DONE (this commit).** The daemon's
+  signal read-back (newest-first, windowed, kind-filtered) + `RecentSignalRow`; the live loop had
+  no way to read signals for persona context. `#[sqlx::test]` green; offline cache regenerated
+  per-crate (one new `.sqlx` file, root untouched); offline build + fmt + clippy --workspace
+  --all-targets green; full workspace test green except the pre-existing `kinetics_dto` red.
+- **Slice 2b — cognition: `run_due_personas` orchestrator (NEXT, via subagent-dev).** A pure
+  (DB-free) entry point: given now + validated active `PersonaDef`s + their triggers + the recent
+  signals (from 2a) + `&dyn Mind` + `&mut DiscoveryBudget`, decide which personas fire (cadence
+  due OR fresh-signal trigger; coalesced) → `run_persona_analysis` (budgeted, firewalled) →
+  return `{outcomes, analyses_to_persist, belief_drafts}` for the daemon to persist. No
+  `fortuna-ledger` dep (cognition drafts, daemon persists). Tests: firewall holds, budget
+  throttle, determinism, both trigger modes, coalescing, DST arm.
+- **Slice 2c — Track-A handoff doc.** The exact ~10-line `drive()` integration (query 2a →
+  call 2b → persist `domain_analyses` + fan-out beliefs via existing `persist_beliefs` → alert
+  defects) + the `[personas]` config section, as a paste-ready prompt (like the Track-C one).
 - **Slice 3 — §10 ScopeKey extension + review folding.** ADD `persona_id`/`persona_version` to
   `review::ScopeKey` (keep `strategy`; add, never replace) and fold `score_persona` into the
   weekly review's recommendation path.

@@ -10,7 +10,30 @@ commit gate, `fortuna-invariants` untouched except at E.3 (operator-waive-flagge
 
 ---
 
-## [Post-merge integration] Slice 1 — §15 I6 persona field-surface invariant pin (operator-approved waive) (this commit)
+## [Post-merge integration] Slice 2a — ledger: `SignalsRepo::recent_by_kind` (the daemon's signal read-back) (this commit)
+
+The live daemon could not read signals back (`SignalsRepo` had only insert/count/dedup), so a
+persona had no way to assemble its untrusted `<context-item>` blocks in the live loop. Added
+`SignalsRepo::recent_by_kind(kinds, received_after, limit) -> Vec<RecentSignalRow>` (newest-first,
+inclusive window, empty-kinds → empty) + the `RecentSignalRow` row type (re-exported from
+`fortuna_ledger`). Pure read on the append-only table; the SIGNAL stream stays data, never
+instructions (spec 5.11 / design §4). The orchestrator (2b) will pass these rows to
+`run_persona_analysis`; the daemon (Track A) calls this query.
+
+Design note (decided 2026-06-13): `fortuna-cognition` has NO `fortuna-ledger` dep, so the
+orchestrator RETURNS drafts and the daemon PERSISTS (the house pattern). Per operator: **Track E
+exposes the building blocks; Track A wires `drive()`** — so this query + the 2b orchestrator are
+mine, the `drive()` call-site is Track A's (handoff doc to follow).
+
+Verified: new `#[sqlx::test] recent_by_kind_filters_by_kind_and_window_newest_first` green (live
+sqlx macro-check against Postgres); offline cache regenerated PER-CRATE (`cd crates/fortuna-ledger
+&& cargo sqlx prepare` → one new `.sqlx/query-*.json`, root `.sqlx/` untouched); `SQLX_OFFLINE=true`
+build green; `fmt` + `clippy --workspace --all-targets -D warnings` clean; full workspace test =
+green except the pre-existing Track-C `kinetics_dto` red (GAPS "GATE FINDING 2026-06-13").
+
+Shared-doc touches: none (code + ledger only).
+
+## [Post-merge integration] Slice 1 — §15 I6 persona field-surface invariant pin (operator-approved waive) (commit 76a748f)
 
 Context: Track E was merged to `main` (verifier GATE ACCEPT @2668291); `main` has since advanced
 93 commits (Track A's `fortuna-live` daemon, perps, …). The operator approved (2026-06-13)

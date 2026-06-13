@@ -811,6 +811,94 @@ async fn signals_append_only_with_per_source_dedup_index_rebuild(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn recent_by_kind_filters_by_kind_and_window_newest_first(pool: PgPool) {
+    let repo = fortuna_ledger::SignalsRepo::new(pool);
+    repo.insert(
+        "a-old",
+        "aeolus",
+        "aeolus.forecast",
+        "2026-06-10T00:00:00.000Z",
+        "h1",
+        &serde_json::json!({"n": 1}),
+    )
+    .await
+    .unwrap();
+    repo.insert(
+        "a-mid",
+        "aeolus",
+        "aeolus.forecast",
+        "2026-06-10T12:00:00.000Z",
+        "h2",
+        &serde_json::json!({"n": 2}),
+    )
+    .await
+    .unwrap();
+    repo.insert(
+        "a-new",
+        "aeolus",
+        "aeolus.forecast",
+        "2026-06-11T06:00:00.000Z",
+        "h3",
+        &serde_json::json!({"n": 3}),
+    )
+    .await
+    .unwrap();
+    repo.insert(
+        "m-1",
+        "rss",
+        "macro.calendar",
+        "2026-06-11T05:00:00.000Z",
+        "h4",
+        &serde_json::json!({"n": 4}),
+    )
+    .await
+    .unwrap();
+
+    // Window opens 2026-06-10T06:00 -> excludes a-old; kind filter excludes m-1.
+    let got = repo
+        .recent_by_kind(
+            &["aeolus.forecast".to_string()],
+            "2026-06-10T06:00:00.000Z",
+            10,
+        )
+        .await
+        .unwrap();
+    let ids: Vec<&str> = got.iter().map(|r| r.signal_id.as_str()).collect();
+    assert_eq!(
+        ids,
+        vec!["a-new", "a-mid"],
+        "newest-first, in-window, kind-filtered"
+    );
+    assert_eq!(got[0].kind, "aeolus.forecast");
+    assert_eq!(got[0].source, "aeolus");
+    assert_eq!(got[0].content_hash, "h3");
+    assert_eq!(got[0].payload, serde_json::json!({"n": 3}));
+
+    // Multiple kinds + a cap: newest two across both kinds.
+    let got2 = repo
+        .recent_by_kind(
+            &["aeolus.forecast".to_string(), "macro.calendar".to_string()],
+            "2026-06-10T06:00:00.000Z",
+            2,
+        )
+        .await
+        .unwrap();
+    let ids2: Vec<&str> = got2.iter().map(|r| r.signal_id.as_str()).collect();
+    assert_eq!(
+        ids2,
+        vec!["a-new", "m-1"],
+        "both kinds, newest-first, capped at 2"
+    );
+
+    // No kinds requested -> nothing (an empty allowlist reads nothing).
+    let none = repo
+        .recent_by_kind(&[], "2000-01-01T00:00:00.000Z", 10)
+        .await
+        .unwrap();
+    assert!(none.is_empty(), "empty kinds -> empty result");
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn source_registry_upserts_and_loads_allowlist(pool: PgPool) {
     let repo = fortuna_ledger::SourceRegistryRepo::new(pool);
     repo.upsert(
