@@ -16,6 +16,15 @@ The `prob_claims/v1` scalar-belief foundation + perp strategies (design
 
 #### Added
 
+- **`perp_event_basis` basis kernel** (slice 3, `fortuna-cognition::basis`): the
+  deterministic forecast-quality basis signal — `bracket_implied_median` (a
+  KXBTC15M bracket ladder's YES bid/ask → normalized probabilities →
+  0.5-crossing interpolation) + `compute_basis` (perp mark − implied median,
+  gated past the assumed-fee floor). f64-cognition (never money); the bracket
+  structure is grounded in the committed Kalshi research, only the test values
+  are synthetic. 10 mutation-proven tests. The bracket-TRADER strategy + the
+  real-orderbook e2e stay fixture-gated (operator-queue #4 + a `KalshiMarket`
+  floor/cap DTO extension).
 - **`funding_forecast` strategy** (slice 2b, `fortuna-runner`): a zero-capital
   scalar belief-producer — on a `PerpTick` it forecasts the next funding rate
   directly from the recorded venue estimate (`finalize_funding_rate(estimate)`;

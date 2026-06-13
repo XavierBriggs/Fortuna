@@ -18,6 +18,30 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK C — slice 3 (perp_event_basis) GROUNDED: kernel buildable-now-synthetic, e2e fixture-gated (2026-06-13)
+
+Design-validation (explorer, grounded vs current code + Kalshi research):
+- VERDICT: the basis KERNEL (basis = perp_mark − bracket_implied_median; the implied-median algorithm;
+  the fee-trap comparison) is BUILDABLE NOW with adversarial MUTATION-PROVEN synthetic tests. The
+  bracket STRUCTURE (KXBTC15M floor_strike/cap_strike → YES-price→probability → median) is GROUNDED IN
+  RESEARCH (docs/research/venue/kalshi-api-2026-06-10/raw/asyncapi.yaml:1688 has the KXBTC15M ticker;
+  :3174-3176 + research.md:251-253 document floor_strike/cap_strike/strike_type), so synthetic test
+  VALUES use the REAL structure (NOT invented). The existing event-contract code has NO strike
+  representation (Market/KalshiMarket DTO don't parse floor/cap; mech_structural sums YES asks, ignores
+  strikes) → the kernel's types (BracketBin) are NEW.
+- PLACEMENT CORRECTION (money-discipline): the kernel uses f64 (bracket probabilities + the
+  forecast-quality basis signal). CLAUDE.md forbids f64 for PRICES in fortuna-CORE. So the kernel lives
+  in fortuna-COGNITION (f64 forecast quantities, consistent with §1.1 + scoring.rs), NOT fortuna-core/
+  perp as the explorer first suggested. It imports PerpPrice from fortuna-core + converts to f64 at the
+  cognition boundary. The actual TRADE (bracket Cents legs) is the strategy/exec money op (the
+  perp_event_basis strategy, fortuna-runner — deferred).
+- FIXTURE-GATED (e2e stays RED, NOT counted toward Phase-5 EXIT on synthetic alone): the
+  perp_event_basis STRATEGY (reads real KXBTC15M orderbooks) needs (a) operator-queue #4 (the paired
+  KXBTCPERP1 + KXBTC15M cycle fixture) AND (b) a DTO extension (floor_strike/cap_strike on KalshiMarket/
+  Market — track-A's Kalshi venue surface). Slice 4 (daemon wiring of funding_forecast) is
+  track-A-coordination-risky (daemon.rs is hot: track-D OBS + track-A drive/kill-switch) — defer to a
+  coordinated window.
+
 ## TRACK C — slice 2b (funding_forecast strategy) DONE → SLICE 2 COMPLETE (2026-06-13)
 
 SLICE 2b LANDED: the funding_forecast belief-producer (crates/fortuna-runner/src/funding_forecast.rs)

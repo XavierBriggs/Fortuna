@@ -26,6 +26,7 @@
     )
 )]
 
+pub mod basis;
 pub mod beliefs;
 pub mod calibration;
 pub mod context;

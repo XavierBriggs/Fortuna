@@ -3,6 +3,69 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T5.B7 slice 3 — perp_event_basis BASIS KERNEL (track C, 2026-06-13; interprets design §3/§3.1/§7 + GAPS "slice 3 GROUNDED")
+
+- **Kernel PLACEMENT: `fortuna-cognition` (`src/basis.rs`), NOT `fortuna-core`.**
+  The kernel is `f64`-forecast (bracket probabilities + the basis signal), and
+  CLAUDE.md forbids `f64` for PRICES in `fortuna-core`. So the kernel lives in
+  cognition alongside `scoring.rs`'s `f64`-forecast types (design §1.1; the
+  money-discipline correction recorded in GAPS). The ONLY cross-domain touch is
+  a boundary read of `fortuna_core::perp::PerpPrice` into `f64` dollars; there
+  is NO `PerpPrice`/`Cents` arithmetic in the kernel. The actual bracket-leg
+  TRADE (maker-only `Cents` legs, gated + sized by the harness) is the DEFERRED
+  `perp_event_basis` STRATEGY's money op (fortuna-runner), out of scope here.
+- **`PerpPrice → f64` conversion is done off the raw integer (`PerpPrice::raw()
+  / 10_000`), NOT via `Decimal`.** `PerpPrice` semantics are exactly
+  ten-thousandths of a dollar ($0.0001 tick), so `raw / 10_000` is the exact
+  dollar value and avoids taking on a `rust_decimal` dependency in
+  fortuna-cognition (which does not otherwise need it). The `i64 → f64` step is
+  the forecast boundary, not a money boundary — a BTC-scale dollar value is well
+  within `f64` precision for a comparison signal, and no money arithmetic
+  occurs. Conversion is isolated in one helper (`perp_dollars_f64`) so the single
+  cross-domain touch is auditable.
+- **The implied-median algorithm + the NORMALIZATION choice (design §3).**
+  Per bin `p_i = (yes_bid + yes_ask)/2/100` (YES-mid, cents→unit probability);
+  `sum_p = Σ p_i`. If `sum_p == 0` (degenerate/illiquid ladder) OR the slice is
+  empty → `None` (no implied median). Otherwise NORMALIZE each `p_i` by `sum_p`
+  (so the ladder integrates to exactly 1.0 — robust to a YES-mid book that does
+  not already sum to 1), sort bins by `floor` ascending, accumulate cumulative
+  probability, and at the first bin where `cum + p_i ≥ 0.5` interpolate
+  `median = floor_i + (0.5 − cum)/p_i · (cap_i − floor_i)`. The bracket
+  STRUCTURE (floor_strike/cap_strike + a YES bid/ask in cents) is GROUNDED in
+  the Kalshi research (asyncapi.yaml:1688 KXBTC15M ticker; :3174-3176
+  floor_strike/cap_strike; research.md:251-253), so synthetic test VALUES use
+  the real structure — only the values are synthetic, never the structure.
+- **The div-by-zero/illiquid-bin guard is DEFENSIVE (documented-unreachable
+  under the `≥` crossing), not a reachable mutation.** A zero-probability bin
+  can never be the crossing bin: `cum + 0 ≥ 0.5` requires `cum ≥ 0.5`, which an
+  earlier POSITIVE bin would already have crossed on (and returned). So the
+  `/ p_i` interpolation always sees `p_i > 0`. The kernel still guards the
+  division (a documented-unreachable zero at the crossing degrades to `None`,
+  never a `NaN`) for total NaN-safety. Verified during mutation testing:
+  REMOVING the `continue`/division guard reds NO synthetic test (it is a no-op
+  under `≥`). The illiquid-bin test therefore pins the REACHABLE property —
+  a `(0,0)` bin contributes ZERO mass, leaving the median finite and at the
+  correct crossing — and its proven mutation is "mishandle a `(0,0)` bin as
+  carrying mass" (median shifts off the expected crossing → reds).
+- **The FEE-TRAP floor is a PASSED-IN config value (amendment C), NOT recomputed
+  from a `FeeModel`.** `is_tradeable = |signed_basis| > (fee_floor_dollars +
+  min_basis_dollars)` (a STRICT `>`, so a basis exactly at the combined floor is
+  NOT tradeable). `fee_floor_dollars` is the assumed post-promo round-trip
+  bracket fee (~5–12 bps per design §7); promo-$0 never lowers it. The kernel
+  reports the floor it was given (`BasisSignal.fee_floor_dollars`) so the verdict
+  is self-describing. The kernel computes the SIGNAL only; the actual sized,
+  gated bracket order is the deferred strategy's exec op (I6/I7 unchanged).
+- **The e2e is FIXTURE-GATED (operator-queue #4 + a DTO extension), proven LOGIC
+  only.** The real-orderbook end-to-end (live KXBTC15M books vs the paired
+  perp cycle) needs (a) the paired KXBTCPERP1 + KXBTC15M cycle fixture
+  (operator-queue #4) and (b) a `KalshiMarket`/`Market` DTO extension carrying
+  `floor_strike`/`cap_strike` (track-A's Kalshi venue surface). The basis KERNEL
+  (deterministic) does NOT block on either; synthetic mutation-proven tests
+  prove the LOGIC, never an e2e or calibration claim. The existing event-contract
+  code has NO strike representation (the `Market`/`KalshiMarket` DTO does not
+  parse floor/cap; mech_structural sums YES asks ignoring strikes), so the
+  kernel's `BracketBin` type is NEW (cognition-domain).
+
 ## T5.B7 slice 2b — funding_forecast strategy (track C, 2026-06-13; interprets design §2.2/§2.3 + GAPS R1)
 
 - **The recorded funding ESTIMATE is the point forecast, used DIRECTLY (GAPS
