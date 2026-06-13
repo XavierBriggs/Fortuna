@@ -334,3 +334,112 @@ queue item with its own kill-switch-collision coordination (out of scope here).
   auto-promotion, the fee-trap gate on GO); I5 (every belief/score write audited);
   money/forecast boundary (scalar `f64` is forecast-quality, never money — the
   PerpPrice/Cents conversion stays at the gate/exec edge).
+
+## 8. Telemetry (rich, slots into the existing metrics, extensible by construction)
+
+The repo's telemetry grain (spec §8) is the **named `MetricSample`** (`runner.rs`:
+`{name: &'static str, help, counter: bool, labels: Vec<(String,String)>, value: i64}`),
+which the runner emits and the ops layer maps into `fortuna_ops::metrics::MetricsRegistry`
+→ the `GET /metrics` endpoint. The runner stays telemetry-dependency-free; the ops layer
+owns the registry. **We slot in by EMITTING new named samples — no struct field added to
+the shared `StrategyMetrics`/`RunCounters`, no schema migration.** That IS the
+extensibility property: a new metric, a new producer, a new scorer is a new
+`(name, labels, value)` tuple, nothing else.
+
+**Dimensional scheme (labels do the work, so expansion never forks the schema):**
+
+- Scalar-belief lifecycle (producer-agnostic — funding_forecast now, Aeolus/personas
+  later, identical metric, new `producer` label value):
+  - `fortuna_scalar_beliefs_emitted_total{producer}` (counter)
+  - `fortuna_scalar_beliefs_resolved_total{producer}` (counter)
+- Scoring/calibration (labeled by `rule_id`, so swapping or A/B-ing scorers is visible —
+  the `ScoringRule` swappability surfaced in telemetry):
+  - `fortuna_scalar_score{producer, rule_id}` (gauge: rolling mean score, lower-better;
+    e.g. rolling-N CRPS)
+  - `fortuna_scalar_quantile_coverage{producer, band}` (gauge: realized fraction inside
+    the e.g. 0.1–0.9 band ×10⁴ — calibration at a glance)
+- funding_forecast: `fortuna_funding_forecast_rate{market}` (gauge, point forecast ×10⁶),
+  `fortuna_funding_window_elapsed{market}` (gauge, candles observed).
+- perp_event_basis: `fortuna_perp_basis{market}` (gauge, signed basis in underlying
+  ten-thousandths), `fortuna_perp_basis_signals_total{market}` (counter, tradeable
+  inconsistencies past the fee-trap floor); proposals/fills ride the existing
+  `StrategyMetrics`.
+
+**Value encoding** (the registry is `i64`): floats are fixed-point-scaled with the scale
+named in `help` (rate ×10⁶, basis in ten-thousandths, coverage ×10⁴) — the same
+integer-telemetry discipline the existing counters use; no `f64` enters the registry.
+The scalar score gauges read off the durable `belief_scores` rows (§1.3), so they are
+re-derivable and consistent with the ledger, not a parallel truth.
+
+## 9. ROTA views (track-B can build these in the meantime — read-only spec)
+
+ROTA is track-B's (`fortuna-ops/src/rota/`), read-only doctrine ABSOLUTE: zero mutating
+endpoints, gold-on-black tokens, per-panel degraded state (HTTP 200, never 500), a
+SEPARATE read-only pool (never the daemon's), `GET /api/rota/v1/<view>` snapshot JSON +
+short-poll. This section is the **view CONTRACT** track-B builds against; track C ships
+the data (the `scalar_beliefs`/`belief_scores` tables, slice 1b) the queries read. Track B
+can build the panels + degraded states NOW against these contracts; they light up when the
+data lands. (This refines the design's already-deferred "perps/funding-regime panel".)
+
+### 9.1 `GET /api/rota/v1/forecasts` — the scalar-forecast SCORECARD (producer-agnostic, the headline)
+
+The view that "shows the outcomes of the perps vendor and the whole process," generalized:
+one row per `producer` (funding_forecast, and later aeolus/personas with ZERO view
+change). Per producer:
+- the recent scalar beliefs: the quantile fan (e.g. 0.1/0.5/0.9), `unit`, `horizon`,
+  `event_key`, and the realized `value` once resolved (the forecast-vs-outcome pair —
+  the heart of "did the vendor call it");
+- the calibration summary: rolling mean score PER `rule_id` (swappable scorers shown
+  side by side — Brier-of-binarized vs CRPS, when more than one runs), quantile-band
+  coverage (is the 0.1–0.9 band ~80%?), resolved-N;
+- a sparkline-ready series of (issued_at, median, realized) for the recent window.
+This is the "publish claims, receive calibration-vs-market scorecards" product surface
+(signal-contract.md §3), now operator-facing. View JSON: `{producers: [{producer,
+calibration: {rule_scores: [{rule_id, mean, resolved_n}], coverage_bps, ...},
+recent: [{event_key, issued_at, quantiles, horizon, realized, status}]}], degraded?}`.
+
+### 9.2 `GET /api/rota/v1/perps` — funding regime + basis (perps-specific)
+
+- Funding regime: current funding estimate + `next_funding_time` per market, the
+  funding_forecast point+band, and recent realized funding rates (the regime trail) —
+  the venue's funding world at a glance.
+- Basis: per market, the current `basis = perp_forecast − bracket_median`, the recent
+  basis trail, and the basis-signal events (tradeable inconsistencies) with their trade
+  outcomes (proposed → gated → filled/rejected → settled PnL) — the perp_event_basis
+  story end to end.
+
+### 9.3 "The whole process" — lineage, woven into 9.1/9.2
+
+Rather than a separate panel, each scorecard/basis row is CLICK-TO-EXPAND to its lineage
+(the cognition-panel pattern, rota-dashboard.md §5): `PerpTick` ingest → forecast →
+scalar belief (provenance) → score (per rule) → realized outcome → (for basis) the
+bracket trade + settlement. One honest thread from input to outcome, no new storage (the
+provenance + belief_scores rows already carry it).
+
+**Extensibility for track B**: every view is keyed by `producer`/`market` labels, so a new
+scalar producer or a new perp market is a new row/series, not a new panel or contract
+change — the same zero-schema-change property as §8.
+
+## 10. Why expanding this is trivial (the extensibility principles, made explicit)
+
+Each foundational choice is a SEAM that absorbs the next consumer without a rewrite:
+
+1. **Swappable `ScoringRule`** — a new score (log-loss, weighted-CRPS, a market-relative
+   skill score) is one `impl` + its `belief_scores` rows; nothing else moves. Scorers run
+   side by side and are backtestable over the immutable `(PredictiveDistribution,
+   RealizedOutcome)` facts.
+2. **Producer-agnostic scalar type** — funding_forecast, Aeolus weather, and track-E
+   personas all emit `PredictiveDistribution::Scalar`; onboarding consumer N+1 is a
+   `producer` label + (for external vendors) a registry row, not new Rust (signal-contract
+   §3's "an hour, not an afternoon").
+3. **Named-sample telemetry** — a new metric/producer/scorer is a new `(name, labels,
+   value)` tuple; no shared struct grows, no migration.
+4. **Producer-/market-keyed ROTA views** — a new producer or market is a new row/series in
+   the existing contracts; track B never re-cuts a panel.
+5. **Additive seams everywhere** — `drain_scalar_beliefs()` is a default-impl trait method;
+   `PerpTick` is a new bus variant; `scalar_beliefs`/`belief_scores` are new tables beside
+   the untouched binary path. Each addition is orthogonal to what exists.
+
+The test of the design: adding "a second weather vendor" or "a persona forecaster" or "a
+new perp market" or "a sharper scoring rule" should each touch ONE seam and zero schemas.
+By construction here, each does.

@@ -18,6 +18,64 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK C — OPERATOR BUILD-AUTHORIZATION + design complete (telemetry/ROTA/extensibility); design-gate-stop CLEARED (2026-06-13)
+
+The verifier's standing gate (GATE-FINDINGS-LATEST.md, track-C §, 69f9ceb update):
+"conditions satisfied; the ONLY remaining gate is OPERATOR build-authorization …
+a DESIGN-GATE STOP; OPERATOR must confirm build-authorization before slices build."
+This entry records that artifact.
+
+BUILD-AUTHORIZATION (operator, 2026-06-13 session, verbatim). The design pass was
+framed by the operator as "operator-approved, then built." After the design dialogue
+(native-CRPS scoring, a swappable ScoringRule layer, more-descriptive names, fixture
+confirmation, the live-data drive) the operator directed the build itself: "build what
+you need to be complete" and "use subagent dev to get this done more efficently ensure
+your quality bar remains as high." That is the operator confirmation the design-gate-stop
+required (the analog of track E's b4eaae3 approval artifact). Build now proceeds
+SLICE-BY-SLICE; the BUILD_PLAN T5.B7 box stays UNTICKED until each slice lands gate-clean
+(no done-claim rides on this authorization — only executably-true gated slices count).
+
+DESIGN COMPLETE — three sections added on the operator's final design request ("add rich
+telemetry and ensure it slots into our telemetry nicely; describe views for ROTA that
+track-b can build in the meantime … show me the outcomes of the perps vendor and whole
+process; … design this well … so that expanding this in the future is trivial"):
+- §8 Telemetry: EMIT new named MetricSamples on the runner's existing grain
+  ({name,help,counter,labels,value:i64}) — NO field added to the shared StrategyMetrics/
+  RunCounters, no migration; dimensional labels {producer, rule_id, market}; i64
+  fixed-point (rate ×10⁶, basis ten-thousandths, coverage ×10⁴, same integer-telemetry
+  discipline as existing counters); the score gauges read off the durable belief_scores
+  rows (§1.3) so they are ledger-consistent, not a parallel truth. Folded into slices 2/3
+  (the emitters), not a new slice.
+- §9 ROTA views = a read-only view CONTRACT for track-B (track C ships the slice-1b data
+  tables those queries read): GET /api/rota/v1/forecasts (producer-agnostic scalar
+  SCORECARD — quantile fan vs realized, per-rule_id calibration, band coverage) +
+  GET /api/rota/v1/perps (funding regime + basis trail + trade outcomes) + click-to-expand
+  lineage (the cognition-panel pattern). Read-only doctrine absolute. Track-B builds the
+  panels now against the contracts; they light up when slice-1b data lands.
+- §10 Extensibility: five seams made explicit (swappable ScoringRule; producer-agnostic
+  scalar type; named-sample telemetry; producer/market-keyed views; additive seams) — the
+  "one seam, zero schemas" test for the next vendor / persona / perp market / scoring rule.
+
+SLICE-1a WIP (uncommitted, NOT gate-confirmed — explicitly NOT a done-claim): a first cut
+of the scalar foundation exists in the tree — crates/fortuna-cognition/src/scoring.rs
+(~475L) + tests/scoring.rs (~609L) + the lib.rs `pub mod scoring;` registration. Per
+delegate-but-verify it is UNVERIFIED until the main loop runs the full battery + an
+adversarial review; it is verified-and-committed (or fixed) in the NEXT iteration, never
+claimed on this doc commit.
+
+REBASE NOTE (priority a2). track-c trails main only by docs + the track-D Phase-A merge
+(none touch track-C files). Verified empirically: revert 19b3888 IS in main's history and
+main's perp.rs carries NO FundingWindow — the perps plane is NOT on main. So the safe form
+is `git rebase --reapply-cherry-picks main` (a plain rebase would drop the 4 track-c
+commits as cherry-picks against the reverted merge). The loop-doc line-32 claim ("plane
+MERGED → plain rebase safe") is STALE; the bus rule governs. Rebase runs in the next
+(code-landing) iteration, ahead of any slice commit.
+
+This SUPERSEDES the RALPH STOP 2026-06-13T05:50:50Z below: its blockers (ownership
+mechanics + un-inventable modeling + the binary-only BeliefDraft) were resolved by the
+operator's design pass (cross-cutting build scope granted) + this build-authorization +
+the now-folded-in critique. (History left intact per the honesty-ledger discipline.)
+
 ## RALPH STOP 2026-06-13T05:50:50Z (track C — T5.B7/B8 remainder is cross-track-blocked; ownership mechanics unresolved)
 
 Stopping per loop rule 6 + the north star ("blocked-with-precise-findings
