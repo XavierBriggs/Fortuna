@@ -914,7 +914,7 @@ scheduler is shared with D9). The skill/persona layer is a separate session
       fires for dups past the validator's window). (DONE 2026-06-13 <hash>; scoped
       battery green — fmt + clippy -p fortuna-live --all-targets -D warnings +
       test -p fortuna-live --lib ingestion = 6/6; the DB-backed fortuna-live
-      suite is the verifier's merge gate.)
+      suite is the verifier's merge gate.) [2ed28d3]
 - [ ] OBS-2b snapshot publish: write `IngestionWiring::telemetry()` into an
       `Arc<RwLock<IngestionTelemetry>>` each tick in run_ingestion_loop + hand a
       reader clone out of main.rs so the metrics renderer + ROTA handlers project
