@@ -68,6 +68,7 @@ pub fn rota_router(state: RotaState) -> Router {
         .route("/api/rota/v1/ingest_sources", get(view_ingest_sources))
         .route("/api/rota/v1/ingest_feed", get(view_ingest_feed))
         .route("/api/rota/v1/ingest_funnel", get(view_ingest_funnel))
+        .route("/api/rota/v1/fills", get(view_fills))
         .route("/api/rota/v1/audit", get(audit_tail))
         .with_state(state)
 }
@@ -136,6 +137,84 @@ async fn view_ingest_feed(State(s): State<RotaState>) -> impl IntoResponse {
 /// a fabricated 0 that would look like "everything dropped after validation".
 async fn view_ingest_funnel(State(s): State<RotaState>) -> impl IntoResponse {
     Json(read_view(&s, "ingest_funnel").await)
+}
+
+/// Recent fills — the trades EXECUTED, from the durable `fills` ledger (mission
+/// item 3: "trades being executed"). Runtime sqlx (the audit-tail / belief-
+/// lifecycle precedent — read-only, schema-pinned, no offline cache). Shaped into
+/// the generic board envelope; price/fee render as dollars (the `cents` column
+/// flag). NOTE: a fill carries no `strategy` (attribution lives in the runtime
+/// PositionBook, not the row) and no realized PnL — the per-strategy P&L view
+/// (a future views_from board) and the honest unrealized-PnL gap (no mark loop,
+/// same as the Money board) are ledgered. Degrades to unavailable (HTTP 200)
+/// without the pool, never a 500.
+async fn view_fills(State(s): State<RotaState>) -> impl IntoResponse {
+    let Some(pool) = s.pool.clone() else {
+        return Json(json!({
+            "status": "unavailable",
+            "detail": "postgres capability absent (standalone ROTA)",
+        }));
+    };
+    match recent_fills(&pool, 50).await {
+        Ok(rows) => {
+            let generated_at = { s.snapshot.read().await.generated_at.clone() }; // R8
+            let n = rows.len();
+            let json_rows: Vec<Value> = rows
+                .into_iter()
+                .map(
+                    |(market, side, action, _venue, price, qty, fee, maker, at)| {
+                        json!({
+                            "at": at, "market": market, "side": side, "action": action,
+                            "qty": qty, "price_cents": price, "fee_cents": fee,
+                            "maker": if maker { "maker" } else { "taker" },
+                        })
+                    },
+                )
+                .collect();
+            Json(json!({
+                "title": "Recent Fills",
+                "generated_at": generated_at,
+                "columns": [
+                    {"key":"at","label":"Time (UTC)"},
+                    {"key":"market","label":"Market"},
+                    {"key":"side","label":"Side"},
+                    {"key":"action","label":"Act"},
+                    {"key":"qty","label":"Qty"},
+                    {"key":"price_cents","label":"Price","cents":true},
+                    {"key":"fee_cents","label":"Fee","cents":true},
+                    {"key":"maker","label":"Liq"},
+                ],
+                "rows": json_rows,
+                "summary": {"fills": n},
+            }))
+        }
+        Err(e) => {
+            // Never leak raw sqlx/Pg text — degrade like the no-pool case.
+            eprintln!("rota: fills read degraded: {e}");
+            Json(json!({
+                "status": "unavailable",
+                "detail": "fills read unavailable (dashboard pool degraded)",
+            }))
+        }
+    }
+}
+
+/// One recent fill row: (market_id, side, action, venue, price_cents, qty,
+/// fee_cents, is_maker, at).
+type FillRowTuple = (String, String, String, String, i64, i64, i64, bool, String);
+
+/// Recent fills, newest-first (`at` DESC), limit clamped to [1, 200]. Runtime
+/// sqlx by deliberate choice (the audit-tail precedent): a read-only dashboard
+/// query, schema-pinned by the migration, kept out of the sqlx-offline cache.
+pub async fn recent_fills(pool: &PgPool, limit: i64) -> Result<Vec<FillRowTuple>, sqlx::Error> {
+    let limit = limit.clamp(1, 200);
+    sqlx::query_as::<_, FillRowTuple>(
+        "SELECT market_id, side, action, venue, price_cents, qty, fee_cents, is_maker, at \
+         FROM fills ORDER BY at DESC LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
 }
 
 /// Evidence payloads are operator-readable JSONB of unbounded size; the
@@ -602,6 +681,7 @@ const ROTA_SHELL: &str = r#"<!doctype html><html lang="en"><head>
   <div class="panel wide"><h2>Sources Health</h2><div id="ingest_sources">…</div></div>
   <div class="panel wide"><h2>Live Signal Feed</h2><div id="ingest_feed">…</div></div>
   <div class="panel wide"><h2>Ingest Funnel</h2><div id="ingest_funnel">…</div></div>
+  <div class="panel wide"><h2>Recent Fills</h2><div id="fills">…</div></div>
   <div class="panel"><h2>Audit tail</h2><div id="audit">…</div></div>
 </div>
 <script>
@@ -630,7 +710,7 @@ function boardTable(j){
   if(!rows.length)return h+`<div class="row">no rows yet</div>`;
   h+=`<table class="board"><thead><tr>`+cols.map(c=>`<th>${esc(c.label||c.key)}</th>`).join("")+`</tr></thead><tbody>`;
   rows.forEach(r=>{h+=`<tr>`+cols.map(c=>{const v=r[c.key];
-    return c.pill?`<td>${valuePill(v)}</td>`:`<td>${v==null?"—":esc(v)}</td>`;}).join("")+`</tr>`;});
+    return c.pill?`<td>${valuePill(v)}</td>`:c.cents?`<td>${fmtCents(v)}</td>`:`<td>${v==null?"—":esc(v)}</td>`;}).join("")+`</tr>`;});
   h+=`</tbody></table>`;
   return h;
 }
@@ -682,6 +762,7 @@ const R={
  ingest_sources(j){return boardTable(j);},
  ingest_feed(j){return boardTable(j);},
  ingest_funnel(j){return boardTable(j);},
+ fills(j){return boardTable(j);},
  audit(j){if(!j.available)return `<div class="warn">${esc(j.detail||"unavailable")}</div>`;
   let h="";j.rows.slice(-12).forEach(r=>h+=`<div class="row">${esc(r.at)} UTC ${esc(r.kind)}${r.actor?" · "+esc(r.actor):""}</div>`);
   return h||`<div class="row">no audit rows yet</div>`;}
@@ -693,5 +774,5 @@ async function poll(name){const el=document.getElementById(name);
  }catch(e){el.innerHTML=`<div class="warn">unreachable: ${esc(e)}</div>`;}}
 function every(ms,names){names.forEach(poll);setInterval(()=>names.forEach(poll),ms);}
 every(2000,["health","audit"]);every(5000,["money","gates","ingest_sources","ingest_feed","ingest_funnel"]);
-every(10000,["cognition","settlement"]);every(15000,["streams"]);
+every(10000,["cognition","settlement","fills"]);every(15000,["streams"]);
 </script></body></html>"#;

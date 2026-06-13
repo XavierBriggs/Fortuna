@@ -326,6 +326,66 @@ async fn seed(pool: &PgPool) -> Result<(), BoxErr> {
         .await,
     );
 
+    // A few executed fills for the Recent Fills board (raw INSERT — the fills
+    // table is a plain append-only row table; the dashboard reads it read-only).
+    for (id, market, side, action, price, qty, fee, maker, at) in [
+        (
+            "01FILLROTA000000000000001",
+            "KXNYCHIGH-26JUN13-B65",
+            "yes",
+            "buy",
+            41i64,
+            40i64,
+            12i64,
+            false,
+            "2026-06-13T11:55:10.000Z",
+        ),
+        (
+            "01FILLROTA000000000000002",
+            "KXCHIHIGH-26JUN13-B72",
+            "no",
+            "sell",
+            55i64,
+            25i64,
+            7i64,
+            true,
+            "2026-06-13T11:56:20.000Z",
+        ),
+        (
+            "01FILLROTA000000000000003",
+            "KXNYCHIGH-26JUN13-B65",
+            "yes",
+            "buy",
+            43i64,
+            10i64,
+            3i64,
+            true,
+            "2026-06-13T11:57:40.000Z",
+        ),
+    ] {
+        let r = sqlx::query(
+            "INSERT INTO fills (fill_id, venue, venue_order_id, client_order_id, market_id, \
+             side, action, price_cents, qty, fee_cents, is_maker, at) \
+             VALUES ($1,'sim',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+        )
+        .bind(id)
+        .bind(format!("vo-{id}"))
+        .bind(format!("co-{id}"))
+        .bind(market)
+        .bind(side)
+        .bind(action)
+        .bind(price)
+        .bind(qty)
+        .bind(fee)
+        .bind(maker)
+        .bind(at)
+        .execute(pool)
+        .await;
+        if let Err(e) = r {
+            eprintln!("[rota_local] seed 'fill' skipped: {e}");
+        }
+    }
+
     // Five audit rows of distinct kinds via the real append path (ULID + clock
     // supplied), advancing a SimClock between them so ids/timestamps order.
     let start = UtcTimestamp::parse_iso8601("2026-06-13T11:58:00.000Z")?;

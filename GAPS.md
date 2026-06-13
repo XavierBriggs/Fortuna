@@ -763,6 +763,30 @@ Until those land, the new boards ship as read-only frontend + honest-degraded
 (`available:false`) handlers — the discipline all three contracts specify
 ("build the panels now; they light up when the data lands").
 
+### RECENT FILLS DONE (2026-06-13) — trades-being-executed (mission item 3, partial)
+Built the Recent Fills board: `recent_fills(pool, limit)` runtime-sqlx query (SELECT
+market_id/side/action/venue/price_cents/qty/fee_cents/is_maker/at FROM fills ORDER BY
+at DESC, the audit-tail precedent) + `view_fills` handler (degrades to unavailable
+HTTP 200, no error leak) + a new data-driven `cents` column flag on boardTable
+(price/fee render as dollars via fmtCents). fortuna-ops ONLY (no fortuna-live touch);
+reuses the audit/cognition DB-query pattern. DB-backed populated-path test + degraded
++ PATHS. Screenshot-verified (11 boards); archived rota-fills-2026-06-13.png. feature-dev
+code-reviewer: SQL tuple-types match the schema, static query (no injection),
+degraded/no-leak paths, cents flag additive, all values esc'd, no fabricated
+strategy/PnL — NO blockers.
+
+TRADES FOLLOW-ONS (ledgered, NOT built — mission item 3 remainder):
+- Per-strategy P&L: a views_from board (the ROTA seam) from `runner.digest_snapshot().strategies`
+  (DigestStrategyRow: strategy, realized_pnl_cents, fees_cents, fills, open_exposure_cents) —
+  a clean accessor, no runner change. The next trades slice.
+- Working orders (resting): from `runner.manager().intents()` filtered `status.is_working()`
+  (OrderSnapshot: strategy/market/side/action/limit_price/qty/...) — also views_from, no runner change.
+- UNREALIZED (mark-based) PnL: NOT available anywhere — the runner computes marks in
+  check_drawdown() but discards them (no accessor); same mark-loop gap the Money board
+  flags. A Trades board shows realized only + honest-null unrealized until the mark loop
+  is exposed (operator/track-A). Fills carry no strategy column (attribution is runtime
+  PositionBook state) — per-fill strategy needs the digest path, not the fills table.
+
 ### OBS-2c DONE (2026-06-13) — the live ingestion boards (V1/V2/V3) now render LIVE daemon data
 Track-D's OBS-2b landed the `IngestionTelemetryHandle` (`Arc<RwLock<IngestionTelemetry>>`,
 fortuna-live/ingestion.rs) on main; OBS-2c (the ROTA read, explicitly track-B's) is

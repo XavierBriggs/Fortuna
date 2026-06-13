@@ -554,6 +554,12 @@ Polymarket research+fixtures, spec v0.9 touch-up).
         at the snapshot-composition site (this commit). Honest gate keeps the daemon
         byte-unchanged when ingestion is off (daemon_smoke 15/15); ROTA stays a pure
         snapshot reader (no fortuna-sources dep). The live ingestion triad is LIVE.
+  - [x] Recent Fills board (mission item 3, "trades being executed") — recent_fills
+        runtime-sqlx query over the durable fills ledger + view_fills handler + a new
+        data-driven `cents` column flag (price/fee as dollars); fortuna-ops only, the
+        audit-tail pattern; DB-backed populated test; screenshot-verified (this commit,
+        11 boards). Follow-ons (GAPS): per-strategy P&L + working orders (views_from
+        from runner accessors), unrealized PnL gapped (no mark loop).
 
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)

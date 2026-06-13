@@ -224,6 +224,13 @@ with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
   newest-first with their (redacted, esc()'d) data + accept/drop status pills.
 - **V3 Ingest Funnel** (`GET /api/rota/v1/ingest_funnel`) — the pipeline as a stage
   table (fetched → validated → normalized → persisted) with retention % + drop-offs.
+- **Recent Fills board** (`GET /api/rota/v1/fills`, mission item 3 "trades being
+  executed") — the executed trades from the durable `fills` ledger, newest-first
+  (time/market/side/action/qty/price/fee/maker-taker). A runtime-sqlx query (the
+  audit-tail pattern, no fortuna-live touch) + a new data-driven `cents` column
+  flag on `boardTable` so money columns render as dollars. A fill carries no
+  strategy/PnL (ledgered): per-strategy P&L (a views_from board) + working orders
+  + the honest unrealized-PnL gap (no mark loop) are follow-ons.
 - **OBS-2c — V1/V2/V3 now render LIVE daemon data.** `merge_ingest_views`
   (fortuna-live `views.rs`) shapes the daemon-published `IngestionTelemetryHandle`
   (track-D OBS-2b) into the three board envelopes each ROTA segment, merged at the

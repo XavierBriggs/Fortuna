@@ -66,7 +66,7 @@ async fn serve() -> (String, tokio::task::JoinHandle<()>) {
     (format!("http://{addr}"), handle)
 }
 
-const PATHS: [&str; 12] = [
+const PATHS: [&str; 13] = [
     "/rota",
     "/assets/rota/logo.svg",
     "/api/rota/v1/health",
@@ -78,6 +78,7 @@ const PATHS: [&str; 12] = [
     "/api/rota/v1/ingest_sources",
     "/api/rota/v1/ingest_feed",
     "/api/rota/v1/ingest_funnel",
+    "/api/rota/v1/fills",
     "/api/rota/v1/audit",
 ];
 
@@ -128,6 +129,7 @@ async fn degraded_surfaces_are_200_with_explicit_unavailable() {
         "ingest_sources",
         "ingest_feed",
         "ingest_funnel",
+        "fills",
     ] {
         let j: serde_json::Value = client
             .get(format!("{base}/api/rota/v1/{name}"))
@@ -994,6 +996,92 @@ async fn cognition_lifecycle_aggregates_beliefs_by_status(pool: sqlx::PgPool) {
     assert_eq!(
         lc["mean_clv_bps"], 40.0,
         "the CLV edge proxy is real too: {j}"
+    );
+}
+
+// The Recent Fills board serves the EXECUTED trades from the durable `fills`
+// ledger, newest-first, money columns flagged `cents`. POPULATED-path (real
+// seeded fills), not a vacuous empty board.
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn fills_board_serves_recent_executed_trades(pool: sqlx::PgPool) {
+    for (id, market, side, action, price, qty, fee, maker, at) in [
+        (
+            "01FILL0000000000000000001",
+            "KXNYCHIGH-26JUN13-B65",
+            "yes",
+            "buy",
+            41i64,
+            40i64,
+            12i64,
+            false,
+            "2026-06-13T12:30:00.000Z",
+        ),
+        (
+            "01FILL0000000000000000002",
+            "KXCHIHIGH-26JUN13-B72",
+            "no",
+            "sell",
+            55i64,
+            25i64,
+            7i64,
+            true,
+            "2026-06-13T12:31:00.000Z",
+        ),
+    ] {
+        sqlx::query(
+            "INSERT INTO fills (fill_id, venue, venue_order_id, client_order_id, market_id, \
+             side, action, price_cents, qty, fee_cents, is_maker, at) \
+             VALUES ($1,'sim',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+        )
+        .bind(id)
+        .bind(format!("vo-{id}"))
+        .bind(format!("co-{id}"))
+        .bind(market)
+        .bind(side)
+        .bind(action)
+        .bind(price)
+        .bind(qty)
+        .bind(fee)
+        .bind(maker)
+        .bind(at)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+    };
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/fills"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "both seeded fills served: {j}");
+    // Newest-first (at DESC): the 12:31 maker sell leads.
+    assert_eq!(j["rows"][0]["market"], "KXCHIHIGH-26JUN13-B72");
+    assert_eq!(j["rows"][0]["maker"], "maker");
+    assert_eq!(j["rows"][0]["price_cents"], 55);
+    assert_eq!(
+        j["rows"][1]["action"], "buy",
+        "the older fill is the buy: {j}"
+    );
+    assert_eq!(j["summary"]["fills"], 2);
+    // Price/fee are money columns (rendered as dollars via the `cents` flag).
+    let cols = j["columns"].as_array().unwrap();
+    assert!(
+        cols.iter()
+            .any(|c| c["key"] == "price_cents" && c["cents"] == true),
+        "price is a cents column: {j}"
     );
 }
 
