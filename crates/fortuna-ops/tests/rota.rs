@@ -66,8 +66,9 @@ async fn serve() -> (String, tokio::task::JoinHandle<()>) {
     (format!("http://{addr}"), handle)
 }
 
-const PATHS: [&str; 9] = [
+const PATHS: [&str; 11] = [
     "/rota",
+    "/favicon.ico",
     "/assets/rota/logo.svg",
     "/api/rota/v1/health",
     "/api/rota/v1/money",
@@ -75,6 +76,7 @@ const PATHS: [&str; 9] = [
     "/api/rota/v1/cognition",
     "/api/rota/v1/settlement",
     "/api/rota/v1/streams",
+    "/api/rota/v1/build",
     "/api/rota/v1/audit",
 ];
 
@@ -280,6 +282,7 @@ async fn streams_handler_merges_recorder_when_perishable_dir_present() {
         snapshot: snap,
         pool: None,
         perishable_dir: Some(Arc::new(base.clone())),
+        reviews_dir: None,
     };
     let app = rota_router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -420,6 +423,7 @@ async fn audit_handler_serves_the_live_tail_when_a_pool_is_present(pool: sqlx::P
         snapshot: empty_snapshot(),
         pool: Some(pool),
         perishable_dir: None,
+        reviews_dir: None,
     };
     let app = rota_router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -481,6 +485,7 @@ async fn exhausted_rota_pool_degrades_to_200_while_the_writer_is_unimpeded(
         snapshot: empty_snapshot(),
         pool: Some(rota_pool.clone()),
         perishable_dir: None,
+        reviews_dir: None,
     };
     let app = rota_router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -715,6 +720,7 @@ async fn cognition_serves_seeded_beliefs_and_scopes(pool: sqlx::PgPool) {
         snapshot: empty_snapshot(),
         pool: Some(pool),
         perishable_dir: None,
+        reviews_dir: None,
     };
     let j = get_cognition(state).await;
 
@@ -762,6 +768,7 @@ async fn cognition_truncates_evidence_over_4kb(pool: sqlx::PgPool) {
         snapshot: empty_snapshot(),
         pool: Some(pool),
         perishable_dir: None,
+        reviews_dir: None,
     };
     let j = get_cognition(state).await;
     let ev = &j["recent_beliefs"]["rows"][0]["evidence"];
@@ -890,6 +897,7 @@ async fn gates_recent_rejections_surfaces_only_rejects_newest_first(pool: sqlx::
         snapshot: empty_snapshot(),
         pool: Some(pool),
         perishable_dir: None,
+        reviews_dir: None,
     };
     let j = get_gates(state).await;
     let rr = &j["recent_rejections"];
@@ -935,6 +943,7 @@ async fn gates_recent_rejections_is_available_but_empty_when_no_rejects(pool: sq
         snapshot: empty_snapshot(),
         pool: Some(pool),
         perishable_dir: None,
+        reviews_dir: None,
     };
     let j = get_gates(state).await;
     assert_eq!(j["recent_rejections"]["available"], serde_json::json!(true));
@@ -1038,6 +1047,7 @@ async fn settlement_recent_watchdog_surfaces_only_watchdog_newest_first(pool: sq
         snapshot: empty_snapshot(),
         pool: Some(pool),
         perishable_dir: None,
+        reviews_dir: None,
     };
     let j = get_settlement(state).await;
     let rw = &j["recent_watchdog_events"];
@@ -1071,6 +1081,7 @@ async fn settlement_recent_watchdog_is_available_but_empty_when_none(pool: sqlx:
         snapshot: empty_snapshot(),
         pool: Some(pool),
         perishable_dir: None,
+        reviews_dir: None,
     };
     let j = get_settlement(state).await;
     assert_eq!(
@@ -1092,6 +1103,170 @@ async fn settlement_recent_watchdog_degrades_without_a_pool() {
     let j = get_settlement(state).await;
     assert_eq!(
         j["recent_watchdog_events"]["available"],
+        serde_json::json!(false),
+        "{j}"
+    );
+}
+
+// ---- T4.5 slice: gate-verdict badge (docs/reviews/*.md parser; data seam) ----
+
+use fortuna_ops::rota::{latest_gate_verdict, parse_verdict_token};
+
+#[test]
+fn parse_verdict_token_handles_the_recorded_formats() {
+    // Every shape that occurs in docs/reviews/*.md (bold, # heading, (...) and —
+    // suffixes, hyphenated verdicts). Tolerant: non-verdict lines -> None.
+    let cases = [
+        ("Verdict: ACCEPT", Some("ACCEPT")),
+        ("Verdict: BLOCK (2 unledgered Majors)", Some("BLOCK")),
+        ("Verdict: ACCEPT-WITH-GAPS", Some("ACCEPT-WITH-GAPS")),
+        ("Verdict: **BLOCK** (one Major)", Some("BLOCK")),
+        ("**Verdict: ACCEPT** (remediation batch)", Some("ACCEPT")),
+        (
+            "## VERDICT: ACCEPT-SLICE — dial logic promotion-ready",
+            Some("ACCEPT-SLICE"),
+        ),
+        ("Verdict: ACCEPT — MERGE", Some("ACCEPT")),
+        ("   verdict:   accept", Some("ACCEPT")),
+        (
+            "## VERDICT: ACCEPT-WITH-CONDITIONS — see notes",
+            Some("ACCEPT-WITH-CONDITIONS"),
+        ),
+        // MID-LINE header row (a real docs/reviews format): metadata then Verdict.
+        (
+            "Base: main  Head: b6ed374 (track-c)  Verdict: ACCEPT-SLICE",
+            Some("ACCEPT-SLICE"),
+        ),
+        ("## Findings", None),
+        ("no verdict on this line", None),
+        // Prose "verdict:" must NOT false-positive (token is not ACCEPT*/BLOCK).
+        ("the verdict: was unclear at first", None),
+        ("", None),
+        ("Verdict:", None),
+    ];
+    for (line, want) in cases {
+        assert_eq!(parse_verdict_token(line).as_deref(), want, "line {line:?}");
+    }
+}
+
+fn write_review(dir: &Path, name: &str, content: &str, mtime_epoch_secs: u64) {
+    use std::time::{Duration, SystemTime};
+    let path = dir.join(name);
+    std::fs::write(&path, content).unwrap();
+    let f = std::fs::File::options().write(true).open(&path).unwrap();
+    f.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(mtime_epoch_secs))
+        .unwrap();
+}
+
+#[test]
+fn latest_gate_verdict_picks_the_newest_file_carrying_a_verdict() {
+    let dir = std::env::temp_dir().join(format!("fortuna-reviews-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    // Older verdict file, newer verdict file, a NO-verdict file that is the
+    // newest of all (must be skipped), a non-.md file (ignored).
+    write_review(
+        &dir,
+        "gate-old.md",
+        "# Gate\nVerdict: BLOCK\n",
+        1_780_000_100,
+    );
+    write_review(
+        &dir,
+        "gate-new.md",
+        "# Gate\nVerdict: ACCEPT-SLICE — ok\n",
+        1_780_000_200,
+    );
+    write_review(
+        &dir,
+        "GATE-FINDINGS-LATEST.md",
+        "# bus\nno single verdict here\n",
+        1_780_000_900,
+    );
+    std::fs::write(dir.join("notes.txt"), "Verdict: ACCEPT\n").unwrap();
+
+    let v = latest_gate_verdict(&dir);
+    assert_eq!(v["available"], serde_json::json!(true), "{v}");
+    assert_eq!(
+        v["verdict"], "ACCEPT-SLICE",
+        "newest VERDICT-bearing file wins: {v}"
+    );
+    assert_eq!(v["file"], "gate-new.md");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn latest_gate_verdict_is_unavailable_when_no_verdict_or_dir_absent() {
+    // Dir absent -> unavailable, never a panic.
+    let absent =
+        std::env::temp_dir().join(format!("fortuna-reviews-absent-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&absent);
+    assert_eq!(
+        latest_gate_verdict(&absent)["available"],
+        serde_json::json!(false)
+    );
+
+    // Dir present but NO file carries a verdict -> unavailable (never fabricated).
+    let dir = std::env::temp_dir().join(format!("fortuna-reviews-empty-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    write_review(
+        &dir,
+        "no-verdict.md",
+        "# A doc\njust prose, no verdict header\n",
+        1_780_000_100,
+    );
+    assert_eq!(
+        latest_gate_verdict(&dir)["available"],
+        serde_json::json!(false)
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+async fn get_build(state: RotaState) -> serde_json::Value {
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/build"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    h.abort();
+    j
+}
+
+#[tokio::test]
+async fn build_endpoint_serves_the_latest_verdict_and_degrades_without_a_reviews_dir() {
+    use std::sync::Arc;
+    // With a reviews-dir capability -> the latest verdict, end-to-end through HTTP.
+    let dir = std::env::temp_dir().join(format!("fortuna-reviews-ep-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    write_review(&dir, "gate.md", "## VERDICT: ACCEPT\n", 1_780_000_100);
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: None,
+        perishable_dir: None,
+        reviews_dir: Some(Arc::new(dir.clone())),
+    };
+    let j = get_build(state).await;
+    assert_eq!(
+        j["latest_gate_verdict"]["available"],
+        serde_json::json!(true),
+        "{j}"
+    );
+    assert_eq!(j["latest_gate_verdict"]["verdict"], "ACCEPT");
+    let _ = std::fs::remove_dir_all(&dir);
+
+    // Standalone (no reviews-dir) -> explicit unavailable, never a 500.
+    let j = get_build(RotaState::standalone(empty_snapshot())).await;
+    assert_eq!(
+        j["latest_gate_verdict"]["available"],
         serde_json::json!(false),
         "{j}"
     );
