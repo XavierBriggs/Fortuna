@@ -1384,6 +1384,128 @@ async fn resolved_stats_expose_brier_and_clv_for_the_review(pool: PgPool) {
     assert!((stats[0].clv_bps.unwrap() - 150.0).abs() < 1e-9);
 }
 
+#[sqlx::test(migrations = "./migrations")]
+async fn resolved_persona_stats_groups_resolved_beliefs_by_provenance_scope(pool: PgPool) {
+    for e in ["e-a", "e-b", "e-c", "e-v2", "e-macro", "e-model"] {
+        seed_event(&pool, e).await;
+    }
+    let repo = fortuna_ledger::BeliefsRepo::new(pool);
+    let meteo_v1 = serde_json::json!({"persona_id": "meteorologist", "persona_version": 1});
+    let ins =
+        |id: &'static str, at: &'static str, ev: &'static str, p: f64, prov: serde_json::Value| {
+            let repo = &repo;
+            async move {
+                repo.insert(
+                    id,
+                    at,
+                    ev,
+                    p,
+                    p,
+                    "2026-06-20T18:00:00.000Z",
+                    &serde_json::json!([]),
+                    &prov,
+                    None,
+                )
+                .await
+                .unwrap();
+            }
+        };
+
+    // Two RESOLVED meteorologist@1 beliefs (the target scope), ascending created_at.
+    ins(
+        "b-a",
+        "2026-06-10T10:00:00.000Z",
+        "e-a",
+        0.7,
+        meteo_v1.clone(),
+    )
+    .await;
+    ins(
+        "b-b",
+        "2026-06-10T11:00:00.000Z",
+        "e-b",
+        0.4,
+        meteo_v1.clone(),
+    )
+    .await;
+    // An OPEN meteorologist@1 belief (never resolved) — must be excluded.
+    ins(
+        "b-c",
+        "2026-06-10T12:00:00.000Z",
+        "e-c",
+        0.6,
+        meteo_v1.clone(),
+    )
+    .await;
+    // A different VERSION, a different PERSONA, and a NON-persona belief — all excluded.
+    ins(
+        "b-v2",
+        "2026-06-10T10:30:00.000Z",
+        "e-v2",
+        0.5,
+        serde_json::json!({"persona_id": "meteorologist", "persona_version": 2}),
+    )
+    .await;
+    ins(
+        "b-macro",
+        "2026-06-10T10:30:00.000Z",
+        "e-macro",
+        0.5,
+        serde_json::json!({"persona_id": "macro-economist", "persona_version": 1}),
+    )
+    .await;
+    ins(
+        "b-model",
+        "2026-06-10T10:30:00.000Z",
+        "e-model",
+        0.5,
+        serde_json::json!({"model_id": "stub"}),
+    )
+    .await;
+
+    repo.resolve_and_score("b-a", true, 0.09, Some(150.0))
+        .await
+        .unwrap();
+    repo.resolve_and_score("b-b", false, 0.16, None)
+        .await
+        .unwrap(); // CLV unmeasurable
+                   // b-c stays OPEN.
+    repo.resolve_and_score("b-v2", true, 0.25, Some(10.0))
+        .await
+        .unwrap();
+    repo.resolve_and_score("b-macro", true, 0.25, Some(20.0))
+        .await
+        .unwrap();
+    repo.resolve_and_score("b-model", true, 0.25, Some(30.0))
+        .await
+        .unwrap();
+
+    let stats = repo
+        .resolved_persona_stats("meteorologist", 1)
+        .await
+        .unwrap();
+    assert_eq!(stats.persona_id, "meteorologist");
+    assert_eq!(stats.persona_version, 1);
+    // Only the two RESOLVED meteorologist@1 beliefs, in created_at order.
+    assert_eq!(
+        stats.samples.len(),
+        2,
+        "open / v2 / other-persona / non-persona all excluded"
+    );
+    assert!((stats.samples[0].0 - 0.7).abs() < 1e-9 && stats.samples[0].1);
+    assert!((stats.samples[1].0 - 0.4).abs() < 1e-9 && !stats.samples[1].1);
+    // Only the measurable CLV survives (b-b's was None).
+    assert_eq!(stats.clv_bps.len(), 1);
+    assert!((stats.clv_bps[0] - 150.0).abs() < 1e-9);
+
+    // A scope with no resolved beliefs is empty, not an error.
+    let empty = repo
+        .resolved_persona_stats("meteorologist", 99)
+        .await
+        .unwrap();
+    assert!(empty.samples.is_empty() && empty.clv_bps.is_empty());
+}
+
 // ---- discovery persistence (T3.2, spec 5.12) ----
 
 #[sqlx::test(migrations = "./migrations")]
