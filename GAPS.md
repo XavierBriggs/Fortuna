@@ -18,7 +18,7 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
-## TRACK A — T4.2 item 2(i) WS dial: DECISION CORE done (dial.rs); async transport deferred to the next slice
+## TRACK A — T4.2 item 2(i) WS dial: decision core + session pump done (dial.rs); redial loop + live transport next
 
 Queue item 2(i) (Kalshi WS dial). Built the SURVIVAL DECISION core as a pure,
 deterministic state machine — crates/fortuna-venues/src/kalshi/dial.rs (new;
@@ -42,14 +42,25 @@ detects seq gaps via KalshiWsEvent::SeqGap):
 Full battery green (fmt/clippy --workspace --all-targets/cargo test --workspace =
 110 ok-result lines/run-dst.sh 10000 — all exit 0, zero invariant violations).
 
-DEFERRED to the NEXT 2(i) slice (ledgered, NOT silently dropped): the async half
-that DRIVES this state machine — (a) a WsTransport trait + a scripted mock async
-transport for an integration test replaying the same reset/502 evidence; (b) the
-signed-handshake connect (auth.rs recipe); (c) the ping/pong keep-alive timer
-(the KeepAliveTimeout cause is already modelled); (d) the frame-pump loop wiring
-WsDial + KalshiWsParser + subscribe_orderbook_cmd. A REFINEMENT to ledger when
-that lands: backoff currently resets on TCP-connect; a flap-resistant version
-resets only after the first healthy frame/Subscribed ack.
+SLICE 2 (this commit) — the per-connection SESSION PUMP. Added the WsConn seam
+(async-trait send/recv) + `pump_session(conn, tickers, next_sub_id, on_event) ->
+DisconnectCause`: subscribe ONCE, pump frames through a fresh KalshiWsParser into
+the sink, RESYNC in place on a seq gap (resubscribe + reset the parser; monotone
+sub-id threaded across reconnects), and return the end-cause (recv error / clean
+close / unparseable frame -> reconnect to re-baseline; a failed subscribe ->
+its cause). TDD RED-first via a stubbed pump, then a scripted MockWsConn replaying
+real doc-shaped frames (subscribe/snapshot/delta + a seq-4-after-2 gap). Three
+#[tokio::test]s; NO live socket. (tokio-tungstenite is already a fortuna-venues
+dep — the real WS lib for the live transport.)
+
+STILL DEFERRED to the NEXT 2(i) slice (ledgered, NOT dropped): (a) the
+WsTransport::connect trait + a scripted mock transport + the REDIAL LOOP tying
+WsDial (backoff) to pump_session across reconnects, with a tokio::select!
+cancellable backoff + an end-to-end integration test replaying the connect-level
+reset/502 evidence; (b) the signed-handshake connect (auth.rs recipe); (c) the
+ping/pong keep-alive timer (the KeepAliveTimeout cause is already modelled).
+REFINEMENT still open: backoff resets on TCP-connect; a flap-resistant version
+resets only after the first healthy frame / Subscribed ack.
 
 ## TRACK A RE-ACTIVATED (operator 2026-06-13): completion-campaign queue — M3 DONE (queue item 1)
 

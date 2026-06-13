@@ -13,6 +13,9 @@
 //! keep-alive timer that DRIVE this state machine are the next 2(i) slice
 //! (ledgered in GAPS); nothing here opens a socket.
 
+use super::ws::{subscribe_orderbook_cmd, KalshiWsEvent, KalshiWsParser};
+use async_trait::async_trait;
+use serde_json::Value;
 use std::time::Duration;
 
 /// Why a websocket connection ended or failed to establish. Every cause leads to
@@ -116,9 +119,220 @@ impl Default for WsDial {
     }
 }
 
+/// One established websocket connection, abstracted so the session pump is
+/// integration-tested with a SCRIPTED MOCK — no live socket. The signing TLS
+/// dial that PRODUCES a `WsConn` is the redial-loop slice (next); this trait is
+/// the seam between them.
+#[async_trait]
+pub trait WsConn: Send {
+    /// Send a command frame (the subscribe). `Err(cause)` means the connection
+    /// was lost mid-send.
+    async fn send(&mut self, cmd: &Value) -> Result<(), DisconnectCause>;
+    /// Receive the next text frame. `Ok(Some)` = a frame; `Ok(None)` = a clean
+    /// server close; `Err(cause)` = the connection was lost (reset, etc.).
+    async fn recv(&mut self) -> Result<Option<String>, DisconnectCause>;
+}
+
+/// Drive ONE connection's lifecycle after a successful connect: subscribe to
+/// `tickers`, then pump frames through a fresh [`KalshiWsParser`] into
+/// `on_event` until the connection ends. A sequence gap RESYNCS in place — the
+/// torn book is re-baselined by resubscribing (and resetting the parser) without
+/// dropping the connection. An unparseable frame is treated as a torn stream and
+/// ends the session so the redial loop re-baselines. Returns the cause the
+/// connection ended with, which the loop (next slice) feeds to [`WsDial`].
+/// `next_sub_id` is threaded in so subscribe-command ids stay monotone across
+/// reconnects.
+pub async fn pump_session<C: WsConn + ?Sized>(
+    conn: &mut C,
+    tickers: &[&str],
+    next_sub_id: &mut u64,
+    mut on_event: impl FnMut(KalshiWsEvent),
+) -> DisconnectCause {
+    *next_sub_id += 1;
+    if let Err(cause) = conn
+        .send(&subscribe_orderbook_cmd(*next_sub_id, tickers))
+        .await
+    {
+        return cause;
+    }
+    let mut parser = KalshiWsParser::new();
+    loop {
+        match conn.recv().await {
+            Err(cause) => return cause,
+            // A clean server close still requires the loop to redial.
+            Ok(None) => return DisconnectCause::Transport,
+            Ok(Some(text)) => match parser.parse_frame(&text) {
+                Ok(KalshiWsEvent::SeqGap { sid, expected, got }) => {
+                    on_event(KalshiWsEvent::SeqGap { sid, expected, got });
+                    // Resync: a fresh subscribe re-baselines the torn book; reset
+                    // the parser so the new snapshot seeds a clean sequence.
+                    *next_sub_id += 1;
+                    if let Err(cause) = conn
+                        .send(&subscribe_orderbook_cmd(*next_sub_id, tickers))
+                        .await
+                    {
+                        return cause;
+                    }
+                    parser = KalshiWsParser::new();
+                }
+                Ok(ev) => on_event(ev),
+                // An unparseable frame means the stream's structure is lost: end
+                // the session so the loop reconnects and re-baselines.
+                Err(_) => return DisconnectCause::Transport,
+            },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::stream::StreamEvent;
+    use std::collections::VecDeque;
+
+    /// A scripted connection: `recv` replays a queued sequence of outcomes;
+    /// `send` records the subscribe commands (or fails with a configured cause).
+    struct MockWsConn {
+        recvs: VecDeque<Result<Option<String>, DisconnectCause>>,
+        sent: Vec<Value>,
+        send_fails_with: Option<DisconnectCause>,
+    }
+
+    impl MockWsConn {
+        fn new(recvs: Vec<Result<Option<String>, DisconnectCause>>) -> MockWsConn {
+            MockWsConn {
+                recvs: recvs.into(),
+                sent: Vec::new(),
+                send_fails_with: None,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl WsConn for MockWsConn {
+        async fn send(&mut self, cmd: &Value) -> Result<(), DisconnectCause> {
+            if let Some(cause) = &self.send_fails_with {
+                return Err(cause.clone());
+            }
+            self.sent.push(cmd.clone());
+            Ok(())
+        }
+        async fn recv(&mut self) -> Result<Option<String>, DisconnectCause> {
+            self.recvs
+                .pop_front()
+                .unwrap_or(Err(DisconnectCause::Transport))
+        }
+    }
+
+    const SUBSCRIBED: &str =
+        r#"{"id":1,"type":"subscribed","msg":{"channel":"orderbook_delta","sid":2}}"#;
+    const SNAPSHOT_SEQ2: &str = r#"{"type":"orderbook_snapshot","sid":2,"seq":2,"msg":{"market_ticker":"FED-23DEC-T3.00","yes_dollars_fp":[["0.0800","300.00"]],"no_dollars_fp":[["0.5400","20.00"]]}}"#;
+    const DELTA_SEQ3: &str = r#"{"type":"orderbook_delta","sid":2,"seq":3,"msg":{"market_ticker":"FED-23DEC-T3.00","price_dollars":"0.960","delta_fp":"-54.00","side":"yes"}}"#;
+    const DELTA_SEQ4_GAP: &str = r#"{"type":"orderbook_delta","sid":2,"seq":4,"msg":{"market_ticker":"FED-23DEC-T3.00","price_dollars":"0.960","delta_fp":"-54.00","side":"yes"}}"#;
+
+    #[tokio::test]
+    async fn pump_subscribes_then_emits_parsed_events_until_the_connection_ends() {
+        // A healthy connection: subscribe ack, snapshot, in-order delta, then a
+        // mid-stream reset. The pump subscribes ONCE, emits each parsed event,
+        // and returns the cause the connection ended with.
+        let mut conn = MockWsConn::new(vec![
+            Ok(Some(SUBSCRIBED.to_string())),
+            Ok(Some(SNAPSHOT_SEQ2.to_string())),
+            Ok(Some(DELTA_SEQ3.to_string())),
+            Err(DisconnectCause::ResetWithoutClose),
+        ]);
+        let mut events = Vec::new();
+        let mut id = 0;
+        let cause = pump_session(&mut conn, &["FED-23DEC-T3.00"], &mut id, |ev| {
+            events.push(ev)
+        })
+        .await;
+
+        assert_eq!(cause, DisconnectCause::ResetWithoutClose);
+        assert_eq!(
+            conn.sent.len(),
+            1,
+            "subscribed exactly once on a clean stream"
+        );
+        assert_eq!(id, 1, "the subscribe id advanced once");
+        assert!(matches!(
+            events[0],
+            KalshiWsEvent::Subscribed { sid: 2, .. }
+        ));
+        assert!(matches!(
+            events[1],
+            KalshiWsEvent::Stream(StreamEvent::BookSnapshot { .. })
+        ));
+        assert!(matches!(
+            events[2],
+            KalshiWsEvent::Stream(StreamEvent::BookDelta { .. })
+        ));
+        assert_eq!(events.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn pump_resubscribes_to_resync_on_a_sequence_gap() {
+        // Snapshot at seq 2, then a delta at seq 4 — a gap (expected 3). The
+        // pump surfaces the SeqGap AND resubscribes in place (re-baseline) WITHOUT
+        // dropping the connection: two subscribe commands by the time it ends.
+        let mut conn = MockWsConn::new(vec![
+            Ok(Some(SNAPSHOT_SEQ2.to_string())),
+            Ok(Some(DELTA_SEQ4_GAP.to_string())),
+            Err(DisconnectCause::Transport),
+        ]);
+        let mut events = Vec::new();
+        let mut id = 0;
+        let cause = pump_session(&mut conn, &["FED-23DEC-T3.00"], &mut id, |ev| {
+            events.push(ev)
+        })
+        .await;
+
+        assert_eq!(cause, DisconnectCause::Transport);
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                KalshiWsEvent::SeqGap {
+                    expected: 3,
+                    got: 4,
+                    ..
+                }
+            )),
+            "the gap is surfaced: {events:?}"
+        );
+        assert_eq!(
+            conn.sent.len(),
+            2,
+            "initial subscribe + one resync subscribe"
+        );
+        assert_eq!(id, 2, "the resync advanced the subscribe id again");
+    }
+
+    #[tokio::test]
+    async fn pump_returns_the_cause_on_clean_close_and_on_a_failed_subscribe() {
+        // A clean server close ends the session (the loop redials).
+        let mut closed = MockWsConn::new(vec![Ok(None)]);
+        let mut id = 0;
+        assert_eq!(
+            pump_session(&mut closed, &["FED-23DEC-T3.00"], &mut id, |_| {}).await,
+            DisconnectCause::Transport
+        );
+        assert_eq!(closed.sent.len(), 1, "subscribed before the close");
+
+        // A subscribe that fails mid-send returns its cause and pumps nothing.
+        let mut broken = MockWsConn::new(vec![]);
+        broken.send_fails_with = Some(DisconnectCause::KeepAliveTimeout);
+        let mut events = Vec::new();
+        let mut id2 = 0;
+        let cause = pump_session(&mut broken, &["FED-23DEC-T3.00"], &mut id2, |ev| {
+            events.push(ev)
+        })
+        .await;
+        assert_eq!(cause, DisconnectCause::KeepAliveTimeout);
+        assert!(
+            events.is_empty(),
+            "no frames pumped after a failed subscribe"
+        );
+    }
 
     /// The recorded venue evidence (fixtures/kalshi/README.md, 2026-06-13): a
     /// healthy connect, then a mid-stream reset-without-close, then a 502 on the
