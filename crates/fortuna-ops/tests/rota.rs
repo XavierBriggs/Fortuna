@@ -957,3 +957,142 @@ async fn gates_recent_rejections_degrades_without_a_pool() {
         "{j}"
     );
 }
+
+// ---- T4.5: /settlement recent_watchdog_events (audit-recents; populated-path) ----
+
+/// Seed one `watchdog` audit row (the table kind the runner writes via
+/// self.audit("watchdog", Some(market), {kind: <sub_kind>, ...})). ref_id = the
+/// market; the §5 `kind` is the payload sub-kind. TEXT-cast bind (no sqlx json).
+async fn insert_watchdog(
+    pool: &sqlx::PgPool,
+    audit_id: &str,
+    at: &str,
+    market: &str,
+    sub_kind: &str,
+) {
+    let payload =
+        serde_json::json!({ "kind": sub_kind, "expected_by_epoch_ms": 1_780_000_000_000_i64 })
+            .to_string();
+    sqlx::query(
+        "INSERT INTO audit (audit_id, at, kind, actor, ref_id, payload) \
+         VALUES ($1, $2, 'watchdog', NULL, $3, $4::jsonb)",
+    )
+    .bind(audit_id)
+    .bind(at)
+    .bind(market)
+    .bind(payload)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+async fn get_settlement(state: RotaState) -> serde_json::Value {
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/settlement"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    h.abort();
+    j
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn settlement_recent_watchdog_surfaces_only_watchdog_newest_first(pool: sqlx::PgPool) {
+    // The audit `watchdog` rows (all three sub-kinds the runner emits) + a
+    // NON-watchdog row. recent_watchdog_events must surface ONLY the watchdog
+    // rows, newest-first, with §5 {audit_id, at, kind (the sub-kind), market_ref}.
+    insert_watchdog(
+        &pool,
+        "01W1AAAAAAAAAAAAAAAAAAAAAA",
+        "2026-06-11T12:00:01.000Z",
+        "KXMARKET-A",
+        "settlement_overdue",
+    )
+    .await;
+    insert_watchdog(
+        &pool,
+        "01W2AAAAAAAAAAAAAAAAAAAAAA",
+        "2026-06-11T12:00:02.000Z",
+        "KXMARKET-B",
+        "dispute_freeze",
+    )
+    .await;
+    insert_watchdog(
+        &pool,
+        "01W3AAAAAAAAAAAAAAAAAAAAAA",
+        "2026-06-11T12:00:03.000Z",
+        "KXMARKET-C",
+        "orphaned_position",
+    )
+    .await;
+    insert_audit(&pool, "01XXAAAAAAAAAAAAAAAAAAAAAA", "settlement").await; // non-watchdog
+
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+    };
+    let j = get_settlement(state).await;
+    let rw = &j["recent_watchdog_events"];
+    assert_eq!(rw["available"], serde_json::json!(true), "{j}");
+    let rows = rw["rows"].as_array().expect("rows array");
+    assert_eq!(
+        rows.len(),
+        3,
+        "only the 3 watchdog rows (the foreign kind excluded): {rows:?}"
+    );
+    // newest-first: W3 (12:00:03) -> W2 -> W1.
+    assert_eq!(rows[0]["audit_id"], "01W3AAAAAAAAAAAAAAAAAAAAAA");
+    assert_eq!(rows[0]["kind"], "orphaned_position");
+    assert_eq!(rows[0]["market_ref"], "KXMARKET-C");
+    assert_eq!(rows[0]["at"], "2026-06-11T12:00:03.000Z");
+    assert_eq!(rows[1]["audit_id"], "01W2AAAAAAAAAAAAAAAAAAAAAA");
+    assert_eq!(rows[1]["kind"], "dispute_freeze");
+    assert_eq!(rows[1]["market_ref"], "KXMARKET-B");
+    assert_eq!(rows[1]["at"], "2026-06-11T12:00:02.000Z");
+    assert_eq!(rows[2]["audit_id"], "01W1AAAAAAAAAAAAAAAAAAAAAA");
+    assert_eq!(rows[2]["kind"], "settlement_overdue");
+    assert_eq!(rows[2]["market_ref"], "KXMARKET-A");
+    assert_eq!(rows[2]["at"], "2026-06-11T12:00:01.000Z");
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn settlement_recent_watchdog_is_available_but_empty_when_none(pool: sqlx::PgPool) {
+    // Only a non-watchdog row → available + EMPTY (honest, not implying an event).
+    insert_audit(&pool, "01XXAAAAAAAAAAAAAAAAAAAAAA", "settlement").await;
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+    };
+    let j = get_settlement(state).await;
+    assert_eq!(
+        j["recent_watchdog_events"]["available"],
+        serde_json::json!(true)
+    );
+    assert_eq!(
+        j["recent_watchdog_events"]["rows"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+}
+
+#[tokio::test]
+async fn settlement_recent_watchdog_degrades_without_a_pool() {
+    let state = RotaState::standalone(empty_snapshot());
+    let j = get_settlement(state).await;
+    assert_eq!(
+        j["recent_watchdog_events"]["available"],
+        serde_json::json!(false),
+        "{j}"
+    );
+}
