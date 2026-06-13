@@ -2566,7 +2566,17 @@ returns 200 on demo (checklist #5, demo half); (c) auth `details` strings
 observed so far: `INVALID_PARAMETER` (malformed key id) and
 `INCORRECT_API_KEY_SIGNATURE` (sig mismatch).
 
-- **Kalshi fixture recording + adapter clearance (T1.1).** The adapter is
+- **Kalshi fixture recording + adapter clearance (T1.1).**
+  STATUS 2026-06-13: OPERATOR SIGNED OFF the 27-item clearance + confirmed
+  env complete. This UNBLOCKS the DEMO rung — `venue = "kalshi"` is now
+  operator-cleared to boot against the demo (mock-funds) env, and the
+  kill-switch Kalshi plug may be wired (its own FORTUNA_KILLSWITCH_* creds).
+  RESIDUAL before LIVE (not assumed done): #26 demo/prod-parity re-record and
+  #27 live `GET /exchange/status` during a real maintenance window are a
+  PROD-env capture (agent task, needs prod KALSHI_* creds) — must run before
+  the live rung so live isn't pointed at demo-only fixtures. The verifier will
+  NOT treat live as cleared until that capture lands + gates.
+  The adapter is
   BUILT and tested against doc-derived samples (124 venues tests), but it
   is cleared for Sim development ONLY. Paper/live clearance requires
   operator-recorded fixtures under fixtures/kalshi/ confirming the 27-item
