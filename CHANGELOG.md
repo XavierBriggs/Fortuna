@@ -174,6 +174,41 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-13 — T4.2 (iv) kill-switch LIVE `freeze --venue kalshi` wiring — `7f69b81`
+
+**What.** `crates/fortuna-killswitch` `main.rs` gains the live Kalshi freeze path
+(replacing the stub): read the switch's own env creds → `load_kalshi_creds` (new in
+`lib.rs`, pure, fail-closed) → `KalshiSigner` → `ReqwestKalshiTransport` →
+`KalshiVenue` → `freeze_cancel_and_report_positions` on a self-spun current-thread
+tokio runtime, with `RealClock`. New `tests/kalshi_live_wiring.rs` (9 tests).
+
+**Why.** The machinery (`4e3a484`) was proven over a real `KalshiVenue` via a mock
+transport; this is the binary actually wiring the production transport so the
+operator can run a real demo freeze (the 27-item clearance is now signed on main).
+
+**I4 (held, proven executably).** `i4_killswitch_independence` stays GREEN: `tokio`
+is NOT in the structural forbidden set and is already transitive via
+`fortuna-venues` (the direct dep adds zero packages); a self-spun one-shot reactor
+for the HTTP cancels is not the daemon event loop; the sim `self-test` path is
+byte-unchanged (operational layer) and the behavioral layer passes. "tokio for IO at
+the edges."
+
+**Fail-closed + secret-safe.** All three `FORTUNA_KILLSWITCH_KALSHI_*` env vars are
+required (base URL never defaulted — prod vs demo must be explicit); a missing/blank
+value or unreadable/empty PEM refuses before any venue call (exit 4). `KalshiCreds`
+has a hand-written redacting `Debug` (mutation-tested); errors name only the env var
+/ path, never key material.
+
+**Operator dep (GAPS).** New env var `FORTUNA_KILLSWITCH_KALSHI_BASE_URL` (added to
+`.env.example`); requested operator.md addition via GAPS. The live exercise itself is
+operator-run.
+
+**Battery.** fmt --check; clippy --workspace --all-targets -D warnings; cargo test
+--workspace (143 bins, 1324 passed, 0 failed, `i4_killswitch_independence` ok);
+run-dst.sh 200 (4 corpus + 200 seeds, 0 invariant violations). code-reviewer ACCEPT
+(1 must-fix [dead `RealClock.now()`] + 1 should-fix [exit-code assert] folded).
+Protected crate untouched.
+
 ### 2026-06-13 — T4.2 (v) A2: Slack Socket Mode envelope loop — `f52ee66`
 
 **What.** `crates/fortuna-ops/src/socket.rs` gains the ack-first listener LOOP

@@ -63,41 +63,42 @@ REMAINING (next slice):
   with the app token (the Slack app-token gate is already in the GAPS operator
   queue / "Slack app token(s)").
 
-## TRACK A — T4.2 item 2(iv) kill-switch Kalshi plug: MACHINERY proven (4e3a484); LIVE wiring ledgered
+## TRACK A — T4.2 item 2(iv) kill-switch Kalshi plug DONE: MACHINERY (4e3a484) + LIVE wiring (7f69b81)
 
-The I4 freeze-and-cancel MACHINERY is proven over the REAL KalshiVenue adapter
-(crates/fortuna-killswitch/tests/kalshi_freeze.rs, 1 test): mock transport, NO
-live socket — open_orders → cancel each (DELETE + reconcile GET → canceled) →
-KillReport(seen 2, cancelled 2, failed 0); flat-file journal records the freeze;
-5 transport calls = open_orders + 2×(DELETE+reconcile GET). I4-SAFE: mock +
-block_on (no tokio runtime); fortuna-venues already a killswitch dep so ZERO new
-crate — i4_killswitch_independence invariant test VERIFIED GREEN this battery
-(forbidden = sqlx/postgres/ledger/cognition, none added). No production change.
+MACHINERY proven over the REAL KalshiVenue adapter (kalshi_freeze.rs, mock transport,
+NO live socket): open_orders → cancel each (DELETE + reconcile GET) → KillReport(seen 2,
+cancelled 2, failed 0); flat-file journal records the freeze.
 
-REMAINING (next slice) — the LIVE `freeze --venue kalshi` WIRING in main.rs
-(replaces the current "no live adapter wired" stub at main.rs:68-77):
-- Read FORTUNA_KILLSWITCH_KALSHI_API_KEY_ID + _PRIVATE_KEY_PATH (env-only,
-  SEPARATE pair from the runtime per I4; reserved in .env.example + operator.md).
-  Fail CLOSED with a clear error if absent.
-- KalshiSigner::new(pem, key_id) → ReqwestKalshiTransport::new → KalshiVenue::new
-  (series empty — freeze uses only open_orders + cancel) →
-  freeze_cancel_and_report_positions.
-- EXECUTOR DECISION (I4-ADJACENT — flagged for verifier visibility/blessing): the
-  live path drives ReqwestKalshiTransport's async reqwest calls, which require a
-  tokio reactor (futures::executor::block_on panics "no reactor"). PLAN: spin a
-  minimal current-thread tokio runtime in main() for the live freeze. I4 ANALYSIS:
-  tokio is ALREADY transitive via fortuna-venues (a current killswitch dep), so a
-  DIRECT dep adds NO new package → the i4 STRUCTURAL test (forbidden list excludes
-  tokio) stays green; a SELF-SPUN runtime does NOT depend on the daemon's event
-  loop / Postgres / cognition / LLM being healthy (the I4 contract); house style is
-  "tokio for IO at the edges" and the killswitch HTTP cancel IS edge IO. So the
-  tokio-runtime plan is I4-CONSISTENT. ALTERNATIVE if the verifier reads "no event
-  loop" strictly: a blocking reqwest transport in fortuna-venues (more code, no
-  runtime). RECOMMEND the tokio-runtime plan; verifier confirms at the gate.
-- LIVE EXERCISE is operator-run AFTER the 27-item paper clearance (the switch must
-  not take its first real cancel through unverified venue code; see the kill-switch
-  entry in "Operator-blocked: Kalshi fixtures"). The mock machinery proof does NOT
-  gate on clearance.
+LIVE `freeze --venue kalshi` WIRING DONE (7f69b81), replacing the stub: main.rs reads the
+switch's OWN env creds → load_kalshi_creds (lib, pure, FAIL-CLOSED) → KalshiSigner →
+ReqwestKalshiTransport → KalshiVenue(series empty — freeze uses only open_orders + cancel)
+→ freeze_cancel_and_report_positions on a SELF-SPUN current-thread tokio runtime; RealClock
+(live signing needs real wall time).
+
+I4 CONFIRMED — the EXECUTOR DECISION (self-spun tokio runtime) is no longer "flagged
+pending"; i4_killswitch_independence is GREEN this battery as the executable proof: tokio
+is NOT in the forbidden set (sqlx/tokio-postgres/postgres/fortuna-ledger/fortuna-cognition)
+and is already transitive via fortuna-venues (the direct dep adds ZERO packages); a
+self-spun one-shot reactor for the HTTP cancels ≠ the daemon event loop / Postgres /
+cognition / LLM; the sim `self-test` path is BYTE-UNCHANGED (operational layer green);
+behavioral layer green. "tokio for IO at the edges." SECRET-SAFE: KalshiCreds has a
+hand-written redacting Debug (PEM → [redacted], MUTATION-tested); errors name only the env
+var / file path, never key material. Tests-first: 9 fail-closed tests (loader paths +
+debug-never-leaks + a SUBPROCESS test — the binary refuses without creds, exit 4, names the
+var, NO live cancel / no freeze journal line). Full battery green (fmt + clippy --workspace
+--all-targets + test --workspace 143 bins/1324/0 incl. i4 ok + run-dst 200 0-violations).
+
+OPERATOR DEP (REQUEST → orchestrator adds to operator.md, verified): the live freeze needs
+THREE env vars — FORTUNA_KILLSWITCH_KALSHI_API_KEY_ID + _PRIVATE_KEY_PATH (already in
+operator.md §1 + .env.example) PLUS the NEW _BASE_URL (added to .env.example @7f69b81;
+REQUIRED, never defaulted — prod vs demo must be explicit so the switch can't cancel on the
+wrong environment). operator.md §1 lists only the pair — please add _BASE_URL.
+
+REMAINING — the LIVE EXERCISE is operator-run (provision the 3 env vars + a demo key, run
+`fortuna-killswitch freeze --venue kalshi --journal <path>` against demo). The 27-item
+clearance is now SIGNED (main @77bbca5) so the precondition is met; the switch's first real
+cancel stays an operator action (build the rails, never simulate the human). A `report`-only
+verb (open orders + positions WITHOUT cancelling) has no lib path yet — small future add.
 
 ## TRACK A — T4.2 item 2(iii) Cluster 2: Kalshi exec round-trips DONE (811e383)
 

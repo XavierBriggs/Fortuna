@@ -60,9 +60,18 @@ verifier amends as gates land. All standard loop rules apply unchanged.
        >> MACHINERY DONE 4e3a484 (2026-06-13): kalshi_freeze.rs proves
           freeze_and_cancel cancels every open order over the REAL KalshiVenue
           (mock transport, no live socket); i4_killswitch_independence stays
-          green (zero new dep). REMAINING: the live `freeze --venue kalshi`
-          wiring in main.rs (env creds + tokio-runtime drive; I4 analysis in
-          GAPS, verifier-flagged); live exercise op-run after clearance.
+          green (zero new dep).
+       >> LIVE WIRING DONE 7f69b81 (2026-06-13): main.rs `freeze --venue kalshi`
+          — load_kalshi_creds (lib, pure, fail-closed; 3 env vars incl. the new
+          _BASE_URL, never defaulted) → KalshiSigner → ReqwestKalshiTransport →
+          KalshiVenue → freeze on a SELF-SPUN current-thread tokio runtime
+          (RealClock). I4 CONFIRMED — i4_killswitch_independence GREEN (tokio not
+          forbidden + already transitive; self-test byte-unchanged). Secret-safe
+          (redacting Debug, mutation-tested). 9 fail-closed tests + a subprocess
+          refuse-without-creds proof. Full battery green (143/1324/0 + run-dst
+          200 0-violations). REMAINING: the live EXERCISE is operator-run (3 env
+          vars + demo key; clearance now signed @77bbca5). _BASE_URL operator-dep
+          requested in GAPS.
    (v) Slack Socket Mode listener: build to the research contract
        (docs/research/ops/) with mock transport tests — kill REQUESTS
        only, re-arms stay CLI-only; live exercise needs the operator's

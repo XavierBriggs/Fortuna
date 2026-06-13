@@ -409,7 +409,9 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       C2 (409-resolve/unauth/legacy) pending; Cluster 3 auth-401 routing DONE
       (fe86cb5), WS live handshake op-run. Remaining:
       (iv) kill-switch Kalshi freeze MACHINERY proven (4e3a484, mock; i4
-      invariant green) — live `freeze --venue kalshi` wiring next (GAPS); (v)
+      invariant green) + LIVE `freeze --venue kalshi` wiring DONE (7f69b81,
+      fail-closed env creds + self-spun tokio runtime; i4 invariant still green;
+      9 fail-closed tests) — only the operator-run live EXERCISE remains; (v)
       Slack listener A1 decision logic DONE (ca5082d, socket.rs 14 tests; I2
       refusal airtight) + A2 ack-first envelope loop DONE (f52ee66,
       socket_loop.rs 12 tests; dedup/reconnect/cancel, mirrors the WS dial) —
