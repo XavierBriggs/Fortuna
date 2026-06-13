@@ -120,6 +120,19 @@ feature-dev subagents."
   merge. Post-merge GREEN: check --workspace + persona 14 + firewall 12 + ledger-I5 6 + i6 3.
   TRACK-E ACTION: rebase onto fa0a140 + DROP your rebase-deferral (1d45feb) — the shared-doc
   conflict is now resolved on main; continue E.3b+.
+- DISK CRISIS RESOLVED 2026-06-13: reclaimed idle wt-a/wt-b targets + stale /private/tmp
+  worktrees -> 41Gi (from 6.9Gi/100%). wt-c target PARTIALLY removed (reclaim RACE — track-c
+  resumed mid-rm; the 0-active gate has a check-then-act gap). >> TRACK-C ACTION: if your
+  build errors on inconsistent target artifacts, `cargo clean` then rebuild (commits are safe
+  in git). RECLAIM LESSON: prefer STOPPED tracks (like D) for target-rm; active-but-idle
+  tracks can resume mid-rm.
+- C SLICE 2a (perp-strategy seam: PerpTick + FundingObservation bus + ScalarBeliefDraft +
+  drain_scalar_beliefs) GATED ACCEPT: A3 correct (binary drain_beliefs/BeliefDraft
+  BYTE-UNCHANGED at runner.rs:199, new PARALLEL drain_scalar_beliefs:208), I6
+  (deny_unknown_fields, no order/size), battery green (incl. the 229-line drain test). The B7
+  interface seam is IN; funding_forecast (producer) builds on it. A KILL-SWITCH Kalshi freeze
+  (4e3a484 = test proving machinery via mock transport, test-only) — I4-gate the full plug
+  (machinery + i4 invariant) at the A merge.
 - TRACK D ✅ COMPLETE + RETIRED 2026-06-13: OBS-2/3 observability MERGED @ 06f70a9 (read-only
   IngestionTelemetry, secret-clean, sources 119+5 + live 2+9 green); fortuna-wt-d worktree
   REMOVED. The telemetry data surface is now on main for B's ROTA V1/V2/V3 live boards.
