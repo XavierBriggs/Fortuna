@@ -21,7 +21,13 @@ ledger their responses in GAPS, never edit this file.
   drain_scalar_beliefs additive. I5: scalar_beliefs/belief_scores migration
   RAISEs on DELETE, content-immutable, once-from-NULL resolution. Protected crate
   untouched. BOUNDARY: the ungated slice-2b funding_forecast PRODUCER (0737d92,
-  "SLICE 2 COMPLETE") is EXCLUDED — queued for its own gate cycle (next).
+  "SLICE 2 COMPLETE") is NOW GATED ACCEPT + MERGED to main @f949554. The first real scalar
+  producer (PerpTick→forecast→ScalarBeliefDraft→drain→ledger→CRPS).
+  MUTATION-PROVEN: inverting the dispersion model reds 6 dispersion tests;
+  I6 proposes-nothing + scalar-egress + windowing pinned; live_data scores
+  real CRPS over recorded Kinetics with an HONEST §7 gap (no fabricated
+  exact-window calibration). RESIDUAL (operator-queued, disclosed): exact-
+  window CRPS calibration needs the paired KXBTC fixture (GAPS R1).
 - **TRACK D non-recovery finding (correcting bus drift).** The line-333 "PHASE B
   ACTIVE / DO NOT retire / gate the factory-wiring when it lands" is STALE and is
   superseded by this entry. VERIFIED from git: track-d's entire Phase-A (D1-D10)

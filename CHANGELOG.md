@@ -13,7 +13,8 @@ concise bullet per logical change; newest-relevant first.
 The `prob_claims/v1` scalar-belief foundation + perp strategies (design
 `docs/design/perp-strategies-and-scalar-claims.md`). Verifier-gated ACCEPT
 (slices 1a + 1b + 2a + funding kernel) and MERGED to main @2809aea, 2026-06-13.
-Slice 2b (`funding_forecast` producer) committed on track-c @0737d92, gating next.
+Slice 2b (`funding_forecast` producer) gated ACCEPT (dispersion-widening
+mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
