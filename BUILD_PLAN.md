@@ -541,6 +541,14 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       the full s5 money model (mark-loop floating source) and audit-recents
       queries. TEST RULE: populated-path seeds; a test green under a
       stubbed-empty source does not count. Verifier-gated.
+      PROGRESS (box stays unticked — slices remain): VALIDATED 2026-06-13
+      (rota-dashboard.md §10 "T4.5 validation"; the R5 audit pool these were
+      deferred behind is now live). Build order: (e) /gates.recent_rejections
+      [gate_reject audit] -> (e) /settlement.recent_watchdog -> (a) discovery
+      joins -> (b) verdict badge. BLOCKED (operator/verifier, GAPS): the WS
+      gap/resync counters (need the operator-run live dial wired into drive());
+      the full s5 money model (need an operator/design call surfacing the
+      mark-loop AccountView via a new SimRunner accessor).
 
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)

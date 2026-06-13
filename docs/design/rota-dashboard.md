@@ -625,6 +625,53 @@ and R5 (DEDICATED 2-conn pool) override BOTH; §5 gates `rate_buckets` field
 added (runner exports p90/p95/p99 only — verified in metrics_export).
 Bloat watch: none beyond the body items the amendments already cut.
 
+### T4.5 validation (2026-06-13, track A; validation only, no code)
+
+T4.5 = the deferred ROTA panels/seams. Validated the 5 pieces against the current
+code (rota.rs/views.rs/ledger) via a code-explorer map; the R5 audit pool that the
+slice-2/9 notes deferred these behind is now LIVE (the cognition panel reads `s.pool`).
+OWNERSHIP: these are the TRADING-side surfaces (gates/settlement/streams/money +
+discovery), track-A-owned in fortuna-ops; the cognition panel + the §9 presentation
+layer are track-B's (slices 8/9). Buildability:
+
+- **(e) audit-recents** — BUILDABLE-NOW. `/gates.recent_rejections` is CLEAN: gate
+  rejections publish a bus `Raw{kind:"gate_reject", data:{intent,check,reason}}`
+  (runner.rs:978) → persisted to the `audit` table; query `AuditWriter::recent
+  ("gate_reject", N)` and map payload → `{audit_id,at,check,reason,intent_ref}` (§5).
+  `/settlement.recent_watchdog_events` has a TWO-PATH nuance to resolve at build:
+  runner.rs:2032 writes a DIRECT audit row (kind `"watchdog"`, ref_id=market,
+  payload `{kind:"settlement_overdue",...}`) AND :2039 publishes a bus
+  `Raw{kind:"settlement_overdue", data:{market}}` — confirm which the audit SINK
+  persists (and the kind to query) before seeding. SLICE-1 TARGET (next iteration):
+  `/gates.recent_rejections` (unambiguous), then settlement once the sink path is
+  confirmed.
+- **(a) discovery joins** — BUILDABLE-NOW. `TradabilityRepo` (repos.rs:1543) +
+  `EdgesRepo::confirmed_edges` (repos.rs:663) exist; the shadow-triage recall/precision
+  cross-join needs a NEW repo query. Each follows the `view_cognition` own-query handler
+  template + a populated-path `#[sqlx::test]`. Larger; sequence after (e).
+- **(b) gate-verdict badge** — BUILDABLE-NOW but LOW operator value (it surfaces the
+  VERIFIER's `docs/reviews/*.md` verdicts, a build-status meta-indicator, not trading
+  data). Capability pattern (a reviews-dir path on RotaState, like `perishable_dir`) +
+  a `Verdict:`-header parser (parse failure → "unknown") + a temp-dir populated-path
+  test. Defer behind (e)/(a).
+- **(c) WS gap/resync counters flip live** — BLOCKED on the operator-run live dial.
+  `run_dial` (fortuna-venues) emits `KalshiWsEvent::SeqGap` but is NOT wired into
+  `drive()` (the live socket is operator-run; venue=kalshi boot-refused until then), so
+  there is no live increment path and no populated-path test (the TEST RULE forbids a
+  stub-0 green). The counter SEAM (an atomic the dial's `on_event` increments, exposed
+  in `/streams`, replacing the views.rs:174-175 stub-0) builds + tests only once the
+  dial is wired live. See GAPS (operator action).
+- **(d) full §5 money model (floating + per-strategy)** — BLOCKED on an operator/design
+  call. `floating_cents`/`total_cents` are honest-null today; the mark-loop `AccountView`
+  (fortuna-state) is NOT surfaced by any `SimRunner` accessor `views_from` can read.
+  Surfacing it (and per-strategy attribution) needs a new runner accessor — a deliberate
+  design decision the slice-5/7 notes already flagged "design-blocked". See GAPS.
+
+NET: build sequence (next iterations) = (e) /gates recent_rejections → (e) settlement
+recent_watchdog (after sink-path confirm) → (a) discovery joins → (b) verdict badge.
+(c) + (d) stay blocked (operator/verifier asks ledgered in GAPS). No bloat: every piece
+is a §5-specified contract; nothing invented.
+
 ## 11. Implementation sequence
 
 Phase 1 skeleton (tests first): ledger dep after V-5; rota module (sse,

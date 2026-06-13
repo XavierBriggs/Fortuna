@@ -18,6 +18,33 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK A — T4.5 ROTA deferred panels: VALIDATED + slice plan; two pieces operator/design-BLOCKED
+
+T4.5 (the deferred ROTA trading-side panels) validated against current code (fit-notes in
+rota-dashboard.md §10, "T4.5 validation"). BUILDABLE-NOW (next iterations, in order): (e)
+`/gates.recent_rejections` (kind `gate_reject`, payload {intent,check,reason} → §5 shape;
+R5 pool now live) → (e) `/settlement.recent_watchdog_events` (resolve the watchdog vs
+settlement_overdue audit-sink path first) → (a) discovery joins (shadow-triage recall/
+precision + tradability/edges; new repo query) → (b) gate-verdict badge (low value). Each
+gets a POPULATED-PATH #[sqlx::test] (the T4.5 TEST RULE: stub-empty green does not count).
+Ownership: trading-side surfaces are track A; the cognition panel + §9 presentation are
+track B (no overlap).
+
+OPERATOR / VERIFIER ASKS (two T4.5 pieces are BLOCKED — not track-A-buildable now):
+1. WS gap/resync counters "flip live" (design §4; BUILD_PLAN T4.5) — BLOCKED on the
+   operator-run LIVE Kalshi dial. `run_dial` emits SeqGap but is not wired into `drive()`
+   (the live socket is operator-run; venue=kalshi boot-refused until then), so the counter
+   has no live increment path and cannot be populated-path-tested (the stub-0 in
+   views.rs:174-175 stays). UNBLOCK = the operator runs the first live dial + it is wired
+   into the daemon; then the counter seam (an atomic the dial increments, exposed in
+   /streams) builds + tests. Same operator gate as the dial's first-live exercise.
+2. Full §5 money model (floating_cents/total_cents + per-strategy attribution) — BLOCKED
+   on an OPERATOR/DESIGN call. The mark-loop AccountView (fortuna-state) is not surfaced by
+   any SimRunner accessor views_from can read; floating/total are honest-null today. UNBLOCK
+   = an operator/design decision on a new SimRunner accessor surfacing the mark-based
+   floating value + per-strategy PnL/fee/exposure (the slice-5/7 fit-notes flagged this
+   design-blocked). Until then the money view stays sim-only with honest nulls.
+
 ## TRACK A — MAIN WAS RED on `cargo test --workspace` (inherited; fixed) + verifier follow-up
 
 DISCOVERED at the iteration-13 merge full-battery: `cargo test --workspace` was RED

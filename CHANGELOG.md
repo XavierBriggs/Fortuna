@@ -206,6 +206,28 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-13 — T4.5 ROTA deferred panels: validation + slice plan (no code)
+
+**What.** Validation-only iteration for T4.5 (deferred ROTA trading-side panels): a
+code-explorer map of rota.rs/views.rs/ledger + the design §5 contracts, recorded as
+fit-validation notes in `docs/design/rota-dashboard.md` §10 ("T4.5 validation").
+
+**Findings.** Three pieces are BUILDABLE-NOW (the R5 audit pool they were deferred
+behind is live): (e) audit-recents — `/gates.recent_rejections` is clean (`gate_reject`
+audit kind, payload `{intent,check,reason}`), `/settlement.recent_watchdog` has a
+two-path sink nuance to resolve first; (a) discovery joins (tradability/edges +
+shadow-triage); (b) gate-verdict badge (low value). Two are BLOCKED and ledgered as
+operator/verifier asks in GAPS: (c) WS gap/resync counters need the operator-run live
+dial wired into `drive()`; (d) the full §5 money model needs an operator/design call to
+surface the mark-loop `AccountView` via a SimRunner accessor. Ownership confirmed: these
+are track-A trading-side surfaces (the cognition panel + §9 presentation are track-B).
+
+**Next.** Build order: (e) /gates.recent_rejections → (e) settlement → (a) joins → (b)
+badge, each with a populated-path `#[sqlx::test]` (the T4.5 TEST RULE).
+
+**Battery.** Docs-only (no `.rs` touched) — the code battery is unchanged from the green
+`fbbf861` state this session; `cargo fmt --check` clean. No code, no new tests.
+
 ### 2026-06-13 — fix: scope kinetics-DTO suite past track-C's basis fixture (main was red)
 
 **What.** `kinetics_dto.rs`'s `every_fixture_parses_into_its_typed_dto` exhaustively

@@ -98,6 +98,13 @@ verifier amends as gates land. All standard loop rules apply unchanged.
 3. T4.5 ROTA deferred panels (after T4.2: the WS gap/resync counters flip
    live as part of it; the rest per the BUILD_PLAN T4.5 entry and its
    TEST RULE — populated-path seeds, no vacuous tests).
+   >> VALIDATED 2026-06-13 (fit-notes in rota-dashboard.md §10 "T4.5 validation";
+      code-explorer map). Build order (next iterations): (e) /gates.recent_rejections
+      (gate_reject audit kind, clean) → (e) /settlement.recent_watchdog (resolve the
+      watchdog/settlement_overdue sink path) → (a) discovery joins → (b) verdict badge
+      (low value). BLOCKED (operator/verifier, see GAPS): (c) WS counters need the
+      operator-run live dial wired into drive(); (d) full money model needs an operator/
+      design call to surface the mark-loop AccountView via a SimRunner accessor.
 
 4. Deferred backlog: the main.rs composition-root guard (rides with the
    next main.rs change per the ledgered rationale).
