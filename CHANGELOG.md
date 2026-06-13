@@ -797,6 +797,11 @@ with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
   well-calibrated producer ≈ 80%). Reads only the q0.1/q0.9 boundary numbers from the
   fan for the band check (the raw fan stays unexposed); a missing quantile degrades
   honestly to not-covered. Mean CRPS + coverage are now the two calibration measures.
+- **Domain Analyses board — belief fanout** (§20.2): the Analyses board gains a
+  `beliefs` column counting how many beliefs were built from each analysis
+  (`beliefs.provenance ->> 'analysis_id'`) — the cognition pipeline's downstream
+  output per artifact. A correlated `COUNT(*)` (no content exposed; the untrusted-data
+  boundary holds). The full per-belief expander remains a follow-on.
 - **Strategy P&L board** (`GET /api/rota/v1/strategies`, mission item 3 "realized
   PnL per strategy") — per-strategy realized PnL / fees / fills / open exposure,
   shaped daemon-side from `runner.digest_snapshot()` (the same attribution the

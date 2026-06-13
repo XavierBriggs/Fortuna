@@ -158,10 +158,12 @@ async fn seed(pool: &PgPool) -> Result<(), BoxErr> {
     let prov_plain = json!({
         "model_id": "emos-sar-semos-v3", "run_at": "2026-06-12T18:05:00.000Z", "cost_cents": 1
     });
+    // analysis_id points at the seeded KNYC2 domain-analysis so the Analyses board's
+    // belief-fanout column shows this analysis produced a downstream belief (§20.2).
     let prov_persona = json!({
         "model_id": "claude-sonnet-4-6", "run_at": "2026-06-12T18:06:30.000Z", "cost_cents": 2,
         "persona_id": "meteorologist", "persona_version": 3,
-        "analysis_id": "01J0ANALYSIS000000000NYC",
+        "analysis_id": "01J0ANALYSIS000KNYC2",
         "analysis_content_hash": "a1b2c3d4e5f6a7b8"
     });
 

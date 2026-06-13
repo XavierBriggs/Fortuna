@@ -695,6 +695,7 @@ async fn view_analyses(State(s): State<RotaState>) -> impl IntoResponse {
             let n = rows.len();
             let open = rows.iter().filter(|r| r.7 == "open").count();
             let cost_total: i64 = rows.iter().map(|r| r.5).sum();
+            let beliefs_total: i64 = rows.iter().map(|r| r.8).sum();
             let json_rows: Vec<Value> = rows
                 .into_iter()
                 .map(
@@ -707,11 +708,13 @@ async fn view_analyses(State(s): State<RotaState>) -> impl IntoResponse {
                         cost,
                         hash,
                         status,
+                        beliefs,
                     )| {
                         json!({
                             "analysis_id": analysis_id, "persona": persona, "domain": domain,
                             "region_key": region_key, "produced_at": produced_at,
                             "cost_cents": cost, "content_hash": hash, "status": status,
+                            "beliefs": beliefs,
                         })
                     },
                 )
@@ -725,11 +728,12 @@ async fn view_analyses(State(s): State<RotaState>) -> impl IntoResponse {
                     {"key":"region_key","label":"Region"},
                     {"key":"produced_at","label":"Produced (UTC)"},
                     {"key":"cost_cents","label":"Cost","cents":true},
+                    {"key":"beliefs","label":"Beliefs"},
                     {"key":"content_hash","label":"Hash"},
                     {"key":"status","label":"Status","pill":true},
                 ],
                 "rows": json_rows,
-                "summary": {"analyses": n, "open": open, "cost_cents": cost_total},
+                "summary": {"analyses": n, "open": open, "cost_cents": cost_total, "beliefs": beliefs_total},
             }))
         }
         Err(e) => {
@@ -743,25 +747,39 @@ async fn view_analyses(State(s): State<RotaState>) -> impl IntoResponse {
 }
 
 /// One analysis row: (analysis_id, persona "id@version", domain, region_key,
-/// produced_at, cost_cents, content_hash[..8], status).
-type AnalysisRowTuple = (String, String, String, String, String, i64, String, String);
+/// produced_at, cost_cents, content_hash[..8], status, beliefs_fanout).
+type AnalysisRowTuple = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    i64,
+    String,
+    String,
+    i64,
+);
 
 /// Recent domain-analysis artifacts, newest-first. Persona is rendered "id@version";
-/// the content hash is truncated to its 8-char replay-anchor prefix. STRUCTURAL
-/// metadata only — `findings`/`signal_manifest` (untrusted model output) are NOT
-/// selected here (the §20.2 expander is a follow-on). Runtime sqlx (audit-tail
-/// precedent); limit clamped to [1, 200].
+/// the content hash is truncated to its 8-char replay-anchor prefix; `beliefs` is the
+/// §20.2 artifact→belief FANOUT — how many beliefs were built FROM this analysis
+/// (`beliefs.provenance ->> 'analysis_id'`), the cognition pipeline's downstream
+/// output. STRUCTURAL metadata only — `findings`/`signal_manifest` (untrusted model
+/// output) are NOT selected here (the per-belief expander is a further follow-on).
+/// Runtime sqlx (audit-tail precedent); limit clamped to [1, 200].
 pub async fn recent_analyses(
     pool: &PgPool,
     limit: i64,
 ) -> Result<Vec<AnalysisRowTuple>, sqlx::Error> {
     let limit = limit.clamp(1, 200);
     sqlx::query_as::<_, AnalysisRowTuple>(
-        "SELECT analysis_id, persona_id || '@' || persona_version::text AS persona, domain, \
-                region_key, produced_at, cost_cents, substr(content_hash, 1, 8) AS content_hash, \
-                status \
-         FROM domain_analyses \
-         ORDER BY produced_at DESC LIMIT $1",
+        "SELECT da.analysis_id, da.persona_id || '@' || da.persona_version::text AS persona, \
+                da.domain, da.region_key, da.produced_at, da.cost_cents, \
+                substr(da.content_hash, 1, 8) AS content_hash, da.status, \
+                (SELECT COUNT(*) FROM beliefs b \
+                   WHERE b.provenance ->> 'analysis_id' = da.analysis_id) AS beliefs \
+         FROM domain_analyses da \
+         ORDER BY da.produced_at DESC LIMIT $1",
     )
     .bind(limit)
     .fetch_all(pool)

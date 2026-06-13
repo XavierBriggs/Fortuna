@@ -1612,7 +1612,7 @@ async fn personas_board_serves_the_registry_grouped_newest_version_first(pool: s
 // findings/signal_manifest expander — UNTRUSTED model output — is a §20.2 follow-on.)
 #[sqlx::test(migrations = "../fortuna-ledger/migrations")]
 async fn analyses_board_serves_artifacts_newest_first_with_supersession(pool: sqlx::PgPool) {
-    use fortuna_ledger::DomainAnalysesRepo;
+    use fortuna_ledger::{BeliefsRepo, DomainAnalysesRepo};
     let repo = DomainAnalysesRepo::new(pool.clone());
     // A1: the earlier analysis for the region (cost 3¢) — later superseded.
     repo.insert(
@@ -1651,6 +1651,26 @@ async fn analyses_board_serves_artifacts_newest_first_with_supersession(pool: sq
     )
     .await
     .unwrap();
+    // Two beliefs were built FROM analysis A2 (their provenance cites it) — the §20.2
+    // artifact→belief fanout. A1 produced none. The board's `beliefs` column counts them.
+    seed_event(&pool, "01EVENTANALYSESFANOUT00001").await;
+    let beliefs = BeliefsRepo::new(pool.clone());
+    for bid in ["01BELIEFANALYSESFANOUT0001", "01BELIEFANALYSESFANOUT0002"] {
+        beliefs
+            .insert(
+                bid,
+                "2026-06-12T12:00:00.000Z",
+                "01EVENTANALYSESFANOUT00001",
+                0.7,
+                0.65,
+                "2026-06-13",
+                &serde_json::json!({"source": "aeolus.forecast"}),
+                &serde_json::json!({"analysis_id": "01ANALYSISROTA0000000000A2"}),
+                None,
+            )
+            .await
+            .unwrap();
+    }
     let state = RotaState {
         snapshot: empty_snapshot(),
         pool: Some(pool),
@@ -1695,6 +1715,16 @@ async fn analyses_board_serves_artifacts_newest_first_with_supersession(pool: sq
     assert_eq!(
         j["rows"][1]["status"], "superseded",
         "the earlier analysis renders honestly as superseded: {j}"
+    );
+    // §20.2 artifact→belief fanout: A2 produced two beliefs, A1 produced none.
+    assert_eq!(
+        j["rows"][0]["beliefs"], 2,
+        "A2's downstream belief fanout: {j}"
+    );
+    assert_eq!(j["rows"][1]["beliefs"], 0, "A1 produced no beliefs: {j}");
+    assert_eq!(
+        j["summary"]["beliefs"], 2,
+        "total fanout across artifacts: {j}"
     );
 }
 

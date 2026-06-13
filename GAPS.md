@@ -1311,6 +1311,24 @@ Track-B impact: my full-workspace battery is green on EVERYTHING ELSE (1216 pass
 this 1 pre-existing main red / DST exit 0 / daemon_smoke 15/15 / clippy + fmt clean);
 this red is inherited from main, independent of the ROTA work.
 
+### ANALYSES BELIEF-FANOUT DONE (2026-06-13) — track-E §20.2 (post-merge follow-on)
+Extended the (now-merged) Domain Analyses board with the artifact→belief FANOUT: a `beliefs`
+column counting how many beliefs were built FROM each analysis (the cognition pipeline's
+downstream output). `recent_analyses` gains a correlated `(SELECT COUNT(*) FROM beliefs b
+WHERE b.provenance ->> 'analysis_id' = da.analysis_id)` (COUNT → bigint → i64, no NUMERIC
+trap — the §9.1-coverage lesson applied) + a `{beliefs}` summary total. STILL metadata only —
+the count exposes no belief content / findings (untrusted-data boundary holds). fortuna-ops
+ONLY. The existing analyses test was extended (seed an event + 2 beliefs citing A2 → asserts
+A2 fanout=2, A1=0, summary=2); harness repoints a persona belief's analysis_id at a seeded
+analysis so the board shows a real fanout (KNYC2 → 1 belief). Reviewer RAN — CLEAN (correlated
+subquery correct, COUNT bigint not numeric, untrusted boundary, no panic, genuine test).
+BATTERY: green for all track-B work + the workspace EXCEPT the SAME ONE pre-existing main
+`kinetics_dto` red: fmt + clippy --workspace clean, `cargo test --workspace` 1266 passed / 1
+pre-existing-main-failed, run-dst.sh exit 0. Screenshot-verified (Analyses board now shows the
+Beliefs column; the open analysis → 1 belief, the superseded → 0). The full §20.2 per-belief
+EXPANDER (the actual fanned-out beliefs with p/status/outcome + the findings/manifest, esc'd)
+remains a follow-on.
+
 ### BAND COVERAGE DONE (2026-06-13) — track-C §9.1 calibration metric (post-merge follow-on)
 Extended the (now-merged) Forecasts scorecard with the §9.1 quantile-band COVERAGE metric:
 per (producer, rule), the fraction of resolved forecasts whose realized outcome fell inside
