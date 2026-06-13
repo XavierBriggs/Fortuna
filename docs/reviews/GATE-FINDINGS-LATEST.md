@@ -104,6 +104,19 @@ feature-dev subagents."
   untouched. QUEUE: A PaperVenue replay (paper-realism), B ROTA harness, D OBS-2/3, E.3b
   triggers. DOC-NIT (flag to E): E made a SEPARATE docs/design/track-e-changelog.md — should
   fold into the root CHANGELOG per the ownership model (track-A/D already did).
+- E.2 LOADER GATED = ACCEPT (load-time trust: method_hash SHA-256 of whole persona.md,
+  FAIL-CLOSED — 8 refusal tests: hash-mismatch/unregistered/retired/version-mismatch/
+  malformed all refuse; 14 green, pure loader). PERSONA CORE (E.1+E.2+E.3a) MERGED to main
+  @ fa0a140; default-dormant (no triggers/consumption/wiring yet). The 3 shared ledger-doc
+  conflicts (ASSUMPTIONS/BUILD_PLAN/GAPS) UNION-resolved (kept both tracks' sections) — THIS
+  IS THE RECURRING multi-track shared-doc pattern; the orchestrator resolves by union at each
+  merge. Post-merge GREEN: check --workspace + persona 14 + firewall 12 + ledger-I5 6 + i6 3.
+  TRACK-E ACTION: rebase onto fa0a140 + DROP your rebase-deferral (1d45feb) — the shared-doc
+  conflict is now resolved on main; continue E.3b+.
+- TRACK D RALPH-STOPPED 2026-06-13 (Phase-A queue exhausted, clean). DONE+merged: news
+  ingestion D6-D10 + Aeolus F1-F4 + grader. REMAINING (unmerged, 6 commits): OBS-2/3
+  observability + ingestion docs/runbook — gate + merge as the final D tranche, THEN retire
+  the fortuna-wt-d worktree (frees disk).
 - D6-D10 NEWS-INGESTION PHASE A COMPLETE + MERGED @ f31aaa8 (this session):
   calendar source + Layer-2 corroboration + validator-wired scheduler + factory +
   the daemon `[ingestion]` seam — all gated ACCEPT (D9 hard gate, D10/2 live-
