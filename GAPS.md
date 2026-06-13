@@ -1311,6 +1311,35 @@ Track-B impact: my full-workspace battery is green on EVERYTHING ELSE (1216 pass
 this 1 pre-existing main red / DST exit 0 / daemon_smoke 15/15 / clippy + fmt clean);
 this red is inherited from main, independent of the ROTA work.
 
+### FORECAST FEED DONE (2026-06-13) — track-C §9.1 RECENT half (did the vendor call it?)
+Built the Forecast Feed board (`/api/rota/v1/forecast_feed`) — the §9.1 RECENT half (the
+companion to the /forecasts SCORECARD): the recent individual scalar forecasts with their
+realized outcomes, newest-first. `recent_forecasts(pool, limit)` runtime-sqlx over
+`scalar_beliefs`: producer, event_key, unit, the forecast's MEDIAN (the q=0.5 point of the
+`quantiles` fan, extracted as a single `::float8` in SQL — the RAW fan is NEVER rendered),
+`realized_value` (null=pending → honest "—"), pending/resolved status (pill), horizon. +
+view_forecast_feed handler (degrades unavailable HTTP 200, no leak) via boardTable with a
+`{forecasts,resolved,pending}` summary. UNTRUSTED-DATA BOUNDARY: only the median NUMBER is
+extracted; the `quantiles` fan + `provenance` JSONB (untrusted model output) are NOT selected
+or exposed (reviewer-confirmed). fortuna-ops ONLY (audit-tail precedent). PATHS[23] +
+degraded-loop + harness (a PENDING forecast added + the existing forecasts seeded with
+unit-appropriate quantile fans so the median reads sensibly vs the realized outcome). DB-backed
+populated-path test (one resolved + one pending → asserts created_at-DESC ordering, the median
+extraction, realized-vs-honest-null, status, summary; f64 tolerance). Reviewer RAN — CLEAN
+(median subquery correct/safe — graceful-degrade on a malformed fan, fans have unique q's; tuple
+types match incl. Option<f64> medians; round6 Option-preserving; raw fan/provenance not exposed;
+no unwrap/panic; genuine test with the null assertion). BATTERY: green for all track-B work +
+the workspace EXCEPT the SAME ONE pre-existing main `kinetics_dto` red: fmt + clippy --workspace
+clean, `cargo test --workspace` 1266 passed / 1 pre-existing-main-failed, run-dst.sh exit 0,
+forecast_feed + the rota suite 34/34 (isolation). [NOTE — transient-contention episode, NOT a
+defect: a first full-workspace run showed 6 EXTRA `permission denied to create database (42501)`
+failures in DB-heavy tests — the shared Postgres `createdb` flooded by the CONCURRENT verifier/IDE
+sessions ([[fortuna-battery-ops]]); proven transient by rota 34/34 in isolation + a clean re-run
+with 0 contention failures. My code is green.] Screenshot-verified (21 boards; Forecast Feed shows
+forecasts 4 / pending 1 — aeolus median 86→pending, aeolus median 29→realized 30, funding
+~0.0001 rate). The §9.1 contract's two halves (scorecard + feed) are NOW BOTH LIVE. FOLLOW-ONS:
+coverage_bps + sparkline (§9.1); §9.2 /perps.
+
 ### TELEMETRY DONE (2026-06-13) — mission item 6 (the Prometheus stack on the console)
 Built the Telemetry board (`/api/rota/v1/telemetry`) — mission item 6, the LAST untouched
 pillar: the metric SERIES the daemon exports (the SAME `MetricsRegistry` the `/metrics`

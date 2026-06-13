@@ -783,6 +783,14 @@ with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
   snapshot byte-stable) and ROTA serves it via `read_view` — the handler never parses
   Prometheus text. Completes the operator's single-pane-of-glass across all six
   mission areas (cognition, pipeline, trades, discovery, DB, telemetry).
+- **Forecast Feed board** (`GET /api/rota/v1/forecast_feed`, track-C §9.1 recent half —
+  "did the vendor call it?") — the recent individual scalar forecasts with their realized
+  outcomes, newest-first: producer, event, unit, the forecast median (the q=0.5 of the
+  quantile fan, extracted as a single value in SQL), the realized value (null=pending →
+  honest "—"), and pending/resolved status. The companion to the `/forecasts` aggregate
+  scorecard. A fortuna-ops runtime-sqlx query. UNTRUSTED-DATA BOUNDARY: only the median
+  number is extracted — the raw `quantiles` fan + `provenance` are not exposed. Completes
+  §9.1's two halves (scorecard + feed).
 - **Strategy P&L board** (`GET /api/rota/v1/strategies`, mission item 3 "realized
   PnL per strategy") — per-strategy realized PnL / fees / fills / open exposure,
   shaped daemon-side from `runner.digest_snapshot()` (the same attribution the

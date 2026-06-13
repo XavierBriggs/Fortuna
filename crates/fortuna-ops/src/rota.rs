@@ -83,6 +83,7 @@ pub fn rota_router(state: RotaState) -> Router {
         .route("/api/rota/v1/persona_scores", get(view_persona_scores))
         .route("/api/rota/v1/analyses", get(view_analyses))
         .route("/api/rota/v1/forecasts", get(view_forecasts))
+        .route("/api/rota/v1/forecast_feed", get(view_forecast_feed))
         .route("/api/rota/v1/db", get(view_db))
         .route("/api/rota/v1/telemetry", get(view_telemetry))
         .route("/api/rota/v1/audit", get(audit_tail))
@@ -854,6 +855,104 @@ pub async fn forecast_scorecard(pool: &PgPool) -> Result<Vec<ForecastRowTuple>, 
     .await
 }
 
+/// Forecast feed (track-C §9.1 RECENT half: "did the vendor call it?") — the recent
+/// individual scalar forecasts with their realized outcome, newest-first: producer,
+/// event_key, unit, the forecast's MEDIAN (the q=0.5 point of the quantile fan), the
+/// realized value once resolved, and pending/resolved status. The companion to the
+/// /forecasts SCORECARD (aggregate quality) — this is the per-forecast detail. Only
+/// the median number is extracted from the `quantiles` JSONB (a value, not a raw-JSON
+/// render); the full untrusted fan + `provenance` are NOT exposed. Runtime sqlx
+/// (audit-tail precedent). Degrades to unavailable (HTTP 200) without the pool.
+async fn view_forecast_feed(State(s): State<RotaState>) -> impl IntoResponse {
+    let Some(pool) = s.pool.clone() else {
+        return Json(json!({
+            "status": "unavailable",
+            "detail": "postgres capability absent (standalone ROTA)",
+        }));
+    };
+    match recent_forecasts(&pool, 50).await {
+        Ok(rows) => {
+            let generated_at = { s.snapshot.read().await.generated_at.clone() }; // R8
+            let n = rows.len();
+            let resolved = rows.iter().filter(|r| r.7 == "resolved").count();
+            let json_rows: Vec<Value> = rows
+                .into_iter()
+                .map(
+                    |(producer, event_key, unit, horizon, _created, median, realized, status)| {
+                        // Round the displayed forecast/outcome to 6dp; the raw f64
+                        // stays the honest source. null (no q=0.5 / unresolved) → "—".
+                        let round6 =
+                            |v: Option<f64>| v.map(|x| (x * 1_000_000.0).round() / 1_000_000.0);
+                        json!({
+                            "producer": producer, "event_key": event_key, "unit": unit,
+                            "horizon": horizon, "median": round6(median),
+                            "realized": round6(realized), "status": status,
+                        })
+                    },
+                )
+                .collect();
+            Json(json!({
+                "title": "Forecast Feed",
+                "generated_at": generated_at,
+                "columns": [
+                    {"key":"producer","label":"Producer"},
+                    {"key":"event_key","label":"Event"},
+                    {"key":"unit","label":"Unit"},
+                    {"key":"median","label":"Forecast (median)"},
+                    {"key":"realized","label":"Realized"},
+                    {"key":"status","label":"Status","pill":true},
+                    {"key":"horizon","label":"Horizon (UTC)"},
+                ],
+                "rows": json_rows,
+                "summary": {"forecasts": n, "resolved": resolved, "pending": n - resolved},
+            }))
+        }
+        Err(e) => {
+            eprintln!("rota: forecast_feed read degraded: {e}");
+            Json(json!({
+                "status": "unavailable",
+                "detail": "forecast feed read unavailable (dashboard pool degraded)",
+            }))
+        }
+    }
+}
+
+/// One forecast-feed row: (producer, event_key, unit, horizon, created_at, median,
+/// realized_value, status).
+type ForecastFeedTuple = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    Option<f64>,
+    Option<f64>,
+    String,
+);
+
+/// Recent scalar forecasts with their realized outcome, newest-first. The MEDIAN is
+/// the q=0.5 point of the `quantiles` fan (a single value extracted in SQL — the raw
+/// fan is never rendered); `status` is pending/resolved on `realized_value`. Runtime
+/// sqlx (audit-tail precedent); limit clamped to [1, 200].
+pub async fn recent_forecasts(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<Vec<ForecastFeedTuple>, sqlx::Error> {
+    let limit = limit.clamp(1, 200);
+    sqlx::query_as::<_, ForecastFeedTuple>(
+        "SELECT producer, event_key, unit, horizon, created_at, \
+                (SELECT (e->>'v')::float8 FROM jsonb_array_elements(quantiles) e \
+                   WHERE (e->>'q')::float8 = 0.5) AS median, \
+                realized_value, \
+                CASE WHEN realized_value IS NULL THEN 'pending' ELSE 'resolved' END AS status \
+         FROM scalar_beliefs \
+         ORDER BY created_at DESC LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
 /// DB visibility (mission item 5: "honest visibility into the actual tables —
 /// counts"). An exact-COUNT sweep over every ledger table, busiest-first. Runtime
 /// sqlx (the audit-tail precedent). NOTE: exact COUNT(*) is accurate at the current
@@ -1476,6 +1575,7 @@ const ROTA_SHELL: &str = r#"<!doctype html><html lang="en"><head>
   <div class="panel wide"><h2>Persona Scorecard</h2><div id="persona_scores">…</div></div>
   <div class="panel wide"><h2>Domain Analyses</h2><div id="analyses">…</div></div>
   <div class="panel wide"><h2>Forecasts</h2><div id="forecasts">…</div></div>
+  <div class="panel wide"><h2>Forecast Feed</h2><div id="forecast_feed">…</div></div>
   <div class="panel wide"><h2>Database</h2><div id="db">…</div></div>
   <div class="panel wide"><h2>Telemetry</h2><div id="telemetry">…</div></div>
   <div class="panel"><h2>Audit tail</h2><div id="audit">…</div></div>
@@ -1566,6 +1666,7 @@ const R={
  persona_scores(j){return boardTable(j);},
  analyses(j){return boardTable(j);},
  forecasts(j){return boardTable(j);},
+ forecast_feed(j){return boardTable(j);},
  db(j){return boardTable(j);},
  telemetry(j){return boardTable(j);},
  audit(j){if(!j.available)return `<div class="warn">${esc(j.detail||"unavailable")}</div>`;
@@ -1580,5 +1681,5 @@ async function poll(name){const el=document.getElementById(name);
 function every(ms,names){names.forEach(poll);setInterval(()=>names.forEach(poll),ms);}
 every(2000,["health","audit"]);every(5000,["money","gates","ingest_sources","ingest_feed","ingest_funnel"]);
 every(10000,["cognition","settlement","fills","strategies","working_orders"]);every(15000,["streams","discovery"]);
-every(30000,["db","personas","persona_scores","analyses","forecasts","telemetry"]);
+every(30000,["db","personas","persona_scores","analyses","forecasts","forecast_feed","telemetry"]);
 </script></body></html>"#;

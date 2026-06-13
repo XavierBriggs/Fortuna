@@ -66,7 +66,7 @@ async fn serve() -> (String, tokio::task::JoinHandle<()>) {
     (format!("http://{addr}"), handle)
 }
 
-const PATHS: [&str; 24] = [
+const PATHS: [&str; 25] = [
     "/rota",
     "/favicon.ico",
     "/assets/rota/logo.svg",
@@ -88,6 +88,7 @@ const PATHS: [&str; 24] = [
     "/api/rota/v1/persona_scores",
     "/api/rota/v1/analyses",
     "/api/rota/v1/forecasts",
+    "/api/rota/v1/forecast_feed",
     "/api/rota/v1/db",
     "/api/rota/v1/telemetry",
     "/api/rota/v1/audit",
@@ -2355,5 +2356,95 @@ async fn build_endpoint_serves_the_latest_verdict_and_degrades_without_a_reviews
         j["latest_gate_verdict"]["available"],
         serde_json::json!(false),
         "{j}"
+    );
+}
+
+// Track-C §9.1 RECENT half ("did the vendor call it?"): the Forecast Feed lists the
+// recent individual scalar forecasts newest-first with the forecast MEDIAN (the q=0.5
+// of the quantile fan, extracted in SQL — the raw fan is never rendered) and the
+// realized outcome / pending status. Seeds one resolved + one pending forecast and
+// asserts the created_at-DESC ordering, the median extraction, the realized value vs
+// the honest null for the pending one, the status, and the summary.
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn forecast_feed_lists_recent_forecasts_with_outcomes(pool: sqlx::PgPool) {
+    use fortuna_ledger::ScalarBeliefsRepo;
+    let sb = ScalarBeliefsRepo::new(pool.clone());
+    // sb1: funding_forecast, RESOLVED (created later → newest-first).
+    sb.insert(
+        "01SBFEED00000000000000FF1",
+        "funding_forecast",
+        "KXBTCPERP:2026-06-13T16:00:00Z",
+        &serde_json::json!([{"q":0.1,"v":0.00005},{"q":0.5,"v":0.0001},{"q":0.9,"v":0.00018}]),
+        "rate",
+        "2026-06-13T16:00:00.000Z",
+        &serde_json::json!({"strategy": "funding_forecast"}),
+        "2026-06-13T15:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    sb.resolve(
+        "01SBFEED00000000000000FF1",
+        0.00012,
+        "2026-06-13T16:00:01.000Z",
+    )
+    .await
+    .unwrap();
+    // sb2: aeolus_weather, PENDING (created earlier; no realized value).
+    sb.insert(
+        "01SBFEED00000000000000AW1",
+        "aeolus_weather",
+        "KNYC:tmax:2026-06-14",
+        &serde_json::json!([{"q":0.1,"v":80.0},{"q":0.5,"v":85.0},{"q":0.9,"v":90.0}]),
+        "celsius",
+        "2026-06-14T16:00:00.000Z",
+        &serde_json::json!({"strategy": "aeolus_weather"}),
+        "2026-06-13T14:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+        reviews_dir: None,
+    };
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/forecast_feed"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "both forecasts served: {j}");
+    assert_eq!(j["summary"]["forecasts"], 2);
+    assert_eq!(j["summary"]["resolved"], 1);
+    assert_eq!(j["summary"]["pending"], 1);
+    // created_at DESC: the funding_forecast (resolved) is newest.
+    assert_eq!(j["rows"][0]["producer"], "funding_forecast");
+    assert_eq!(j["rows"][0]["status"], "resolved");
+    assert!(
+        (j["rows"][0]["median"].as_f64().unwrap() - 0.0001).abs() < 1e-12,
+        "median is the q=0.5 of the fan: {j}"
+    );
+    assert!(
+        (j["rows"][0]["realized"].as_f64().unwrap() - 0.00012).abs() < 1e-12,
+        "realized outcome: {j}"
+    );
+    // The pending forecast shows its median but an HONEST null realized.
+    assert_eq!(j["rows"][1]["producer"], "aeolus_weather");
+    assert_eq!(j["rows"][1]["status"], "pending");
+    assert!(
+        (j["rows"][1]["median"].as_f64().unwrap() - 85.0).abs() < 1e-12,
+        "pending forecast still carries its median: {j}"
+    );
+    assert!(
+        j["rows"][1]["realized"].is_null(),
+        "an unresolved forecast has a null outcome, never a fabricated one: {j}"
     );
 }
