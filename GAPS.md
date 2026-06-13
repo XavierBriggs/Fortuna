@@ -914,6 +914,49 @@ and any fortuna-invariants touch is an operator-waive item per the loop — so s
 correctly does NOT touch the protected crate. The `domain_analyses`/`PersonaRow` row types are
 already structurally order-free (review-confirmed).
 
+## POST-APPROVAL INTEGRATION 2026-06-13 (operator approved the gated items — supersedes the RALPH STOP below)
+
+The operator approved building the remaining gated items ("go ahead and start the rest of the
+work I approve", 2026-06-13). Because the verifier had already merged Track E into `main` (GATE
+ACCEPT @2668291) and `main` has since advanced 93 commits (Track A's `fortuna-live` daemon,
+perps, etc.), this work proceeds on a FRESH branch `persona-live-integration` off current `main`
+— NOT the now-stale `track-e`. Slices (each: tests-first, full-workspace battery as the commit
+gate, feature-dev:code-reviewer per slice):
+
+- **Slice 1 — §15 I6 persona field-surface invariant pin — DONE (this commit).** The operator
+  WAIVED the `fortuna-invariants` touch (the only gate on this item). Added (ADD-only)
+  `crates/fortuna-invariants/tests/i6_persona_propose_only.rs`: pins `PersonaOutcome`'s exact
+  serialized key set (12 data-only fields) AND the `domain_analyses` table columns to carry no
+  order/size/price field — same mechanism as the existing `ProposalDraft`/`MindOutput` pin,
+  existing assertions untouched. Reviewer-checked (one finding fixed: `size` added to the
+  migration deny-list). Verified: targeted 2/2; FULL `cargo test --workspace --no-fail-fast` =
+  144 suites green, 1 pre-existing unrelated red (see GATE FINDING); fmt + `clippy --workspace
+  --all-targets -D warnings` clean.
+- **Slice 2 — live-daemon wiring (NEXT).** Run due/triggered personas on `fortuna-live`'s
+  `drive()` loop (trigger → budgeted firewalled `run_persona_analysis` → persist
+  `domain_analyses` → fan out to beliefs via the existing `persist_beliefs` path), opt-in via a
+  `[personas]` config section. Touches Track A's `fortuna-live` (operator-approved); via
+  subagent-dev.
+- **Slice 3 — §10 ScopeKey extension + review folding.** ADD `persona_id`/`persona_version` to
+  `review::ScopeKey` (keep `strategy`; add, never replace) and fold `score_persona` into the
+  weekly review's recommendation path.
+
+STILL GATED (not in this batch): ROTA panels = Track B (`fortuna-ops/assets/rota/`); macro
+signal KINDS = Track D (`fortuna-sources`, constitution-forbidden for Track E). Surfaced, not built.
+
+### GATE FINDING 2026-06-13 (handed to Track C) — `main`'s full-workspace test is RED
+
+`cargo test --workspace` on current `main` fails ONE suite, pre-existing and unrelated to
+personas: `fortuna-venues::kinetics_dto::every_fixture_parses_into_its_typed_dto` panics
+`paired_cycle_btc_perp_vs_kxbtc: UNCLASSIFIED`. Track C merged
+`fixtures/kinetics-perps/paired_cycle_btc_perp_vs_kxbtc.json` (basis-kernel recording, commit
+`2c17295`) into the dir the tripwire scans (`kinetics_dto::fixtures_dir()` =
+`fixtures/kinetics-perps`), but it isn't a Kinetics API DTO so it has no `Kind`. This blocks the
+§16 full-workspace commit gate for ALL tracks. **Track C to resolve** (classify / relocate out
+of `kinetics-perps/` + update the basis reader / exclude non-DTO fixtures from the scan) — a Track-E
+guess at the `Kind` would corrupt their tripwire. Track-E slices commit with this documented as a
+known pre-existing exception (it cannot be affected by persona code).
+
 ## RALPH STOP 2026-06-13T17:25Z (Track E — build COMPLETE; every remaining item is gated; idle-and-stopped beats bloat)
 
 Per loop rule 6 (every priority item blocked/exhausted; do NOT invent unrequested work to stay

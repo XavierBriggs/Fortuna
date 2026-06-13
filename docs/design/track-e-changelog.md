@@ -10,6 +10,29 @@ commit gate, `fortuna-invariants` untouched except at E.3 (operator-waive-flagge
 
 ---
 
+## [Post-merge integration] Slice 1 — §15 I6 persona field-surface invariant pin (operator-approved waive) (this commit)
+
+Context: Track E was merged to `main` (verifier GATE ACCEPT @2668291); `main` has since advanced
+93 commits (Track A's `fortuna-live` daemon, perps, …). The operator approved (2026-06-13)
+building the remaining gated items — the §15 invariant pin (now), then the live-daemon wiring +
+§10 review folding. Work continues on branch `persona-live-integration` (off current `main`), NOT
+the stale `track-e`.
+
+Added `crates/fortuna-invariants/tests/i6_persona_propose_only.rs` (ADD-only; the protected
+crate's first persona-facet pin — **the operator waived the `fortuna-invariants` touch**). Two
+assertions, mirroring the existing `ProposalDraft`/`MindOutput` field-set pin (design §15):
+`PersonaOutcome`'s exact serialized key set is the 12 data-only fields (any order/size/price field
+breaks the test — the persona artifact carries no execution intent), and the `domain_analyses`
+table carries no order/size/price column (migration scan). Existing I6 assertions untouched.
+
+Reviewed by feature-dev:code-reviewer — one finding fixed (`size` added to the migration deny-list
+for symmetry with the in-memory list). Verified: targeted 2/2 green; FULL
+`cargo test --workspace --no-fail-fast` = 144 suites green + 1 PRE-EXISTING unrelated red
+(`fortuna-venues::kinetics_dto`, a Track-C fixture-classification gap — see GAPS "GATE FINDING
+2026-06-13"); `fmt` + `clippy --workspace --all-targets -D warnings` clean.
+
+Shared-doc touches: none (code + ledger only).
+
 ## Persona authoring/promotion runbook (loop §8) — the operator manual (this commit)
 
 New `docs/runbooks/persona-authoring.md` — the operator-facing manual for the persona
