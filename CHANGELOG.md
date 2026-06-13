@@ -206,6 +206,25 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-13 — fix: scope kinetics-DTO suite past track-C's basis fixture (main was red)
+
+**What.** `kinetics_dto.rs`'s `every_fixture_parses_into_its_typed_dto` exhaustively
+globs `fixtures/kinetics-perps/`; track-C's slice-3b commit (`2c17295`) added the
+cross-venue basis composite `paired_cycle_btc_perp_vs_kxbtc.json` there (perp +
+co-recorded KXBTC bracket, for `perp_event_basis`) — not a kinetics endpoint DTO, so
+the exhaustive test failed `UNCLASSIFIED`. Added a documented `NON_KINETICS_FIXTURES`
+exclusion (skip that one stem before the counter).
+
+**Why.** This failed on **main** (pre-existing, confirmed against the main worktree —
+the verifier's disk-deferred merge battery missed it), so `cargo test --workspace` was
+red for every track. Correct scoping, not a weakening: every real kinetics fixture is
+still classified + parsed + counted, `seen == table.len()` still exhaustive
+(code-reviewer confirmed). GAPS-ledgered; the cleaner fix (relocate the basis fixture
+out of the kinetics dir) is a track-C/verifier follow-up.
+
+**Battery.** fmt --check; clippy --workspace --all-targets -D warnings; cargo test
+--workspace (0 failed); run-dst.sh 200 (0 violations). code-reviewer ACCEPT.
+
 ### 2026-06-13 — T4.2 (iii) Cluster 2 tail: recorded 409→AlreadyExists — `1e96d20`
 
 **What.** One round-trip test in `kalshi_recorded_roundtrip.rs`:

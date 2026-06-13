@@ -18,6 +18,32 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK A — MAIN WAS RED on `cargo test --workspace` (inherited; fixed) + verifier follow-up
+
+DISCOVERED at the iteration-13 merge full-battery: `cargo test --workspace` was RED
+— `fortuna-venues` `kinetics_dto::every_fixture_parses_into_its_typed_dto` fails with
+`paired_cycle_btc_perp_vs_kxbtc: UNCLASSIFIED`. CONFIRMED PRE-EXISTING ON MAIN (ran the
+same test against the main worktree @04a2c03 — same failure), so NOT a track-A
+regression. CAUSE: track-C's slice-3b commit 2c17295 added the cross-venue BASIS
+composite `fixtures/kinetics-perps/paired_cycle_btc_perp_vs_kxbtc.json` (BTC perp book +
+co-recorded KXBTC bracket ladder, for fortuna-cognition `perp_event_basis`) into the dir
+that the kinetics-DTO suite EXHAUSTIVELY globs — it is not a kinetics endpoint DTO and
+has no kinetics `Kind`, so the exhaustive-coverage test failed. The verifier's full
+`cargo test --workspace` was disk-deferred at that merge-gate, so it landed red.
+
+FIX (in fortuna-venues `tests/kinetics_dto.rs`, this commit): a documented
+`NON_KINETICS_FIXTURES` exclusion that skips that one stem BEFORE the counter — correct
+SCOPING, NOT a weakening (code-reviewer confirmed: every real kinetics fixture still
+classified + parsed + counted; `seen == table.len()` still exhaustive over the kinetics
+corpus; exact-stem match can't mask a future kinetics fixture; a broken kinetics fixture
+still fails). Unblocks `cargo test --workspace` for EVERY track.
+
+VERIFIER FOLLOW-UP (cleaner long-term, track-C/verifier call — not a track-A action): relocate
+`paired_cycle_btc_perp_vs_kxbtc.{json,meta.md}` OUT of `fixtures/kinetics-perps/` into a
+basis-specific dir (e.g. `fixtures/perps-basis/`) so it no longer co-locates with the kinetics
+captures; then `NON_KINETICS_FIXTURES` can be dropped. That move touches track-C's basis-test
+fixture path, so it is theirs to make.
+
 ## TRACK A — T4.2 item 2(v) Slack Socket listener A1 (ca5082d) + A2 (f52ee66) DONE
 
 The Slack Socket Mode listener's DECISION LOGIC is built + tested
