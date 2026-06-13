@@ -564,8 +564,14 @@ Polymarket research+fixtures, spec v0.9 touch-up).
         (the ROTA seam) shapes runner.digest_snapshot().strategies into
         snapshot.views["strategies"] + view_strategies handler + the cents flag
         (realized/fees/open as dollars, negatives honest); fortuna-live + fortuna-ops;
-        views.rs + handler tests + daemon_smoke 15/15; screenshot-verified (this
-        commit, 12 boards). Working orders + unrealized PnL remain (GAPS).
+        views.rs + handler tests + daemon_smoke 15/15; screenshot-verified (4c2fcd6,
+        12 boards). Working orders + unrealized PnL remain (GAPS).
+  - [x] Discovery — Events board (mission item 4, "canonical events + markets") —
+        recent_discovery_events runtime-sqlx query (events LEFT JOIN
+        market_event_edges, COUNT DISTINCT market_id supersession-safe) +
+        view_discovery handler; fortuna-ops only; DB-backed populated test;
+        screenshot-verified (this commit, 13 boards). Benchmark detail + per-event
+        drill-in + sources inventory are follow-ons (GAPS).
 
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)

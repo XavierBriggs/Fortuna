@@ -224,6 +224,11 @@ with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
   newest-first with their (redacted, esc()'d) data + accept/drop status pills.
 - **V3 Ingest Funnel** (`GET /api/rota/v1/ingest_funnel`) — the pipeline as a stage
   table (fetched → validated → normalized → persisted) with retention % + drop-offs.
+- **Discovery — Events board** (`GET /api/rota/v1/discovery`, mission item 4 "the
+  canonical events we have, the markets under them") — the events ledger with each
+  event's status + DISTINCT mapped-market count (a LEFT JOIN to
+  `market_event_edges`, supersession-safe). A fortuna-ops runtime-sqlx query (the
+  audit-tail pattern). Benchmark snapshots + per-event drill-in are follow-ons.
 - **Strategy P&L board** (`GET /api/rota/v1/strategies`, mission item 3 "realized
   PnL per strategy") — per-strategy realized PnL / fees / fills / open exposure,
   shaped daemon-side from `runner.digest_snapshot()` (the same attribution the

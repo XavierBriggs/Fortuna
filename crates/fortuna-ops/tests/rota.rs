@@ -66,7 +66,7 @@ async fn serve() -> (String, tokio::task::JoinHandle<()>) {
     (format!("http://{addr}"), handle)
 }
 
-const PATHS: [&str; 14] = [
+const PATHS: [&str; 15] = [
     "/rota",
     "/assets/rota/logo.svg",
     "/api/rota/v1/health",
@@ -80,6 +80,7 @@ const PATHS: [&str; 14] = [
     "/api/rota/v1/ingest_funnel",
     "/api/rota/v1/fills",
     "/api/rota/v1/strategies",
+    "/api/rota/v1/discovery",
     "/api/rota/v1/audit",
 ];
 
@@ -132,6 +133,7 @@ async fn degraded_surfaces_are_200_with_explicit_unavailable() {
         "ingest_funnel",
         "fills",
         "strategies",
+        "discovery",
     ] {
         let j: serde_json::Value = client
             .get(format!("{base}/api/rota/v1/{name}"))
@@ -1136,6 +1138,96 @@ async fn strategies_board_serves_seeded_per_strategy_pnl() {
             .any(|c| c["key"] == "realized_pnl_cents" && c["cents"] == true),
         "realized PnL is a cents column: {j}"
     );
+}
+
+// Discovery — Events board: the canonical events with their mapped-market count.
+// POPULATED-path — two real events, one with two distinct mapped markets (incl. a
+// superseding edge on the same market that DISTINCT must collapse), one with none.
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn discovery_board_serves_events_with_distinct_market_counts(pool: sqlx::PgPool) {
+    // Event A (newer) has markets; event B (older) has none.
+    for (id, stmt, status, created_at) in [
+        (
+            "01EVENTDISC0000000000001",
+            "NYC high >= 65F",
+            "active",
+            "2026-06-12T11:00:00.000Z",
+        ),
+        (
+            "01EVENTDISC0000000000002",
+            "CHI high >= 72F",
+            "resolved_final",
+            "2026-06-12T10:00:00.000Z",
+        ),
+    ] {
+        sqlx::query(
+            "INSERT INTO events (event_id, statement, resolution_criteria, resolution_source, \
+             benchmark_at, category, status, created_at) \
+             VALUES ($1,$2,'crit','nws.cli','2026-06-13T16:00:00.000Z','weather',$3,$4)",
+        )
+        .bind(id)
+        .bind(stmt)
+        .bind(status)
+        .bind(created_at)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    // Event A -> M1 (edge1), A -> M1 again (edge2 supersedes edge1), A -> M2: two
+    // DISTINCT markets despite three edge rows.
+    for (edge_id, market_id, supersedes) in [
+        ("01EDGE0000000000000000001", "M1", None::<&str>),
+        (
+            "01EDGE0000000000000000002",
+            "M1",
+            Some("01EDGE0000000000000000001"),
+        ),
+        ("01EDGE0000000000000000003", "M2", None),
+    ] {
+        sqlx::query(
+            "INSERT INTO market_event_edges (edge_id, market_id, venue, event_id, mapping_type, \
+             confidence, proposed_by, supersedes, created_at) \
+             VALUES ($1,$2,'sim','01EVENTDISC0000000000001','direct',0.9,'discovery',$3,\
+             '2026-06-12T11:00:00.000Z')",
+        )
+        .bind(edge_id)
+        .bind(market_id)
+        .bind(supersedes)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+    };
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/discovery"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "both events served: {j}");
+    // Event A is newer (created_at later) → rows[0]; two DISTINCT markets.
+    assert_eq!(j["rows"][0]["statement"], "NYC high >= 65F");
+    assert_eq!(
+        j["rows"][0]["markets"], 2,
+        "DISTINCT market count collapses the superseding edge: {j}"
+    );
+    assert_eq!(
+        j["rows"][1]["markets"], 0,
+        "an event with no edges shows 0: {j}"
+    );
+    assert_eq!(j["summary"]["events"], 2);
+    assert_eq!(j["summary"]["markets_mapped"], 2);
 }
 
 #[sqlx::test(migrations = "../fortuna-ledger/migrations")]

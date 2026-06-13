@@ -386,6 +386,36 @@ async fn seed(pool: &PgPool) -> Result<(), BoxErr> {
         }
     }
 
+    // Discovery context: promote the NYC event to active, mark the Boston event
+    // dead (its beliefs were abandoned), and map the NYC event to two markets so
+    // the Discovery board shows a non-zero market count.
+    warn_seed(
+        "event.activate",
+        events.set_status(event_id, "active").await,
+    );
+    warn_seed(
+        "event.dead-mark",
+        events.mark_dead(dead_event, "source_lost").await,
+    );
+    for (edge_id, market) in [
+        ("01J0EDGE00000000000000NYC1", "KXNYCHIGH-26JUN13-B65"),
+        ("01J0EDGE00000000000000NYC2", "KXNYCHIGH-26JUN13-B70"),
+    ] {
+        let r = sqlx::query(
+            "INSERT INTO market_event_edges (edge_id, market_id, venue, event_id, mapping_type, \
+             confidence, proposed_by, created_at) \
+             VALUES ($1,$2,'sim',$3,'direct',0.92,'discovery','2026-06-12T18:10:00.000Z')",
+        )
+        .bind(edge_id)
+        .bind(market)
+        .bind(event_id)
+        .execute(pool)
+        .await;
+        if let Err(e) = r {
+            eprintln!("[rota_local] seed 'edge' skipped: {e}");
+        }
+    }
+
     // Five audit rows of distinct kinds via the real append path (ULID + clock
     // supplied), advancing a SimClock between them so ids/timestamps order.
     let start = UtcTimestamp::parse_iso8601("2026-06-13T11:58:00.000Z")?;

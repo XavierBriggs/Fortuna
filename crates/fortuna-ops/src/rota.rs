@@ -70,6 +70,7 @@ pub fn rota_router(state: RotaState) -> Router {
         .route("/api/rota/v1/ingest_funnel", get(view_ingest_funnel))
         .route("/api/rota/v1/fills", get(view_fills))
         .route("/api/rota/v1/strategies", get(view_strategies))
+        .route("/api/rota/v1/discovery", get(view_discovery))
         .route("/api/rota/v1/audit", get(audit_tail))
         .with_state(state)
 }
@@ -221,6 +222,84 @@ pub async fn recent_fills(pool: &PgPool, limit: i64) -> Result<Vec<FillRowTuple>
     sqlx::query_as::<_, FillRowTuple>(
         "SELECT market_id, side, action, venue, price_cents, qty, fee_cents, is_maker, at \
          FROM fills ORDER BY at DESC LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
+/// Discovery — the canonical events the system tracks and the markets mapped to
+/// each (mission item 4: "the canonical EVENTS we have, the markets/series under
+/// them"). Read of the `events` ledger LEFT-JOINed to `market_event_edges`
+/// (COUNT DISTINCT market_id = the markets mapped to the event, supersession-
+/// safe). Runtime sqlx (the audit-tail precedent). Degrades to unavailable
+/// (HTTP 200) without the pool, never a 500.
+async fn view_discovery(State(s): State<RotaState>) -> impl IntoResponse {
+    let Some(pool) = s.pool.clone() else {
+        return Json(json!({
+            "status": "unavailable",
+            "detail": "postgres capability absent (standalone ROTA)",
+        }));
+    };
+    match recent_discovery_events(&pool, 50).await {
+        Ok(rows) => {
+            let generated_at = { s.snapshot.read().await.generated_at.clone() }; // R8
+            let n = rows.len();
+            let total_markets: i64 = rows.iter().map(|r| r.5).sum();
+            let json_rows: Vec<Value> = rows
+                .into_iter()
+                .map(
+                    |(event_id, statement, category, status, benchmark_at, markets)| {
+                        json!({
+                            "event_id": event_id, "statement": statement, "category": category,
+                            "status": status, "benchmark_at": benchmark_at, "markets": markets,
+                        })
+                    },
+                )
+                .collect();
+            Json(json!({
+                "title": "Discovery — Events",
+                "generated_at": generated_at,
+                "columns": [
+                    {"key":"statement","label":"Event"},
+                    {"key":"category","label":"Category"},
+                    {"key":"status","label":"Status"},
+                    {"key":"benchmark_at","label":"Benchmark (UTC)"},
+                    {"key":"markets","label":"Markets"},
+                ],
+                "rows": json_rows,
+                "summary": {"events": n, "markets_mapped": total_markets},
+            }))
+        }
+        Err(e) => {
+            eprintln!("rota: discovery read degraded: {e}");
+            Json(json!({
+                "status": "unavailable",
+                "detail": "discovery read unavailable (dashboard pool degraded)",
+            }))
+        }
+    }
+}
+
+/// One discovery row: (event_id, statement, category, status, benchmark_at,
+/// markets_mapped).
+type DiscoveryRowTuple = (String, String, String, String, String, i64);
+
+/// Recent canonical events with their mapped-market count (DISTINCT market_id over
+/// market_event_edges, supersession-safe), newest-first. Runtime sqlx (audit-tail
+/// precedent); limit clamped to [1, 200].
+pub async fn recent_discovery_events(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<Vec<DiscoveryRowTuple>, sqlx::Error> {
+    let limit = limit.clamp(1, 200);
+    sqlx::query_as::<_, DiscoveryRowTuple>(
+        "SELECT e.event_id, e.statement, e.category, e.status, e.benchmark_at, \
+                COUNT(DISTINCT mee.market_id) AS markets \
+         FROM events e \
+         LEFT JOIN market_event_edges mee ON mee.event_id = e.event_id \
+         GROUP BY e.event_id, e.statement, e.category, e.status, e.benchmark_at, e.created_at \
+         ORDER BY e.created_at DESC LIMIT $1",
     )
     .bind(limit)
     .fetch_all(pool)
@@ -693,6 +772,7 @@ const ROTA_SHELL: &str = r#"<!doctype html><html lang="en"><head>
   <div class="panel wide"><h2>Ingest Funnel</h2><div id="ingest_funnel">…</div></div>
   <div class="panel wide"><h2>Recent Fills</h2><div id="fills">…</div></div>
   <div class="panel wide"><h2>Strategy P&amp;L</h2><div id="strategies">…</div></div>
+  <div class="panel wide"><h2>Discovery — Events</h2><div id="discovery">…</div></div>
   <div class="panel"><h2>Audit tail</h2><div id="audit">…</div></div>
 </div>
 <script>
@@ -775,6 +855,7 @@ const R={
  ingest_funnel(j){return boardTable(j);},
  fills(j){return boardTable(j);},
  strategies(j){return boardTable(j);},
+ discovery(j){return boardTable(j);},
  audit(j){if(!j.available)return `<div class="warn">${esc(j.detail||"unavailable")}</div>`;
   let h="";j.rows.slice(-12).forEach(r=>h+=`<div class="row">${esc(r.at)} UTC ${esc(r.kind)}${r.actor?" · "+esc(r.actor):""}</div>`);
   return h||`<div class="row">no audit rows yet</div>`;}
@@ -786,5 +867,5 @@ async function poll(name){const el=document.getElementById(name);
  }catch(e){el.innerHTML=`<div class="warn">unreachable: ${esc(e)}</div>`;}}
 function every(ms,names){names.forEach(poll);setInterval(()=>names.forEach(poll),ms);}
 every(2000,["health","audit"]);every(5000,["money","gates","ingest_sources","ingest_feed","ingest_funnel"]);
-every(10000,["cognition","settlement","fills","strategies"]);every(15000,["streams"]);
+every(10000,["cognition","settlement","fills","strategies"]);every(15000,["streams","discovery"]);
 </script></body></html>"#;

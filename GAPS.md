@@ -763,6 +763,20 @@ Until those land, the new boards ship as read-only frontend + honest-degraded
 (`available:false`) handlers — the discipline all three contracts specify
 ("build the panels now; they light up when the data lands").
 
+### DISCOVERY — EVENTS DONE (2026-06-13) — mission item 4 (canonical events + markets)
+Built the Discovery — Events board: `recent_discovery_events(pool, limit)` runtime-
+sqlx query — `events` LEFT JOIN `market_event_edges`, COUNT(DISTINCT market_id) =
+the markets mapped to each event (supersession-safe), newest-first — + view_discovery
+handler (degrades unavailable HTTP 200, no leak) rendered via boardTable. fortuna-ops
+ONLY (the audit-tail/fills pattern). DB-backed populated-path test (two events; one
+with two DISTINCT markets incl. a superseding edge that DISTINCT collapses, one with
+none) + PATHS + degraded. Screenshot-verified (13 boards; NYC active/2 markets, Boston
+dead/0); archived rota-discovery-2026-06-13.png. Reviewer skipped (established runtime-
+sqlx + boardTable pattern, tested incl. the DISTINCT-collapse). FOLLOW-ONS (item 4
+remainder, ledgered): benchmark-snapshot detail (price_snapshots table) + per-event
+drill-in (the markets/edges + source under each event) + a sources-inventory view
+(SourceRegistryRepo::load_all) — all fortuna-ops R5 queries, buildable later.
+
 ### STRATEGY P&L DONE (2026-06-13) — per-strategy realized PnL (mission item 3)
 Added the Strategy P&L board: views_from (the ROTA seam) shapes
 `runner.digest_snapshot().strategies` (DigestStrategyRow: strategy,
