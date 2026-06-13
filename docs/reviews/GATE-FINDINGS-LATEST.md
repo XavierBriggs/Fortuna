@@ -88,6 +88,46 @@ ASSUMPTIONS note that loosening is an I7-review). (3) full re-gate at
 integration check MUST show the previously-failing kinetics test green on
 merged main. Standing signatures (waive batch 5 + F1) remain valid.
 
+## PERPS DESIGN PASS — verifier adjudication of two fixture-grounded scoping questions (2026-06-13)
+
+The option-(c) scalar-claims/perps design pass surfaced two refinements; both VERIFIED
+against the real fixtures + research (not the worker's word) and ADJUDICATED — both forced
+by never-invent + fixtures-first, so they are verifier calls, not operator taste:
+
+1. **funding_forecast input — APPROVED: the recorded venue funding ESTIMATE is authoritative;
+   the (settlement_mark − reference_price) premium proxy is a LABELED secondary.** Evidence:
+   raw 1-min premiums are recorded NOWHERE (`premium` = 0 occurrences in fixtures); the
+   precise premium-index formula is venue-UNPUBLISHED (research.md:223); the venue's estimate
+   IS the running TWAP of the premium index over [last_funding_time, now) (research.md:32,217,
+   221) and is the recorded series (`funding__rates_estimate`, 3731 funding_rate ticks). So
+   "FundingWindow over raw premiums" was the wrong primary input — you cannot reconstruct an
+   unpublished formula from uncaptured data. Forecast = project the recorded estimate trajectory
+   to next_funding_time. CONDITIONS: (a) the dispersion model MUST widen with time-remaining-
+   in-window (noisy early, tight near settlement) — pin it with a test; (b) score the scalar
+   belief by CRPS against realized funding (`funding__rates_historical`), validated not asserted;
+   (c) the mark−reference proxy carries an explicit `approximate` provenance label, never
+   silently blended as authoritative.
+
+2. **perp_event_basis sequencing — APPROVED: build the comparison logic NOW with adversarial
+   synthetic-input unit tests; LEDGER the paired-cycle fixture as the operator/recorder unblock
+   for its END-TO-END gate; do NOT let it hold up funding_forecast.** Evidence: the ONLY KXBTC
+   string in any committed fixture is `KXBTCPERP1` (the perp ticker) — there is NO `KXBTC15M`
+   bracket binary-event fixture anywhere; the paired perp-book + bracket-quote stream (B0 design,
+   cycle_id-keyed) lives only in gitignored data/perishable/ on the box. This is the SAME
+   discipline track A used for the trade-frame block. HARD CONDITIONS (the vacuous-test / premature-
+   validation guardrails): (a) synthetic inputs must be adversarial + MUTATION-PROVEN (break the
+   basis comparison → test reds), never trivially-passing; (b) perp_event_basis's end-to-end gate
+   STAYS RED and it is NOT "validated"/promoted/counted toward Phase-5 EXIT on synthetic tests
+   alone — synthetic proves the LOGIC, only the paired fixture proves it against real co-recorded
+   data; (c) the ledgered fixture request specifies exactly: ONE paired cycle = KXBTCPERP1
+   book/ticker + the time-aligned KXBTC15M bracket quotes under one cycle_id, sampled from
+   perishable into a committed `fixtures/` file, fixture-recording discipline (market data only,
+   no keys). OPERATOR/RECORDER ACTION — added to the operator queue.
+
+NET: funding_forecast (scalar belief + CRPS) is fully buildable+testable now and is the
+prob_claims/v1 proving vehicle; perp_event_basis is buildable-but-fixture-gated. The basis
+MODEL (worker's Section 3) is still to be presented — gate it on arrival.
+
 ## T5.B7 / T5.B8 — ORPHANED, post-re-merge (ledgered 2026-06-13 so they don't vanish)
 
 Track C correctly STOPPED rather than grab these (not in its ownership) — the
@@ -192,8 +232,13 @@ doctored-fixture mutation checks at every gate.
    into T4.5 either way).
 3. Trade-frame recapture — busy market, 180–300s × N (the 600s attempt
    2026-06-13 failed venue-side; evidence ledgered).
-4. Slack app token; 5. keys rotation + purge finalization (before any
-   push); 6. post-soak/post-fees: Kinetics PROD parity sweep, the I7
+4. Paired-cycle perps fixture (NEW) — sample ONE cycle_id-keyed pair from
+   data/perishable/ on the box: KXBTCPERP1 book/ticker + the time-aligned
+   KXBTC15M bracket quotes → committed `fixtures/` file (market data only,
+   no keys). Unblocks perp_event_basis's end-to-end gate; until it lands
+   the basis e2e gate stays RED (synthetic unit tests do NOT validate it).
+5. Slack app token; 6. keys rotation + purge finalization (before any
+   push); 7. post-soak/post-fees: Kinetics PROD parity sweep, the I7
    promotion ladder.
 
 ---
