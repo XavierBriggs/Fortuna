@@ -43,8 +43,10 @@ pub use slack::{
     SLACK_POST_MESSAGE_URL,
 };
 pub use socket::{
-    dispatch_envelope, EnvelopeOutcome, EnvelopeType, EphemeralSender, HaltRequestSink,
-    KnownActionId, SlackEnvelope, SocketModeConfig, ACTION_REQUEST_HALT, ACTION_REQUEST_REARM,
+    dispatch_envelope, run_socket_loop, EnvelopeOutcome, EnvelopeType, EphemeralSender,
+    HaltRequestSink, KnownActionId, LoopEvent, SlackEnvelope, SlackSocketConn,
+    SlackSocketTransport, Sleeper, SocketDial, SocketDisconnect, SocketModeConfig, TokioSleeper,
+    ACTION_REQUEST_HALT, ACTION_REQUEST_REARM, DEDUP_RING_CAP,
 };
 
 use thiserror::Error;
