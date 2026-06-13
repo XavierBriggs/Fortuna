@@ -238,6 +238,16 @@ with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
   runtime-sqlx query (the audit-tail pattern). NOTE (GAPS): exact COUNT is accurate
   at Sim scale — swap to `pg_class.reltuples` when `audit`/`signals` grow; per-table
   drill-in (recents / columns) is a follow-on.
+- **Personas board** (`GET /api/rota/v1/personas`, mission item 1 "how beliefs are
+  formed — the roster of analysts"; track-E §20.1 registry half) — every
+  (persona_id, version) grouped by persona, newest version first, with domain, tier,
+  lifecycle status (a `pill`: active→green, retired→dim), the method-file integrity
+  hash (8-char prefix), the signal kinds it reads (`reads_signal_kinds` flattened),
+  and effective date, plus a `{personas, versions, active}` summary. A fortuna-ops
+  runtime-sqlx query (the audit-tail pattern); all columns are operator-authored
+  config (not untrusted data). The §20.1 SCORECARD half (per-persona Brier/CLV/
+  verdict) is data-blocked on track-E persona scoring — ROTA surfaces it when the
+  data lands, never a fabricated score (GAPS).
 - **Strategy P&L board** (`GET /api/rota/v1/strategies`, mission item 3 "realized
   PnL per strategy") — per-strategy realized PnL / fees / fills / open exposure,
   shaped daemon-side from `runner.digest_snapshot()` (the same attribution the

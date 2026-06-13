@@ -66,7 +66,7 @@ async fn serve() -> (String, tokio::task::JoinHandle<()>) {
     (format!("http://{addr}"), handle)
 }
 
-const PATHS: [&str; 16] = [
+const PATHS: [&str; 17] = [
     "/rota",
     "/assets/rota/logo.svg",
     "/api/rota/v1/health",
@@ -81,6 +81,7 @@ const PATHS: [&str; 16] = [
     "/api/rota/v1/fills",
     "/api/rota/v1/strategies",
     "/api/rota/v1/discovery",
+    "/api/rota/v1/personas",
     "/api/rota/v1/db",
     "/api/rota/v1/audit",
 ];
@@ -135,6 +136,7 @@ async fn degraded_surfaces_are_200_with_explicit_unavailable() {
         "fills",
         "strategies",
         "discovery",
+        "personas",
         "db",
     ] {
         let j: serde_json::Value = client
@@ -1361,4 +1363,115 @@ async fn db_board_counts_every_ledger_table(pool: sqlx::PgPool) {
             .unwrap_or_else(|| panic!("{t} row present in the inventory: {j}"));
         assert_eq!(row["rows"], 0, "{t} empty → honest 0: {j}");
     }
+}
+
+// Mission item 1 ("how beliefs are formed — the roster of analysts"): the Personas
+// registry board (§20.1 registry half) serves every (persona_id, version) grouped by
+// persona, NEWEST VERSION FIRST, with the lifecycle status as a pill, the method-file
+// integrity hash truncated to its 8-char provenance prefix, and reads_signal_kinds
+// flattened to a comma list. Seeds two personas (one with a retired v1 superseded by
+// an active v2) and asserts the grouped ordering, the real status values (active vs
+// the honestly-retired v1), the joined reads, and the registry summary. (The §20.1
+// SCORECARD half — per-persona Brier/CLV/verdict — is data-blocked; GAPS.)
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn personas_board_serves_the_registry_grouped_newest_version_first(pool: sqlx::PgPool) {
+    use fortuna_ledger::PersonasRepo;
+    let repo = PersonasRepo::new(pool.clone());
+    // macro_analyst v1 (active, synthesis tier).
+    repo.insert(
+        "01PERSONAROW000000000MACRO1",
+        "macro_analyst",
+        1,
+        "macro",
+        &serde_json::json!(["cpi", "nfp"]),
+        &serde_json::json!(["calendar.bls", "rss.fed"]),
+        "synthesis",
+        "deadbeefcafe0001",
+        "findings/v1",
+        "active",
+        None,
+        "2026-06-10T00:00:00.000Z",
+        "2026-06-10T00:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    // meteorologist v1 (retired) → superseded by v2 (active).
+    repo.insert(
+        "01PERSONAROW00000000METEO1",
+        "meteorologist",
+        1,
+        "weather",
+        &serde_json::json!(["temperature"]),
+        &serde_json::json!(["nws.afd"]),
+        "cheap",
+        "1111111111110001",
+        "findings/v1",
+        "retired",
+        None,
+        "2026-06-09T00:00:00.000Z",
+        "2026-06-09T00:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    repo.insert(
+        "01PERSONAROW00000000METEO2",
+        "meteorologist",
+        2,
+        "weather",
+        &serde_json::json!(["temperature", "nyc"]),
+        &serde_json::json!(["aeolus.forecast", "nws.observed_high"]),
+        "cheap",
+        "abcd1234ef567890",
+        "findings/v1",
+        "active",
+        Some("01PERSONAROW00000000METEO1"),
+        "2026-06-12T00:00:00.000Z",
+        "2026-06-12T00:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+    };
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/personas"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(
+        rows.len(),
+        3,
+        "all three (persona, version) rows served: {j}"
+    );
+    // Registry summary: 2 distinct personas, 3 versions, 2 active.
+    assert_eq!(j["summary"]["personas"], 2);
+    assert_eq!(j["summary"]["versions"], 3);
+    assert_eq!(j["summary"]["active"], 2);
+    // Grouped persona_id ASC, version DESC: macro_analyst, then meteorologist v2, v1.
+    assert_eq!(j["rows"][0]["persona"], "macro_analyst");
+    assert_eq!(j["rows"][0]["status"], "active");
+    assert_eq!(j["rows"][1]["persona"], "meteorologist");
+    assert_eq!(
+        j["rows"][1]["version"], 2,
+        "newest version first within a persona: {j}"
+    );
+    assert_eq!(j["rows"][1]["status"], "active");
+    assert_eq!(j["rows"][2]["version"], 1);
+    assert_eq!(
+        j["rows"][2]["status"], "retired",
+        "the superseded v1 renders honestly as retired: {j}"
+    );
+    // Method hash is the 8-char provenance prefix; reads is the joined signal kinds.
+    assert_eq!(j["rows"][1]["method"], "abcd1234");
+    assert_eq!(j["rows"][1]["reads"], "aeolus.forecast, nws.observed_high");
 }

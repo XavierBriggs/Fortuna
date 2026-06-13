@@ -581,6 +581,17 @@ Polymarket research+fixtures, spec v0.9 touch-up).
         reviewer-clean; FULL-WORKSPACE battery green (fmt+clippy+test 1263/0+run-dst
         exit 0); screenshot-verified (this commit, 14 boards). reltuples-at-scale +
         per-table drill-in are follow-ons (GAPS).
+  - [x] Personas board (mission item 1, "how beliefs are formed — the roster of
+        analysts"; track-E §20.1 registry half) — persona_registry runtime-sqlx over
+        the personas table (every (persona_id, version) grouped, newest version first;
+        status pill, 8-char method hash, reads_signal_kinds flattened) + view_personas
+        handler + {personas,versions,active} summary via boardTable; valuePill extended
+        for active; fortuna-ops only; DB-backed populated test (grouped ordering +
+        active/retired status + joined reads + method prefix + summary); reviewer-clean;
+        FULL-WORKSPACE battery green (fmt+clippy+test 1264/0+run-dst exit 0);
+        screenshot-verified (this commit, 15 boards). §20.1 scorecard half
+        (Brier/CLV/verdict) data-blocked on track-E persona scoring; §20.2 analyses
+        browser + §20.3 cognition persona-provenance are the remaining E slices (GAPS).
 
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)

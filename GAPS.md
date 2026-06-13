@@ -763,6 +763,36 @@ Until those land, the new boards ship as read-only frontend + honest-degraded
 (`available:false`) handlers — the discipline all three contracts specify
 ("build the panels now; they light up when the data lands").
 
+### PERSONAS REGISTRY DONE (2026-06-13) — mission item 1 (the roster of analysts)
+Built the Personas board (`/api/rota/v1/personas`, track-E §20.1 REGISTRY half):
+`persona_registry(pool)` runtime-sqlx over the `personas` table — every
+(persona_id, version) grouped by persona, NEWEST VERSION FIRST, with domain, tier,
+lifecycle status (pill: active→green, retired→dim), the method-file integrity hash
+(8-char provenance prefix via `substr`), the signal kinds it may read
+(`reads_signal_kinds` JSONB array flattened to a comma list via
+`array_to_string(ARRAY(SELECT jsonb_array_elements_text(...)), ', ')`), and effective
+date — + view_personas handler (degrades unavailable HTTP 200, no leak) via
+boardTable with a `{personas,versions,active}` summary. All columns are
+operator-authored config (NOT untrusted signal/model data). fortuna-ops ONLY
+(audit-tail precedent; PersonasRepo has no list accessor, so a runtime query — no
+new ledger code). `valuePill` extended so `active` renders green. PATHS[17] +
+degraded-loop + harness seed (meteorologist v1 retired→v2 active + macro_analyst).
+DB-backed populated-path test (3 rows: asserts grouped persona ASC/version DESC
+ordering, the honest active-vs-retired status, joined reads, 8-char method prefix,
+and the registry summary). Reviewer RAN (feature-dev:code-reviewer) — CLEAN (SQL
+safe/correct incl. empty-array case, tuple arity, no injection, no unwrap/panic in
+the handler, genuine populated-path test). FULL-WORKSPACE BATTERY GREEN: fmt +
+clippy --workspace --all-targets -D warnings + `cargo test --workspace` 1264
+passed/0 failed + run-dst.sh exit 0 (regression + 300 seeds × all harnesses).
+Screenshot-verified (15 boards; Personas shows active 2 / personas 2 / versions 3,
+the meteorologist v2-over-v1 grouping + a retired pill); archived
+rota-personas-2026-06-13.png. SCORECARD HALF DEFERRED (§20.1 outcomes — n_resolved,
+Brier, baselines, clv_bp, calibration_quality, verdict): DATA-BLOCKED on track-E
+persona scoring + persona-dim'd `calibration_params` (the §10/§11 aggregation does
+not carry persona dims yet, and no persona-scoring producer exists) — ROTA will
+surface it (never fabricate a score) when that data lands. The §20.2 Analyses
+browser + §20.3 cognition persona-provenance extension are the remaining E slices.
+
 ### DATABASE INVENTORY DONE (2026-06-13) — mission item 5 (honest table counts)
 Built the Database board: `db_table_counts(pool)` runtime-sqlx — an exact COUNT(*)
 sweep over every one of the 24 ledger tables (UNION ALL of literal table names — no

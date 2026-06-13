@@ -71,6 +71,7 @@ pub fn rota_router(state: RotaState) -> Router {
         .route("/api/rota/v1/fills", get(view_fills))
         .route("/api/rota/v1/strategies", get(view_strategies))
         .route("/api/rota/v1/discovery", get(view_discovery))
+        .route("/api/rota/v1/personas", get(view_personas))
         .route("/api/rota/v1/db", get(view_db))
         .route("/api/rota/v1/audit", get(audit_tail))
         .with_state(state)
@@ -303,6 +304,90 @@ pub async fn recent_discovery_events(
          ORDER BY e.created_at DESC LIMIT $1",
     )
     .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
+/// Personas registry (mission item 1: HOW beliefs are formed — the roster of
+/// analysts). The §20.1 registry half: every (persona_id, version) with its domain,
+/// tier, lifecycle status, method-file integrity hash, the signal kinds it may read,
+/// and effective date. The §20.1 SCORECARD half (per-persona Brier/CLV/verdict) is
+/// DATA-BLOCKED on track-E persona scoring + persona-dim'd calibration_params — a
+/// ledgered follow-on, never a fabricated score. Degrades to unavailable (HTTP 200)
+/// without the pool.
+async fn view_personas(State(s): State<RotaState>) -> impl IntoResponse {
+    let Some(pool) = s.pool.clone() else {
+        return Json(json!({
+            "status": "unavailable",
+            "detail": "postgres capability absent (standalone ROTA)",
+        }));
+    };
+    match persona_registry(&pool).await {
+        Ok(rows) => {
+            let generated_at = { s.snapshot.read().await.generated_at.clone() }; // R8
+            let versions = rows.len();
+            let active = rows.iter().filter(|r| r.3 == "active").count();
+            let mut ids: Vec<&str> = rows.iter().map(|r| r.0.as_str()).collect();
+            ids.sort_unstable();
+            ids.dedup();
+            let personas = ids.len();
+            let json_rows: Vec<Value> = rows
+                .into_iter()
+                .map(
+                    |(persona, version, domain, status, tier, method, reads, effective_at)| {
+                        json!({
+                            "persona": persona, "version": version, "domain": domain,
+                            "status": status, "tier": tier, "method": method,
+                            "reads": reads, "effective_at": effective_at,
+                        })
+                    },
+                )
+                .collect();
+            Json(json!({
+                "title": "Personas",
+                "generated_at": generated_at,
+                "columns": [
+                    {"key":"persona","label":"Persona"},
+                    {"key":"version","label":"Ver"},
+                    {"key":"domain","label":"Domain"},
+                    {"key":"status","label":"Status","pill":true},
+                    {"key":"tier","label":"Tier"},
+                    {"key":"method","label":"Method"},
+                    {"key":"reads","label":"Reads"},
+                    {"key":"effective_at","label":"Effective (UTC)"},
+                ],
+                "rows": json_rows,
+                "summary": {"personas": personas, "versions": versions, "active": active},
+            }))
+        }
+        Err(e) => {
+            eprintln!("rota: personas read degraded: {e}");
+            Json(json!({
+                "status": "unavailable",
+                "detail": "personas read unavailable (dashboard pool degraded)",
+            }))
+        }
+    }
+}
+
+/// One persona registry row: (persona_id, version, domain, status, tier,
+/// method_hash[..8], reads_signal_kinds joined, effective_at).
+type PersonaRowTuple = (String, i32, String, String, String, String, String, String);
+
+/// The persona registry, grouped by persona, newest version first. All columns are
+/// operator-authored config (NOT untrusted signal/model data); the method hash is
+/// truncated to its 8-char provenance prefix; `reads_signal_kinds` (a JSONB string
+/// array) is flattened to a comma list. Runtime sqlx (audit-tail precedent).
+pub async fn persona_registry(pool: &PgPool) -> Result<Vec<PersonaRowTuple>, sqlx::Error> {
+    sqlx::query_as::<_, PersonaRowTuple>(
+        "SELECT persona_id, version, domain, status, tier, \
+                substr(method_hash, 1, 8) AS method, \
+                array_to_string(ARRAY(SELECT jsonb_array_elements_text(reads_signal_kinds)), ', ') \
+                  AS reads, \
+                effective_at \
+         FROM personas \
+         ORDER BY persona_id ASC, version DESC",
+    )
     .fetch_all(pool)
     .await
 }
@@ -856,6 +941,7 @@ const ROTA_SHELL: &str = r#"<!doctype html><html lang="en"><head>
   <div class="panel wide"><h2>Recent Fills</h2><div id="fills">…</div></div>
   <div class="panel wide"><h2>Strategy P&amp;L</h2><div id="strategies">…</div></div>
   <div class="panel wide"><h2>Discovery — Events</h2><div id="discovery">…</div></div>
+  <div class="panel wide"><h2>Personas</h2><div id="personas">…</div></div>
   <div class="panel wide"><h2>Database</h2><div id="db">…</div></div>
   <div class="panel"><h2>Audit tail</h2><div id="audit">…</div></div>
 </div>
@@ -871,7 +957,7 @@ const asof=j=>j.generated_at?`<div class="asof">as of ${esc(j.generated_at)} UTC
 function gate(j){if(j&&j.status==="unavailable")return `<div class="warn">${esc(j.detail||"unavailable")}</div>`;return null;}
 // A status-token pill: green for healthy/accepted, red for quarantined, muted
 // otherwise (degraded, dropped:*). Drives any column the envelope flags `pill`.
-const valuePill=v=>{if(v==null)return "—";const s=String(v);const c=(s==="healthy"||s==="accepted")?"ok":s==="quarantined"?"bad":"dim";return pill(s,c);};
+const valuePill=v=>{if(v==null)return "—";const s=String(v);const c=(s==="healthy"||s==="accepted"||s==="active")?"ok":s==="quarantined"?"bad":"dim";return pill(s,c);};
 // Generic D-contract board: {title, columns:[{key,label,pill?}], rows, summary}
 // rendered as a table — every ingestion board (V1-V6) reuses this with only a new
 // view key (§4 "render any board generically"). A column flagged `pill:true`
@@ -940,6 +1026,7 @@ const R={
  fills(j){return boardTable(j);},
  strategies(j){return boardTable(j);},
  discovery(j){return boardTable(j);},
+ personas(j){return boardTable(j);},
  db(j){return boardTable(j);},
  audit(j){if(!j.available)return `<div class="warn">${esc(j.detail||"unavailable")}</div>`;
   let h="";j.rows.slice(-12).forEach(r=>h+=`<div class="row">${esc(r.at)} UTC ${esc(r.kind)}${r.actor?" · "+esc(r.actor):""}</div>`);
@@ -953,5 +1040,5 @@ async function poll(name){const el=document.getElementById(name);
 function every(ms,names){names.forEach(poll);setInterval(()=>names.forEach(poll),ms);}
 every(2000,["health","audit"]);every(5000,["money","gates","ingest_sources","ingest_feed","ingest_funnel"]);
 every(10000,["cognition","settlement","fills","strategies"]);every(15000,["streams","discovery"]);
-every(30000,["db"]);
+every(30000,["db","personas"]);
 </script></body></html>"#;

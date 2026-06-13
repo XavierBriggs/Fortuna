@@ -32,7 +32,7 @@
 use fortuna_core::clock::{SimClock, UtcTimestamp};
 use fortuna_ledger::{
     connect, connect_readonly_pool, AuditWriter, BeliefsRepo, CalibrationParamsRepo, EventsRepo,
-    LedgerError, PgPool,
+    LedgerError, PersonasRepo, PgPool,
 };
 use fortuna_ops::dashboard::{serve_dashboard, DashboardSnapshot};
 use fortuna_ops::rota::RotaState;
@@ -324,6 +324,72 @@ async fn seed(pool: &PgPool) -> Result<(), BoxErr> {
             "2026-06-10T00:00:00.000Z",
         )
         .await,
+    );
+
+    // Personas registry (mission item 1) — a weather persona that has rev'd once
+    // (v1 retired, superseded by the active v2) and an active macro persona, so the
+    // Personas board renders the grouped/versioned registry with both lifecycle
+    // states. Operator-authored config (not untrusted data).
+    let personas = PersonasRepo::new(pool.clone());
+    warn_seed(
+        "persona.meteorologist.v1",
+        personas
+            .insert(
+                "01J0PERSONA00000METEO1",
+                "meteorologist",
+                1,
+                "weather",
+                &json!(["temperature"]),
+                &json!(["nws.afd"]),
+                "cheap",
+                "9f1c2d3e4a5b6c7d",
+                "findings/v1",
+                "retired",
+                None,
+                "2026-06-09T00:00:00.000Z",
+                "2026-06-09T00:00:00.000Z",
+            )
+            .await,
+    );
+    warn_seed(
+        "persona.meteorologist.v2",
+        personas
+            .insert(
+                "01J0PERSONA00000METEO2",
+                "meteorologist",
+                2,
+                "weather",
+                &json!(["temperature", "nyc"]),
+                &json!(["aeolus.forecast", "nws.observed_high"]),
+                "cheap",
+                "a1b2c3d4e5f60718",
+                "findings/v1",
+                "active",
+                Some("01J0PERSONA00000METEO1"),
+                "2026-06-12T00:00:00.000Z",
+                "2026-06-12T00:00:00.000Z",
+            )
+            .await,
+    );
+    warn_seed(
+        "persona.macro_analyst.v1",
+        personas
+            .insert(
+                "01J0PERSONA0000MACRO1",
+                "macro_analyst",
+                1,
+                "macro",
+                &json!(["cpi", "nfp"]),
+                &json!(["calendar.bls", "rss.fed"]),
+                "synthesis",
+                "deadbeefcafe1234",
+                "findings/v1",
+                "active",
+                None,
+                "2026-06-10T00:00:00.000Z",
+                "2026-06-10T00:00:00.000Z",
+            )
+            .await,
     );
 
     // A few executed fills for the Recent Fills board (raw INSERT — the fills
