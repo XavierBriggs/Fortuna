@@ -13,6 +13,16 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-13, cont'd — verifier loop pass)
 
+- **TRACK C PERP PIPELINE (perp_event_basis STRATEGY + slice-4 composition) MERGED
+  → main @ 9c4026e = GATE ACCEPT.** The FIRST perp trader + its Sim ingestion seam.
+  I6: the strategy emits ONE UNSIZED maker leg (no qty — the harness sizes; never
+  sizes/execs/mutates). I7: Mechanical + Stage::Sim. I1: returns a Proposal (rides
+  the universal gate, no bypass). Money: limit/fair in Cents, f64 forecast-domain
+  only, no panic. perp_event_basis 14 + DST 2; full fortuna-runner suite green
+  (slice-4 inject_perp_tick replay-safe, tick() untouched). MUTATION-PROVEN:
+  disable the fee-trap → non_tradeable_basis_emits_nothing + fee_trap_is_strict
+  red. Live-orderbook trade-through stays fixture/operator-gated (Sim only).
+
 - **TRACK B ROTA DASHBOARD (TOTAL OBSERVABILITY) MERGED → main @ 04d2f5d = GATE
   ACCEPT.** The operator's single pane of glass — all 6 mission areas + producer
   scorecards (forecasts CLV/CRPS + persona) + ingestion triad. Clean merge.
