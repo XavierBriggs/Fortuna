@@ -66,7 +66,7 @@ async fn serve() -> (String, tokio::task::JoinHandle<()>) {
     (format!("http://{addr}"), handle)
 }
 
-const PATHS: [&str; 20] = [
+const PATHS: [&str; 21] = [
     "/rota",
     "/assets/rota/logo.svg",
     "/api/rota/v1/health",
@@ -83,6 +83,7 @@ const PATHS: [&str; 20] = [
     "/api/rota/v1/working_orders",
     "/api/rota/v1/discovery",
     "/api/rota/v1/personas",
+    "/api/rota/v1/persona_scores",
     "/api/rota/v1/analyses",
     "/api/rota/v1/forecasts",
     "/api/rota/v1/db",
@@ -141,6 +142,7 @@ async fn degraded_surfaces_are_200_with_explicit_unavailable() {
         "working_orders",
         "discovery",
         "personas",
+        "persona_scores",
         "analyses",
         "forecasts",
         "db",
@@ -1733,4 +1735,95 @@ async fn forecasts_scorecard_aggregates_resolved_scores_per_producer(pool: sqlx:
     assert_eq!(j["summary"]["producers"], 2);
     assert_eq!(j["summary"]["rules"], 1);
     assert_eq!(j["summary"]["scored"], 3);
+}
+
+// Track-E §20.1 OUTCOMES half ("are the personas any good?"): the Persona Scorecard
+// aggregates each persona's RESOLVED+scored beliefs (grouped by the belief
+// provenance's persona_id) into n_resolved + mean Brier + mean CLV. Seeds two
+// personas — meteorologist (two resolved beliefs) and macro_analyst (one) — and
+// asserts the persona-ASC ordering, the per-persona MEAN Brier/CLV, the counts, the
+// EVALUATING(n/60) verdict, and the summary. (Baselines + the promote/retire verdict
+// are omitted — unpersisted; the scorecard never fabricates them.)
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn persona_scorecard_aggregates_resolved_beliefs_by_persona(pool: sqlx::PgPool) {
+    use fortuna_ledger::BeliefsRepo;
+    seed_event(&pool, "01EVENTPSC0000000000000001").await;
+    let repo = BeliefsRepo::new(pool.clone());
+    // meteorologist ×2 (brier 0.10, 0.20 → mean 0.15; clv 30, 50 → mean 40),
+    // macro_analyst ×1 (brier 0.30; clv -10). All persona-attributed + resolved.
+    for (id, persona, brier, clv) in [
+        (
+            "01BPSC000000000000000MET1",
+            "meteorologist",
+            0.10_f64,
+            30.0_f64,
+        ),
+        ("01BPSC000000000000000MET2", "meteorologist", 0.20, 50.0),
+        ("01BPSC000000000000000MAC1", "macro_analyst", 0.30, -10.0),
+    ] {
+        repo.insert(
+            id,
+            "2026-06-12T10:00:00.000Z",
+            "01EVENTPSC0000000000000001",
+            0.6,
+            0.6,
+            "2026-06-13",
+            &serde_json::json!({"source": "aeolus.forecast"}),
+            &serde_json::json!({"persona_id": persona, "persona_version": 1, "analysis_id": "a1"}),
+            None,
+        )
+        .await
+        .unwrap();
+        repo.resolve_and_score(id, true, brier, Some(clv))
+            .await
+            .unwrap();
+    }
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+    };
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/persona_scores"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "one row per persona: {j}");
+    // persona ASC: macro_analyst, then meteorologist.
+    assert_eq!(j["rows"][0]["persona"], "macro_analyst");
+    assert_eq!(j["rows"][0]["n_resolved"], 1);
+    assert!(
+        (j["rows"][0]["brier"].as_f64().unwrap() - 0.30).abs() < 1e-9,
+        "macro brier: {j}"
+    );
+    assert!(
+        (j["rows"][0]["clv_bps"].as_f64().unwrap() - (-10.0)).abs() < 1e-9,
+        "macro clv (negative shown honestly): {j}"
+    );
+    assert_eq!(j["rows"][0]["verdict"], "evaluating (1/60)");
+    // meteorologist: the MEAN over its two resolved beliefs.
+    assert_eq!(j["rows"][1]["persona"], "meteorologist");
+    assert_eq!(j["rows"][1]["n_resolved"], 2, "two resolved beliefs: {j}");
+    assert!(
+        (j["rows"][1]["brier"].as_f64().unwrap() - 0.15).abs() < 1e-9,
+        "meteorologist mean Brier = (0.10+0.20)/2: {j}"
+    );
+    assert!(
+        (j["rows"][1]["clv_bps"].as_f64().unwrap() - 40.0).abs() < 1e-9,
+        "meteorologist mean CLV = (30+50)/2: {j}"
+    );
+    assert_eq!(
+        j["rows"][1]["verdict"], "evaluating (2/60)",
+        "honest §11 progress, never a fabricated promote/retire: {j}"
+    );
+    assert_eq!(j["summary"]["personas"], 2);
+    assert_eq!(j["summary"]["resolved"], 3);
 }

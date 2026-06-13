@@ -275,6 +275,15 @@ with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
   read — daemon snapshot byte-unchanged, daemon_smoke 15/15). Empty when nothing rests
   (honest). With Recent Fills + Strategy P&L, mission item 3 (trades) is substantially
   covered; unrealized PnL remains the mark-loop gap.
+- **Persona Scorecard board** (`GET /api/rota/v1/persona_scores`, track-E §20.1
+  outcomes half — now unblocked by the merged persona runtime) — per persona, the
+  calibration of its resolved beliefs: n_resolved, mean Brier (lower=better), mean
+  CLV bps (higher=better), aggregated from the `beliefs` table grouped by
+  `provenance->>'persona_id'`, with an honest `evaluating (n/60)` verdict. A pure
+  AVG/COUNT projection — the §11 PROMOTABLE/RETIRE verdict + the raw/market baselines
+  + calibration_quality are NOT computed in ROTA (unpersisted / cognition logic;
+  omitted, never faked). Completes the Personas board's two halves (registry +
+  scorecard). Honest-`unavailable` until the persona runner is daemon-wired.
 - **Strategy P&L board** (`GET /api/rota/v1/strategies`, mission item 3 "realized
   PnL per strategy") — per-strategy realized PnL / fees / fills / open exposure,
   shaped daemon-side from `runner.digest_snapshot()` (the same attribution the

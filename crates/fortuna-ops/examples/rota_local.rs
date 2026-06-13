@@ -219,6 +219,41 @@ async fn seed(pool: &PgPool) -> Result<(), BoxErr> {
             .resolve_and_score(resolved_id, true, 0.1444, Some(38.0))
             .await,
     );
+    // Resolve the meteorologist persona belief + add a scored macro_analyst belief,
+    // so the Persona Scorecard (§20.1 outcomes) shows BOTH personas' real Brier/CLV.
+    warn_seed(
+        "belief.persona.resolve",
+        beliefs
+            .resolve_and_score(persona_id, false, 0.18, Some(22.0))
+            .await,
+    );
+    let macro_belief = "01J0BELIEF000000004MACRO";
+    warn_seed(
+        "belief.macro",
+        beliefs
+            .insert(
+                macro_belief,
+                "2026-06-13T09:30:00.000Z",
+                event_id,
+                0.55,
+                0.52,
+                "2026-06-13",
+                &evidence,
+                &json!({
+                    "model_id": "claude-sonnet-4-6", "run_at": "2026-06-13T09:31:00.000Z",
+                    "cost_cents": 2, "persona_id": "macro_analyst", "persona_version": 1,
+                    "analysis_id": "01J0ANALYSIS00000MACRO", "analysis_content_hash": "f00dcafe11223344"
+                }),
+                None,
+            )
+            .await,
+    );
+    warn_seed(
+        "belief.macro.resolve",
+        beliefs
+            .resolve_and_score(macro_belief, true, 0.27, Some(-8.0))
+            .await,
+    );
 
     // A superseded belief (insert X, then a newer Y that supersedes it → X flips
     // to 'superseded') and an abandoned one (an open belief on a dead event) so

@@ -778,6 +778,35 @@ Track-B impact: my full-workspace battery is green on EVERYTHING ELSE (1216 pass
 this 1 pre-existing main red / DST exit 0 / daemon_smoke 15/15 / clippy + fmt clean);
 this red is inherited from main, independent of the ROTA work.
 
+### PERSONA SCORECARD DONE (2026-06-13) — track-E §20.1 OUTCOMES half (now UNBLOCKED)
+Built the Persona Scorecard board (`/api/rota/v1/persona_scores`) — the §20.1 outcomes
+half I previously deferred, now UNBLOCKED by track-E's persona runtime (E.3c-E.6 merged
+to main): `persona_scorecard(pool)` runtime-sqlx — per persona, AVG over its RESOLVED
+beliefs grouped by `provenance->>'persona_id'` (the fan-out persona_beliefs.rs writes):
+n_resolved (COUNT), mean Brier (AVG, LOWER=better), mean CLV bps (AVG nullable→Option,
+HIGHER=better). + view_persona_scores handler (degrades unavailable HTTP 200, no leak)
+via boardTable with a `{personas,resolved}` summary + an HONEST verdict column
+(`evaluating (n/60)` §11 progress; NEVER PROMOTABLE/RETIRE — those need the raw/market
+baselines which are NOT persisted; OMITTED, not faked). PURE PROJECTION (AVG/COUNT only):
+calibration_quality + the promote/retire decision are cognition logic, NOT computed in
+ROTA (R2 — fortuna-ops gains no fortuna-cognition dep). fortuna-ops ONLY (audit-tail
+precedent). PATHS[21] + degraded-loop + harness seed (the meteorologist persona belief
+resolved + a macro_analyst scored belief → both personas render). DB-backed populated-path
+test (meteorologist ×2 + macro_analyst ×1 resolved+scored → asserts per-persona MEAN
+Brier/CLV, the counts, the honest verdict, the summary; f64 tolerance). Reviewer RAN —
+CLEAN (SQL/tuple correct, AVG(double)→f64 / nullable→Option / COUNT→i64, honest verdict
+never fabricates promote/retire, no unwrap/panic, genuine populated-path, persona_id is
+operator config + esc'd). BATTERY: green for all track-B work + the workspace EXCEPT the
+ONE pre-existing main `kinetics_dto` red (unchanged, track-C/A — see cross-track finding):
+fmt + clippy --workspace clean, `cargo test --workspace` 1263 passed / 1 pre-existing-main-
+failed, run-dst.sh exit 0. Screenshot-verified (19 boards; Persona Scorecard shows
+personas 2 — meteorologist Brier 0.18/CLV +22, macro_analyst Brier 0.27/CLV -8, both
+evaluating 1/60). The PERSONAS board's two halves (registry + scorecard) are NOW BOTH LIVE.
+FOLLOW-ONS (ledgered): the raw/market baselines + the PROMOTABLE/RETIRE verdict +
+calibration_quality (need track-E to persist them or a baseline composition); real prod
+data lands when the persona runner is daemon-wired (track-A composition, currently empty
+in prod like forecasts).
+
 ### WORKING ORDERS DONE (2026-06-13) — mission item 3 (trades being executed, LIVE side)
 Built the Working Orders board (`/api/rota/v1/working_orders`): a views_from board (the
 ROTA seam in fortuna-live, like Strategy P&L) — `views_from` folds
@@ -850,9 +879,10 @@ live PG (`'x'||'@'||2` → `x@2`; `||` casts the int when an operand is text), b
 Screenshot-verified (16 boards; Analyses shows analyses 2 / open 1 / cost 10¢, the KNYC open-over-
 superseded pair); archived rota-analyses-2026-06-13.png. FOLLOW-ONS (ledgered): the §20.2 per-artifact
 EXPANDER (findings JSONB + signal_manifest + beliefs fan-out via `beliefs.provenance ->> 'analysis_id'`,
-untrusted-data-escaped); §20.3 cognition persona-provenance extension; §20.1 persona scorecard (data-
-blocked on scoring). The E ROTA contract is now substantially covered (personas registry + analyses
-browser live; scorecard + expanders + pipeline funnel remain).
+untrusted-data-escaped); §20.3 cognition persona-provenance extension. (§20.1 persona scorecard is now
+DONE — see PERSONA SCORECARD DONE above, unblocked by track-E's persona runtime.) The E ROTA contract
+is now substantially covered (personas REGISTRY + SCORECARD + analyses browser all live; the §20.2
+expander + §20.3 provenance-linking + §20.4 pipeline funnel remain).
 
 ### PERSONAS REGISTRY DONE (2026-06-13) — mission item 1 (the roster of analysts)
 Built the Personas board (`/api/rota/v1/personas`, track-E §20.1 REGISTRY half):

@@ -73,6 +73,7 @@ pub fn rota_router(state: RotaState) -> Router {
         .route("/api/rota/v1/working_orders", get(view_working_orders))
         .route("/api/rota/v1/discovery", get(view_discovery))
         .route("/api/rota/v1/personas", get(view_personas))
+        .route("/api/rota/v1/persona_scores", get(view_persona_scores))
         .route("/api/rota/v1/analyses", get(view_analyses))
         .route("/api/rota/v1/forecasts", get(view_forecasts))
         .route("/api/rota/v1/db", get(view_db))
@@ -400,6 +401,96 @@ pub async fn persona_registry(pool: &PgPool) -> Result<Vec<PersonaRowTuple>, sql
                 effective_at \
          FROM personas \
          ORDER BY persona_id ASC, version DESC",
+    )
+    .fetch_all(pool)
+    .await
+}
+
+/// Persona Scorecard (track-E §20.1 OUTCOMES half: "are the personas any good?").
+/// Per persona, the calibration of its RESOLVED beliefs: how many resolved, the mean
+/// Brier (LOWER = better) and the mean CLV (closing-line value, bps; HIGHER = better)
+/// — aggregated from the binary `beliefs` table grouped by `provenance->>'persona_id'`
+/// (the fan-out the persona runner writes, track-E E.4a). A PURE projection (AVG /
+/// COUNT): the §11 promote/retire VERDICT + the raw/market baselines +
+/// calibration_quality are NOT computed here (cognition logic / unpersisted baselines
+/// — ledgered); the board shows only the honest EVALUATING(n/60) progress, never a
+/// fabricated promote/retire decision. Runtime sqlx (audit-tail precedent). Empty
+/// until the persona runner is daemon-wired → honest unavailable.
+async fn view_persona_scores(State(s): State<RotaState>) -> impl IntoResponse {
+    let Some(pool) = s.pool.clone() else {
+        return Json(json!({
+            "status": "unavailable",
+            "detail": "postgres capability absent (standalone ROTA)",
+        }));
+    };
+    match persona_scorecard(&pool).await {
+        Ok(rows) => {
+            let generated_at = { s.snapshot.read().await.generated_at.clone() }; // R8
+            let resolved_total: i64 = rows.iter().map(|r| r.1).sum();
+            let n_personas = rows.len();
+            let json_rows: Vec<Value> = rows
+                .into_iter()
+                .map(|(persona, n_resolved, brier, clv_bps)| {
+                    let brier = (brier * 10_000.0).round() / 10_000.0;
+                    let clv = clv_bps.map(|c| (c * 100.0).round() / 100.0);
+                    // §11 evaluation progress toward the 60-sample gate. The
+                    // PROMOTABLE / RETIRE-CANDIDATE verdict needs the raw/market
+                    // baselines (not persisted) — so ROTA shows progress only, never
+                    // a fabricated promote/retire decision.
+                    let verdict = if n_resolved < 60 {
+                        format!("evaluating ({n_resolved}/60)")
+                    } else {
+                        "n\u{2265}60 \u{00B7} verdict pending baselines".to_string()
+                    };
+                    json!({
+                        "persona": persona, "n_resolved": n_resolved,
+                        "brier": brier, "clv_bps": clv, "verdict": verdict,
+                    })
+                })
+                .collect();
+            Json(json!({
+                "title": "Persona Scorecard",
+                "generated_at": generated_at,
+                "columns": [
+                    {"key":"persona","label":"Persona"},
+                    {"key":"n_resolved","label":"Resolved"},
+                    {"key":"brier","label":"Mean Brier (lower=better)"},
+                    {"key":"clv_bps","label":"Mean CLV bps (higher=better)"},
+                    {"key":"verdict","label":"Verdict"},
+                ],
+                "rows": json_rows,
+                "summary": {"personas": n_personas, "resolved": resolved_total},
+            }))
+        }
+        Err(e) => {
+            eprintln!("rota: persona_scores read degraded: {e}");
+            Json(json!({
+                "status": "unavailable",
+                "detail": "persona scores read unavailable (dashboard pool degraded)",
+            }))
+        }
+    }
+}
+
+/// One persona-scorecard row: (persona_id, n_resolved, mean_brier, mean_clv_bps).
+type PersonaScoreTuple = (String, i64, f64, Option<f64>);
+
+/// Per-persona calibration over RESOLVED+scored beliefs: count, mean Brier, mean CLV —
+/// grouped by the belief provenance's `persona_id`. Pure AVG/COUNT projection (no
+/// cognition logic, no untrusted-data render; the `persona_id` is operator-authored
+/// config). Runtime sqlx (audit-tail precedent).
+pub async fn persona_scorecard(pool: &PgPool) -> Result<Vec<PersonaScoreTuple>, sqlx::Error> {
+    sqlx::query_as::<_, PersonaScoreTuple>(
+        "SELECT provenance->>'persona_id' AS persona, \
+                COUNT(*) AS n_resolved, \
+                AVG(brier) AS brier, \
+                AVG(clv_bps) AS clv_bps \
+         FROM beliefs \
+         WHERE provenance->>'persona_id' IS NOT NULL \
+           AND status = 'resolved' \
+           AND brier IS NOT NULL \
+         GROUP BY provenance->>'persona_id' \
+         ORDER BY provenance->>'persona_id' ASC",
     )
     .fetch_all(pool)
     .await
@@ -1137,6 +1228,7 @@ const ROTA_SHELL: &str = r#"<!doctype html><html lang="en"><head>
   <div class="panel wide"><h2>Strategy P&amp;L</h2><div id="strategies">…</div></div>
   <div class="panel wide"><h2>Discovery — Events</h2><div id="discovery">…</div></div>
   <div class="panel wide"><h2>Personas</h2><div id="personas">…</div></div>
+  <div class="panel wide"><h2>Persona Scorecard</h2><div id="persona_scores">…</div></div>
   <div class="panel wide"><h2>Domain Analyses</h2><div id="analyses">…</div></div>
   <div class="panel wide"><h2>Forecasts</h2><div id="forecasts">…</div></div>
   <div class="panel wide"><h2>Database</h2><div id="db">…</div></div>
@@ -1225,6 +1317,7 @@ const R={
  working_orders(j){return boardTable(j);},
  discovery(j){return boardTable(j);},
  personas(j){return boardTable(j);},
+ persona_scores(j){return boardTable(j);},
  analyses(j){return boardTable(j);},
  forecasts(j){return boardTable(j);},
  db(j){return boardTable(j);},
@@ -1240,5 +1333,5 @@ async function poll(name){const el=document.getElementById(name);
 function every(ms,names){names.forEach(poll);setInterval(()=>names.forEach(poll),ms);}
 every(2000,["health","audit"]);every(5000,["money","gates","ingest_sources","ingest_feed","ingest_funnel"]);
 every(10000,["cognition","settlement","fills","strategies","working_orders"]);every(15000,["streams","discovery"]);
-every(30000,["db","personas","analyses","forecasts"]);
+every(30000,["db","personas","persona_scores","analyses","forecasts"]);
 </script></body></html>"#;

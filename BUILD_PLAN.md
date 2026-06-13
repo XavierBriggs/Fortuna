@@ -628,6 +628,16 @@ Polymarket research+fixtures, spec v0.9 touch-up).
         @2c17295 — NOT track-B, fortuna-venues out of ownership; ledgered for verifier).
         Mission item 3 substantially complete (fills + working orders + strategy P&L);
         unrealized PnL remains the mark-loop gap.
+  - [x] Persona Scorecard board (track-E §20.1 outcomes half — UNBLOCKED by the merged
+        persona runtime) — persona_scorecard runtime-sqlx (AVG over resolved beliefs
+        grouped by provenance->>'persona_id': n_resolved + mean Brier + mean CLV) +
+        view_persona_scores handler + honest evaluating(n/60) verdict (PROMOTABLE/RETIRE
+        + baselines + calibration_quality OMITTED — unpersisted/cognition logic, R2);
+        fortuna-ops only; DB-backed populated test (per-persona MEAN brier/clv + verdict);
+        reviewer-clean; battery green EXCEPT the same pre-existing main kinetics_dto red
+        (track-C/A, not track-B); screenshot-verified (this commit, 19 boards). Completes
+        the Personas board's two halves (registry + scorecard). The §20.1 baselines/
+        verdict + §20.3 provenance-linking + §20.4 pipeline funnel remain (GAPS).
 
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)
