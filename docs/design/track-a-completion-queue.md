@@ -53,3 +53,20 @@ COORDINATION: track D will land ONE flagged minimal drive() seam commit in
 fortuna-live (your files) — accommodate it on rebase, review it as a
 neighbor's seam, do not rewrite it; conflicts beyond the seam = ledger +
 bus, never a silent merge resolution.
+
+## ADDED 2026-06-13: T5.B7/B8 reassigned to track A (ownership correction)
+
+Track C correctly STOPPED — B7/B8 live in TRACK A's crates, not track C's:
+T5.B7 perp strategy plugins need the Strategy trait/Proposal/CoreHandle in
+crates/fortuna-runner (track A); T5.B8 kill-switch flatten is in
+crates/fortuna-killswitch (track A); B8 telemetry + the funding-regime panel
+are in crates/fortuna-ops. Track C delivered the in-territory INPUT: the
+deterministic funding-forecast kernel (track-c @ 507b1ad: FundingWindow +
+finalize_funding_rate, in fortuna-state). After T4.2 + T4.5, track A:
+- T5.B7: wire perp_event_basis (Sim) + funding_forecast (consuming track C's
+  507b1ad kernel — cherry-pick or merge it) + funding_carry (DATA-ONLY) as
+  Strategy plugins; FEE-TRAP RULE (edge floors at assumed post-promo
+  5-12bps; promo-$0 never justifies GO); I7 unchanged.
+- T5.B8: kill-switch perps flatten (reduce_only IOC + cancel-all; extend the
+  SEPARATE killswitch binary, I4 deps absolute); margin/funding telemetry;
+  the funding-regime ROTA panel. Closes the Phase-5 EXIT.

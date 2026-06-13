@@ -28,7 +28,7 @@ listener (mock transport; live needs operator token). (3) T4.5 deferred
 panels + the re-scoped §5 money model + audit-recents. Accommodate track
 D's one flagged drive() seam as a neighbor's commit, do not rewrite it.
 
-## TRACK C — PACKAGE DONE; stopped clean; FULL RE-GATE IN FLIGHT (perps-remerge-gate-2026-06-13.md)
+## TRACK C — DONE. Perp PLANE merged; funding-forecast kernel (507b1ad) is the B7 input. B7/B8 REASSIGNED to track A (they live in track A's crates — ownership correction; track C correctly stopped). Track C has no remaining in-ownership work.
 
 Branch: you Reapplied the reverted merge (d81ab6c) — tip = main + the full
 perps tranche as forward history. REBASE RULE: never plain-rebase onto
@@ -62,7 +62,9 @@ OWNER PLAN: a RESTARTED track C, scoped to "extend the now-merged perps plane"
 AFTER the re-merge gate ACCEPTs and the merge lands. Phase-5 EXIT (BUILD_PLAN)
 is not met until B7+B8 land.
 
-## TRACK D — SSRF CLEARED, MERGE-APPROVED (pending clean-main window) (track-d-regate-2026-06-13.md)
+## TRACK D — MERGED to main (2476554; SSRF-fixed news crate D1-D5; post-merge build green). NEXT: D9 (wire the Layer-1 validator + scheduler + drive seam) is the HARD GATE before any live ingest. Phase A partial (2/4 adapters). Scope: PARK slot F / track M per operator.
+
+## [merged] TRACK D — SSRF CLEARED (track-d-regate-2026-06-13.md)
 
 RE-GATE = ACCEPT / MERGE. The Critical SSRF is FIXED AT ROOT CAUSE
 (host_of_https deleted; pin + connection unified on the WHATWG url parser;
