@@ -82,6 +82,10 @@ pub struct SourceConfig {
     pub extraction_trust_cap: Option<u8>,
     pub rate_budget_per_min: Option<u32>,
     pub enabled: bool,
+    /// Adapter variant within a kind (the factory needs it): `nws` →
+    /// `alerts` | `afd`; `calendar` → `schedule` | `latest`. `rss`/`gdelt`
+    /// take none. Required when ENABLING an `nws`/`calendar` source.
+    pub feed: Option<String>,
 }
 
 /// The full `[sources]` map. BTreeMap for deterministic iteration order.
@@ -108,6 +112,7 @@ struct RawSource {
     extraction_trust_cap: Option<u8>,
     rate_budget_per_min: Option<u32>,
     enabled: Option<bool>,
+    feed: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -227,6 +232,9 @@ fn validate_source(id: &str, raw: RawSource) -> Result<SourceConfig, SourcesErro
         if raw.rate_budget_per_min.is_none() {
             return Err(invalid(id, "enabled source requires rate_budget_per_min"));
         }
+        // `feed` (the adapter variant for nws/calendar) is validated by the
+        // FACTORY when it builds the adapter — kept lenient here so the design
+        // doc's illustrative example still parses.
     }
 
     Ok(SourceConfig {
@@ -238,6 +246,7 @@ fn validate_source(id: &str, raw: RawSource) -> Result<SourceConfig, SourcesErro
         extraction_trust_cap: raw.extraction_trust_cap,
         rate_budget_per_min: raw.rate_budget_per_min,
         enabled,
+        feed: raw.feed,
     })
 }
 

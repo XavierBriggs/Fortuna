@@ -11,6 +11,7 @@ pub mod calendar;
 pub mod config;
 pub mod corroborate;
 pub mod error;
+pub mod factory;
 pub mod fetch;
 pub mod nws;
 pub mod rss;
@@ -24,6 +25,7 @@ pub use calendar::{
 pub use config::{EventWindow, ExtractionMode, SourceConfig, SourceKind, SourcesConfig};
 pub use corroborate::{corroborate, Corroboration, CorroborationInput};
 pub use error::SourcesError;
+pub use factory::{build_scheduler, FactoryConfig};
 pub use fetch::{
     Conditional, FetchCaps, FetchClient, FetchError, FetchOutcome, FetchTransport, HostPin,
     PoliteLimiter, RawHttpResponse, ReqwestFetchTransport,

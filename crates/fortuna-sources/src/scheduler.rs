@@ -310,6 +310,11 @@ impl IngestionScheduler {
             .find(|r| r.id == source_id)
             .map(|r| &r.metrics)
     }
+
+    /// Registered source ids, in registration order (introspection/telemetry).
+    pub fn source_ids(&self) -> Vec<&str> {
+        self.sources.iter().map(|r| r.id.as_str()).collect()
+    }
 }
 
 /// SHA-256 hex of the canonical JSON payload (serde_json `Map` is sorted-key by
