@@ -83,3 +83,7 @@ lands — no staleness, no speculation. Touched so far:
      feature-dev code-reviewer pass (real `GateCheck` names, `discrepancies_open`,
      null `book_age_ms`, propagated clock errors). This doc + the runbook + the
      operations/architecture pointers added.
+  3. Operator doc-discipline directive codified as loop-file rule 6 (binding,
+     part of DoD) so every iteration maintains own + shared docs with targeted,
+     non-stale edits. Item-0 screenshot archived at
+     `docs/reviews/rota-visual/rota-local-seeded-2026-06-13.png`.
