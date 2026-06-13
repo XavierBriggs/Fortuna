@@ -163,3 +163,66 @@ impl From<serde_json::Error> for KillSwitchError {
         KillSwitchError::Journal(std::io::Error::other(e))
     }
 }
+
+/// The kill-switch's Kalshi credentials, loaded ENV-ONLY and FAIL-CLOSED. The
+/// switch keeps a SEPARATE credential pair from the trading runtime (spec I4:
+/// the switch must function when everything else is dead), so these are its own
+/// `FORTUNA_KILLSWITCH_KALSHI_*` env vars — never read from config and never
+/// logged.
+pub struct KalshiCreds {
+    pub api_key_id: String,
+    /// The PEM TEXT (read from the file at `_PRIVATE_KEY_PATH`), never the path.
+    pub private_key_pem: String,
+    pub base_url: String,
+}
+
+/// Hand-written so the private key NEVER reaches a log line / panic message /
+/// audit payload via `{:?}` (no secrets in logs — CLAUDE.md). The key id and
+/// base URL are non-secret identifiers and are shown.
+impl std::fmt::Debug for KalshiCreds {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KalshiCreds")
+            .field("api_key_id", &self.api_key_id)
+            .field("private_key_pem", &"[redacted]")
+            .field("base_url", &self.base_url)
+            .finish()
+    }
+}
+
+/// Validate the three `FORTUNA_KILLSWITCH_KALSHI_*` inputs and read the private
+/// key file — FAIL-CLOSED. A missing or empty value is a hard error naming the
+/// ENV VAR (never its value). The base URL is REQUIRED, never defaulted: the
+/// switch must not cancel against the wrong environment (prod vs demo must be an
+/// explicit operator choice). Pure (no env access) so it is exhaustively
+/// testable; `main` reads the env and the venue is built only after this passes.
+pub fn load_kalshi_creds(
+    api_key_id: Option<String>,
+    private_key_path: Option<String>,
+    base_url: Option<String>,
+) -> Result<KalshiCreds, String> {
+    fn require(value: Option<String>, var: &str) -> Result<String, String> {
+        match value {
+            Some(v) if !v.trim().is_empty() => Ok(v),
+            _ => Err(format!("{var} is required (env-only, fail-closed)")),
+        }
+    }
+    let api_key_id = require(api_key_id, "FORTUNA_KILLSWITCH_KALSHI_API_KEY_ID")?;
+    let private_key_path = require(
+        private_key_path,
+        "FORTUNA_KILLSWITCH_KALSHI_PRIVATE_KEY_PATH",
+    )?;
+    let base_url = require(base_url, "FORTUNA_KILLSWITCH_KALSHI_BASE_URL")?;
+    let private_key_pem = std::fs::read_to_string(&private_key_path).map_err(|e| {
+        format!("cannot read FORTUNA_KILLSWITCH_KALSHI_PRIVATE_KEY_PATH ({private_key_path}): {e}")
+    })?;
+    if private_key_pem.trim().is_empty() {
+        return Err(
+            "the private key at FORTUNA_KILLSWITCH_KALSHI_PRIVATE_KEY_PATH is empty".to_string(),
+        );
+    }
+    Ok(KalshiCreds {
+        api_key_id,
+        private_key_pem,
+        base_url,
+    })
+}
