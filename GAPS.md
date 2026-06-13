@@ -1311,6 +1311,44 @@ Track-B impact: my full-workspace battery is green on EVERYTHING ELSE (1216 pass
 this 1 pre-existing main red / DST exit 0 / daemon_smoke 15/15 / clippy + fmt clean);
 this red is inherited from main, independent of the ROTA work.
 
+### RALPH STOP 2026-06-13T22:13Z — TRACK B (ROTA OBSERVABILITY): mission delivered + merged; ready work exhausted
+Stopping the track-B loop per loop-rule 5 ("every ready board is built and the rest are
+data-blocked on C/D/E — ledger the dependency, don't invent work").
+
+WHAT WAS DELIVERED. The operator's TOTAL OBSERVABILITY mission (all 6 areas — cognition,
+pipeline, trades, discovery, DB, telemetry) is MERGED to main @04d2f5d and GATE-ACCEPTED by
+the verifier (bus: "all 6 mission areas + producer scorecards + ingestion triad; READ-ONLY
+honored; clean merge"). Then 5 MORE gate-ready depth follow-ons were committed on top (unmerged,
+queued for the verifier): Forecast Feed (§9.1 recent half), band coverage (§9.1 calibration),
+analyses belief-fanout (§20.2), Persona Pipeline funnel (§20.4), cognition provenance
+legibility (§20.3 / item 1). 22 boards total. Each: tests-first, code-reviewer-clean, full-
+workspace battery green, screenshot-verified, docs current.
+
+WHY STOP NOW. Every READY board is built + merged. The remaining BOARDS are DATA-BLOCKED:
+- §9.2 `/perps` regime/basis — the perp_event_basis kernel is computed ON-DEMAND, NOT persisted
+  to any table; a ROTA query has nothing to read until track-C persists basis (or a funding-
+  regime table lands). DATA-BLOCKED on track-C.
+- D V4 Vendor Scorecard / V5 Forecast→Outcome / V6 — DATA-BLOCKED on the Layer-3
+  source_reliability cognition job (track-D/cognition), as the ingestion-observability contract
+  states.
+The only NON-blocked remaining items are JS-UI POLISH on already-complete boards — the §20.2
+per-belief EXPANDER (a click-to-expand drill-in; the fanout COUNT already signals it) and the
+§9.1 SPARKLINE (a per-producer trend viz). Both are thin-Rust / JS-heavy enhancements, not new
+boards; grinding them on a complete+merged mission is the "don't invent work" the rule warns
+against. Building them is a fine FUTURE slice if the operator wants the polish — re-activate the
+loop with that directive.
+
+CROSS-TRACK RED STILL OPEN (not track-B; for the verifier/owning track): `fortuna-venues --test
+kinetics_dto every_fixture_parses_into_its_typed_dto` fails on the unclassified
+`paired_cycle_btc_perp_vs_kxbtc` fixture (track-C main @2c17295) — the known fixture-glob trap
+([[fortuna-battery-ops]]); fix is fortuna-venues-side (subdir the derived fixture), outside
+track-B ownership. This is the ONLY red in track-B's full-workspace battery across all 5
+follow-ons.
+
+WHAT RE-ACTIVATES TRACK B: (a) an operator directive for the §20.2 expander / §9.1 sparkline
+polish; (b) track-C persisting perp basis → §9.2 `/perps` unblocks; (c) the Layer-3
+source_reliability job landing → D V4-V6 unblock; (d) any new ROTA gate finding on the bus.
+
 ### COGNITION PROVENANCE LEGIBILITY DONE (2026-06-13) — track-E §20.3 / mission item 1
 Made the cognition board's belief expander LEGIBLE (mission item 1's #1 emphasis: "each belief
 with its provenance — which source/persona, model_id, run_at, cost — the reasoning made
