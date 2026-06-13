@@ -28,7 +28,7 @@ listener (mock transport; live needs operator token). (3) T4.5 deferred
 panels + the re-scoped §5 money model + audit-recents. Accommodate track
 D's one flagged drive() seam as a neighbor's commit, do not rewrite it.
 
-## TRACK C — perps re-merge package (HIGHEST-VALUE; code exists, gate-clean)
+## TRACK C — PACKAGE DONE; stopped clean; FULL RE-GATE IN FLIGHT (perps-remerge-gate-2026-06-13.md)
 
 Branch: you Reapplied the reverted merge (d81ab6c) — tip = main + the full
 perps tranche as forward history. REBASE RULE: never plain-rebase onto
@@ -44,6 +44,23 @@ ASSUMPTIONS note that loosening is an I7-review). (3) full re-gate at
 10000 -> re-merge request. RE-MERGE (verifier-owned): post-merge
 integration check MUST show the previously-failing kinetics test green on
 merged main. Standing signatures (waive batch 5 + F1) remain valid.
+
+## T5.B7 / T5.B8 — ORPHANED, post-re-merge (ledgered 2026-06-13 so they don't vanish)
+
+Track C correctly STOPPED rather than grab these (not in its ownership) — the
+loop discipline working. They are genuinely BLOCKED on the perps re-merge
+landing on main (both extend the merged plane). After the re-merge:
+- T5.B7 rung-0 strategies (perp_event_basis Sim, funding_forecast zero-capital,
+  funding_carry DATA-ONLY) under the FEE-TRAP RULE (edge floors at assumed
+  post-promo fees; promo-$0 never justifies GO; I7 unchanged). Cross-cutting:
+  strategy plugins + the merged perp gates/types.
+- T5.B8 ops: kill-switch perps flatten (reduce_only IOC + cancel-all — SEPARATE
+  killswitch binary, I4 deps absolute), margin/funding telemetry, funding-regime
+  ROTA panel.
+OWNER PLAN: a RESTARTED track C, scoped to "extend the now-merged perps plane"
+(coherent ownership once it's on main) — or a fresh track. Operator spins it up
+AFTER the re-merge gate ACCEPTs and the merge lands. Phase-5 EXIT (BUILD_PLAN)
+is not met until B7+B8 land.
 
 ## TRACK D — news-aggregation Phase A (queue: implementer-loop-track-d.md)
 
