@@ -69,6 +69,7 @@ pub fn rota_router(state: RotaState) -> Router {
         .route("/api/rota/v1/ingest_feed", get(view_ingest_feed))
         .route("/api/rota/v1/ingest_funnel", get(view_ingest_funnel))
         .route("/api/rota/v1/fills", get(view_fills))
+        .route("/api/rota/v1/strategies", get(view_strategies))
         .route("/api/rota/v1/audit", get(audit_tail))
         .with_state(state)
 }
@@ -137,6 +138,15 @@ async fn view_ingest_feed(State(s): State<RotaState>) -> impl IntoResponse {
 /// a fabricated 0 that would look like "everything dropped after validation".
 async fn view_ingest_funnel(State(s): State<RotaState>) -> impl IntoResponse {
     Json(read_view(&s, "ingest_funnel").await)
+}
+
+/// Strategy P&L (mission item 3) — per-strategy realized PnL, fees, fill count,
+/// and open exposure, shaped daemon-side from `runner.digest_snapshot()` (the
+/// same attribution the daily digest uses) into `snapshot.views["strategies"]`;
+/// price columns render as dollars (the `cents` flag). Unrealized PnL is the
+/// mark-loop gap (Money board) — realized only. Absent => unavailable.
+async fn view_strategies(State(s): State<RotaState>) -> impl IntoResponse {
+    Json(read_view(&s, "strategies").await)
 }
 
 /// Recent fills — the trades EXECUTED, from the durable `fills` ledger (mission
@@ -682,6 +692,7 @@ const ROTA_SHELL: &str = r#"<!doctype html><html lang="en"><head>
   <div class="panel wide"><h2>Live Signal Feed</h2><div id="ingest_feed">…</div></div>
   <div class="panel wide"><h2>Ingest Funnel</h2><div id="ingest_funnel">…</div></div>
   <div class="panel wide"><h2>Recent Fills</h2><div id="fills">…</div></div>
+  <div class="panel wide"><h2>Strategy P&amp;L</h2><div id="strategies">…</div></div>
   <div class="panel"><h2>Audit tail</h2><div id="audit">…</div></div>
 </div>
 <script>
@@ -763,6 +774,7 @@ const R={
  ingest_feed(j){return boardTable(j);},
  ingest_funnel(j){return boardTable(j);},
  fills(j){return boardTable(j);},
+ strategies(j){return boardTable(j);},
  audit(j){if(!j.available)return `<div class="warn">${esc(j.detail||"unavailable")}</div>`;
   let h="";j.rows.slice(-12).forEach(r=>h+=`<div class="row">${esc(r.at)} UTC ${esc(r.kind)}${r.actor?" · "+esc(r.actor):""}</div>`);
   return h||`<div class="row">no audit rows yet</div>`;}
@@ -774,5 +786,5 @@ async function poll(name){const el=document.getElementById(name);
  }catch(e){el.innerHTML=`<div class="warn">unreachable: ${esc(e)}</div>`;}}
 function every(ms,names){names.forEach(poll);setInterval(()=>names.forEach(poll),ms);}
 every(2000,["health","audit"]);every(5000,["money","gates","ingest_sources","ingest_feed","ingest_funnel"]);
-every(10000,["cognition","settlement","fills"]);every(15000,["streams"]);
+every(10000,["cognition","settlement","fills","strategies"]);every(15000,["streams"]);
 </script></body></html>"#;

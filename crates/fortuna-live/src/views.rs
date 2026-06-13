@@ -116,6 +116,28 @@ pub fn views_from<J: IntentJournal + Send>(runner: &SimRunner<J>, generated_at: 
         })
         .unwrap_or_default();
 
+    // Per-strategy P&L (mission item 3): the digest's own attribution — realized
+    // PnL, fees, fill count, open exposure per strategy. A read-only fold over the
+    // runner's state (the SAME digest the daily Slack report uses), surfaced here
+    // for the Strategy P&L board. Unrealized PnL is the mark-loop gap (Money board)
+    // — not faked here; this is realized + fees + open exposure only.
+    let digest = runner.digest_snapshot();
+    let strategy_rows: Vec<Value> = digest
+        .strategies
+        .iter()
+        .map(|s| {
+            json!({
+                "strategy": s.strategy,
+                "realized_pnl_cents": s.realized_pnl_cents,
+                "fees_cents": s.fees_cents,
+                "fills": s.fills,
+                "open_exposure_cents": s.open_exposure_cents,
+            })
+        })
+        .collect();
+    let strategy_fills: u64 = digest.strategies.iter().map(|s| s.fills).sum();
+    let strategy_count = digest.strategies.len();
+
     json!({
         "health": {
             "generated_at": generated_at,
@@ -176,6 +198,19 @@ pub fn views_from<J: IntentJournal + Send>(runner: &SimRunner<J>, generated_at: 
                 "ws_gap_count": 0,
                 "resync_count": 0,
             } ],
+        },
+        "strategies": {
+            "generated_at": generated_at,
+            "title": "Strategy P&L",
+            "columns": [
+                {"key":"strategy","label":"Strategy"},
+                {"key":"realized_pnl_cents","label":"Realized","cents":true},
+                {"key":"fees_cents","label":"Fees","cents":true},
+                {"key":"fills","label":"Fills"},
+                {"key":"open_exposure_cents","label":"Open exp","cents":true},
+            ],
+            "rows": strategy_rows,
+            "summary": {"strategies": strategy_count, "fills": strategy_fills},
         },
     })
 }

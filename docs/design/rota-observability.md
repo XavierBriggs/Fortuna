@@ -29,7 +29,8 @@ telemetry on every layer — consuming the C/D/E observability contracts.
 | Settlement | `/settlement` | snapshot | live (A) | DONE + verified |
 | Streams | `/streams` | snapshot + recorder fs | B | DONE + verified |
 | Audit | `/audit` | ledger | B | DONE + verified |
-| Trades — Recent Fills (item 3) | `/fills` | `fills` ledger | B | **DONE** — executed-trades board (runtime sqlx + `cents` flag); per-strategy P&L + working orders (views_from from runner accessors) + unrealized-PnL gap are follow-ons (GAPS) |
+| Trades — Recent Fills (item 3) | `/fills` | `fills` ledger | B | **DONE** — executed-trades board (runtime sqlx + `cents` flag) |
+| Trades — Strategy P&L (item 3) | `/strategies` | `runner.digest_snapshot()` | B (views_from) | **DONE** — per-strategy realized PnL/fees/fills/open-exposure (views_from + `cents`); working orders + unrealized-PnL gap are follow-ons (GAPS) |
 | Ingest — Sources (D V2) | `/ingest_sources` | `IngestionTelemetry.sources` | B (OBS-2c) | **LIVE** — handler + `boardTable` + screenshot; daemon shapes it via `merge_ingest_views` (OBS-2c) from the published telemetry handle |
 | Ingest — Live Feed (D V1) | `/ingest_feed` | `IngestionTelemetry.recent` | B (OBS-2c) | **LIVE** — marquee feed board (`boardTable` + `pill` status); daemon shapes via `merge_ingest_views` from the recent-signals ring |
 | Ingest — Funnel (D V3) | `/ingest_funnel` | `IngestionTelemetry.funnel` | B (OBS-2c) | **LIVE** — funnel-as-stage-table; daemon shapes via `merge_ingest_views`; loop-stages real (OBS-2a); honest gate skips an unticked funnel |

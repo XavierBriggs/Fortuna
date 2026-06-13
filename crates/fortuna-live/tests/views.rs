@@ -407,6 +407,39 @@ async fn money_view_committed_is_non_zero_when_capital_is_reserved() {
     );
 }
 
+// Mission item 3: the Strategy P&L view is shaped from the runner's own digest
+// (per-strategy realized PnL / fees / fills / open exposure). POPULATED-path —
+// the 11/3 arb seed fills three legs under `mech_structural`, so that strategy
+// must appear with its real attribution, money columns flagged `cents`.
+#[tokio::test]
+async fn strategies_view_carries_per_strategy_pnl_from_the_digest() {
+    let r = ticked_runner(11, 3).await;
+    let v = views_from(&r, GEN);
+    let st = &v["strategies"];
+    assert_eq!(st["title"], "Strategy P&L");
+    let rows = st["rows"].as_array().expect("strategies rows array");
+    assert!(
+        rows.iter().any(|row| row["strategy"] == "mech_structural"),
+        "the arb strategy that traded must appear: {st}"
+    );
+    // Every row carries the real attribution fields (not a stubbed shape).
+    for row in rows {
+        assert!(
+            row["realized_pnl_cents"].is_i64(),
+            "realized is an int: {row}"
+        );
+        assert!(row["fills"].is_u64(), "fill count present: {row}");
+        assert!(row["open_exposure_cents"].is_i64(), "{row}");
+    }
+    // Realized/fees/open-exposure are cents columns (rendered as dollars).
+    let cols = st["columns"].as_array().unwrap();
+    assert!(
+        cols.iter()
+            .any(|c| c["key"] == "realized_pnl_cents" && c["cents"] == true),
+        "realized PnL is a cents column: {st}"
+    );
+}
+
 /// OBS-2c: a representative live ingestion snapshot (one source, one signal, a
 /// funnel) for the merge tests.
 fn sample_telemetry() -> IngestionTelemetry {

@@ -604,6 +604,28 @@ fn representative_views(generated_at: &str) -> Value {
             ],
             "summary": { "fetched": 1240, "persisted": 1048, "retain_pct": 85, "persist_failures": 0 },
         },
+        // Strategy P&L (mission item 3) — per-strategy realized PnL / fees / fills
+        // / open exposure. In prod the daemon shapes this from
+        // runner.digest_snapshot(); here it is the representative seed (a winning
+        // and a losing strategy, shown honestly). Money columns render as dollars.
+        "strategies": {
+            "title": "Strategy P&L",
+            "generated_at": generated_at,
+            "columns": [
+                { "key": "strategy", "label": "Strategy" },
+                { "key": "realized_pnl_cents", "label": "Realized", "cents": true },
+                { "key": "fees_cents", "label": "Fees", "cents": true },
+                { "key": "fills", "label": "Fills" },
+                { "key": "open_exposure_cents", "label": "Open exp", "cents": true },
+            ],
+            "rows": [
+                { "strategy": "mech_structural", "realized_pnl_cents": 3100, "fees_cents": 211,
+                  "fills": 3, "open_exposure_cents": 0 },
+                { "strategy": "perp_basis", "realized_pnl_cents": -450, "fees_cents": 38,
+                  "fills": 1, "open_exposure_cents": 12000 },
+            ],
+            "summary": { "strategies": 2, "fills": 4 },
+        },
     })
 }
 

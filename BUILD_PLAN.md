@@ -560,6 +560,12 @@ Polymarket research+fixtures, spec v0.9 touch-up).
         audit-tail pattern; DB-backed populated test; screenshot-verified (this commit,
         11 boards). Follow-ons (GAPS): per-strategy P&L + working orders (views_from
         from runner accessors), unrealized PnL gapped (no mark loop).
+  - [x] Strategy P&L board (mission item 3, "realized PnL per strategy") — views_from
+        (the ROTA seam) shapes runner.digest_snapshot().strategies into
+        snapshot.views["strategies"] + view_strategies handler + the cents flag
+        (realized/fees/open as dollars, negatives honest); fortuna-live + fortuna-ops;
+        views.rs + handler tests + daemon_smoke 15/15; screenshot-verified (this
+        commit, 12 boards). Working orders + unrealized PnL remain (GAPS).
 
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)

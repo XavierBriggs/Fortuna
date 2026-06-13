@@ -763,6 +763,24 @@ Until those land, the new boards ship as read-only frontend + honest-degraded
 (`available:false`) handlers — the discipline all three contracts specify
 ("build the panels now; they light up when the data lands").
 
+### STRATEGY P&L DONE (2026-06-13) — per-strategy realized PnL (mission item 3)
+Added the Strategy P&L board: views_from (the ROTA seam) shapes
+`runner.digest_snapshot().strategies` (DigestStrategyRow: strategy,
+realized_pnl_cents, fees_cents, fills, open_exposure_cents) into
+`snapshot.views["strategies"]` — a read-only fold over the runner's own digest (the
+SAME attribution the daily Slack report uses), NO runner change. view_strategies
+handler (fortuna-ops, read_view) + boardTable with the `cents` column flag (realized/
+fees/open render as dollars, negatives honest). Tests: views.rs (the 11/3 arb seed
+produces mech_structural with real attribution) + fortuna-ops (handler serves seeded
+rows incl. a losing strategy) + daemon_smoke 15/15 (the new view key doesn't disturb
+the daemon). Screenshot-verified (12 boards); archived rota-strategies-2026-06-13.png.
+Reviewer SKIPPED for this slice (established pattern: boardTable + cents flag both
+reviewer-cleared; the digest fold is simple + tested both sides) — the verifier's
+merge gate reviews the stack. REMAINING trades follow-ons: working orders (also a
+views_from board from runner.manager().intents() filtered status.is_working()) +
+unrealized PnL (the mark-loop gap, operator/track-A). Mission item 3 is now
+substantially covered (fills + per-strategy P&L; working-orders + unrealized pending).
+
 ### RECENT FILLS DONE (2026-06-13) — trades-being-executed (mission item 3, partial)
 Built the Recent Fills board: `recent_fills(pool, limit)` runtime-sqlx query (SELECT
 market_id/side/action/venue/price_cents/qty/fee_cents/is_maker/at FROM fills ORDER BY

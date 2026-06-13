@@ -66,7 +66,7 @@ async fn serve() -> (String, tokio::task::JoinHandle<()>) {
     (format!("http://{addr}"), handle)
 }
 
-const PATHS: [&str; 13] = [
+const PATHS: [&str; 14] = [
     "/rota",
     "/assets/rota/logo.svg",
     "/api/rota/v1/health",
@@ -79,6 +79,7 @@ const PATHS: [&str; 13] = [
     "/api/rota/v1/ingest_feed",
     "/api/rota/v1/ingest_funnel",
     "/api/rota/v1/fills",
+    "/api/rota/v1/strategies",
     "/api/rota/v1/audit",
 ];
 
@@ -130,6 +131,7 @@ async fn degraded_surfaces_are_200_with_explicit_unavailable() {
         "ingest_feed",
         "ingest_funnel",
         "fills",
+        "strategies",
     ] {
         let j: serde_json::Value = client
             .get(format!("{base}/api/rota/v1/{name}"))
@@ -1082,6 +1084,57 @@ async fn fills_board_serves_recent_executed_trades(pool: sqlx::PgPool) {
         cols.iter()
             .any(|c| c["key"] == "price_cents" && c["cents"] == true),
         "price is a cents column: {j}"
+    );
+}
+
+// Strategy P&L board: the daemon-shaped per-strategy view serves verbatim,
+// money columns flagged `cents`. POPULATED-path (real seeded rows incl. a losing
+// strategy shown honestly), not a vacuous empty board.
+#[tokio::test]
+async fn strategies_board_serves_seeded_per_strategy_pnl() {
+    let snap = empty_snapshot();
+    {
+        let mut s = snap.write().await;
+        s.views = serde_json::json!({
+            "strategies": {
+                "title": "Strategy P&L",
+                "columns": [
+                    {"key":"strategy","label":"Strategy"},
+                    {"key":"realized_pnl_cents","label":"Realized","cents":true},
+                    {"key":"fills","label":"Fills"}
+                ],
+                "rows": [
+                    {"strategy":"mech_structural","realized_pnl_cents":3100,"fills":3},
+                    {"strategy":"perp_basis","realized_pnl_cents":-450,"fills":1}
+                ],
+                "summary": {"strategies":2,"fills":4}
+            }
+        });
+    }
+    let app = rota_router(RotaState::standalone(snap));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/strategies"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "both strategies served: {j}");
+    assert_eq!(j["rows"][0]["strategy"], "mech_structural");
+    assert_eq!(j["rows"][0]["realized_pnl_cents"], 3100);
+    // A losing strategy is shown honestly (negative realized), never hidden.
+    assert_eq!(j["rows"][1]["realized_pnl_cents"], -450, "{j}");
+    assert_eq!(j["summary"]["strategies"], 2);
+    let cols = j["columns"].as_array().unwrap();
+    assert!(
+        cols.iter()
+            .any(|c| c["key"] == "realized_pnl_cents" && c["cents"] == true),
+        "realized PnL is a cents column: {j}"
     );
 }
 
