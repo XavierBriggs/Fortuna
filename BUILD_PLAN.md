@@ -865,7 +865,7 @@ scheduler is shared with D9). The skill/persona layer is a separate session
       path". Test wires_the_climate_grader_and_aeolus asserts both register
       (mutation-proof: delete the climate arm -> feed="climate" reroutes to the
       (Nws,_) Err arm -> build_scheduler().unwrap() panics -> red). 113 sources
-      tests (112 lib + 1) + 5 ingest_dst. (DONE 2026-06-13 <hash>; SCOPED battery
+      tests (112 lib + 1) + 5 ingest_dst. (DONE 2026-06-13 6495058; SCOPED battery
       green — fmt --check + clippy -p fortuna-sources --all-targets -D warnings +
       test -p fortuna-sources + check -p fortuna-live consumer; full-workspace
       battery is the verifier's merge gate, see GAPS "TRACK D — F4".)
