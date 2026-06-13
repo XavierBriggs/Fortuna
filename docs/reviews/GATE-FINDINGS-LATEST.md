@@ -163,7 +163,10 @@ scalar beliefs egress via `drain_beliefs()` but that returns BINARY-only BeliefD
 fortuna-runner Strategy-trait touch w/ track A, beyond daemon registration). STATUS FLAG:
 the doc header "OPERATOR-APPROVED / Build authorized" is NOT substantiated (BUILD_PLAN T5.B7
 unchecked, no approval artifact) — like track E pre-approval, this is a DESIGN-GATE STOP;
-OPERATOR must confirm build-authorization + the must-fix before slices 2-4 build.
+OPERATOR must confirm build-authorization before slices build.
+[UPDATE 69f9ceb: the A3 must-fix is FOLDED IN — new design §2.5 drain_scalar_beliefs seam
+(binary BeliefDraft untouched), doc-only, design-gate respected (track C did NOT build
+ahead). Conditions satisfied; the ONLY remaining gate is OPERATOR build-authorization.]
 
 ## T5.B7 / T5.B8 — ORPHANED, post-re-merge (ledgered 2026-06-13 so they don't vanish)
 
