@@ -897,7 +897,7 @@ scheduler is shared with D9). The skill/persona layer is a separate session
       exported from lib.rs for track-B. 6 mutation-structured tests (truncation
       ==120 on a 5k input, ring bound ==256, last_error set→cleared, funnel
       1/2/3, accept+future-drop feed). Subagent-built, I reviewed + verified.
-      (DONE 2026-06-13 <hash>; SCOPED battery green — fmt + clippy -p
+      (DONE 2026-06-13 07ae945; SCOPED battery green — fmt + clippy -p
       fortuna-sources --all-targets -D warnings + test -p fortuna-sources = 118
       lib + 5 ingest_dst; full-workspace battery is the verifier's merge gate,
       see GAPS "TRACK D — OBS-1".)
