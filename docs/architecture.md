@@ -195,6 +195,15 @@ the daily/weekly/monthly loops, and the reduce-only model veto. Must never: muta
 external state — `MindOutput` is propose-only, and `f64` here is for
 probabilities, never money.
 
+  The **domain-analysis persona layer** (Track E, `persona.rs` + `persona_runner.rs`)
+  sits here too: versioned, operator-authored analyst "personas" (skill-style files
+  under `config/personas/<id>/`, hash-bound to the append-only `personas` registry)
+  that read already-ingested signals and emit a persisted, content-hashed
+  `domain_analyses` artifact many beliefs reference. The runner is order-free like
+  `ReconciliationOutcome` (it returns a draft the composition persists; no Postgres
+  in cognition) and re-uses the same firewall: the trusted **method** rides in the
+  Mind system message, the untrusted **signals** only in `<context-item>` data (§4).
+
 **[fortuna-runner](../crates/fortuna-runner/src/lib.rs)** — the composed
 deterministic core (spec §4, §6): `SimRunner` drives one full cycle — venue
 data → strategies propose (unsized) → comparator/sizing → gates → order manager

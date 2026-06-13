@@ -1,0 +1,94 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT persona_row_id, persona_id, version, domain, domain_tags,\n                      reads_signal_kinds, tier, method_hash, output_schema_version,\n                      status, supersedes, effective_at, created_at\n               FROM personas\n               WHERE persona_id = $1\n               ORDER BY version DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "persona_row_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "persona_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "version",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "domain",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "domain_tags",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "reads_signal_kinds",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "tier",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "method_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "output_schema_version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "supersedes",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "effective_at",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "created_at",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "d579af06eb05a7c87c2dab1881157d59e84870f8c6e3cc39b8211b1b60ef0299"
+}

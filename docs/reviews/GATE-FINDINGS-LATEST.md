@@ -41,6 +41,18 @@ truth, reclaim disk, and think like the principal engineer of this team. Every l
 prompt now carries: a clear goal, the production-ready/live-tested bar, and "use the
 feature-dev subagents."
 
+## DOC OWNERSHIP (doc-hygiene directive 2026-06-13 — codifying the emerging model; prevents 5-track collisions)
+- ONE root `CHANGELOG.md`; each track APPENDS its own scoped subsection (append-only; track-A/D
+  already converged here — NO per-track changelog FILES).
+- `docs/operator.md` = ORCHESTRATOR-owned (cross-cutting operator deps: keys/flags/signatures/
+  promotions/views; NOT vendor fixtures = AGENT work). Created + code-verified this session.
+  A track introducing a new operator dep REQUESTS it via GAPS; orchestrator adds it, verified.
+- `docs/architecture.md` = per-subsystem SECTIONS; each track targeted-edits ONLY its own section.
+- Domain docs (`docs/design/track-X-*`, `docs/runbooks/X-ops.md`) = track-owned; verifier docs
+  (`docs/reviews/*`, this bus, `docs/verification.md`) = orchestrator-owned.
+- EVERY doc edit: TARGETED + accurate + VERIFY-CLAIM-AGAINST-CODE + mark not-yet-built as pending
+  (never as done). No stale docs.
+
 ## CAMPAIGN STATE (completion-audit-2026-06-13.md is authoritative)
 
 - Phases 0–3 + T4.1 daemon (SOAK: GO) + T4.4 CLI + T4.3 ROTA (R12 PASSED):
@@ -79,6 +91,32 @@ feature-dev subagents."
   path reports only the header name, fixtures secret-free, SSRF pins 6/6 un-regressed,
   111 sources tests green, protected crate untouched. NEXT track-D gate: the live_smoke
   example (7c45705) + factory-wiring; then merge the Aeolus F-tranche (F2+F1+F3+obs).
+- AEOLUS F-TRANCHE (F2+F1+F3+F4+obs+OBS-1+live_smoke) MERGED @ 9f2d678 (merge-gate ACCEPT,
+  post-merge green); default-off, operator opt-in (docs/operator.md). C T5.B7 slice 1a
+  (prob_claims/v1 scalar foundation) GATED ACCEPT (2026-06-13-T5.B7-slice-1a.md): math
+  mutation-proven, strict validate, I5-clean, binary path untouched, 54+14 green — the
+  FOUNDATIONAL scalar type. CADENCE: gate foundational/security commits immediately + the
+  rest as consolidated TRANCHE gates at merge; nothing reaches main ungated. E.3a PERSONA FIREWALL GATED = ACCEPT-SLICE
+  (the security headline): trusted method -> Mind system_charter, untrusted signals ->
+  context-items; MUTATION-PROVEN (push method into a ContextItem -> the "method never in
+  context" test reds); I6 propose-only (PersonaOutcome order-free), budget degrades no-crash,
+  Clock-injected + deterministic StubMind, 12 tests green, binary path + protected crate
+  untouched. QUEUE: A PaperVenue replay (paper-realism), B ROTA harness, D OBS-2/3, E.3b
+  triggers. DOC-NIT (flag to E): E made a SEPARATE docs/design/track-e-changelog.md — should
+  fold into the root CHANGELOG per the ownership model (track-A/D already did).
+- E.2 LOADER GATED = ACCEPT (load-time trust: method_hash SHA-256 of whole persona.md,
+  FAIL-CLOSED — 8 refusal tests: hash-mismatch/unregistered/retired/version-mismatch/
+  malformed all refuse; 14 green, pure loader). PERSONA CORE (E.1+E.2+E.3a) MERGED to main
+  @ fa0a140; default-dormant (no triggers/consumption/wiring yet). The 3 shared ledger-doc
+  conflicts (ASSUMPTIONS/BUILD_PLAN/GAPS) UNION-resolved (kept both tracks' sections) — THIS
+  IS THE RECURRING multi-track shared-doc pattern; the orchestrator resolves by union at each
+  merge. Post-merge GREEN: check --workspace + persona 14 + firewall 12 + ledger-I5 6 + i6 3.
+  TRACK-E ACTION: rebase onto fa0a140 + DROP your rebase-deferral (1d45feb) — the shared-doc
+  conflict is now resolved on main; continue E.3b+.
+- TRACK D RALPH-STOPPED 2026-06-13 (Phase-A queue exhausted, clean). DONE+merged: news
+  ingestion D6-D10 + Aeolus F1-F4 + grader. REMAINING (unmerged, 6 commits): OBS-2/3
+  observability + ingestion docs/runbook — gate + merge as the final D tranche, THEN retire
+  the fortuna-wt-d worktree (frees disk).
 - D6-D10 NEWS-INGESTION PHASE A COMPLETE + MERGED @ f31aaa8 (this session):
   calendar source + Layer-2 corroboration + validator-wired scheduler + factory +
   the daemon `[ingestion]` seam — all gated ACCEPT (D9 hard gate, D10/2 live-

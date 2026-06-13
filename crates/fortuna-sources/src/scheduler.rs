@@ -131,6 +131,89 @@ pub struct TickOutcome {
     pub alerts: Vec<Alert>,
 }
 
+/// Per-source live state + counters, projected for the operator/ROTA
+/// (ingestion-observability-contract §2). A pure projection of `Registered` —
+/// no wall-clock, no secrets.
+#[derive(Debug, Clone)]
+pub struct SourceTelemetry {
+    pub source_id: String,
+    /// Last-seen signal kind; `""` until the first signal is observed.
+    pub kind: String,
+    /// Domain tags (weather | macro | …). EMPTY this slice — populated from the
+    /// source_registry/config admission in a later slice.
+    pub domain_tags: Vec<String>,
+    pub trust_tier: u8,
+    /// `"healthy"` | `"degraded"` | `"quarantined"`.
+    pub health: &'static str,
+    pub last_poll_at: Option<String>,
+    pub last_success_at: Option<String>,
+    pub next_due_at: Option<String>,
+    pub polls: u64,
+    pub empty_polls: u64,
+    pub fetch_errors: u64,
+    pub accepted: u64,
+    pub dropped_future: u64,
+    pub dropped_republished: u64,
+    pub dropped_over_volume: u64,
+    pub quarantines: u64,
+    pub rearms: u64,
+    /// Redacted + capped last fetch error (never secrets/tokens).
+    pub last_error: Option<String>,
+}
+
+/// Process-wide funnel stage totals since boot (ingestion-observability-contract
+/// §2). This slice derives the validate-stage totals from per-source metrics;
+/// the loop-side stages (`normalized`/`deduped`/`persisted`/`persist_failures`)
+/// stay 0 here and are set by the ingestion loop downstream.
+#[derive(Debug, Clone, Default)]
+pub struct FunnelCounts {
+    pub fetched: u64,
+    pub validated_accepted: u64,
+    pub validated_dropped: u64,
+    pub normalized: u64,
+    pub deduped: u64,
+    pub persisted: u64,
+    pub persist_failures: u64,
+}
+
+/// One entry in the live signal feed — DATA, redacted (untrusted content stays
+/// quoted, never interpreted; spec 5.11).
+#[derive(Debug, Clone)]
+pub struct SignalRecord {
+    /// `signal.received_at.to_iso8601()`.
+    pub at: String,
+    pub source_id: String,
+    pub kind: String,
+    pub claimed_time: Option<String>,
+    /// `"accepted"` | `"dropped:future"` | `"dropped:republished"` |
+    /// `"dropped:over_volume"`.
+    pub status: String,
+    /// Redacted + truncated projection of the payload.
+    pub summary: String,
+}
+
+/// The most recent tick's outcome counts.
+#[derive(Debug, Clone, Default)]
+pub struct TickTelemetry {
+    pub at: String,
+    pub accepted: usize,
+    pub dropped: usize,
+    pub alerts: usize,
+}
+
+/// A live ingestion telemetry snapshot. ONE writer (the ingestion loop), many
+/// readers (the Prometheus renderer + ROTA handlers). A pure projection — the
+/// `generated_at` clock is injected by the caller (never wall-clock here).
+#[derive(Debug, Clone)]
+pub struct IngestionTelemetry {
+    pub generated_at: String,
+    pub sources: Vec<SourceTelemetry>,
+    pub funnel: FunnelCounts,
+    /// Newest-first, bounded to `RECENT_CAP`.
+    pub recent: Vec<SignalRecord>,
+    pub last_tick: TickTelemetry,
+}
+
 struct Registered {
     id: String,
     source: Box<dyn Source>,
@@ -142,18 +225,36 @@ struct Registered {
     next_due_ms: i64,
     consecutive_failures: u32,
     metrics: SourceMetrics,
+    /// Epoch millis of the last poll (set when the source is polled).
+    last_poll_ms: Option<i64>,
+    /// Epoch millis of the last successful fetch.
+    last_success_ms: Option<i64>,
+    /// Redacted + capped last fetch error; cleared on success.
+    last_error: Option<String>,
+    /// Last-seen signal kind.
+    last_kind: Option<String>,
 }
 
 /// Drives a fleet of sources. Construct, `register` each source, then `tick`.
 #[derive(Default)]
 pub struct IngestionScheduler {
     sources: Vec<Registered>,
+    /// Ring buffer of the most recent signal records (newest at the back),
+    /// bounded to `RECENT_CAP`. Read newest-first by `telemetry`.
+    recent: std::collections::VecDeque<SignalRecord>,
+    /// The most recent tick's outcome counts.
+    last_tick: TickTelemetry,
 }
+
+/// Cap on the live signal-feed ring buffer.
+const RECENT_CAP: usize = 256;
 
 impl IngestionScheduler {
     pub fn new() -> IngestionScheduler {
         IngestionScheduler {
             sources: Vec::new(),
+            recent: std::collections::VecDeque::new(),
+            last_tick: TickTelemetry::default(),
         }
     }
 
@@ -176,6 +277,10 @@ impl IngestionScheduler {
             next_due_ms: i64::MIN,
             consecutive_failures: 0,
             metrics: SourceMetrics::default(),
+            last_poll_ms: None,
+            last_success_ms: None,
+            last_error: None,
+            last_kind: None,
         });
     }
 
@@ -185,15 +290,21 @@ impl IngestionScheduler {
     pub async fn tick(&mut self, now: UtcTimestamp) -> TickOutcome {
         let now_ms = now.epoch_millis();
         let mut out = TickOutcome::default();
+        // Records produced this tick. Built locally because `self.recent` cannot
+        // be borrowed while `self.sources` is mutably borrowed by the loop;
+        // drained into the ring buffer after the loop.
+        let mut fresh: Vec<SignalRecord> = Vec::new();
         for reg in &mut self.sources {
             if reg.health == Health::Quarantined || now_ms < reg.next_due_ms {
                 continue;
             }
             reg.metrics.polls += 1;
+            reg.last_poll_ms = Some(now_ms);
             reg.validator.begin_tick();
             match reg.source.fetch().await {
                 Err(e) => {
                     reg.metrics.fetch_errors += 1;
+                    reg.last_error = Some(redact_error(&e.to_string()));
                     reg.consecutive_failures += 1;
                     if reg.consecutive_failures >= reg.schedule.quarantine_after {
                         reg.health = Health::Quarantined;
@@ -211,6 +322,8 @@ impl IngestionScheduler {
                     }
                 }
                 Ok(signals) => {
+                    reg.last_success_ms = Some(now_ms);
+                    reg.last_error = None;
                     if reg.consecutive_failures > 0 {
                         reg.consecutive_failures = 0;
                         reg.health = Health::Healthy;
@@ -225,11 +338,19 @@ impl IngestionScheduler {
                     for signal in signals {
                         let hash = content_hash(&signal.payload);
                         let claimed = (reg.claimed_time)(&signal);
+                        // Capture the small, redacted bits BEFORE the match (the
+                        // `signal` itself is moved into AcceptedSignal in the
+                        // Accept arm; the payload is never dumped wholesale).
+                        let kind = signal.kind.clone();
+                        let at = signal.received_at.to_iso8601();
+                        let claimed_iso = claimed.map(|t| t.to_iso8601());
+                        let summary = summarize(&signal.payload);
+                        reg.last_kind = Some(kind.clone());
                         let candidate = Candidate {
                             content_hash: hash.clone(),
                             claimed_time: claimed,
                         };
-                        match reg.validator.assess(now, &candidate) {
+                        let status = match reg.validator.assess(now, &candidate) {
                             Verdict::Accept => {
                                 reg.metrics.accepted += 1;
                                 out.accepted.push(AcceptedSignal {
@@ -237,6 +358,7 @@ impl IngestionScheduler {
                                     signal,
                                     wakes_decision_cycle: wakes,
                                 });
+                                "accepted"
                             }
                             Verdict::RejectFuture { .. } => {
                                 reg.metrics.dropped_future += 1;
@@ -245,6 +367,7 @@ impl IngestionScheduler {
                                     content_hash: hash,
                                     reason: DropReason::Future,
                                 });
+                                "dropped:future"
                             }
                             Verdict::RejectRepublished => {
                                 reg.metrics.dropped_republished += 1;
@@ -253,6 +376,7 @@ impl IngestionScheduler {
                                     content_hash: hash,
                                     reason: DropReason::Republished,
                                 });
+                                "dropped:republished"
                             }
                             Verdict::RejectOverVolume { .. } => {
                                 reg.metrics.dropped_over_volume += 1;
@@ -261,14 +385,33 @@ impl IngestionScheduler {
                                     content_hash: hash,
                                     reason: DropReason::OverVolume,
                                 });
+                                "dropped:over_volume"
                             }
-                        }
+                        };
+                        fresh.push(SignalRecord {
+                            at,
+                            source_id: reg.id.clone(),
+                            kind,
+                            claimed_time: claimed_iso,
+                            status: status.to_string(),
+                            summary,
+                        });
                     }
                     let interval = interval_at(&reg.schedule, now);
                     reg.next_due_ms = now_ms.saturating_add(interval.as_millis() as i64);
                 }
             }
         }
+        self.recent.extend(fresh);
+        while self.recent.len() > RECENT_CAP {
+            self.recent.pop_front();
+        }
+        self.last_tick = TickTelemetry {
+            at: now.to_iso8601(),
+            accepted: out.accepted.len(),
+            dropped: out.dropped.len(),
+            alerts: out.alerts.len(),
+        };
         out
     }
 
@@ -315,6 +458,70 @@ impl IngestionScheduler {
     pub fn source_ids(&self) -> Vec<&str> {
         self.sources.iter().map(|r| r.id.as_str()).collect()
     }
+
+    /// A live telemetry snapshot (ingestion-observability-contract §2): per-source
+    /// health + counters + timestamps, the process-wide funnel, the recent signal
+    /// feed (newest-first, bounded), and the last tick's outcome. A pure
+    /// projection — `generated_at` is the injected `Clock`'s `now` (never wall
+    /// time), and the `summary`/`last_error` projections are redacted.
+    pub fn telemetry(&self, generated_at: UtcTimestamp) -> IngestionTelemetry {
+        let iso = |ms: i64| {
+            UtcTimestamp::from_epoch_millis(ms)
+                .ok()
+                .map(|t| t.to_iso8601())
+        };
+        let mut funnel = FunnelCounts::default();
+        let sources = self
+            .sources
+            .iter()
+            .map(|reg| {
+                let health = match reg.health {
+                    Health::Healthy => "healthy",
+                    Health::Degraded { .. } => "degraded",
+                    Health::Quarantined => "quarantined",
+                };
+                let next_due_at = if reg.next_due_ms == i64::MIN {
+                    None
+                } else {
+                    iso(reg.next_due_ms.max(0))
+                };
+                let m = &reg.metrics;
+                funnel.validated_accepted += m.accepted;
+                funnel.validated_dropped +=
+                    m.dropped_future + m.dropped_republished + m.dropped_over_volume;
+                SourceTelemetry {
+                    source_id: reg.id.clone(),
+                    kind: reg.last_kind.clone().unwrap_or_default(),
+                    domain_tags: Vec::new(),
+                    trust_tier: reg.schedule.trust_tier,
+                    health,
+                    last_poll_at: reg.last_poll_ms.and_then(iso),
+                    last_success_at: reg.last_success_ms.and_then(iso),
+                    next_due_at,
+                    polls: m.polls,
+                    empty_polls: m.empty_polls,
+                    fetch_errors: m.fetch_errors,
+                    accepted: m.accepted,
+                    dropped_future: m.dropped_future,
+                    dropped_republished: m.dropped_republished,
+                    dropped_over_volume: m.dropped_over_volume,
+                    quarantines: m.quarantines,
+                    rearms: m.rearms,
+                    last_error: reg.last_error.clone(),
+                }
+            })
+            .collect();
+        // The validate stages are summed above; `fetched` is their sum. The
+        // downstream loop stages stay 0 here (set by the ingestion loop).
+        funnel.fetched = funnel.validated_accepted + funnel.validated_dropped;
+        IngestionTelemetry {
+            generated_at: generated_at.to_iso8601(),
+            sources,
+            funnel,
+            recent: self.recent.iter().rev().cloned().collect(),
+            last_tick: self.last_tick.clone(),
+        }
+    }
 }
 
 /// SHA-256 hex of the canonical JSON payload (serde_json `Map` is sorted-key by
@@ -329,6 +536,57 @@ fn content_hash(payload: &Value) -> String {
         let _ = write!(s, "{b:02x}");
     }
     s
+}
+
+/// Redact + cap a fetch-error message for telemetry. These are non-secret
+/// venue/HTTP errors, so nothing is stripped — but the message is TRUNCATED to
+/// <= 200 chars so an adversarial/oversized error string can never bloat the
+/// snapshot (defence-in-depth for the untrusted-data doctrine, spec 5.11).
+fn redact_error(message: &str) -> String {
+    message.chars().take(200).collect()
+}
+
+/// A short, redacted projection of an (untrusted) payload for the live feed.
+/// Tries a small allowlist of human-meaningful string keys at the top level,
+/// then under a nested `"properties"` object (NWS GeoJSON), returning the FIRST
+/// non-empty string found, truncated to 120 chars. Never serializes the whole
+/// payload; on no match returns only a structural hint. The returned value is
+/// plain DATA — the renderer quotes it, it is never interpreted (spec 5.11).
+fn summarize(payload: &Value) -> String {
+    const KEYS: [&str; 7] = [
+        "event",
+        "title",
+        "headline",
+        "summary",
+        "report_date",
+        "variable",
+        "name",
+    ];
+    let pick = |obj: &Value| -> Option<String> {
+        for key in KEYS {
+            if let Some(s) = obj.get(key).and_then(Value::as_str) {
+                if !s.is_empty() {
+                    return Some(s.chars().take(120).collect());
+                }
+            }
+        }
+        None
+    };
+    if let Some(s) = pick(payload) {
+        return s;
+    }
+    if let Some(props) = payload.get("properties") {
+        if let Some(s) = pick(props) {
+            return s;
+        }
+    }
+    if payload.is_object() {
+        "<object>".to_string()
+    } else if payload.is_array() {
+        "<array>".to_string()
+    } else {
+        "<scalar>".to_string()
+    }
 }
 
 /// Deterministic exponential backoff, capped. No random jitter — determinism
@@ -674,5 +932,202 @@ mod tests {
         s.tick(now).await;
         // After a poll at t=0 with 60s interval, next wake ~ 60_000ms.
         assert_eq!(s.next_wake().unwrap().epoch_millis(), 60_000);
+    }
+
+    // --- §2 telemetry data surface -------------------------------------------
+
+    /// A signal whose payload carries an arbitrary JSON object (for the
+    /// summary/redaction tests). `claimed` (if present) is the ISO future-time.
+    fn payload_sig(kind: &str, payload: Value) -> RawSignal {
+        RawSignal {
+            kind: kind.to_string(),
+            payload,
+            received_at: ts(0),
+        }
+    }
+
+    fn one_source(
+        s: &mut IngestionScheduler,
+        id: &str,
+        script: Vec<Result<Vec<RawSignal>, SignalError>>,
+        cfg: StructuralConfig,
+    ) {
+        s.register(
+            id,
+            Box::new(ScriptedSource::new(id, script)),
+            sched(60, 9, 5),
+            test_claimed,
+            cfg,
+        );
+    }
+
+    #[tokio::test]
+    async fn telemetry_projects_per_source_health_and_counters() {
+        let now = ts(1_000_000);
+        let mut s = IngestionScheduler::new();
+        one_source(
+            &mut s,
+            "src",
+            vec![Ok(vec![sig("x", "a", None)])],
+            StructuralConfig::default(),
+        );
+        s.tick(now).await;
+        let t = s.telemetry(now);
+        let src = t
+            .sources
+            .iter()
+            .find(|st| st.source_id == "src")
+            .expect("source present in telemetry");
+        assert_eq!(src.health, "healthy");
+        assert!(src.polls >= 1);
+        assert!(src.accepted >= 1);
+        assert!(src.last_success_at.is_some());
+        assert!(src.last_poll_at.is_some());
+        // generated_at is the injected clock, not wall-time.
+        assert_eq!(t.generated_at, now.to_iso8601());
+    }
+
+    #[tokio::test]
+    async fn telemetry_recent_feed_has_accepted_and_dropped_with_status_and_summary() {
+        // now = 1000s; an acceptable signal plus a far-future-dated one (drops).
+        let now = ts(1_000_000);
+        let accept = payload_sig(
+            "nws.alert",
+            serde_json::json!({"event": "Severe Thunderstorm Warning"}),
+        );
+        let future = payload_sig(
+            "nws.alert",
+            serde_json::json!({"event": "Tornado Watch", "claimed": ts(1_000_000 + 100_000_000).to_iso8601()}),
+        );
+        let mut s = IngestionScheduler::new();
+        one_source(
+            &mut s,
+            "src",
+            vec![Ok(vec![accept, future])],
+            StructuralConfig::default(),
+        );
+        s.tick(now).await;
+        let t = s.telemetry(now);
+        let accepted = t
+            .recent
+            .iter()
+            .find(|r| r.status == "accepted")
+            .expect("an accepted record");
+        assert_eq!(accepted.summary, "Severe Thunderstorm Warning");
+        assert_eq!(accepted.source_id, "src");
+        assert_eq!(accepted.kind, "nws.alert");
+        let dropped = t
+            .recent
+            .iter()
+            .find(|r| r.status.starts_with("dropped:"))
+            .expect("a dropped record");
+        assert_eq!(dropped.status, "dropped:future");
+        assert_eq!(dropped.summary, "Tornado Watch");
+        assert!(dropped.claimed_time.is_some());
+    }
+
+    #[tokio::test]
+    async fn telemetry_recent_is_bounded_to_cap() {
+        let mut s = IngestionScheduler::new();
+        // One accepted signal per tick; drive more than RECENT_CAP ticks.
+        // A fresh content_hash each tick avoids the republication check.
+        let ticks = RECENT_CAP + 50;
+        let script: Vec<Result<Vec<RawSignal>, SignalError>> = (0..ticks)
+            .map(|i| {
+                Ok(vec![payload_sig(
+                    "x",
+                    serde_json::json!({"event": format!("evt-{i}")}),
+                )])
+            })
+            .collect();
+        one_source(&mut s, "src", script, StructuralConfig::default());
+        // 60s interval -> advance now by 60s each tick so the source is due.
+        for i in 0..ticks {
+            s.tick(ts((i as i64) * 60_000)).await;
+        }
+        let t = s.telemetry(ts((ticks as i64) * 60_000));
+        assert_eq!(t.recent.len(), RECENT_CAP);
+        // Newest-first: the last accepted event is at the front.
+        assert_eq!(t.recent[0].summary, format!("evt-{}", ticks - 1));
+    }
+
+    #[tokio::test]
+    async fn telemetry_summary_truncates_untrusted_payload() {
+        let now = ts(0);
+        let big = "A".repeat(5000);
+        let sig = payload_sig("x", serde_json::json!({"title": big}));
+        let mut s = IngestionScheduler::new();
+        one_source(
+            &mut s,
+            "src",
+            vec![Ok(vec![sig])],
+            StructuralConfig::default(),
+        );
+        s.tick(now).await;
+        let t = s.telemetry(now);
+        let rec = t.recent.first().expect("a record");
+        assert!(rec.summary.chars().count() <= 120);
+        assert_eq!(rec.summary.chars().count(), 120);
+    }
+
+    #[tokio::test]
+    async fn telemetry_last_error_set_on_failure_then_cleared_on_success() {
+        let mut sc = sched(1, 9, 5);
+        sc.quarantine_after = 5; // a single failure only degrades
+        sc.backoff_base = Duration::from_secs(1);
+        let mut s = IngestionScheduler::new();
+        s.register(
+            "src",
+            Box::new(ScriptedSource::new(
+                "src",
+                vec![err("boom-the-fetch-failed"), Ok(vec![sig("x", "a", None)])],
+            )),
+            sc,
+            test_claimed,
+            StructuralConfig::default(),
+        );
+        // Failing tick -> last_error is set.
+        s.tick(ts(0)).await;
+        let after_fail = s.telemetry(ts(0));
+        let src = after_fail
+            .sources
+            .iter()
+            .find(|st| st.source_id == "src")
+            .unwrap();
+        assert!(src.last_error.is_some());
+        // Success tick (after backoff) -> last_error cleared.
+        s.tick(ts(5_000)).await;
+        let after_ok = s.telemetry(ts(5_000));
+        let src = after_ok
+            .sources
+            .iter()
+            .find(|st| st.source_id == "src")
+            .unwrap();
+        assert!(src.last_error.is_none());
+    }
+
+    #[tokio::test]
+    async fn funnel_sums_per_source_metrics() {
+        let now = ts(0);
+        // volume_envelope 1 -> first accepted, the rest dropped (over-volume).
+        let cfg = StructuralConfig {
+            volume_envelope: 1,
+            ..Default::default()
+        };
+        let a = payload_sig("x", serde_json::json!({"event": "a"}));
+        let b = payload_sig("x", serde_json::json!({"event": "b"}));
+        let c = payload_sig("x", serde_json::json!({"event": "c"}));
+        let mut s = IngestionScheduler::new();
+        one_source(&mut s, "src", vec![Ok(vec![a, b, c])], cfg);
+        s.tick(now).await;
+        let t = s.telemetry(now);
+        assert!(t.funnel.validated_accepted > 0);
+        assert!(t.funnel.validated_dropped > 0);
+        assert_eq!(
+            t.funnel.fetched,
+            t.funnel.validated_accepted + t.funnel.validated_dropped
+        );
+        assert_eq!(t.funnel.validated_accepted, 1);
+        assert_eq!(t.funnel.validated_dropped, 2);
     }
 }

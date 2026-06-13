@@ -1,0 +1,101 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT analysis_id, persona_id, persona_version, domain, region_key,\n                      produced_at, signal_manifest, findings, content_hash,\n                      manifest_hash, cost_cents, status, supersedes, created_at\n               FROM domain_analyses\n               WHERE domain = $1 AND region_key = $2 AND status = 'open'\n               ORDER BY produced_at DESC, analysis_id DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "analysis_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "persona_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "persona_version",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "domain",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "region_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "produced_at",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "signal_manifest",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "findings",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "content_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "manifest_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "cost_cents",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "supersedes",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "created_at",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "426966564c41b405f5fc2933a3b579037e48efa5fc33f60e90847029ac17111f"
+}

@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "meteorologist findings/v1",
+  "description": "Structured daily-tmax analysis emitted by the meteorologist persona. The artifact is persisted append-only; each threshold fans out onto one binary belief (design §9).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["thresholds", "sigma_trend", "confidence", "regime", "key_risk"],
+  "properties": {
+    "thresholds": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Per candidate bracket threshold, the judged probability tmax is at or above it. Monotone non-increasing as `ge` rises.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ge", "p"],
+        "properties": {
+          "ge": {
+            "type": "number",
+            "description": "The threshold in degrees Fahrenheit, e.g. 65 for `tmax >= 65`."
+          },
+          "p": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "description": "P(tmax >= ge), anchored on 1 - Phi((ge - mu)/sigma), adjusted only for a named mechanism."
+          }
+        }
+      }
+    },
+    "sigma_trend": {
+      "type": "string",
+      "enum": ["tightening", "steady", "widening"],
+      "description": "Whether forecast spread is tightening, steady, or widening for this date."
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["low", "medium", "high"],
+      "description": "Overall confidence in this read."
+    },
+    "regime": {
+      "type": "string",
+      "description": "Short phrase naming the dominant synoptic driver."
+    },
+    "key_risk": {
+      "type": "string",
+      "description": "The single most important mechanism or timing risk that could make the day verify away from mu."
+    }
+  }
+}

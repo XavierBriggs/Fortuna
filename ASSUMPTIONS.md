@@ -1615,3 +1615,100 @@ crates/fortuna-venues/tests/kalshi_doc_samples/ are NOT recordings.
   StructuralValidator's recent-hash buffer; the ledger's
   `UNIQUE(source, content_hash)` remains the source of truth (consistent with
   the D3 note).
+## Track E — domain-analysis personas, slice 1 (ledger; design §2/§5/§15)
+
+Spec-silence resolutions made building the persona registry + the persisted
+domain-analysis artifact (authoritative design: docs/design/domain-analysis-personas-design.md).
+
+- **The artifact is a PERSISTED, append-only record (not ephemeral).** Spec 5.7/I5
+  require every belief to replay byte-identically, and a persona is a
+  non-deterministic LLM call, so its reasoning MUST be persisted as an immutable,
+  content-hashed item the belief's manifest points at — persistence is mandatory
+  either way, so the shared artifact strictly dominates a per-belief private copy
+  (design §2; operator-endorsed 2026-06-13). Interprets spec 5.7 (replayability)
+  and I5 (append-only audit).
+- **`domain_analyses` is content-immutable; only `status` may change** (open ->
+  superseded). Conservative reading of I5/5.7: the artifact's `content_hash` over
+  findings + signal_manifest is the replay anchor, so findings/signal_manifest/
+  content_hash/manifest_hash/cost/supersedes are frozen at insert; the only
+  permitted mutation is the supersession marker. This mirrors the existing
+  `beliefs` content-guard (only scoring fields may change) — same mechanism, a
+  dedicated `fortuna_domain_analyses_guard` trigger. DELETE is refused outright.
+- **`personas` is append-only + supersedes-chained with UNIQUE(persona_id,
+  version)** refusing a version re-issue — a version is a stable, scoreable
+  identity (the I7 analog), exactly as `calibration_params` is versioned config.
+  A method change is a NEW row; the migration `fortuna_refuse_mutation` trigger
+  refuses UPDATE/DELETE.
+- **`PersonasRepo::head(persona_id)` returns the NEWEST version row regardless of
+  status** (status-agnostic). The active/retired interpretation (design §6 "the
+  active row") is deliberately the slice-2 loader's policy, not baked into the ledger
+  primitive — the loader sees the actual newest row and its status and decides. Honest
+  minimal primitive for slice 1.
+- **Retirement is a SUPERSEDING INSERT, not an in-place `status='retired'` UPDATE.**
+  `personas` carries the column-blind `fortuna_refuse_mutation` trigger (refuses ALL
+  UPDATE/DELETE, like `lessons`/`calibration_params`), so an operator retiring a persona
+  inserts a new superseding row with `status='retired'` — append-only. Design §10 was
+  reconciled to this (its earlier prose read as an in-place update, which the schema
+  refuses); the schema's append-only reading governs. Conservative I5 reading: no
+  in-place mutation of a versioned registry, ever.
+- **One migration carries BOTH tables** (`20260613000001_personas.sql`) — the
+  ledger slice is one schema-touching task (design §5; CLAUDE.md "one migration
+  per BUILD_PLAN task touching schema").
+
+## Track E — E.2 (persona skill-file loader; design §4/§6)
+
+- **persona.md uses TOML frontmatter (`+++` fences) + a markdown method body**, not
+  YAML. Design §6 models personas on Claude skills (which use YAML frontmatter) but
+  specifies the FIELDS, not the encoding. The workspace has no YAML dependency and
+  CLAUDE.md mandates "Config is TOML", so the frontmatter is TOML between `+++` fences
+  (the established TOML-frontmatter convention) parsed with the existing `toml` dep —
+  the conservative, house-consistent choice. The method body (after the closing fence)
+  is the trusted procedure injected as the Mind system message (§4).
+- **`method_hash` is the SHA-256 of the ENTIRE `persona.md`** (frontmatter + body),
+  reusing `context::content_hash_of`. Hashing the whole file means any edit — metadata
+  or method — forces a new hash and a deliberate registry bump (§5/§6).
+- **The loader core (`PersonaDef::parse` + `validate_against`) is PURE — no filesystem
+  IO.** Cognition stays deterministic/core (it has zero `std::fs` today); the
+  composition does the trivial `std::fs::read_to_string` at the edge and calls `parse`.
+  This also makes the loader fully unit-testable from strings.
+- **`validate_against` fails CLOSED: only `status == "active"` passes.** A `retired`
+  head — or any unrecognized/corrupt status — refuses (`PersonaError::Inactive`),
+  defense-in-depth beyond the ledger's `active|retired` CHECK constraint. Conservative
+  reading of the trust boundary: an ambiguous registry state never silently activates a
+  persona. (Hardened from a `== "retired"` check after the E.2 code review.)
+- **`RegistryHead` is a pure cognition input**, not the ledger's `PersonaRow` — cognition
+  does not depend on `fortuna-ledger`. The composition maps `PersonasRepo::head(id)` onto
+  `RegistryHead { version, method_hash, status }`.
+- **The shipped meteorologist ships at `version = 1`.** The registry starts empty; the
+  first operator promotion is v1. The design's `meteorologist@v3` examples are
+  illustrative of a mature persona, not the initial shipped version.
+
+## Track E — E.3a (persona runner core + firewall; design §4/§8)
+
+- **Findings ride in `MindOutput.journal.body` as strict JSON**, reusing discovery's
+  pattern (the journal body is the strict-JSON vehicle). The runner parses it and
+  validates RUNNER-SIDE against the persona's `schema.json`. Transport-level
+  `output_config.format` enforcement (the §12 spike) is a Mind-construction detail
+  (the persona's AnthropicMind can set the findings schema as its output format) —
+  a Track-M / composition concern; the runner-side strict parse is the contract.
+- **`validate_findings` is config-driven and checks PRESENCE + UNKNOWN-KEY only**
+  (required[] present; no key outside properties when additionalProperties:false) —
+  NOT types, enums, or ranges. Conservative reading of §4c ("free prose / unknown
+  fields → counted defect"): the headline failure modes (prose, hallucinated/extra
+  fields, missing fields) are caught; type/enum/range conformance is left to the
+  model's charter + the calibration scoring loop (a bad-but-well-typed finding
+  produces a belief whose Brier degrades the persona naturally). Full JSON-Schema
+  type validation is a later enhancement (would add a `jsonschema` dep).
+- **`content_hash` anchor = SHA-256 of `to_string({findings, signal_manifest})`**,
+  deterministic because the workspace `serde_json` has no `preserve_order` feature
+  (object keys serialize sorted), so identical findings hash identically (the replay
+  anchor, §5).
+- **The firewall is the method-as-system-charter**: the runner assembles only the
+  untrusted signals; the trusted method is the Mind's `system_charter` (set by the
+  composition via `persona_system_charter(persona)`), never a context item (§4).
+- **`PersonaOutcome` is order-free (I6) and `Serialize`** — a draft the composition
+  persists; cognition writes no Postgres (mirrors `ReconciliationOutcome`). The
+  executable I6 field-surface pin is the E.3c `fortuna-invariants` add (operator-waive).
+- **Signals are point-in-time STRICTLY before the trigger** — the assembler excludes
+  any item at-or-after the trigger time as "future" (`context.rs:154`); the runner
+  inherits this. The composition passes already-ingested (earlier) signals.

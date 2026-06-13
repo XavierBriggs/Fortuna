@@ -18,6 +18,26 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK C — MERGED main into track-c (cross-track integration with track-E/D, 2026-06-13)
+
+After slices 1a+1b landed, `git merge main` integrated track-E's persona ledger +
+track-D's telemetry. The merge surfaced a REAL cross-track code collision a per-commit
+rebase would have fragmented: track-E and track-C both appended repos to fortuna-ledger
+(repos.rs + lib.rs) AND both used migration version 20260613000001. Resolved, all
+ADDITIVE: repos.rs/lib.rs unioned (track-E PersonasRepo/DomainAnalysesRepo + track-C
+ScalarBeliefsRepo/BeliefScoresRepo coexist; no shared code altered); my migration renamed
+to 20260613000002_scalar_beliefs.sql (personas keeps ...0001; unique versions,
+order-independent — disjoint tables); GAPS unioned (no dup). VERIFIED: fortuna-ledger
+compiles + ALL its tests pass on fresh DBs (track-E personas 6 + domain_analyses, track-C
+scalar 7, ledger 27); full workspace battery green (SQLX_OFFLINE cache, CI-safe). WHY
+MERGE NOT REBASE: 8 track-C commits all touch the GAPS top while main heavily evolved it —
+a `git rebase --reapply-cherry-picks` cascaded into 5+ growing GAPS conflicts with
+duplication risk; ONE merge resolves the ledger union once and leaves track-c integrated
+with main (cleaner for the verifier merge gate, not harder). fortuna_dev (shared dev DB)
+left as-is: the battery uses the offline cache + fresh per-test DBs, so it does not depend
+on fortuna_dev's migration state; a future online build may want a fortuna_dev re-migrate
+(noted, not blocking).
+
 ## TRACK C — OPERATOR BUILD-AUTHORIZATION + design complete (telemetry/ROTA/extensibility); design-gate-stop CLEARED (2026-06-13)
 
 CORRECTION + UPDATE (added after main advanced to 82d32c8). The verifier (da9c1bd)
@@ -294,8 +314,218 @@ REMAINING T5.B7 SLICES (ordered; each its own gate-clean iteration):
       scalar type + belief scoring (cross-crate; may reassign).
   (5) funding_carry guard: data-only, no tradeable Stage, 60-day gate.
 Phase-5 EXIT is not met until T5.B7 + T5.B8 land.
+## TRACK D — OBS-1 telemetry data surface (slice 1): deferred follow-ups + scoped-battery note
+
+OBS-1 (2026-06-13) added the live `IngestionTelemetry` snapshot to the scheduler
+(crates/fortuna-sources only: scheduler.rs + lib.rs). Subagent-built, main-loop
+verified (full-diff review + independent scoped battery + by-inspection mutation
+audit of all 6 tests — each asserts an exact value a logic-mutation breaks).
+
+DEFERRED (honest carve-outs, NOT operator-blocked — they are the next OBS slices):
+- OBS-2: the funnel's loop-side stages (`normalized`/`deduped`/`persisted`/
+  `persist_failures`) stay 0 — they are produced AFTER the scheduler, in the
+  fortuna-live ingestion loop (normalize_and_dedup -> persist). Wiring them + the
+  `Arc<RwLock<IngestionTelemetry>>` publish for the metrics renderer + ROTA
+  handlers touches fortuna-live (the drive() seam slice / track A's crate) — a
+  separate slice to sequence vs track A. Track B builds V1-V3 against the §2
+  struct now (field names stable, per the contract).
+- OBS-3: `SourceTelemetry.domain_tags` is EMPTY this slice — the domain
+  (weather|macro|…) comes from the source_registry/config admission, which has no
+  such field yet; fold with F10. The struct shape is stable so the column renders.
+- `kind` is the LAST-SEEN signal kind ("" until the first signal) — a live proxy,
+  not a static declaration; acceptable for the feed/health views.
+
+BATTERY: scoped green (fmt --check; clippy -p fortuna-sources --all-targets
+-D warnings; test -p fortuna-sources = 118 lib + 5 ingest_dst). Full-workspace
+battery deferred to the verifier's merge gate (same rationale as F4 below:
+concurrent cross-track full-workspace batteries + ~27Gi disk; a single-crate
+additive change cannot affect other crates). Predicted gate mutations: drop
+`.take(120)` in summarize -> telemetry_summary_truncates_untrusted_payload reds;
+drop the `pop_front` bound -> telemetry_recent_is_bounded_to_cap reds; drop
+`last_error = None` on success -> telemetry_last_error_…_cleared reds.
+
+## TRACK D — F4 factory wiring: SCOPED-battery deferral (verifier owns the full-workspace merge gate)
+
+F4 (2026-06-13) wired the F2 grader into the source factory ((Nws,"climate") ->
+NwsClimateSource) so it is reachable + scheduler-validated; Aeolus was already
+wired (F3). The change is SINGLE-CRATE-ADDITIVE to crates/fortuna-sources (one
+match arm + one test), no public-API change.
+
+BATTERY RUN (this iteration, all real exit codes): `cargo fmt --check` clean;
+`cargo clippy -p fortuna-sources --all-targets -- -D warnings` clean (2s
+incremental — only fortuna-sources rechecked, proving containment);
+`cargo test -p fortuna-sources` 112 lib + 5 ingest_dst DST, 0 failed (incl. the
+new wires_the_climate_grader_and_aeolus); `cargo check -p fortuna-live` clean
+(the consumer + full transitive chain: exec/state/ledger/runner/ops).
+
+DEFERRED (not run this iteration): the FULL-workspace `clippy --workspace` /
+`cargo test --workspace` / `scripts/run-dst.sh`. WHY: at run time the machine had
+MULTIPLE concurrent full-workspace batteries from other tracks (observed: a
+`cargo test --workspace`, a `clippy --workspace`, a `check --workspace`) with
+~30Gi free — launching a 4th competing cold workspace compile risks ENOSPC and
+violates the one-battery-at-a-time rule. A single-arm fortuna-sources change
+cannot affect other crates' compilation/tests (no public-API change; consumer
+chain independently confirmed to compile). This mirrors the verifier's own
+documented warm-target-incremental posture (GATE-FINDINGS DISK note).
+UNBLOCK: the verifier owns the clean-window full-workspace battery + the merge
+gate (the established D9/D10 pattern: implementer commits scoped-validated, the
+gate runs the full battery + the executed mutation check). Predicted mutation:
+neutralize the (Nws,"climate") arm => wires_the_climate_grader_and_aeolus reds
+(unwrap on the Err arm). Not operator-blocked; verifier-gated on merge.
 
 ## TRACK A — T4.2 item 2(i) WS dial COMPLETE: full KalshiWsTransport built (operator runs the first live exercise)
+## TRACK E — BUILD PHASE (operator-approved 2026-06-13); E.1 + E.2 + E.3a DONE
+
+STATUS 2026-06-13 (SUPERSEDES the design-phase RALPH STOP preserved below): the operator
+APPROVED the design ("looks good, rearm"; commit b4eaae3) and re-armed Track E in worktree
+fortuna-wt-e. BUILD PHASE active — building design §18's six slices, one gate-clean slice
+per iteration. E.3 is sub-sliced: E.3a (runner core + firewall) this commit; E.3b (triggers §7
++ DST-under-budget) and E.3c (telemetry §19 + the invariant pin) next.
+
+**OPERATOR-WAIVE PENDING — the E.3c `fortuna-invariants` touch (design §15).** The
+`PersonaOutcome` I6 field-surface pin (assert the type carries no order/size field, the same
+mechanism as the `ProposalDraft`/`MindOutput` pins) requires ADDING a test to
+crates/fortuna-invariants — which loop §5 treats as an automatic BLOCK pending operator waive.
+`PersonaOutcome` is already `#[derive(Serialize)]` and review-verified order-free TODAY (E.3a
+review, feature-dev:code-reviewer), so the property HOLDS; only the executable pin is deferred.
+UNBLOCK (operator, one action): waive the invariant-crate addition for Track E's §15 pin; then
+E.3c lands it (pure ADD, existing assertions untouched). Until then the order-free guarantee is
+documented (the struct doc + design §15 + this entry), not yet pinned.
+
+**E.3a (Persona runner core + the trusted/untrusted FIREWALL) DONE this commit.** New
+`fortuna_cognition::persona_runner` (design §8): `run_persona_analysis(persona, region_key,
+signals, mind, budget, now) -> PersonaOutcome`. Budget-first (DiscoveryBudget throttle), assembles
+ONLY untrusted signals into the context (the trusted method is the Mind's system charter, NEVER a
+`<context-item>` — THE HEADLINE firewall), one `Mind.decide`, findings from the journal body
+strictly validated against the persona schema.json (config-driven: required keys +
+additionalProperties:false), `content_hash` anchor over {findings, signal_manifest}. PersonaOutcome
+is order-free (mirrors ReconciliationOutcome, I6) — a draft the composition persists (no Postgres
+in cognition). Degrade arms (never crash): budget→throttle, no signals→skip, mind/JSON/schema
+failure→counted defect. Determinism: scripted StubMind→byte-identical artifact+content_hash. 12
+tests incl. the firewall (a planted injection renders AS DATA; the method marker never in context).
+FULL workspace battery green. feature-dev:code-reviewer: one Major (validate_findings skipped the
+unknown-key check when additionalProperties:false + no `properties` → FIXED + regression test) +
+the Critical invariant-pin (deferred to E.3c, operator-waive above). SHARED-DOC TOUCHES this slice:
+docs/architecture.md §3 (cognition crate-map gains the persona-layer paragraph), the NEW
+docs/design/track-e-changelog.md, and docs/design/implementer-loop-track-e.md §8 (the operator's
+documentation-discipline directive added as a standing rule).
+
+**E.2 (Persona skill-file loader) DONE (commit d6e8c23).** New `fortuna_cognition::persona` module
+(design §6): `PersonaDef::parse(persona_md, schema_json)` parses the TOML-frontmatter (`+++`
+fences) + trusted method body, computes `method_hash` = SHA-256 of the WHOLE persona.md
+(reusing `content_hash_of`), loads schema.json; `validate_against(Option<&RegistryHead>)`
+fails CLOSED (only `status=="active"` passes) and refuses NotRegistered / Inactive /
+VersionMismatch / HashMismatch — the §4(d)/§6 headline (an edited method whose hash diverges
+from the active registry row is refused; promotion must be deliberate). Loader core is PURE
+(no fs IO; cognition stays core — the composition reads the file at the edge, E.3).
+`RegistryHead` is a pure cognition input (cognition does not depend on the ledger; the
+composition maps `PersonasRepo::head` onto it). Shipped the meteorologist persona on disk:
+config/personas/meteorologist/{persona.md (v1, the trusted method w/ the §4 firewall + the
+deterministic-μ/σ→p-is-code split), schema.json (findings/v1)}. 14 tests (tests/persona.rs),
+incl. the trust-firewall + hash-mismatch refusal + fail-closed-on-unknown-status + the
+shipped-file parse. FULL workspace battery green (fmt / clippy --workspace --all-targets /
+cargo test --workspace / run-dst.sh 2000 zero invariant violations). Adversarial review
+(feature-dev:code-reviewer): two Important findings — (1) status fail-open → fixed to
+fail-closed; (2) a flagged split_frontmatter panic risk verified a FALSE POSITIVE (indices
+are ASCII-anchored) but hardened to `.get()` (structurally panic-free) anyway. fortuna-invariants
+UNTOUCHED. NOT-YET-WIRED (honest): the loader has no production call site — the runner (E.3)
+wires it + maps PersonasRepo::head→RegistryHead; and no `personas` registry row exists yet
+(seeding is an operator/E.6 action), so validate_against(None)→NotRegistered until then.
+
+**REBASE/INTEGRATION STATUS (2026-06-13): track-e is 38 commits behind main (73a2a1f);
+rebase DEFERRED, code is conflict-free.** `git merge-tree main track-e` shows the ONLY conflicts
+are ASSUMPTIONS.md / BUILD_PLAN.md / GAPS.md (content) + Cargo.lock (auto-merge) — append-only
+coordination docs, NOT code. Every Track-E code/file change (the new persona module, the
+migration, the additive repos.rs/lib.rs edits, config/personas/, docs/design/*) merges clean:
+main touched 0 of those since the 2dfca28 fork. A full `git rebase --reapply-cherry-picks main`
+(the perps revert 19b3888/re-merge IS in main's history, so plain rebase would drop commits —
+reapply-cherry-picks is mandatory) would require ~8 hand-resolved doc/lock conflicts unattended
+and would rewrite the E.1/E.2 SHAs (invalidating the commit refs above) — high ledger-corruption
+risk for ZERO integration-safety gain. DEFERRED to an attended pass / the verifier's merge-time
+three-way (which already "keeps main's newer X"). Re-evaluate when a code-level conflict appears
+or at merge request.
+
+**E.1 (Ledger) DONE (commit dfdf3e0).** Migration 20260613000001_personas.sql adds the append-only
+`personas` registry (supersedes-chained, UNIQUE(persona_id,version), fortuna_refuse_mutation)
++ the content-immutable `domain_analyses` artifact (dedicated guard freezing all 12 content
+columns; only `status` flips open->superseded; content_hash over findings+signal_manifest is
+the I5/5.7 replay anchor). PersonasRepo + DomainAnalysesRepo in fortuna-ledger (insert/head;
+insert-with-supersede / get / current_for_region); per-crate crates/fortuna-ledger/.sqlx cache
+regenerated (per-crate, matching the repo's layout — NOT the root cache). 6 #[sqlx::test]
+tests, all mutation-proven (append-only + content-immutable guards, version-reissue refusal,
+supersession). FULL workspace battery green, witnessed with correct exit-code gating
+(fmt / clippy --workspace --all-targets / cargo test --workspace = 123 ok-suites /
+run-dst.sh 2000 = "zero invariant violations"); fortuna-invariants UNTOUCHED. Adversarial
+spec+code review (opus subagent): no Critical/Major; one Minor (§10 retirement = a superseding
+insert, not in-place — reconciled in the design + ASSUMPTIONS) + two test-tightening nits, all
+applied + re-validated.
+
+**OPERATOR REQUEST (2026-06-13, mid-build): rich persona TELEMETRY + insightful ROTA views.**
+Designed (doc-only; emission/views land in later slices / Track B): design doc §19 (persona
+metrics slotting into fortuna-ops's integer-only MetricsRegistry via the existing
+metrics_export() seam — integer counts/cents/bp to Prometheus, float Brier/quality to ROTA
+JSON; persona-agnostic labels) folded into build slices 3-5; §20 (four buildable ROTA view
+contracts: personas registry+scorecard with vs-baseline verdict, analyses browser with the
+one-analysis->N-beliefs->outcomes fan-out, cognition provenance, and a NEW persona_pipeline
+funnel). rota-dashboard.md §4 DEFERRED updated to point Track B at them. Views are
+persona-agnostic/domain-generic + additive-only so a new persona adds zero endpoints/metric
+names. (Interpreted the operator's "perps vendor" as the persona system — this track's domain.)
+
+**INVARIANT-PIN DEFERRED to slice 3** (design §15): the field-surface pin asserting
+`PersonaOutcome` carries no order/size field belongs with that type (the runner outcome, slice 3),
+and any fortuna-invariants touch is an operator-waive item per the loop — so slice 1 (ledger)
+correctly does NOT touch the protected crate. The `domain_analyses`/`PersonaRow` row types are
+already structurally order-free (review-confirmed).
+
+NEXT: E.3b (triggers §7 — declarative + schedulable, decoupled from the persona; + the DST
+runner-under-budget arm). Then E.3c (persona telemetry §19 + the PersonaOutcome no-order/size
+invariant pin §15, gated on the operator-waive above). Then E.4 (belief consumption).
+
+--- HISTORICAL (design-phase RALPH STOP — SUPERSEDED by the operator approval above) ---
+
+DESIGN PHASE DONE. The persona/domain-analysis design was explored (Explore-agent
+map of fortuna-cognition + ledger, verified), brainstormed, and the §3 artifact-model
+decision SURFACED and RESOLVED with the operator in the 2026-06-13 session:
+**persisted artifact** (operator-endorsed; the deciding argument is that LLM persona
+output is non-deterministic, so 5.7/I5 replay forces persistence regardless — ephemeral
+is a false economy). Committed this iteration on branch track-e:
+- docs/design/domain-analysis-personas-design.md — the authoritative design (§2 decision
+  RESOLVED; §5 ledger tables personas + domain_analyses; §7 declarative+schedulable
+  triggers; §15 six-slice build plan; trusted/untrusted separation as the heart).
+- docs/design/track-m-model-providers-brief.md — the PARKED Track M brief (per-tier
+  pluggable models, e.g. Hermes/local; operator: "store as a design doc, do it later").
+- implementer-loop-track-e.md — aligned from design-first to BUILD phase.
+
+STOPPING THIS LOOP for TWO operator actions (RALPH STOP 2026-06-13):
+1. **The loop is mis-located.** It was started in the MAIN checkout
+   (/Users/xavierbriggs/fortuna), where Track A lives and holds uncommitted work
+   (dial.rs). Running an autonomous Track-E BUILD loop in the shared main tree is the
+   orchestration.md shared-tree hazard. Track E must run from worktree fortuna-wt-e
+   (branch track-e). I committed the design to track-e via the worktree (git -C; main's
+   tree untouched), but I will NOT build feature code from main.
+2. **Design-phase approval gate** (loop §1b, the version on main still reads
+   design-first): the operator endorsed "persisted" and said "tweak the prompt to
+   align / proceed," but gave no crisp go-for-build and was mid-architecture-dialogue.
+
+UNBLOCK (operator, one action): review docs/design/domain-analysis-personas-design.md,
+then RE-ARM Track E from the correct worktree to enter the BUILD phase:
+  cd /Users/xavierbriggs/fortuna-wt-e
+  /ralph-loop Read docs/design/implementer-loop-track-e.md at the start of every iteration and follow it exactly.
+The aligned (build-phase) loop doc lives on track-e and governs once re-armed there.
+
+BUILD QUEUE (design §15, when re-armed): (1) ledger personas+domain_analyses tables/repos
+→ (2) persona definition+registry → (3) runner loop+triggers+budget+context+findings
+contract (StubMind determinism + trusted/untrusted + DST-under-budget) → (4) belief
+consumption (DomainAnalysis section + provenance citation) → (5) scoring scope extension
++ weekly-review promote/retire → (6) end-to-end meteorologist proof + macro mechanism test.
+
+TRACK-D REQUESTS (signal kinds Track E consumes, NOT built here): nws.observed_high,
+nws.forecast_discussion (the meteorologist's grader + discussion text), plus later the
+macro/event calendar + consensus/news kinds for the macro-economist. Aeolus (aeolus.forecast)
+already has the v2 contract (docs/design/aeolus-source-contract.md). If an NWS kind is not
+yet ingested at build time, a recorded fixture signal stands in (re-noted at slice 6).
+
+## TRACK A — T4.2 item 2(i) WS dial: decision/session/loop + tungstenite error-classification done; only the operator-exercised socket round-trip remains
 
 Queue item 2(i) (Kalshi WS dial). Built the SURVIVAL DECISION core as a pure,
 deterministic state machine — crates/fortuna-venues/src/kalshi/dial.rs (new;
@@ -2515,6 +2745,37 @@ DST exit 0 (2000/stage; corpus 3 seeds). Branch track-c at 4fd16de,
 rebased on main f4b4a54-era; all work committed, nothing pushed.
 
 ## Track D — news-aggregation Phase A
+
+- **F1/F3 Aeolus: LIVE endpoint is an EPHEMERAL cloudflare quick-tunnel; the
+  API key is operator-env-only.** The Aeolus team served /v2/forecasts over a
+  trycloudflare.com quick-tunnel (host churns; a stable host must be pinned in
+  source_registry + config for production). The `x-api-key` secret is resolved
+  at composition via `AEOLUS_API_TOKEN` (env), NEVER in repo/config/logs/audit
+  (set_sensitive + redacted Debug). The captured fixtures contain NO secret
+  (verified). Operator action to ENABLE: set AEOLUS_API_TOKEN, pin the stable
+  Aeolus host, add the [sources.aeolus] entry (auth_header="x-api-key",
+  auth_env="AEOLUS_API_TOKEN") + a source_registry row.
+
+- **F3 AeolusSource is DUMB; the strict v2 parse + μ/σ→p is F6 (cognition).**
+  The adapter emits the raw envelope untouched (contract §4). The strict
+  AeolusEnvelope parse (σ>0, units==degF, p clamp-not-reject, deny_unknown_fields,
+  nullable skill) + the pinned-erf μ/σ→p helper + the identity-tuple dedup are
+  cognition-side (reconciliation.rs, F5/F6) — ledgered for the cognition owner.
+  The live capture CONFIRMS the rev-3 contract: crpss_vs_raw=null, n_scored=30,
+  p pre-clamped, resolution.note names the CLI daily-climate product (= the F2
+  grader). F4 (next_run_at release-aware cadence) folds into D9 (the scheduler
+  already consumes event windows; next_run_at-driven cadence is the refinement).
+
+- **F2 NWS climate grader: max/min EXTRACTION + station mapping are GRADER-side
+  (cognition), by design.** NwsClimateSource ingests CLI products as the
+  authoritative raw resolution source (`nws.cli`, full productText). It does NOT
+  parse the daily max/min — the CLI text is fragile (`MINIMUM 7676` = observed
+  76 + record 76 jammed) and a mis-read high would mis-grade a belief. At
+  SETTLEMENT, the cognition grader (F9) extracts the official high for the
+  target date from the raw text (where ambiguity can be flagged). Also
+  grader-side: mapping a market station (e.g. KNYC) to the right CLI product
+  (CLI is issued per WFO/office). Ledgered for the cognition/grader owner.
+  F2 (Track D) delivers the authoritative source + report_date indexing.
 
 - **D10 OPERATOR PREREQ to ENABLE ingestion (default off).** Turning on the
   ingestion loop needs THREE things together: (1) `[ingestion] enabled = true`

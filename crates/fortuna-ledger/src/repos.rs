@@ -1595,6 +1595,269 @@ impl TradabilityRepo {
     }
 }
 
+// ---------- Track E: persona registry + domain-analysis artifact (design §5) ----------
+
+/// One row of the append-only, supersedes-chained persona registry (design §6).
+#[derive(Debug, Clone)]
+pub struct PersonaRow {
+    pub persona_row_id: String,
+    pub persona_id: String,
+    pub version: i32,
+    pub domain: String,
+    pub domain_tags: serde_json::Value,
+    pub reads_signal_kinds: serde_json::Value,
+    pub tier: String,
+    pub method_hash: String,
+    pub output_schema_version: String,
+    pub status: String,
+    pub supersedes: Option<String>,
+    pub effective_at: String,
+    pub created_at: String,
+}
+
+/// Versioned persona registry. INSERT-only: a method change is a NEW
+/// (persona_id, version) row that supersedes the old; the UNIQUE
+/// (persona_id, version) key refuses a re-issue and the migration trigger
+/// refuses UPDATE/DELETE (mirrors `calibration_params`/`lessons`). The
+/// `method_hash` lets the slice-2 loader prove which method produced an
+/// analysis and refuse a config/registry mismatch.
+pub struct PersonasRepo {
+    pool: PgPool,
+}
+
+impl PersonasRepo {
+    pub fn new(pool: PgPool) -> PersonasRepo {
+        PersonasRepo { pool }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn insert(
+        &self,
+        persona_row_id: &str,
+        persona_id: &str,
+        version: i32,
+        domain: &str,
+        domain_tags: &serde_json::Value,
+        reads_signal_kinds: &serde_json::Value,
+        tier: &str,
+        method_hash: &str,
+        output_schema_version: &str,
+        status: &str,
+        supersedes: Option<&str>,
+        effective_at: &str,
+        created_at: &str,
+    ) -> Result<(), LedgerError> {
+        sqlx::query!(
+            r#"INSERT INTO personas
+               (persona_row_id, persona_id, version, domain, domain_tags,
+                reads_signal_kinds, tier, method_hash, output_schema_version,
+                status, supersedes, effective_at, created_at)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)"#,
+            persona_row_id,
+            persona_id,
+            version,
+            domain,
+            domain_tags,
+            reads_signal_kinds,
+            tier,
+            method_hash,
+            output_schema_version,
+            status,
+            supersedes,
+            effective_at,
+            created_at,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// The highest-version registry row for a persona (the head the loader
+    /// hashes against), or None if the persona has no rows. Empty -> None,
+    /// never an error.
+    pub async fn head(&self, persona_id: &str) -> Result<Option<PersonaRow>, LedgerError> {
+        let row = sqlx::query!(
+            r#"SELECT persona_row_id, persona_id, version, domain, domain_tags,
+                      reads_signal_kinds, tier, method_hash, output_schema_version,
+                      status, supersedes, effective_at, created_at
+               FROM personas
+               WHERE persona_id = $1
+               ORDER BY version DESC LIMIT 1"#,
+            persona_id
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| PersonaRow {
+            persona_row_id: r.persona_row_id,
+            persona_id: r.persona_id,
+            version: r.version,
+            domain: r.domain,
+            domain_tags: r.domain_tags,
+            reads_signal_kinds: r.reads_signal_kinds,
+            tier: r.tier,
+            method_hash: r.method_hash,
+            output_schema_version: r.output_schema_version,
+            status: r.status,
+            supersedes: r.supersedes,
+            effective_at: r.effective_at,
+            created_at: r.created_at,
+        }))
+    }
+}
+
+/// One persisted domain-analysis artifact (design §5). Content-immutable: the
+/// `content_hash` over findings + signal_manifest is the replay anchor (5.7/I5).
+#[derive(Debug, Clone)]
+pub struct DomainAnalysisRow {
+    pub analysis_id: String,
+    pub persona_id: String,
+    pub persona_version: i32,
+    pub domain: String,
+    pub region_key: String,
+    pub produced_at: String,
+    pub signal_manifest: serde_json::Value,
+    pub findings: serde_json::Value,
+    pub content_hash: String,
+    pub manifest_hash: String,
+    pub cost_cents: i64,
+    pub status: String,
+    pub supersedes: Option<String>,
+    pub created_at: String,
+}
+
+/// The append-only domain-analysis store. Content-immutable like `beliefs`:
+/// the database guard freezes every content field and refuses DELETE; only
+/// `status` may flip open->superseded. A fresh analysis for a region supersedes
+/// the prior one (the prior row's status flips in the same transaction, mirroring
+/// `BeliefsRepo::insert`).
+pub struct DomainAnalysesRepo {
+    pool: PgPool,
+}
+
+impl DomainAnalysesRepo {
+    pub fn new(pool: PgPool) -> DomainAnalysesRepo {
+        DomainAnalysesRepo { pool }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn insert(
+        &self,
+        analysis_id: &str,
+        persona_id: &str,
+        persona_version: i32,
+        domain: &str,
+        region_key: &str,
+        produced_at: &str,
+        signal_manifest: &serde_json::Value,
+        findings: &serde_json::Value,
+        content_hash: &str,
+        manifest_hash: &str,
+        cost_cents: i64,
+        supersedes: Option<&str>,
+        created_at: &str,
+    ) -> Result<(), LedgerError> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query!(
+            r#"INSERT INTO domain_analyses
+               (analysis_id, persona_id, persona_version, domain, region_key,
+                produced_at, signal_manifest, findings, content_hash,
+                manifest_hash, cost_cents, supersedes, created_at)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)"#,
+            analysis_id,
+            persona_id,
+            persona_version,
+            domain,
+            region_key,
+            produced_at,
+            signal_manifest,
+            findings,
+            content_hash,
+            manifest_hash,
+            cost_cents,
+            supersedes,
+            created_at,
+        )
+        .execute(&mut *tx)
+        .await?;
+        if let Some(prior) = supersedes {
+            sqlx::query!(
+                r#"UPDATE domain_analyses SET status = 'superseded'
+                   WHERE analysis_id = $1 AND status = 'open'"#,
+                prior
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn get(&self, analysis_id: &str) -> Result<DomainAnalysisRow, LedgerError> {
+        let r = sqlx::query!(
+            r#"SELECT analysis_id, persona_id, persona_version, domain, region_key,
+                      produced_at, signal_manifest, findings, content_hash,
+                      manifest_hash, cost_cents, status, supersedes, created_at
+               FROM domain_analyses WHERE analysis_id = $1"#,
+            analysis_id
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(DomainAnalysisRow {
+            analysis_id: r.analysis_id,
+            persona_id: r.persona_id,
+            persona_version: r.persona_version,
+            domain: r.domain,
+            region_key: r.region_key,
+            produced_at: r.produced_at,
+            signal_manifest: r.signal_manifest,
+            findings: r.findings,
+            content_hash: r.content_hash,
+            manifest_hash: r.manifest_hash,
+            cost_cents: r.cost_cents,
+            status: r.status,
+            supersedes: r.supersedes,
+            created_at: r.created_at,
+        })
+    }
+
+    /// The current (open) artifact for a region, newest-first, or None. The one
+    /// analysis many beliefs reference (design §9); empty -> None, never error.
+    pub async fn current_for_region(
+        &self,
+        domain: &str,
+        region_key: &str,
+    ) -> Result<Option<DomainAnalysisRow>, LedgerError> {
+        let row = sqlx::query!(
+            r#"SELECT analysis_id, persona_id, persona_version, domain, region_key,
+                      produced_at, signal_manifest, findings, content_hash,
+                      manifest_hash, cost_cents, status, supersedes, created_at
+               FROM domain_analyses
+               WHERE domain = $1 AND region_key = $2 AND status = 'open'
+               ORDER BY produced_at DESC, analysis_id DESC LIMIT 1"#,
+            domain,
+            region_key
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| DomainAnalysisRow {
+            analysis_id: r.analysis_id,
+            persona_id: r.persona_id,
+            persona_version: r.persona_version,
+            domain: r.domain,
+            region_key: r.region_key,
+            produced_at: r.produced_at,
+            signal_manifest: r.signal_manifest,
+            findings: r.findings,
+            content_hash: r.content_hash,
+            manifest_hash: r.manifest_hash,
+            cost_cents: r.cost_cents,
+            status: r.status,
+            supersedes: r.supersedes,
+            created_at: r.created_at,
+        }))
+    }
+}
+
 /// One persisted scalar-belief row (design §1.4). The durable, immutable
 /// scalar forecast claim; `realized_value`/`resolved_at` are NULL until the
 /// belief resolves (set exactly once). `quantiles`/`provenance` ride as

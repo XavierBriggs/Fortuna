@@ -33,6 +33,8 @@ pub mod cycle;
 pub mod discovery;
 pub mod events;
 pub mod mind;
+pub mod persona;
+pub mod persona_runner;
 pub mod reconciliation;
 pub mod review;
 pub mod scoring;

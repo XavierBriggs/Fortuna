@@ -820,22 +820,68 @@ OWNERSHIP: F1–F4 + F10(registry/dossier/fixture) are crates/fortuna-sources
 scheduler is shared with D9). The skill/persona layer is a separate session
 (docs/design/PROMPT-domain-analysis-skills.md).
 
-- [ ] F2 NWS observed-daily-extreme grader (LONG POLE — do first): a
-      `NwsFeed::Observations` variant or sibling fetching the official daily
-      max/min (`/stations/{id}/observations` or CF6) per station/date; real
-      fixtures; registered as a §5.12 resolution source. Reuses FetchClient +
-      the D4 NWS dossier/claimed-time pattern.
-- [ ] F1 Generic per-source auth header in FetchClient: header-name-agnostic
-      injector (Aeolus = `x-api-key` from env `AEOLUS_API_TOKEN`), redacted in
-      every error/debug/telemetry path; redaction test. Blocks F3.
-- [ ] F3 AeolusSource adapter: dumb wrapper over FetchClient (host-pin,
-      conditional GET, politeness, F1 auth); emits one RawSignal per envelope
-      untouched; exposes the identity tuple + run_at (cf. nws_claimed_time).
-      No strict-parse/validate/dedup (downstream). Fixtures-first (Aeolus's
-      one real captured response IS the contract). tmax/tmin only (rev 3).
-- [ ] F4 D9 scheduler integration: StructuralValidator Layer-1a on Aeolus
-      signals; consume next_run_at + GEFS release pattern for release-aware
-      cadence. (Folds into D9.)
+- [x] F2 NWS observed-daily-extreme grader — NwsClimateSource (the long pole;
+      the official resolution record). Ingests the NWS CLI (Climatological
+      Report — Daily) products, which carry the OFFICIAL daily max/min — the
+      same record the market (Kalshi) and Aeolus resolve against (a max-of-
+      hourly-obs would be DERIVED and would NOT match). Chose CLI over
+      /stations/{id}/observations for exactly that reason. TWO-HOP: the
+      `/products?type=CLI` list (no text) -> per-product text fetch (with the
+      report), bounded by a per-tick cap + a FIFO seen-set of product ids;
+      conditional GET on the list (per-product texts immutable). Emits `nws.cli`
+      signals carrying the RAW productText (authoritative) + a robustly-parsed
+      report_date for indexing. DELIBERATELY DUMB about the temperatures: the
+      CLI text is fragile (`MINIMUM 7676` = observed 76 + record 76 jammed), so
+      the high-stakes max/min EXTRACTION is DEFERRED to the grader (cognition,
+      at settlement) where ambiguity is flagged, not silently mis-graded.
+      claimed_time = issuanceTime (past; report issues the morning after).
+      Fixtures REAL (2026-06-13: cli_list + cli_product). Research-grounded
+      dossier docs/research/sources/nws_climate/ (admitted tier 10 — the
+      settlement record). 6 tests. (DONE 2026-06-13, battery green; hash next.)
+- [x] F1 Generic per-source auth header in FetchClient (subagent-built, I
+      reviewed + verified). ReqwestFetchTransport.with_auth_header(name, secret):
+      Aeolus = `x-api-key`, generic by name (Bearer drops in). The value is
+      HeaderValue::set_sensitive(true) (the http crate prints "Sensitive", never
+      logs it); manual Debug elides values as `<redacted>`; a malformed value's
+      error reports only the (non-secret) name. SECRET resolved by the caller via
+      a `secret_resolver: impl Fn(&str)->Option<String>` on build_scheduler — the
+      LIB never reads env (the daemon does: `|n| std::env::var(n).ok()`).
+      Fail-closed: a named auth_env that doesn't resolve is a hard error (no
+      silent unauthenticated fetch); half-configured auth rejected. config gains
+      auth_header + auth_env (env-var NAME, never the secret). SSRF host-pin code
+      UNTOUCHED (pin_ tests 6/6 unchanged). Redaction tests
+      (is_sensitive, Debug-redacts). (DONE 2026-06-13, battery green.)
+- [x] F3 AeolusSource adapter (subagent-built, I reviewed + verified). Dumb
+      wrapper over FetchClient (host-pin, conditional GET, politeness, F1 auth):
+      splits `{"forecasts":[envelope]}` -> one RawSignal {kind aeolus.forecast,
+      payload = raw envelope UNTOUCHED, received_at = clock.now()} per envelope;
+      304 -> empty; non-JSON / missing forecasts[] -> SignalError (never panic,
+      never silently emitted). NO strict-parse/validate/dedup (downstream, F6).
+      aeolus_claimed_time = run_at (the forecast init_time, past). SourceKind
+      ::Aeolus + factory arm. Fixtures REAL — captured from the LIVE Aeolus
+      endpoint 2026-06-13 (fixtures/sources/aeolus/knyc_tmax+tmin.json; the
+      response matched contract rev-3 EXACTLY incl. crpss_vs_raw=null,
+      n_scored=30). Research-grounded dossier (tier 7 — sober: μ commodity,
+      market edge unproven, Layer-3-earned; resolution-elig 2, NOT the grader).
+      13 tests. (DONE 2026-06-13, battery green.)
+- [x] F4 scheduler integration — wire the adapters into the factory so they are
+      scheduler-validated + reachable. Added the (Nws, "climate") factory arm ->
+      NwsClimateSource (F2) + nws_climate_claimed_time (the grader was built+
+      exported but UNWIRED — the F2-gate residual). Aeolus's arm was already
+      wired in F3. Every factory-built source goes through scheduler.register,
+      which attaches the StructuralValidator (Layer-1) with NO bypass (D9 hard
+      gate) — so "registered via the factory" == "Layer-1 validated on the ingest
+      path". Test wires_the_climate_grader_and_aeolus asserts both register
+      (mutation-proof: delete the climate arm -> feed="climate" reroutes to the
+      (Nws,_) Err arm -> build_scheduler().unwrap() panics -> red). 113 sources
+      tests (112 lib + 1) + 5 ingest_dst. (DONE 2026-06-13 6495058; SCOPED battery
+      green — fmt --check + clippy -p fortuna-sources --all-targets -D warnings +
+      test -p fortuna-sources + check -p fortuna-live consumer; full-workspace
+      battery is the verifier's merge gate, see GAPS "TRACK D — F4".)
+- [ ] F4b release-aware cadence: consume next_run_at + the GEFS release pattern
+      to tighten the poll cadence around forecast issuance. DEFERRED to Phase B —
+      a scheduling refinement, NOT the gate's reachability/validation ask (which
+      F4 closes). Today the Aeolus source polls on its configured base_interval.
 - [ ] F10 registry row + Layer-0 dossier (docs/research/sources/aeolus/, stating
       MEASURED reality not an unproven edge, per contract §1/§5) + v1→v2 fixture
       migration (keep v1 behind "schema absent ⇒ v1"; aeolus_eval T2.7 stays
@@ -843,3 +889,78 @@ scheduler is shared with D9). The skill/persona layer is a separate session
 - [ ] (cognition, not Track D — ledgered for the owner) F5 identity-tuple dedup,
       F6 strict v2 parser + pinned-erf μ/σ→p, F7 world-forward match, F8
       belief→calibration→gates→sizing, F9 Layer-3 empirical scoring.
+
+### Track D — ingestion observability (data surface; contract: docs/design/ingestion-observability-contract.md §2)
+
+- [x] OBS-1 telemetry data surface (slice 1, fortuna-sources). The scheduler now
+      projects a live `IngestionTelemetry` snapshot (§2): per-source
+      `SourceTelemetry` (health, trust_tier, last_poll/last_success/next_due ISO
+      timestamps, the D9 counters, redacted `last_error`, last-seen `kind`), a
+      process-wide `FunnelCounts` (validate stages summed from per-source metrics;
+      loop stages stay 0), and a bounded (256) newest-first `recent` feed of
+      `SignalRecord`s — the operator's "signals coming in + their data" (V1). Each
+      record carries a REDACTED `summary`: a 7-key allowlist projection truncated
+      to 120 chars (untrusted payloads are never dumped; spec 5.11), with
+      `redact_error` capping errors to 200. `telemetry(generated_at)` is a pure
+      projection — Clock injected, no wall-time, no unwrap/panic. New pub types
+      exported from lib.rs for track-B. 6 mutation-structured tests (truncation
+      ==120 on a 5k input, ring bound ==256, last_error set→cleared, funnel
+      1/2/3, accept+future-drop feed). Subagent-built, I reviewed + verified.
+      (DONE 2026-06-13 07ae945; SCOPED battery green — fmt + clippy -p
+      fortuna-sources --all-targets -D warnings + test -p fortuna-sources = 118
+      lib + 5 ingest_dst; full-workspace battery is the verifier's merge gate,
+      see GAPS "TRACK D — OBS-1".)
+- [ ] OBS-2 funnel loop-stages + snapshot wiring (fortuna-live): the ingestion
+      loop sets `normalized`/`deduped`/`persisted`/`persist_failures` on the
+      funnel and publishes the snapshot behind `Arc<RwLock<IngestionTelemetry>>`
+      for the metrics renderer + ROTA handlers (§2 "one writer, many readers").
+      Touches fortuna-live (the drive() seam slice) — sequence vs track A.
+- [ ] OBS-3 domain_tags population: carry each source's domain (weather|macro|…)
+      from the source_registry/config admission into `SourceTelemetry.domain_tags`
+      (empty in slice 1). Needs a config/registry field — fold with F10.
+
+## Track E — Domain-analysis personas (operator-directed 2026-06-13; design committed + APPROVED)
+
+Authoritative design: docs/design/domain-analysis-personas-design.md (§18 six-slice plan).
+A versioned, auditable library of analyst personas + a persisted, append-only domain-analysis
+artifact the cognition layer consumes when forming beliefs; proven end-to-end on the
+meteorologist. Ownership (absolute): the persona LAYER in fortuna-cognition + new ledger
+tables/repos; never touches fortuna-sources (Track D); extends, never breaks, the Mind/belief
+interface Track A composes. ROTA views (§14/§20) are Track B's to build (Track E provides
+data); persona telemetry (§19) folds into slices E.3–E.5. fortuna-invariants is touched only
+at E.3 (the PersonaOutcome no-order/size field-surface pin) under operator waive.
+
+- [x] E.1 Ledger — `personas` + `domain_analyses` tables + migration + append-only repos
+      (content-immutable guard on domain_analyses freezing all 12 content columns, only
+      `status` flips; supersedes-chained `personas` with UNIQUE(persona_id,version)).
+      (DONE this commit: migration 20260613000001_personas.sql; PersonasRepo +
+      DomainAnalysesRepo in fortuna-ledger; 6 #[sqlx::test] guard/round-trip/supersession
+      tests, mutation-proven; per-crate .sqlx regenerated; full workspace battery green
+      [fmt/clippy --workspace --all-targets/cargo test --workspace 123 ok-suites/run-dst 2000];
+      adversarial spec+code review clean [no Critical/Major]; fortuna-invariants UNTOUCHED.)
+- [x] E.2 Persona definition + registry — skill-file loader (config/personas/<id>/), method_hash
+      validation against the registry head; refuse a config/registry hash mismatch.
+      (DONE this commit: fortuna_cognition::persona — PersonaDef::parse [TOML `+++` frontmatter +
+      trusted method body; method_hash = SHA-256 of the whole persona.md] + validate_against
+      [fail-closed; refuses NotRegistered/Inactive/VersionMismatch/HashMismatch — §4(d)/§6];
+      pure core, no fs IO; RegistryHead a pure cognition input. Shipped config/personas/
+      meteorologist/{persona.md v1, schema.json}. 14 tests; full workspace battery green;
+      feature-dev review applied [status fail-closed + split_frontmatter .get() hardening].)
+- [ ] E.3 Runner loop + triggers + budget + context + findings contract — scripted-StubMind
+      determinism, the trusted/untrusted separation tests (§4 a–d), DST runner-under-budget arm;
+      persona telemetry counters (§19); the PersonaOutcome no-order/size invariant pin (§15).
+      [E.3a DONE this commit: fortuna_cognition::persona_runner — run_persona_analysis
+      (budget-first, untrusted-signals-only context, Mind.decide, strict findings validation,
+      content_hash anchor); PersonaOutcome order-free + Serialize; the FIREWALL headline tests
+      (method never in context; planted injection renders as data) + determinism + degrade arms;
+      12 tests; full battery green. REMAINING: E.3b triggers §7 + DST-under-budget; E.3c
+      telemetry §19 + the §15 invariant pin (operator-waive, see GAPS).]
+- [ ] E.4 Belief consumption — DomainAnalysis section + evidence/provenance citation; the
+      μ/σ→p helper in code; `fortuna_persona_beliefs_total` metric.
+- [ ] E.5 Scoring scope extension — ScopeKey + weekly-review promote/retire proposal (baseline +
+      market comparison; recommendation-only); resolved_beliefs/clv_bp metrics.
+- [ ] E.6 End-to-end meteorologist proof over Aeolus (+ NWS/fixture) + the macro mechanism test;
+      the §11 evaluation gate wired; full battery green.
+
+ROTA views (§14/§20) + persona telemetry (§19) are operator-requested detailed contracts
+(2026-06-13) — Track B builds the four views; Track E provides the data across E.1–E.5.
