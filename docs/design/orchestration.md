@@ -125,3 +125,12 @@ silent, but still interrupts the merge). RULES:
 3. Post-merge integration checks run in a DETACHED worktree at the merge
    commit, never the shared tree — track A's own next commit-gate battery is
    the second integration layer.
+
+## TRACK E — domain-analysis persona system (operator-directed 2026-06-13)
+Worktree /Users/xavierbriggs/fortuna-wt-e (branch track-e). Loop:
+docs/design/implementer-loop-track-e.md; brief: docs/design/track-e-persona-brief.md.
+DESIGN-FIRST (operator-approval gate before any feature code). Owns: the
+persona/domain-analysis LAYER in crates/fortuna-cognition (new modules) + new
+ledger tables/repos. Consumes track D's signals; NEVER modifies fortuna-sources;
+NEVER breaks the Mind/belief interface track A composes.
+## TRACK C — RE-ARMED 2026-06-13 for T5.B7 (rung-0 perp strategies, fee-trap rule) + T5.B8 (perps ops); the perps PLANE is merged to main.

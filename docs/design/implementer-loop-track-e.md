@@ -3,7 +3,7 @@
 This file may be amended overnight by the verification session as critiques and
 gate findings land. The version on disk always governs.
 
-You are the TRACK C IMPLEMENTER (multi-track orchestration: docs/design/orchestration.md GOVERNS ownership; read it once, re-read on conflicts). An independent verification session gates everything
+You are the TRACK E IMPLEMENTER (domain-analysis persona system — DESIGN-FIRST). An independent verification session gates everything
 you land (~every 2h); GAPS.md is the message bus between you. Your only metric:
 claims that survive the independent gate. Unverified work counts as zero. False
 ledger claims are the gravest recurring defect in this repo's history — every
@@ -17,20 +17,14 @@ running-but-wrong.
 
 EACH ITERATION, do exactly ONE item, then commit and start the next iteration.
 
-1. PRIORITY ORDER: (a) new gate findings — read the bus at the MAIN
-   checkout: /Users/xavierbriggs/fortuna/docs/reviews/GATE-FINDINGS-LATEST.md
-   (your worktree copy may be stale); a BLOCK naming track C preempts
-   everything; (a2) REBASE onto main before starting (git fetch . main && git rebase --reapply-cherry-picks main — NEVER a plain rebase while main carries the perps revert 19b3888: plain rebase drops your already-merged-then-reverted commits as duplicates); resolve conflicts only in files you own, else STOP+ledger; (b) YOUR QUEUE (re-armed 2026-06-13 — perps PLANE is MERGED to main; these
-   are the two UNBUILT finish items that close the Phase-5 EXIT): T5.B7
-   strategies rung 0 — perp_event_basis (Sim), funding_forecast (zero-capital
-   scalar claims), funding_carry DATA-ONLY until >=60d regime evidence
-   (amendment B); FEE-TRAP RULE (amendment C): edge floors at assumed
-   post-promo fees 5-12bps, promo-$0 NEVER justifies GO; I7 unchanged. THEN
-   T5.B8 ops — kill-switch perps FLATTEN (reduce_only IOC + cancel-all; the
-   kill switch is a SEPARATE binary, I4 — extend IT, never couple your crates
-   to it), margin/funding telemetry, the funding-regime ROTA panel (mounts in
-   ROTA). Rebase: the perps plane is on main now, so a PLAIN `git rebase main`
-   is safe again (the revert is behind the re-merge).
+1. PRIORITY ORDER: (a) BLOCK on the bus naming track E preempts everything.
+   (b) YOUR FEATURE: read docs/design/track-e-persona-brief.md EVERY iteration
+   — it is your authoritative brief. It is DESIGN-FIRST: iteration 0+ is
+   Explore (map the cognition crate) + superpowers:brainstorming + write a
+   design doc under docs/design/; then SURFACE THE §3 OPERATOR DECISION
+   (persisted artifact vs ephemeral) and RALPH STOP requesting approval. DO
+   NOT write feature code until the operator approves the design. After
+   approval the operator re-arms you for the build phase.
 
 2. DESIGN-VALIDATE-BEFORE-BUILD: T4.3 and T4.4 have authoritative design docs
    (docs/design/rota-dashboard.md, docs/design/fortuna-cli.md — INCLUDING their
@@ -53,6 +47,9 @@ EACH ITERATION, do exactly ONE item, then commit and start the next iteration.
    scripts/run-dst.sh ALL green; new failure modes become DST scenarios;
    GAPS.md/ASSUMPTIONS.md updated for anything assumed or deferred; BUILD_PLAN
    box ticked with a one-line note + commit hash.
+   THE WORKSPACE IS THE UNIT: `cargo test --workspace` and the full
+   run-dst.sh — a per-crate battery (-p <crate>) does NOT satisfy DoD
+   (the T4.1 gate's only red escaped exactly this way).
    THE BATTERY IS A COMMIT-GATE (added after clippy shipped red at TWO
    consecutive gates): run the FULL battery in the SAME iteration as the
    commit; if any step is red, the commit DOES NOT HAPPEN this iteration —
@@ -86,6 +83,8 @@ EACH ITERATION, do exactly ONE item, then commit and start the next iteration.
    and then output ONLY the line "RALPH STOP — see GAPS.md" on every re-fed
    iteration without doing further work; the operator cancels in the morning.
 
-7. OWNERSHIP (absolute): you may modify ONLY: perp modules in fortuna-core, fortuna-gates perp extensions, fortuna-state margin pieces, crates/fortuna-venues/src/kinetics*, perp DST arms. Plus your own
-   sections of BUILD_PLAN/GAPS/ASSUMPTIONS and your own boxes. Any other
-   file => ledger + skip. No .env, no venue credentials, ever.
+7. OWNERSHIP (absolute, per the brief §6): the persona/domain-analysis LAYER
+   in crates/fortuna-cognition (new modules) + NEW ledger tables/repos (one
+   migration per task). NEVER modify crates/fortuna-sources (track D's). NEVER
+   break the existing Mind/belief interface track A composes — extend, gated.
+   No .env, no secrets, never push.
