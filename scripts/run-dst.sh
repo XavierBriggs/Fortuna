@@ -36,6 +36,13 @@ FUNDING_FORECAST_DST_SCENARIOS="$N" cargo test -p fortuna-runner --test funding_
 # Track E E.3c: the persona runner under the cost budget + chaos mind (budget
 # throttle, signal absence, schema-invalid findings, coalesced re-triggers).
 PERSONA_DST_SCENARIOS="$N" cargo test -p fortuna-cognition --test persona_dst -- --nocapture
+# Track E (persona live-loop brain): the run_due_personas orchestrator under a
+# seeded tick — signal fan-out across stations/dates/read+unread kinds, random
+# (possibly pre-exhausted) budget, random cadence/debounce. Asserts no panic,
+# at-most-one-run-per-(persona,region) coalescing, no phantom regions, budget
+# throttle, and byte-identical determinism on replay (crates/fortuna-cognition/
+# tests/persona_orchestrator_dst.rs).
+PERSONA_ORCH_DST_SCENARIOS="$N" cargo test -p fortuna-cognition --test persona_orchestrator_dst -- --nocapture
 # T4.1 req 10: the daemon-composition smoke (boot -> ticks -> stop signal
 # -> graceful shutdown, deterministic under SimClock, vs the example config).
 cargo test -p fortuna-live --test daemon_smoke -- --nocapture

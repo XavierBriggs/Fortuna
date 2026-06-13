@@ -10,7 +10,36 @@ commit gate, `fortuna-invariants` untouched except at E.3 (operator-waive-flagge
 
 ---
 
-## [Post-merge integration] Slice 2a — ledger: `SignalsRepo::recent_by_kind` (the daemon's signal read-back) (this commit)
+## [Post-merge integration] Slice 2b — cognition: `run_due_personas` orchestrator (the live-loop brain) (this commit)
+
+The DB-free per-tick orchestrator that decides WHICH `(persona, region_key)` runs fire and
+executes them — the piece that makes personas actually run live. New
+`crates/fortuna-cognition/src/persona_orchestrator.rs`: `run_due_personas(now, schedules,
+signals, state, mind, budget) -> Vec<PersonaRunResult>`. A `(persona, region_key)` is due by a
+fresh signal it reads (coalesced via `PersonaTriggerGate`) OR a due cadence (`CadenceScheduler`);
+each runs once via the existing `run_persona_analysis` (so the §4 firewall, budget throttle,
+schema validation, and degrade-to-defects are all inherited). `region_key` is derived by
+substituting the persona's `{field}` template from the triggering signal's payload
+(`fill_region_key`); a signal missing a field is skipped, never a crash. DB-free: returns
+`PersonaRunResult`s; the daemon mints the analysis id, persists `domain_analyses`, derives the
+belief `horizon`, fans out via `map_persona_analysis`, and persists beliefs (the 2c handoff).
+
+Built by a subagent (tests-first), then verified + reviewed by the main loop. Reviewer
+(feature-dev:code-reviewer) cleared the hard questions (UTF-8 slicing safety, coalescing,
+determinism, DB-free, no-panic) and raised two sub-bar items I fixed: the gate's `complete()`
+count is now an explicit reasoned discard (always 0 in the serial-tick model) rather than silent;
+the `render_signal_body` determinism unit test now uses two independent constructions + a
+serde_json key-order canary (was vacuous). 14 integration tests (signal/cadence/coalescing/
+budget-throttle/unread-kind/firewall-injection/determinism) + a seeded DST arm
+(`persona_orchestrator_dst`, wired into `scripts/run-dst.sh`, run at 500 scenarios clean).
+
+Verified: `cargo test -p fortuna-cognition` all green (orchestrator 14 + DST + every existing
+suite); `fmt` + `clippy --workspace --all-targets -D warnings` clean; full workspace test green
+except the pre-existing Track-C `kinetics_dto` red; DST corpus green.
+
+Shared-doc touches: none (code only; `scripts/run-dst.sh` gains the orchestrator arm).
+
+## [Post-merge integration] Slice 2a — ledger: `SignalsRepo::recent_by_kind` (the daemon's signal read-back) (commit 0cc6bf9)
 
 The live daemon could not read signals back (`SignalsRepo` had only insert/count/dedup), so a
 persona had no way to assemble its untrusted `<context-item>` blocks in the live loop. Added

@@ -940,13 +940,19 @@ gate, feature-dev:code-reviewer per slice):
   no way to read signals for persona context. `#[sqlx::test]` green; offline cache regenerated
   per-crate (one new `.sqlx` file, root untouched); offline build + fmt + clippy --workspace
   --all-targets green; full workspace test green except the pre-existing `kinetics_dto` red.
-- **Slice 2b — cognition: `run_due_personas` orchestrator (NEXT, via subagent-dev).** A pure
-  (DB-free) entry point: given now + validated active `PersonaDef`s + their triggers + the recent
-  signals (from 2a) + `&dyn Mind` + `&mut DiscoveryBudget`, decide which personas fire (cadence
-  due OR fresh-signal trigger; coalesced) → `run_persona_analysis` (budgeted, firewalled) →
-  return `{outcomes, analyses_to_persist, belief_drafts}` for the daemon to persist. No
-  `fortuna-ledger` dep (cognition drafts, daemon persists). Tests: firewall holds, budget
-  throttle, determinism, both trigger modes, coalescing, DST arm.
+- **Slice 2b — cognition: `run_due_personas` orchestrator — DONE (this commit).** New
+  `persona_orchestrator.rs`: per-tick, DB-free; a `(persona, region_key)` is due by fresh signal
+  (coalesced via `PersonaTriggerGate`) OR cadence (`CadenceScheduler`); each runs once via
+  `run_persona_analysis` (firewall/budget/schema/degrade inherited); `region_key` derived by
+  `{field}`-template substitution from the signal payload (`fill_region_key`; missing field →
+  skip, never crash). Returns `Vec<PersonaRunResult>` for the daemon to persist (cognition has no
+  ledger dep). Subagent-built tests-first; main-loop verified + feature-dev:code-reviewer (2
+  sub-bar fixes applied: explicit-not-silent gate-count discard; de-vacuoused determinism test).
+  14 integration tests + a seeded DST arm (500 scenarios clean, wired into run-dst.sh). Full
+  workspace battery green except the pre-existing `kinetics_dto` red.
+  KNOWN LIMITATION (documented): a "naked" cadence with NO signal for a region is a no-op (regions
+  are only known from signal payloads). Fine for the shipped personas (macro's release-window run
+  still has a calendar signal present); revisit if an operator-supplied region catalog is needed.
 - **Slice 2c — Track-A handoff doc.** The exact ~10-line `drive()` integration (query 2a →
   call 2b → persist `domain_analyses` + fan-out beliefs via existing `persist_beliefs` → alert
   defects) + the `[personas]` config section, as a paste-ready prompt (like the Track-C one).

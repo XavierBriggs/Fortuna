@@ -37,6 +37,7 @@ pub mod mind;
 pub mod persona;
 pub mod persona_beliefs;
 pub mod persona_metrics;
+pub mod persona_orchestrator;
 pub mod persona_runner;
 pub mod persona_scoring;
 pub mod persona_trigger;
