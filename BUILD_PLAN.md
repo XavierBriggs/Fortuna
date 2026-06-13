@@ -931,4 +931,4 @@ scheduler is shared with D9). The skill/persona layer is a separate session
       placeholder fields. (DONE 2026-06-13 <hash>; scoped battery green — fmt +
       clippy -p fortuna-sources -p fortuna-live --all-targets -D warnings +
       test -p fortuna-sources = 119 lib + 5 DST + test -p fortuna-live --lib
-      ingestion 6/6. Subagent-built, main-loop reviewed + verified.)
+      ingestion 6/6. Subagent-built, main-loop reviewed + verified.) [06b247c]
