@@ -10,7 +10,28 @@ commit gate, `fortuna-invariants` untouched except at E.3 (operator-waive-flagge
 
 ---
 
-## [Post-merge integration] Slice 3 ADDED to the Track-A handoff (operator-directed, doc-only) (this commit)
+## [Post-merge integration] ledger: `BeliefsRepo::resolved_persona_stats` — the persona-scoring data source (this commit)
+
+Operator-directed ("complete this" — the open-offer query). The clean data source that unblocks
+Slice 3's review folding AND the §20.1 ROTA personas-view. New
+`BeliefsRepo::resolved_persona_stats(persona_id, version) -> ResolvedPersonaStats { persona_id,
+persona_version, samples: Vec<(p,outcome)>, clv_bps: Vec<f64> }`: the scope's resolved beliefs
+grouped by the fan-out provenance `{persona_id, persona_version}`, over SCOREABLE events, in
+`created_at` order — mirrors `resolved_stats` but keyed on provenance instead of category.
+Ledger-native (the repo layer holds no `fortuna-cognition` types — the dep is test/build-only); the
+daemon does the one-line wrap into `persona_scoring::PersonaScopeRecord`. The handoff §8 was updated
+to consume it (placeholder → the real query + wrap).
+
+Verified: new `#[sqlx::test] resolved_persona_stats_groups_resolved_beliefs_by_provenance_scope`
+green (live sqlx macro-check) — proves open/other-version/other-persona/non-persona beliefs are all
+excluded, ordering by `created_at`, measurable-CLV-only, empty-scope-not-an-error. Offline cache
+regenerated per-crate (one new `.sqlx` file, root untouched); offline build + fmt + `clippy
+--workspace --all-targets -D warnings` clean; full workspace test green except the pre-existing
+Track-C `kinetics_dto` red.
+
+Shared-doc touches: handoff §8 (this track's own doc).
+
+## [Post-merge integration] Slice 3 ADDED to the Track-A handoff (operator-directed, doc-only) (commit 927ecbd)
 
 Per operator ("add slice 3 to the track-a handoff"), `persona-live-wiring-handoff.md` gains §8: how
 Track A folds persona promote/retire verdicts into its weekly review. Documented, not built —

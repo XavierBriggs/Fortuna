@@ -966,10 +966,12 @@ gate, feature-dev:code-reviewer per slice):
   review calls the already-built `score_persona`/`propose_promotion` per `(persona, version)` and
   routes verdicts to `#fortuna-review` (recommendation-only, I7). persona_scoring runs standalone
   today, so this only surfaces verdicts in the digest — not a blocker.
-  ONE BUILDING-BLOCK Track E provides ON REQUEST: a `BeliefsRepo::resolved_persona_stats(persona_id,
-  version)` query (resolved beliefs grouped by the provenance `{persona_id, persona_version}`) — the
-  clean data source for Slice 3 AND the §20.1 ROTA personas-view. A small `recent_by_kind`-style
-  slice; not built yet (Track A can filter `BeliefsRepo::recent` for a first cut).
+  DATA SOURCE — BUILT (this commit, operator-directed): `BeliefsRepo::resolved_persona_stats(
+  persona_id, version) -> ResolvedPersonaStats` (resolved beliefs grouped by provenance
+  `{persona_id, persona_version}`, scoreable events, created_at order; ledger-native, daemon wraps
+  into `PersonaScopeRecord`). Unblocks Slice 3's clean path AND the §20.1 ROTA personas-view. Handoff
+  §8 consumes it. So Slice 3 is now fully spec'd + data-backed for Track A — only their `drive()`/
+  review call-site remains.
 
 STILL GATED (not Track-E): ROTA panels = Track B (`fortuna-ops/assets/rota/`); macro signal KINDS
 = Track D (`fortuna-sources`, constitution-forbidden for Track E). Surfaced, not built.

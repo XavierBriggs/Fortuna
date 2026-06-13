@@ -34,10 +34,10 @@ pub use repos::{
     BeliefScoresRepo, BeliefsRepo, CalibrationParamsRepo, CalibrationParamsRow,
     CalibrationScopeRow, DiscrepanciesRepo, DomainAnalysesRepo, DomainAnalysisRow, EdgeRow,
     EdgesRepo, EventRow, EventsRepo, FillsRepo, HaltsRepo, JournalRepo, JournalRow, LessonRow,
-    LessonsRepo, PersonaRow, PersonasRepo, RecentSignalRow, ReservationsRepo, ResolvedStat,
-    ScalarBeliefRow, ScalarBeliefsRepo, SettlementEntryRow, SettlementsRepo, SignalsRepo,
-    SnapshotRow, SnapshotsRepo, SourceRegistryRepo, SourceRegistryRow, TradabilityRepo,
-    TradabilityRow,
+    LessonsRepo, PersonaRow, PersonasRepo, RecentSignalRow, ReservationsRepo, ResolvedPersonaStats,
+    ResolvedStat, ScalarBeliefRow, ScalarBeliefsRepo, SettlementEntryRow, SettlementsRepo,
+    SignalsRepo, SnapshotRow, SnapshotsRepo, SourceRegistryRepo, SourceRegistryRow,
+    TradabilityRepo, TradabilityRow,
 };
 
 pub use sqlx::PgPool;

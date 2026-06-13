@@ -219,11 +219,14 @@ The API (all built + tested in `persona_scoring.rs`):
 use fortuna_cognition::persona_scoring::{
     Baseline, PersonaScope, PersonaScopeRecord, propose_promotion, score_persona,
 };
-// per (persona, version):
+use fortuna_ledger::BeliefsRepo;
+// per (persona, version): gather the scope's resolved beliefs (the slice-3 query, by provenance)
+let s = BeliefsRepo::new(pool.clone())
+    .resolved_persona_stats(persona_id, persona_version).await?;   // -> ResolvedPersonaStats
 let record = PersonaScopeRecord {
-    scope:   PersonaScope { persona_id, persona_version },
-    samples: /* Vec<(claimed_p, outcome_bool)> — the scope's RESOLVED beliefs */,
-    clv_bps: /* Vec<f64> — their CLV measurements (skip the None ones) */,
+    scope:   PersonaScope { persona_id: s.persona_id, persona_version: s.persona_version },
+    samples: s.samples,     // Vec<(p, outcome)> over SCOREABLE resolved events
+    clv_bps: s.clv_bps,     // measurable CLV only (None dropped)
 };
 let card     = score_persona(&record);
 let proposal = propose_promotion(
@@ -240,14 +243,13 @@ route_to_review(format!(
 ));
 ```
 
-**The one data dependency (a shared building block).** Each `PersonaScopeRecord` needs the scope's
-RESOLVED beliefs (claimed `p`, `outcome`, `clv_bps`) grouped by the provenance
-`{persona_id, persona_version}` that the fan-out stamps (`map_persona_analysis`). Two ways:
-- **Quick:** filter `BeliefsRepo::recent(limit)` (it already returns `brier`/`clv_bps`/`provenance`)
-  by `provenance.persona_id` / `persona_version` — fine for a first cut, bounded by `limit`; or
-- **Clean:** a dedicated `BeliefsRepo::resolved_persona_stats(persona_id, version) -> PersonaScopeRecord`
-  query — the §20.1 ROTA personas-view needs the SAME data. **Track E will add this query on request**
-  (a small `recent_by_kind`-style ledger slice); ask and it lands.
+**The data source (built — slice "Track-E resolved_persona_stats query").** `BeliefsRepo::
+resolved_persona_stats(persona_id, version) -> ResolvedPersonaStats { persona_id, persona_version,
+samples: Vec<(f64,bool)>, clv_bps: Vec<f64> }` returns the scope's resolved beliefs grouped by the
+fan-out provenance `{persona_id, persona_version}`, over SCOREABLE events, in `created_at` order
+(mirrors `resolved_stats`, keyed on provenance instead of category). It is ledger-native (the repo
+layer holds no cognition types); the one-line wrap into `PersonaScopeRecord` is shown above. The
+§20.1 ROTA personas-view reads the SAME query.
 
 **The baselines** (`no_persona_brier`, `market_brier`) are the §11 comparison, scored over the SAME
 resolved events: the raw-source-direct belief Brier and the market-implied (`p` = price) Brier. You
