@@ -13,6 +13,18 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-13, cont'd — verifier loop pass)
 
+- **PERSONA-LIVE-INTEGRATION (5 slices: persona live-loop wiring + I6 persona pin)
+  MERGED → main @ f236b6a = GATE ACCEPT.** The persona producer's live-loop
+  (run_due_personas orchestrator emitting order-free PersonaOutcome DRAFTs;
+  SignalsRepo::recent_by_kind read-back; belief_horizon; weekly-review verdict
+  folding). **PROTECTED-CRATE ADDITION (legal):** new i6_persona_propose_only.rs
+  ONLY (+141/0 del, no existing invariant test touched — verified) pins the
+  PersonaOutcome surface AND domain_analyses table to an exact ORDER-FREE field
+  set. MUTATION-PROVEN (serialize cost_cents as forbidden max_price_cents → the
+  surface test reds). persona_runner 12; ledger SignalsRepo 28+ + persona_e2e +
+  scalar_beliefs green; i1+i6(mind+persona)+i7 green. 3-way preserved the perp
+  pipeline. (Merged committed tip 927ecbd; wt-e's uncommitted ledger WIP excluded.)
+
 - **🎯 TRACK C SLICE-4d+4e (belief PERSISTENCE + Sim-soak PerpTick FEED) MERGED →
   main @ 95799cc = GATE ACCEPT. THE belief-production path is now on main.** A
   RECORDED perp tick drives a producer to emit a scalar belief that PERSISTS to
