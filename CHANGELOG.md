@@ -122,6 +122,26 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-13 — G1 fix: Kalshi error_reason nested-object extraction — `b2087fc`
+
+**What.** `crates/fortuna-venues/src/kalshi/dto.rs` — `error_reason` now
+structure-extracts the nested `{"error":{"code","message","details"}}` body
+(`KalshiErrorBody.error: Option<serde_json::Value>`), the commonest recorded 4xx
+shape (17/19). The 429 string shape and the flat shape are unchanged.
+
+**Why.** Closes gap **G1** that the 2(iii) Cluster-1 clearance exposed — the
+venue's error code now reaches diagnostics structured (`code=order_already_exists;
+...`) instead of a raw-JSON dump. Diagnostic quality; HTTP-status routing was
+already correct. Zero blast radius (dto.rs-internal).
+
+**Tests.** TDD red-first: new `error_reason_extracts_the_nested_error_object`
+(kalshi_dto.rs); `recorded_nested_4xx_...` tightened to require the `code=` prefix.
+The 3 pre-existing error_reason tests unchanged + green.
+
+**Battery.** fmt; clippy --workspace --all-targets; cargo test --workspace (130
+targets, 0 failed); run-dst.sh 200 (0 violations; daemon_smoke 15/15).
+code-reviewer ACCEPT. Protected crate untouched.
+
 ### 2026-06-13 — T4.2 (iii) Cluster 1: Kalshi paper-clearance — `f7206a4`
 
 **What.** `crates/fortuna-venues/tests/kalshi_recorded.rs` (18 tests; test-only) —

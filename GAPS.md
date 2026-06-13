@@ -184,13 +184,13 @@ signed. Full battery green (fmt + clippy --workspace --all-targets + test
 
 TWO ADAPTER GAPS the recording EXPOSED (clearance doing its job; resolve before
 promotion; NOT fixed this slice — own-battery follow-ups):
-- G1 NESTED ERROR BODY not structure-extracted: KalshiErrorBody.error is
-  Option<String> (dto.rs:562) but 17/19 recorded 4xx bodies send
-  {"error":{"code","message","service"}} (an object) -> serde_json::from_value
-  fails -> error_reason surfaces the venue code via the RAW-JSON fallback, not
-  structured extraction. HTTP-status routing (400->Rejected, 404->NotFound) is
-  independent + correct, so this is DIAGNOSTIC QUALITY, not a safety gap. Fix:
-  error: Option<serde_json::Value> + extract nested code/message/details.
+- G1 NESTED ERROR BODY — RESOLVED (b2087fc): error_reason now structure-extracts
+  the nested {"error":{"code","message","details"}} object (KalshiErrorBody.error
+  is Option<serde_json::Value>; the 429 String shape preserved; the flat shape
+  unchanged). TDD red-first; full battery green (130 targets 0-failed; run-dst 200
+  0-violations). WAS: error was Option<String> so 17/19 recorded 4xx bodies fell
+  to a raw-JSON dump (diagnostic quality only; HTTP-status routing was always
+  correct).
 - G2 NO HALT-STATUS DTO: no KalshiExchangeStatus DTO / KalshiVenue::exchange_status()
   method; exchange__status.json parses into a local test struct but the adapter
   cannot consume exchange status for the I2/I3 halt rails. Structural; land before

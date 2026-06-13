@@ -42,9 +42,9 @@ verifier amends as gates land. All standard loop rules apply unchanged.
        >> CLUSTER 1 DONE f7206a4 (2026-06-13): kalshi_recorded.rs (18 tests) —
           FIRST recorded-fixture adapter tests; PASS items 1,7,8,9,10,13,14,16,
           17,18,20,21. Clearance record docs/design/track-a-kalshi-paper-
-          clearance.md (UNSIGNED). Exposed 2 ledgered adapter gaps (G1 nested-
-          error extraction, G2 exchange-status DTO). Clusters 2 (transport
-          round-trips) + 3 (auth-skew/WS handshake) PENDING.
+          clearance.md (UNSIGNED). Exposed 2 adapter gaps — G1 nested-error
+          extraction RESOLVED (b2087fc), G2 exchange-status DTO pending. Clusters 2
+          (transport round-trips) + 3 (auth-skew/WS handshake) PENDING.
    (iv) Kill-switch KalshiVenue plug: FORTUNA_KILLSWITCH_* credential
        pair, freeze --venue kalshi wiring + tests (mock transport); I4
        dependency rules absolute (no new killswitch deps); live exercise

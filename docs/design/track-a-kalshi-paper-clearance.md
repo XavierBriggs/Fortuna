@@ -33,13 +33,13 @@ The clearance evidence is built in clusters so each lands battery-green:
 
 ## Adapter gaps the recording EXPOSED (ledgered in GAPS.md; resolve before promotion)
 
-- **G1 — nested error body not structure-extracted.** `KalshiErrorBody.error` is
-  `Option<String>` (dto.rs:562) but 17/19 recorded 4xx bodies send
-  `{"error":{"code","message","service"}}` (an object). The struct-parse fails and
-  `error_reason` surfaces the venue code via the **raw-JSON fallback**, not
-  structured extraction. Functionally safe (HTTP-status routing is independent and
-  correct), but diagnostics carry raw JSON. Fix: `error: Option<serde_json::Value>`
-  + extract nested `code`/`message`/`details`. **Diagnostic quality, not blocking.**
+- **G1 — RESOLVED (`b2087fc`).** `KalshiErrorBody.error` is now
+  `Option<serde_json::Value>` and `error_reason` structure-extracts the nested
+  `{"error":{"code","message","details"}}` object into the same `code=...` form as
+  the flat shape (the 429 string shape preserved). Was: `Option<String>`, so 17/19
+  recorded 4xx bodies fell to a raw-JSON dump (diagnostic quality; HTTP-status
+  routing was always correct). TDD red-first; full battery green. Items
+  7/8/9/10/14 now surface the venue code structured.
 - **G2 — no halt-status DTO.** There is no `KalshiExchangeStatus` DTO and no
   `KalshiVenue::exchange_status()` method; the recorded `exchange__status.json`
   parses fine into a local struct but the adapter cannot yet consume exchange
@@ -91,8 +91,9 @@ Venue `kalshi` may be promoted from Sim toward PAPER only after:
 
 - [ ] Cluster 2 (transport round-trips: place/cancel/fills routing) landed + green.
 - [ ] Cluster 3 (auth-skew 401 bodies; WS live handshake notes) landed + green.
-- [ ] Adapter gaps G1 (nested error extraction) and G2 (exchange-status DTO)
-      resolved, or explicitly accepted with written rationale.
+- [x] G1 (nested error extraction) RESOLVED (`b2087fc`).
+- [ ] G2 (exchange-status DTO / `exchange_status()` method) resolved, or
+      explicitly accepted with written rationale.
 - [ ] UNCOVERABLE items (26; STP maker mode; cursor stability/expired; settlement
       units; populated series fee fields; maintenance-window status) reviewed and
       either re-captured or accepted as live-first risks.
