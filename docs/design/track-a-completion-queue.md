@@ -50,6 +50,9 @@ verifier amends as gates land. All standard loop rules apply unchanged.
           8-routing, 15, 19-roundtrip. REMAINING C2: 409-dup-resolve routing (7),
           unauth GET (5), legacy orders (12); then Cluster 3 (auth-skew/WS).
           Cancel-hardening (poll-until-terminal/recancel-404) ledgered in GAPS.
+       >> CLUSTER 3 auth-401 routing DONE fe86cb5 (2026-06-13): recorded 401 bodies
+          → Rejected w/ code surfaced (item 3 PASS; skew-mapping half of item 2).
+          WS frame-parse done in 2(ii); remaining: live WS handshake (op-run).
    (iv) Kill-switch KalshiVenue plug: FORTUNA_KILLSWITCH_* credential
        pair, freeze --venue kalshi wiring + tests (mock transport); I4
        dependency rules absolute (no new killswitch deps); live exercise

@@ -406,7 +406,8 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       adapter tests; exposed 2 adapter gaps — G1 nested-error extraction RESOLVED
       (b2087fc), G2 exchange-status DTO pending; Cluster 2 CORE DONE (811e383,
       kalshi_recorded_roundtrip.rs: place/place-400/cancel-race/fills) — remaining
-      C2 (409-resolve/unauth/legacy) + Cluster 3 (auth/WS) pending. Remaining:
+      C2 (409-resolve/unauth/legacy) pending; Cluster 3 auth-401 routing DONE
+      (fe86cb5), WS live handshake op-run. Remaining:
       (iv) kill-switch Kalshi plug, (v) Slack listener.
 - [ ] T4.3 ROTA — the operator dashboard (operator-directed 2026-06-11; design
       AUTHORITATIVE at docs/design/rota-dashboard.md INCLUDING its amendments

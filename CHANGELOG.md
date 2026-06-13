@@ -122,6 +122,17 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-13 — T4.2 (iii) Cluster 2/3: Kalshi auth-401 routing — `fe86cb5`
+
+**What.** +1 parametric test in `kalshi_recorded_roundtrip.rs`: each recorded 401
+auth-gateway body (bad-sig / unknown-key / missing-header / skew) → `balance()` →
+`VenueError::Rejected` with the venue code surfaced; two needles use the `code=`
+prefix so the auth path also proves G1 structured extraction discriminately.
+
+**Verdicts.** Clearance item 3 → PASS; item 2 adapter-mapping half (skew 401 →
+`header_timestamp_expired` → Rejected). code-reviewer ACCEPT. Battery green (131
+targets, 0 failed; run-dst.sh 200 0-violations; daemon_smoke 15/15).
+
 ### 2026-06-13 — T4.2 (iii) Cluster 2: Kalshi exec round-trips — `811e383`
 
 **What.** `crates/fortuna-venues/tests/kalshi_recorded_roundtrip.rs` (4 tests;

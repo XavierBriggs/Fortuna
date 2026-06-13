@@ -29,9 +29,11 @@ The clearance evidence is built in clusters so each lands battery-green:
   routing (G1 structured reason, e2e), the cancel stale-read race→Timeout, and the
   fills round-trip (`kalshi_recorded_roundtrip.rs`, 4 tests). REMAINING C2: the
   409-dup-resolve routing, unauth GET, and legacy order family round-trips.
-- **Cluster 3 (PENDING):** auth-skew (signed-request 401 bodies) and WS handshake
-  (the recorded `ws__*.jsonl` frame parse/assemble already landed in slice 2(ii)
-  `recorded_replay.rs`; the live 101 handshake is operator-run).
+- **Cluster 3 (AUTH-ERROR ROUND-TRIPS LANDED, `fe86cb5`; WS remainder pending):**
+  the recorded 401 auth-gateway bodies route to `Rejected` with the code surfaced
+  (`kalshi_recorded_roundtrip.rs::recorded_auth_401_bodies_...`; items 3, skew-
+  mapping half of 2). WS: the recorded `ws__*.jsonl` frame parse/assemble already
+  landed in slice 2(ii) `recorded_replay.rs`; the live 101 handshake is operator-run.
 
 ## Adapter gaps the recording EXPOSED (ledgered in GAPS.md; resolve before promotion)
 
@@ -58,8 +60,8 @@ from this session's fixtures (re-capture needed).
 | # | Topic | Verdict | Fixture | Evidence / note |
 |---|---|---|---|---|
 | 1 | Happy-path signed GET /balance → 200 | PARTIAL | `auth__balance_ok.json` | Balance BODY parse PASS (`recorded_balance_is_integer_cents...`); the signed-200 round-trip is auth/transport (C2/C3). |
-| 2 | Timestamp skew tolerance window | PENDING-C3 | `auth__skew_*` | README finding 2: >5s and <30s. Signed-request replay deferred. |
-| 3 | Auth error bodies (bad sig / unknown key / missing header) | PENDING-C3 | `auth__bad_signature.json` etc. | Cluster 3. |
+| 2 | Timestamp skew tolerance window | PARTIAL | `auth__skew_minus30s.json` | Window (>5s, <30s) README-confirmed (Cluster 1). Adapter-mapping half: the recorded skew 401 (`header_timestamp_expired`) → Rejected (`recorded_auth_401_...`). The accept/reject WINDOW is a venue behavior, not adapter logic. |
+| 3 | Auth error bodies (bad sig / unknown key / missing header) | PASS | `auth__bad_signature.json`, `_unknown_key_id`, `_missing_signature_header` | `recorded_auth_401_bodies_route_to_rejected_with_the_code_surfaced` — each recorded 401 → Rejected, code structure-surfaced (G1). |
 | 4 | Signature path `/trade-api/v2` both hosts + WS | PENDING-C3 | `auth__balance_alt_host.json` | README finding 15 (path-only signing). |
 | 5 | Unauthenticated GET /markets works | PENDING-C2 | `markets__unauth_list.json` | Transport-level. |
 | 6 | V2 create 201 body; IOC remaining; avg_fill_price | PASS | `orders__create_v2_taker_ioc.json` | `recorded_place_taker_ioc_returns_the_venue_order_id` — place() parses the recorded 201 → VenueOrderId (Cluster 2). |
@@ -85,7 +87,7 @@ from this session's fixtures (re-capture needed).
 | 26 | Demo/prod parity re-record | UNCOVERABLE | — | Re-record read-only endpoints against prod before first live use (README gap; checklist #26). |
 | 27 | GET /exchange/status (maintenance window) | PARTIAL | `exchange__status.json` | Normal-operation shape PASS (`recorded_exchange_status_normal_operation_shape`). Maintenance-window shape **UNCOVERABLE**. Adapter gap **G2** (no DTO/method). |
 
-**Tally (Clusters 1 + 2):** PASS 6,8,10,13,14,15,16,18,20,21 · PASS-parse (routing pending C2) 7,9 · PARTIAL 1,11,17,19,22,23,24,25,27 · PENDING-C2 5,12 · PENDING-C3 2,3,4 · UNCOVERABLE 26 (+ sub-items of 11,17,19,22,27 as noted).
+**Tally (Clusters 1 + 2 + C3-auth):** PASS 3,6,8,10,13,14,15,16,18,20,21 · PASS-parse (routing pending C2) 7,9 · PARTIAL 1,2,11,17,19,22,23,24,25,27 · PENDING-C2 5,12 · PENDING-C3 4 + WS handshake (23-25 frame-parse done, live op-run) · UNCOVERABLE 26 (+ sub-items of 11,17,19,22,27 as noted).
 
 ## Operator sign-off
 
