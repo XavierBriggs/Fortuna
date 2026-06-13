@@ -91,6 +91,14 @@ feature-dev subagents."
   path reports only the header name, fixtures secret-free, SSRF pins 6/6 un-regressed,
   111 sources tests green, protected crate untouched. NEXT track-D gate: the live_smoke
   example (7c45705) + factory-wiring; then merge the Aeolus F-tranche (F2+F1+F3+obs).
+- AEOLUS F-TRANCHE (F2+F1+F3+F4+obs+OBS-1+live_smoke) MERGED @ 9f2d678 (merge-gate ACCEPT,
+  post-merge green); default-off, operator opt-in (docs/operator.md). C T5.B7 slice 1a
+  (prob_claims/v1 scalar foundation) GATED ACCEPT (2026-06-13-T5.B7-slice-1a.md): math
+  mutation-proven, strict validate, I5-clean, binary path untouched, 54+14 green — the
+  FOUNDATIONAL scalar type. CADENCE: gate foundational/security commits immediately + the
+  rest as consolidated TRANCHE gates at merge; nothing reaches main ungated. QUEUE: A
+  PaperVenue replay (paper-realism), E.3a trusted/untrusted firewall (security), B ROTA
+  harness, D OBS-2.
 - D6-D10 NEWS-INGESTION PHASE A COMPLETE + MERGED @ f31aaa8 (this session):
   calendar source + Layer-2 corroboration + validator-wired scheduler + factory +
   the daemon `[ingestion]` seam — all gated ACCEPT (D9 hard gate, D10/2 live-
