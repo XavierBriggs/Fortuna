@@ -119,6 +119,63 @@ impl Default for WsDial {
     }
 }
 
+/// What the keep-alive timer says to do on a [`KeepAlive::poll`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KeepAliveAction {
+    /// Nothing due yet.
+    Idle,
+    /// `ping_interval` has elapsed since the last ping — send a ping frame.
+    SendPing,
+    /// No pong arrived within `pong_deadline` — the socket is SILENTLY dead (no
+    /// frames, no close, no error). Tear it down and redial; the live pump maps
+    /// this to [`DisconnectCause::KeepAliveTimeout`].
+    Dead,
+}
+
+/// Pong-liveness for the live socket: ping every `ping_interval`, and if no pong
+/// arrives within `pong_deadline` of the last one, the socket is silently dead.
+/// A PURE state machine — the caller passes `now_ms` (read from the injected
+/// clock at the IO edge) — so the deadline logic is deterministic and unit-tested
+/// WITHOUT a socket. Liveness detection matters because a half-open socket yields
+/// no frames, no close, and no error: `recv` would block forever without this.
+#[derive(Debug, Clone)]
+pub struct KeepAlive {
+    ping_interval_ms: i64,
+    pong_deadline_ms: i64,
+    last_pong_ms: i64,
+    last_ping_ms: i64,
+}
+
+impl KeepAlive {
+    /// `now_ms` seeds both references — a fresh connection is alive and unpinged.
+    pub fn new(ping_interval: Duration, pong_deadline: Duration, now_ms: i64) -> KeepAlive {
+        KeepAlive {
+            ping_interval_ms: ping_interval.as_millis() as i64,
+            pong_deadline_ms: pong_deadline.as_millis() as i64,
+            last_pong_ms: now_ms,
+            last_ping_ms: now_ms,
+        }
+    }
+
+    /// A pong arrived: the socket is alive as of `now_ms`.
+    pub fn on_pong(&mut self, now_ms: i64) {
+        self.last_pong_ms = now_ms;
+    }
+
+    /// Decide what to do at `now_ms`. A missed pong deadline (Dead) PREEMPTS a due
+    /// ping — a dead socket is not worth pinging.
+    pub fn poll(&mut self, now_ms: i64) -> KeepAliveAction {
+        if now_ms - self.last_pong_ms > self.pong_deadline_ms {
+            return KeepAliveAction::Dead;
+        }
+        if now_ms - self.last_ping_ms >= self.ping_interval_ms {
+            self.last_ping_ms = now_ms;
+            return KeepAliveAction::SendPing;
+        }
+        KeepAliveAction::Idle
+    }
+}
+
 /// One established websocket connection, abstracted so the session pump is
 /// integration-tested with a SCRIPTED MOCK — no live socket. The signing TLS
 /// dial that PRODUCES a `WsConn` is the redial-loop slice (next); this trait is
@@ -613,6 +670,48 @@ mod tests {
             last,
             Duration::from_secs(30),
             "backoff saturates at the cap"
+        );
+    }
+
+    #[test]
+    fn keep_alive_pings_on_the_interval_and_a_pong_keeps_it_alive() {
+        let mut ka = KeepAlive::new(Duration::from_secs(10), Duration::from_secs(30), 0);
+        assert_eq!(ka.poll(5_000), KeepAliveAction::Idle, "before the interval");
+        assert_eq!(
+            ka.poll(10_000),
+            KeepAliveAction::SendPing,
+            "at the interval"
+        );
+        assert_eq!(ka.poll(12_000), KeepAliveAction::Idle, "just pinged");
+        ka.on_pong(15_000);
+        // The next ping is due an interval after the LAST ping (10s); the pong
+        // keeps it well within the 30s death deadline.
+        assert_eq!(ka.poll(20_000), KeepAliveAction::SendPing);
+    }
+
+    #[test]
+    fn keep_alive_declares_a_silent_socket_dead_after_the_pong_deadline() {
+        let mut ka = KeepAlive::new(Duration::from_secs(10), Duration::from_secs(30), 0);
+        assert_eq!(ka.poll(10_000), KeepAliveAction::SendPing);
+        // Pings fired, but NO pong ever arrived: past the 30s deadline since the
+        // connect baseline, the half-open socket is declared dead.
+        assert_eq!(ka.poll(31_000), KeepAliveAction::Dead);
+    }
+
+    #[test]
+    fn a_fresh_pong_postpones_the_death_deadline() {
+        // ping_interval far beyond the window so only the pong deadline is tested.
+        let mut ka = KeepAlive::new(Duration::from_secs(100), Duration::from_secs(30), 0);
+        ka.on_pong(25_000);
+        assert_eq!(
+            ka.poll(50_000),
+            KeepAliveAction::Idle,
+            "50-25=25s < 30s: alive"
+        );
+        assert_eq!(
+            ka.poll(56_000),
+            KeepAliveAction::Dead,
+            "56-25=31s > 30s: dead"
         );
     }
 }

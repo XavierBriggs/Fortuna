@@ -18,7 +18,7 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
-## TRACK A — T4.2 item 2(i) WS dial: decision/session/loop + tungstenite error-classification done; only the operator-exercised socket round-trip remains
+## TRACK A — T4.2 item 2(i) WS dial: decision/session/loop/classification + keep-alive LOGIC done; only the operator-exercised socket round-trip remains
 
 Queue item 2(i) (Kalshi WS dial). Built the SURVIVAL DECISION core as a pure,
 deterministic state machine — crates/fortuna-venues/src/kalshi/dial.rs (new;
@@ -105,15 +105,30 @@ Error type is in a lib pub fn; the socket transport needs it regardless). Batter
 122 ok-result lines, DST 4 corpus + 10000 seeds zero violations (a cold-compile
 OOM under load recovered on the warm cache — no pkill).
 
-STILL DEFERRED (operator-exercised — "no live socket in tests"): the rest of the
-KalshiWsTransport assembly — connect_async with the signed handshake (reuse
-KalshiSigner over GET /trade-api/ws/v2, timestamp from an injected Clock) + a
-WsConn adapter over the WebSocketStream whose send/recv error arms CALL
-classify_ws_error + the ping/pong keep-alive timer (KeepAliveTimeout is modelled
-and already redials in run_dial). The signing itself is already auth.rs-tested;
-the socket round-trip is the operator's live recording session. REFINEMENT still
-open: backoff resets on TCP-connect; a flap-resistant version resets only after
-the first healthy frame / Subscribed ack.
+SLICE 5 (this commit) — the KEEP-ALIVE liveness LOGIC. dial.rs gains KeepAlive +
+KeepAliveAction {Idle, SendPing, Dead}: ping every ping_interval; if no pong
+arrives within pong_deadline of the last one, the half-open socket is SILENTLY
+dead -> Dead (the pump maps it to DisconnectCause::KeepAliveTimeout, which
+run_dial already redials). A PURE state machine — now_ms is passed in (read from
+the injected clock at the IO edge) — so the deadline logic is deterministic and
+unit-tested WITHOUT a socket; a Dead verdict PREEMPTS a due ping. TDD RED-first
+(stubbed poll -> real) with 3 #[test]s: ping-on-interval + pong-keeps-alive;
+silent-death-after-deadline; fresh-pong-postpones-death. Liveness matters because
+a half-open socket yields no frames / no close / no error — recv would block
+forever. No Cargo change; battery green (122 ok-result lines incl. 10 dial + 3
+ws_transport tests; DST 4 corpus + 10000 seeds zero violations — a sustained-load
+OOM/lock treadmill recovered after stopping my own stalled cargo wrappers and
+re-running on the settled cache; no rustc pkill).
+
+STILL DEFERRED (operator-exercised — "no live socket in tests"): ONLY the socket
+ASSEMBLY now — connect_async with the signed handshake (reuse KalshiSigner over
+GET /trade-api/ws/v2, timestamp from an injected Clock) + a WsConn adapter over
+the WebSocketStream whose send/recv error arms CALL classify_ws_error and whose
+ping/pong frames DRIVE KeepAlive::on_pong / poll. The signing is auth.rs-tested,
+the error-classification + keep-alive LOGIC are unit-tested; only the live socket
+round-trip is the operator's recording session. REFINEMENT still open: backoff
+resets on TCP-connect; a flap-resistant version resets only after the first
+healthy frame / Subscribed ack.
 
 ## TRACK A RE-ACTIVATED (operator 2026-06-13): completion-campaign queue — M3 DONE (queue item 1)
 
