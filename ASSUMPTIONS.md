@@ -77,6 +77,204 @@ conservative option, and the spec section it interprets.
   proceeded — the operator must read the output; exit 0 is reserved for
   fully-confirmed shutdowns and true idempotent no-ops.
 
+## T5.B4 slice 1: kinetics DTOs (track C, 2026-06-12; fixtures-first)
+
+- **DTO fields are exactly as recorded, optionality included:** required
+  where every capture carries the field, `Option` ONLY where a recording
+  shows absence (inactive TEST-EQUITY markets lack all quote/mark/
+  leverage fields; group "triggered" WS events lack contracts_limit_fp;
+  order_source absent on some order reads). Optionality is evidence-
+  driven, never defensive blanket-Option — a field the venue always
+  sends going missing should FAIL parse, not silently None.
+- **Uncaptured shapes stay raw JSON with a doc note** (funding_history
+  entries — demo funding rate was 0, zero payments post no entries;
+  notional-risk per-market limit values — empty map on demo). Typing
+  them from the OpenAPI spec alone would be inventing untested shapes;
+  they type up when a populated capture or the PROD parity sweep lands.
+- **Dollar strings stay `Decimal` in DTOs** (equity/notional carry six
+  decimals); conversion to `Cents`/`PerpPrice` happens through the
+  explicit parse primitives at adapter boundaries with the rounding
+  direction chosen there. Prices parse EXACT (sub-tick = error);
+  counts parse WHOLE (fractional trading disabled).
+- **WS unknown-type frames degrade to `WsFrame::Unknown` (preserved)**:
+  the demo API build is NEWER than prod (research §9) — failing the
+  whole stream on a new frame type would turn a venue deploy into an
+  outage; the recorded streams must (and do) parse with zero unknowns.
+
+## T5.B6 perp DST (track C, 2026-06-12; interprets plan B6)
+
+- **OPERATOR CONFIG GUIDANCE (discovered by the gate-pass=>no-instant-
+  liquidation invariant): set `min_liquidation_distance_bps` AT OR ABOVE
+  `price_band_bps`.** A gated buy may fill up to band_bps above the mark;
+  the instant mark-to-limit equity drop can reach notional x band/10^4,
+  while the distance floor guarantees a buffer of at least notional x
+  distance/10^4 above the (multiplied) maintenance level. distance >= band
+  makes a gated fill mathematically unable to liquidate at the marks it
+  was gated against; the perp DST pins the property under that config.
+  With distance < band, a thin-headroom fill far above the mark COULD
+  instantly liquidate — that is venue reality, not a gate defect, but
+  operators should know the knob relationship.
+- **Liquidation coverage needs shaped scenarios:** under calm random flow
+  the gates kept every account >5% from liquidation across 200 scenarios
+  (the coverage floor caught it — working as designed). Wild-regime
+  scenarios (small seeded account, large directionally-biased orders,
+  +/-4.8% walks with 5-15% gaps) are what reach real liquidations. Gaps
+  of that size are documented crypto behavior, not adversarial fantasy.
+- **The harness models the venue at the fill level** (immediate/delayed/
+  retried/dropped fills against gated orders) rather than through a venue
+  adapter — T5.B4's kinetics adapter doesn't exist yet; when it lands,
+  its sim/fixture surface can replace the harness's fill roll without
+  touching the invariants.
+- **Conservation resyncs at liquidation:** the i128 balance mirror tracks
+  fills and funding exactly; at a liquidation it adopts the event's
+  balance_after (the per-position liquidation arithmetic is pinned by
+  hand-computed margin_sim unit tests; re-deriving close prices in the
+  harness would test the implementation against itself).
+- **Wall-clock master-seed fallback** (when DST_MASTER_SEED is unset)
+  follows the established DST-harness convention (settlement_dst,
+  synthesis_dst) — seed-source only, printed for reproduction; per-seed
+  scenarios remain fully deterministic.
+
+## T5.B5 margin simulator (track C, 2026-06-12; interprets spec 5.15 / plan B5)
+
+- **VWAP entry rounding is by the POSITION's side:** long entries ceil
+  (a higher entry is worse for a long), short entries floor. Realized PnL
+  floors toward -inf on every reduce/flip (sub-cent gains drop, sub-cent
+  losses round to a full cent against us) — same conversion doctrine as
+  the core perp types.
+- **Liquidation closes the WHOLE account** (portfolio margin: the venue's
+  API accounts are portfolio-margined and the liquidation ratio is 1.0):
+  every position closes at its worse-for-us mark pushed FURTHER against
+  us by `liquidation_penalty_bps` (ceiled). Post-liquidation balances may
+  be NEGATIVE — clawback exposure is modeled, never clamped to zero.
+- **The portfolio maintenance requirement is the SUM of per-market curve
+  lookups** at worse-notional marks x multiplier (>= 100 validated). The
+  venue's true portfolio formula is unpublished; summing per-market
+  requirements is the bounded approximation available from recorded
+  leverage_estimates, and an unboundable notional is an ERROR ("a
+  liquidation under-modeled = test failure, not surprise").
+- **Funding entries exist only for held positions** (mirrors the venue's
+  funding_history); the schedule helper is exclusive-after /
+  inclusive-until so a tick is processed exactly once across consecutive
+  windows. Maintenance-window funding DEFERRAL (research: funding due
+  during Thursday maintenance processes after reopen) is NOT modeled —
+  the amount is identical, only the application timestamp differs;
+  ledgered as a B6 chaos-arm candidate rather than sim complexity.
+- **`apply_fill` does not margin-check:** pre-trade enforcement is the
+  gate pipeline's job (I1); the sim applies what fills and the
+  liquidation check catches under-margined states — exactly the venue
+  split. A market with NO risk curve refuses fills outright (it could
+  never be margin-checked later).
+- **No new DST scenarios in B5 itself:** the dedicated perp DST arms
+  (funding-tick chaos, liquidation under ack-delay, margin-call
+  sequences) are T5.B6, next in queue.
+
+## T5.B3 slice 2: I2 composition + invariant additions (track C, 2026-06-12)
+
+- **`equity_with_margin` is the I2 seam, not the wiring:** the composed
+  number (event equity + Σ margin-account conservative equity) is what the
+  DrawdownMonitor must consume once perp runtime state exists; the daemon
+  feed itself is fortuna-live (track A) and lands with B4/B5 integration.
+  The invariant tests pin the composition's behavior (perp-only losses
+  breach; worse-for-us mark governs; funding paid is drawdown) so the
+  wiring cannot later redefine the math.
+- **The unmarked flag ALERTS, never blocks:** a position valued on the
+  venue's number alone is alert-worthy degradation, but the composed
+  equity is already the conservative number available — halting on
+  missing marks would make a feed outage into a self-inflicted halt
+  (the wide-mark flag in 5.14 has the same posture).
+
+## T5.B3 perp gate arm, slice 1 (track C, 2026-06-12; interprets spec 5.15)
+
+- **"Same sealed GatedOrder through the same I1 pipeline" is read as: same
+  `GatePipeline` instance (shared halt flags, shared I3 buckets, same audit
+  record stream, same fail-closed loop, same private-constructor seal
+  discipline) producing a SECOND sealed type `GatedPerpOrder`.** The literal
+  same-type reading is impossible under 5.15's own type-level price
+  separation: `GatedOrder.limit_price` is `Cents` and "a PerpPrice must
+  never carry an event-contract price nor vice versa". The invariant
+  substance — no order reaches a venue without passing the gates,
+  constructible only by the pipeline, Serialize-only — is identical.
+  FLAGGED for verifier review as the load-bearing design reading.
+- **Reduce-only doctrine:** a VALID reduce-only order (position exists,
+  opposite direction, qty <= |position|) passes MarginHeadroom,
+  LiquidationDistance, LeverageCap, PerpNotionalCap, and EdgeFloor with an
+  "exposure-reducing" note. Rationale: such an order strictly reduces
+  worst-case exposure and grows liquidation distance; rejecting it would
+  force staying at HIGHER risk, and blocking a stop-loss close on a
+  margined instrument converts margin-model error into realized loss. It
+  still faces halts, price/size sanity, rate limits, idempotency, and
+  netting in full. Invalid reduce-only (no position / same direction /
+  oversized) rejects outright. FLAGGED for verifier review.
+- **Worst-case quantity = max(|pos|, |pos + delta|):** the position passes
+  through every value between pos and pos+delta while an order fills, so
+  the risk checks price the largest |position| along that path (a
+  non-reduce-only flip is priced at the bigger side, test-pinned).
+- **Conservative per-contract valuation = max(limit, mark):** the worst of
+  what we'd pay and where the market marks; exposure ceils to cents.
+- **MM curve semantics:** ascending (max_notional_cents, mm_bps) tiers;
+  lookup takes the first tier covering the worst-case notional; beyond the
+  last tier the approximation cannot bound the order and it is REFUSED
+  (spec 5.15 sentence implemented literally). Safety multiplier is percent
+  and validation-enforced >= 100 (below would weaken the venue's own
+  requirement); the venue's IM = 1.3 x MM suggests operators set >= 130.
+- **Funding drag inputs:** the candidate DECLARES intended holding in 8h
+  windows (holding_windows >= 1 enforced — every position can cross a
+  funding tick); drag = order notional x funding_drag_bps_per_window x
+  windows, ceiled. The drag also debits available equity in the headroom
+  check (plan §2's "margin consumed at liquidation + funding drag").
+- **Checks 2/3/9 (Capital, PositionCaps, EventExposure) do not run on the
+  perp arm** — dispatch on kind per 5.15: the margin account is the
+  dedicated capital envelope (MarginHeadroom is the capital check), the
+  leverage/notional caps are the position-caps analog, and perps have no
+  canonical events. Per-STRATEGY exposure caps for perps bind at sizing
+  (T5.B7); ledgered as a deliberate deferral.
+- **Rate-limit logic is deliberately duplicated** in the perp arm
+  (consume_perp_rate), kept in lockstep with pipeline::check_rate_limits
+  over the SAME buckets, rather than refactoring the I3-pinned original
+  mid-flight. Both arms set the same venue halt on breach (cross-domain
+  halt is test-pinned).
+
+## T5.B2 perps core types (track C, 2026-06-12; interprets spec 5.15)
+
+- **`PerpPosition.avg_entry` is a whole-tick `PerpPrice`:** the venue quotes
+  fixed-point dollar strings at the $0.0001 tick, so whole ten-thousandths
+  cover every observed payload. If a venue-reported average entry ever
+  carries finer precision, the B4 DTO layer converts it with an explicit
+  rounding direction chosen against us — precision policy stays at the
+  payload boundary, not inside the core type.
+- **`FundingAccrual.rate` is `Decimal` inside a core type, deliberately:**
+  the record is an append-only venue-payload boundary artifact whose job is
+  to reproduce the venue's reported rate EXACTLY for reconciliation against
+  funding_history. The venue applies its own ±2% cap and 0.01% zero
+  threshold BEFORE reporting; the constructor records reported rates and
+  never re-derives them (re-deriving would manufacture false discrepancies).
+  No money math rides on the Decimal beyond the single floored conversion
+  to `Cents` at construction.
+- **Funding `amount` sign convention:** positive = received, negative =
+  paid — matches the venue's funding_history `funding_amount` convention so
+  reconciliation is a direct compare. Flooring the signed flow toward -inf
+  is against-us in both directions (receipts never overstated, payments
+  never understated).
+- **Position-update math (fills, flips, realized PnL) is NOT in B2:** spec
+  5.15 defines the types; fill application belongs to the state/paper
+  layers and lands with T5.B5 (SimClock funding accrual + liquidation sim).
+  `PerpPosition` exposes only sign helpers, conservative uPnL, and ceiled
+  notional — the read-side surface B3's gates need.
+- **`MarginAccountView.pending_funding` is caller-supplied:** computing the
+  in-progress window estimate (TWAP accrual on SimClock) is T5.B5 work; the
+  view's contract pins where it lands in equity (balance + unrealized +
+  pending_funding = the I2 drawdown input) without faking an estimator.
+- **`FundingAccrual` carries no id:** ids are assigned by the ledger layer
+  at INSERT (append-only convention); the core type is the record content.
+- **`InstrumentKind` lives in `fortuna_core::perp` but is NOT yet threaded
+  through the shared `Market` structs:** the fortuna-venues market types are
+  outside track-C ownership (orchestration.md); threading lands with B3/B4
+  inside owned files, and any shared-struct edit it forces will be ledgered
+  as a cross-track item instead of made unilaterally.
+- **No new DST scenarios from B2:** pure value types with no event-loop or
+  order-path interaction; the dedicated perp DST arms are T5.B6 (queued).
+
 ## Latency levers: concurrent legs + stream ingestion (operator-directed)
 
 - **Concurrent leg submission preserves the determinism doctrine:** the
