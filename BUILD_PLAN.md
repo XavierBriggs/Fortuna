@@ -395,6 +395,28 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       strategies, kalshi adapter paper/live clearance vs fixtures, kill-switch
       KalshiVenue plug (FORTUNA_KILLSWITCH_* creds), Slack Socket Mode listener
       (app token; kill REQUESTS only, re-arms stay CLI-only).
+      PROGRESS (box stays unticked — slices remain): (i) Kalshi WS dial slices
+      1-2 + 4-5 + concrete transport CERTIFIED (t42-wsdial/redial/wsdial-transport
+      gates 2026-06-13; live socket round-trip is operator-run first); (ii) book-
+      driven recorded-stream replay into PaperVenue under both mech strategies DONE
+      (e6dd7ec, recorded_replay.rs) — trade-through + multi-market-bracket replay
+      stay fixture-blocked (ledgered GAPS, never fabricated); (iii) 27-item paper-
+      clearance Cluster 1 DONE (f7206a4, kalshi_recorded.rs 18 tests + clearance
+      record docs/design/track-a-kalshi-paper-clearance.md) — first recorded-fixture
+      adapter tests; exposed 2 adapter gaps — G1 nested-error extraction RESOLVED
+      (b2087fc), G2 exchange-status DTO pending; Cluster 2 CORE DONE (811e383,
+      kalshi_recorded_roundtrip.rs: place/place-400/cancel-race/fills) + TAIL DONE
+      (1e96d20: item 7 recorded 409→AlreadyExists; items 5/12 closed by cited
+      coverage) — clearance now PASSes 5,7,12; Cluster 3 auth-401 routing DONE
+      (fe86cb5), WS live handshake op-run. Remaining:
+      (iv) kill-switch Kalshi freeze MACHINERY proven (4e3a484, mock; i4
+      invariant green) + LIVE `freeze --venue kalshi` wiring DONE (7f69b81,
+      fail-closed env creds + self-spun tokio runtime; i4 invariant still green;
+      9 fail-closed tests) — only the operator-run live EXERCISE remains; (v)
+      Slack listener A1 decision logic DONE (ca5082d, socket.rs 14 tests; I2
+      refusal airtight) + A2 ack-first envelope loop DONE (f52ee66,
+      socket_loop.rs 12 tests; dedup/reconnect/cancel, mirrors the WS dial) —
+      only B (daemon-wiring/WSS/token, operator-gated) pending.
 - [ ] T4.3 ROTA — the operator dashboard (operator-directed 2026-06-11; design
       AUTHORITATIVE at docs/design/rota-dashboard.md INCLUDING its amendments
       section): read-only gold/black operator console — server-rendered Rust
@@ -519,6 +541,23 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       the full s5 money model (mark-loop floating source) and audit-recents
       queries. TEST RULE: populated-path seeds; a test green under a
       stubbed-empty source does not count. Verifier-gated.
+      PROGRESS (box stays unticked — slices remain): VALIDATED 2026-06-13
+      (rota-dashboard.md §10 "T4.5 validation"; the R5 audit pool these were
+      deferred behind is now live). Build order: (e) /gates.recent_rejections
+      [gate_reject audit] -> (e) /settlement.recent_watchdog -> (a) discovery
+      joins -> (b) verdict badge. SLICE 1 DONE (59fa594): /gates.recent_rejections
+      (recent gate REJECTIONS from the audit gate_decision trail). SLICE 2 DONE
+      (9558d56): /settlement.recent_watchdog_events (the audit watchdog rows —
+      settlement_overdue/dispute_freeze/orphaned_position); both §5-shaped,
+      newest-first, 3 populated-path tests each. SLICE 3 DONE (7ed3138): the
+      gate-verdict badge /api/rota/v1/build (docs/reviews verdict parse, local
+      console; RotaState.reviews_dir). Battery green (1391/0 + run-dst 200 0-viol).
+      (a) the discovery joins are NOT track-A — design §4/§12 defer them + "discovery"
+      observability is track-B. So the buildable-WITHOUT-OPERATOR T4.5 surface is
+      COMPLETE; the rest is BLOCKED (operator/verifier, GAPS): the WS gap/resync
+      counters (need the operator-run live dial wired into drive()); the full s5
+      money model (need an operator/design call surfacing the mark-loop AccountView
+      via a new SimRunner accessor).
 
 - [ ] T4.6 ROTA TOTAL OBSERVABILITY (mission 2; track B re-missioned 2026-06-13)
       — the operator single pane of glass consuming the C/D/E observability

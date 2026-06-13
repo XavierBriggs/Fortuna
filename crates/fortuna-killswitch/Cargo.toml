@@ -16,5 +16,12 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
 futures = { workspace = true }
+# I4-safe: tokio is NOT in the i4 forbidden set (sqlx/tokio-postgres/postgres/
+# fortuna-ledger/fortuna-cognition) and is ALREADY transitive via fortuna-venues.
+# The live `freeze --venue kalshi` path drives ReqwestKalshiTransport's async
+# reqwest on a SELF-SPUN current-thread runtime (a one-shot reactor for the HTTP
+# cancels — NOT the daemon's event loop): "tokio for IO at the edges". The sim
+# self-test stays on futures::block_on. i4_killswitch_independence stays green.
+tokio = { workspace = true }
 
 [dev-dependencies]

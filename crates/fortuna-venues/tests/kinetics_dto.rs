@@ -185,6 +185,19 @@ fn parse_as(kind: Kind, raw: &str) -> Result<(), String> {
     }
 }
 
+/// Files in `fixtures/kinetics-perps/` that are NOT kinetics endpoint captures,
+/// so they are deliberately outside this kinetics-DTO suite's exhaustive coverage
+/// (cross-track co-location). Each is validated by its OWNING suite, not here.
+const NON_KINETICS_FIXTURES: &[&str] = &[
+    // track-C slice-3b BASIS fixture (commit 2c17295): one capture cycle of the
+    // BTC perp paired against the same-cycle KXBTC bracket ladder, for the
+    // `perp_event_basis` kernel (fortuna-cognition). NOT a single kinetics
+    // endpoint DTO — it is consumed + validated by track-C's basis tests.
+    // GAPS-ledgered: relocating it out of this dir (so it no longer co-locates
+    // with the kinetics captures) is a verifier/track-C follow-up.
+    "paired_cycle_btc_perp_vs_kxbtc",
+];
+
 /// Every fixture body parses as its classified DTO; every file is
 /// classified; the classification agrees with the recorded HTTP status.
 #[test]
@@ -199,6 +212,10 @@ fn every_fixture_parses_into_its_typed_dto() {
             continue;
         }
         let stem = name.trim_end_matches(".json");
+        // Not a kinetics endpoint capture — owned + validated elsewhere.
+        if NON_KINETICS_FIXTURES.contains(&stem) {
+            continue;
+        }
         seen += 1;
         let Some(kind) = table.get(stem) else {
             failures.push(format!("{stem}: UNCLASSIFIED — classify new fixtures"));

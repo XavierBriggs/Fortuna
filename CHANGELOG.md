@@ -252,7 +252,408 @@ main @2668291, 2026-06-13. No model action is ever execution — personas propos
 
 ### Trading core, venues & exec
 
-_Owned by Tracks A / C / E — see their entries. Not maintained here._
+_Owned by Tracks A / B / C / E — see their entries below._
+
+## Track A — venue / exec / recovery
+
+Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
+slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
+`t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
+
+### 2026-06-13 — F16a: Kalshi cancel-reconcile hardened via the order list
+
+**Changed.** `KalshiVenue::cancel` (`crates/fortuna-venues/src/kalshi/adapter.rs`).
+On a DELETE-200 ack whose single reconcile GET reads stale `Resting`/`Unknown`
+(the recorded F16/F3 race — DELETE acked `reduced_by:"1.00"`, GET ~360ms later
+still `resting`), cancel() now reconciles ONCE against the order LIST
+(`GET /portfolio/orders`, new `cancel_reconcile_status_via_list`) — the
+authoritative terminal surface — and maps: list `Canceled`→`Ok(())`,
+`Executed`→`Rejected` (fills via `fills_since`), still-stale/absent/list-error→
+`Timeout` (the safe fallback). A genuinely-canceled order that read stale now
+resolves to a definite `Ok` instead of a false `Timeout`. The first-DELETE-404 →
+`NotFound` path is unchanged (no ack ⇒ claim nothing).
+
+**Why the order list, not recancel-404.** `fixtures/kalshi/README.md` finding-16
+suggested "treat recancel-404 as proof-of-canceled"; the fixtures REFUTE it — the
+404 bodies for already-canceled, already-EXECUTED, and never-existed orders are
+byte-identical (`orders__cancel_already_canceled` == `_executed` == `_unknown_id`),
+so that heuristic would MASK A FILL. The list status is the safe discriminator
+(`portfolio__orders_list` carries the same id `canceled` and other ids `executed`).
+README finding-16 annotated with this correction.
+
+**Tests** (verbatim recorded bodies; no fabrication): stale→list-canceled→Ok;
+stale→list-EXECUTED→Rejected (safety headline, **mutation-proven** — flip the
+Executed arm to `Ok(())` ⇒ that test reds); stale→absent→Timeout; the two existing
+stale tests extended to the 3-call flow (Timeout preserved, not weakened). Full
+`fortuna-venues` suite green; protected crate untouched; no new dep, no constructor
+change. **Deferred (F16b, GAPS):** the full multi-attempt bounded-backoff poll —
+needs an injected Sleeper + a recorded multi-stale fixture (never fabricated).
+
+### 2026-06-13 — T4.5 slice: gate-verdict badge (/api/rota/v1/build) — `7ed3138`
+
+**What.** New `/api/rota/v1/build` endpoint exposing the LATEST gate verdict
+parsed from the verifier's `docs/reviews/*.md` — the local operator console's
+build-health badge (design §7 cut it from v1 for "no parser"; T4.5 re-includes
+it). New `RotaState.reviews_dir` capability (mirrors `perishable_dir`; main.rs
+wires `docs/reviews`; a deployed daemon lacks `docs/` → "unknown"). `parse_verdict_token`
+finds `verdict:` anywhere in a line (line-start AND mid-line `Base: … Verdict: X`
+headers) and validates the ACCEPT*/BLOCK vocabulary (no prose false-positives);
+`latest_gate_verdict` picks the newest-by-mtime `.md` carrying a verdict (the
+rolling GATE-FINDINGS bus + verdict-less files skipped); bounded 8KB read; no-panic.
+
+**Tests.** Parser units over every real format (+ mid-line, ACCEPT-WITH-CONDITIONS,
+a prose-guard) + a deterministic populated-path scanner test (`File::set_modified`)
++ endpoint + degraded. code-reviewer ACCEPT (1 should-fix folded: the mid-line miss).
+
+**Correction.** The iteration-14 validation note over-claimed the *discovery joins*
+(a) as BUILDABLE-NOW; per design §4/§12 they are deferred (queries unwritten,
+triage-recall not-in-v1) and discovery observability is track-B's — corrected in
+GAPS/queue/§10. So the buildable track-A T4.5 surface is now COMPLETE: audit-recents
+(gates+settlement) + this badge. Remaining: (c) WS counters, (d) money model — both
+operator/verifier-blocked (GAPS).
+
+**Battery.** fmt --check; clippy --workspace --all-targets -D warnings; cargo test
+--workspace (1391 passed, 0 failed); run-dst.sh 200 (0 violations). (One run hit a
+transient sqlx-test temp-DB-name collision in the pre-existing cognition test — a
+known parallel-`#[sqlx::test]` flake, not this slice; green on re-run.)
+
+### 2026-06-13 — T4.5 slice: /settlement.recent_watchdog_events — `9558d56`
+
+**What.** Second T4.5 build slice (design §5), mirroring the gates slice.
+`view_settlement` (rota.rs) merges `recent_watchdog_events` when the R5 pool is
+present: the audit `watchdog` rows (sub-kinds settlement_overdue / dispute_freeze /
+orphaned_position) → `{audit_id, at, kind (the sub-kind), market_ref}`, newest-first.
+New `recent_watchdog_events_page` (runtime sqlx, `payload->>'kind'` text-extract).
+No verdict filter — every watchdog row is an event.
+
+**Honest/degraded.** Daemon-shaped "settlement" base view preserved (`views_from`
+untouched — the fortuna-live views test still asserts the array is absent there); no
+pool → explicit `available:false`; errors neutral. The bus `settlement_overdue` event
+is a separate kind; the audit table carries `watchdog`.
+
+**Tests (populated-path).** Seed all 3 watchdog sub-kinds + a non-watchdog row; assert
+only the watchdog rows surface newest-first with the full §5 shape (first/middle/last
+pinned), foreign kind excluded; available-but-empty; degraded-no-pool. code-reviewer
+ACCEPT (clean faithful mirror).
+
+**Battery.** fmt --check; clippy --workspace --all-targets -D warnings; cargo test
+--workspace (1387 passed, 0 failed); run-dst.sh 200 (0 violations).
+
+### 2026-06-13 — T4.5 slice: /gates.recent_rejections (audit-recents) — `59fa594`
+
+**What.** First T4.5 build slice (design §5). `view_gates` (rota.rs) now merges a
+`recent_rejections` sub-surface when the R5 read pool is present: recent per-check
+gate REJECTIONS from the audit `gate_decision` trail, mapped to `{audit_id, at,
+check, reason, intent_ref}`, newest-first. New `recent_gate_rejections_page`
+extracts fields as TEXT in SQL (`payload->>'check'` etc.) — runtime sqlx, the
+`audit_tail_page` precedent (off the sqlx-offline cache).
+
+**Why.** The first of the BUILDABLE-NOW T4.5 pieces (the audit pool it was deferred
+behind is live). Surfaces *why* orders were gate-rejected for the operator.
+
+**Honest/degraded.** The daemon-shaped "gates" base view is preserved (`views_from`
+untouched). No pool → explicit `available:false`, never fabricated; errors log
+neutral detail, never raw sqlx. The bus `gate_reject` event is a separate kind
+(live stream); the audit table carries `gate_decision`.
+
+**Tests (populated-path, T4.5 TEST RULE).** Seed real `gate_decision` rows (2
+Rejects + a Pass + the foreign `gate_reject` kind); assert only the 2 Rejects
+surface newest-first with the full §5 shape, Pass+foreign excluded; available-but-
+empty when no rejects; degraded-no-pool unavailable. code-reviewer ACCEPT.
+
+**Battery.** fmt --check; clippy --workspace --all-targets -D warnings; cargo test
+--workspace (1384 passed, 0 failed); run-dst.sh 200 (0 violations).
+
+### 2026-06-13 — T4.5 ROTA deferred panels: validation + slice plan (no code)
+
+**What.** Validation-only iteration for T4.5 (deferred ROTA trading-side panels): a
+code-explorer map of rota.rs/views.rs/ledger + the design §5 contracts, recorded as
+fit-validation notes in `docs/design/rota-dashboard.md` §10 ("T4.5 validation").
+
+**Findings.** Three pieces are BUILDABLE-NOW (the R5 audit pool they were deferred
+behind is live): (e) audit-recents — `/gates.recent_rejections` is clean (`gate_reject`
+audit kind, payload `{intent,check,reason}`), `/settlement.recent_watchdog` has a
+two-path sink nuance to resolve first; (a) discovery joins (tradability/edges +
+shadow-triage); (b) gate-verdict badge (low value). Two are BLOCKED and ledgered as
+operator/verifier asks in GAPS: (c) WS gap/resync counters need the operator-run live
+dial wired into `drive()`; (d) the full §5 money model needs an operator/design call to
+surface the mark-loop `AccountView` via a SimRunner accessor. Ownership confirmed: these
+are track-A trading-side surfaces (the cognition panel + §9 presentation are track-B).
+
+**Next.** Build order: (e) /gates.recent_rejections → (e) settlement → (a) joins → (b)
+badge, each with a populated-path `#[sqlx::test]` (the T4.5 TEST RULE).
+
+**Battery.** Docs-only (no `.rs` touched) — the code battery is unchanged from the green
+`fbbf861` state this session; `cargo fmt --check` clean. No code, no new tests.
+
+### 2026-06-13 — fix: scope kinetics-DTO suite past track-C's basis fixture (main was red)
+
+**What.** `kinetics_dto.rs`'s `every_fixture_parses_into_its_typed_dto` exhaustively
+globs `fixtures/kinetics-perps/`; track-C's slice-3b commit (`2c17295`) added the
+cross-venue basis composite `paired_cycle_btc_perp_vs_kxbtc.json` there (perp +
+co-recorded KXBTC bracket, for `perp_event_basis`) — not a kinetics endpoint DTO, so
+the exhaustive test failed `UNCLASSIFIED`. Added a documented `NON_KINETICS_FIXTURES`
+exclusion (skip that one stem before the counter).
+
+**Why.** This failed on **main** (pre-existing, confirmed against the main worktree —
+the verifier's disk-deferred merge battery missed it), so `cargo test --workspace` was
+red for every track. Correct scoping, not a weakening: every real kinetics fixture is
+still classified + parsed + counted, `seen == table.len()` still exhaustive
+(code-reviewer confirmed). GAPS-ledgered; the cleaner fix (relocate the basis fixture
+out of the kinetics dir) is a track-C/verifier follow-up.
+
+**Battery.** fmt --check; clippy --workspace --all-targets -D warnings; cargo test
+--workspace (0 failed); run-dst.sh 200 (0 violations). code-reviewer ACCEPT.
+
+### 2026-06-13 — T4.2 (iii) Cluster 2 tail: recorded 409→AlreadyExists — `1e96d20`
+
+**What.** One round-trip test in `kalshi_recorded_roundtrip.rs`:
+`recorded_place_duplicate_client_order_id_resolves_to_already_exists`. `place()`
+over the operator-recorded duplicate-409 fixture (nested
+`{"error":{"code":"order_already_exists",...}}`) → resolve-by-coid GET →
+`VenueError::AlreadyExists{existing}`.
+
+**Why.** Closes clearance item 7. The 409→AlreadyExists routing was covered
+synthetically (`kalshi_adapter.rs`) with a PLACEHOLDER code; this drives the real
+nested wire body that placeholder awaited — idempotent place, never a false success.
+
+**No vacuous re-tests.** Items 5 (unauth GET /markets) + 12 (legacy
+`/portfolio/orders` write family) are closed by CITED existing coverage, not new
+tests: `markets()` round-trips ×5 in `kalshi_adapter.rs` (the unauth distinction is
+a venue property, not mock-exercisable); the adapter writes via
+`/portfolio/events/orders` exclusively (item 16) and the legacy body is DTO-identical
+to v2. Clearance tally now PASSes 5, 7, 12; the 2(iii) checklist is done bar the
+operator-run live WS handshake.
+
+**Battery.** fmt --check; clippy --workspace --all-targets -D warnings; cargo test
+--workspace (1325 passed, 0 failed); run-dst.sh 200 (0 invariant violations).
+code-reviewer ACCEPT (sound, no issues). Protected crate untouched.
+
+### 2026-06-13 — T4.2 (iv) kill-switch LIVE `freeze --venue kalshi` wiring — `7f69b81`
+
+**What.** `crates/fortuna-killswitch` `main.rs` gains the live Kalshi freeze path
+(replacing the stub): read the switch's own env creds → `load_kalshi_creds` (new in
+`lib.rs`, pure, fail-closed) → `KalshiSigner` → `ReqwestKalshiTransport` →
+`KalshiVenue` → `freeze_cancel_and_report_positions` on a self-spun current-thread
+tokio runtime, with `RealClock`. New `tests/kalshi_live_wiring.rs` (9 tests).
+
+**Why.** The machinery (`4e3a484`) was proven over a real `KalshiVenue` via a mock
+transport; this is the binary actually wiring the production transport so the
+operator can run a real demo freeze (the 27-item clearance is now signed on main).
+
+**I4 (held, proven executably).** `i4_killswitch_independence` stays GREEN: `tokio`
+is NOT in the structural forbidden set and is already transitive via
+`fortuna-venues` (the direct dep adds zero packages); a self-spun one-shot reactor
+for the HTTP cancels is not the daemon event loop; the sim `self-test` path is
+byte-unchanged (operational layer) and the behavioral layer passes. "tokio for IO at
+the edges."
+
+**Fail-closed + secret-safe.** All three `FORTUNA_KILLSWITCH_KALSHI_*` env vars are
+required (base URL never defaulted — prod vs demo must be explicit); a missing/blank
+value or unreadable/empty PEM refuses before any venue call (exit 4). `KalshiCreds`
+has a hand-written redacting `Debug` (mutation-tested); errors name only the env var
+/ path, never key material.
+
+**Operator dep (GAPS).** New env var `FORTUNA_KILLSWITCH_KALSHI_BASE_URL` (added to
+`.env.example`); requested operator.md addition via GAPS. The live exercise itself is
+operator-run.
+
+**Battery.** fmt --check; clippy --workspace --all-targets -D warnings; cargo test
+--workspace (143 bins, 1324 passed, 0 failed, `i4_killswitch_independence` ok);
+run-dst.sh 200 (4 corpus + 200 seeds, 0 invariant violations). code-reviewer ACCEPT
+(1 must-fix [dead `RealClock.now()`] + 1 should-fix [exit-code assert] folded).
+Protected crate untouched.
+
+### 2026-06-13 — T4.2 (v) A2: Slack Socket Mode envelope loop — `f52ee66`
+
+**What.** `crates/fortuna-ops/src/socket.rs` gains the ack-first listener LOOP
+over a mockable `SlackSocketTransport`/`SlackSocketConn` (mirrors the Kalshi WS
+dial seam `kalshi::dial`). `run_socket_loop`: connect → pump (ack → dedup →
+dispatch) → redial. New `tests/socket_loop.rs` (12 tests) + 5 inline units.
+
+**Why.** A1 was the pure decision logic; the loop is what actually receives,
+acks, dedups, and survives reconnects against a recorded/mock transport — the
+production-shaped listener minus the live socket (slice B).
+
+**Safety teeth.** ack-FIRST before any sink touch (the 3s deadline; proven by a
+shared ack-vs-sink ordering log); bounded envelope-id dedup ring — a
+durably-handled envelope is suppressed but a `SinkError`-failed halt is left
+UNrecorded so a Slack redelivery RE-ATTEMPTS it (code-reviewer should-fix folded
++ regression-tested); `SocketDial` capped-exponential reconnect surviving
+transport loss AND the `disconnect`/refresh_requested lifecycle WITHOUT
+escalating on planned refreshes; cancel watch (prompt mid-pump + mid-backoff).
+I2 preserved end-to-end (a re-arm on the socket is acked but REFUSED). Untrusted
+data: malformed frames skipped, no panic, no ack.
+
+**Notes.** `SlackEnvelope.envelope_id` is now `#[serde(default)]` (hello/disconnect
+protocol frames carry none). Two faithful Slack-vs-Kalshi differences ledgered for
+B: no client subscribe step; no app-level keep-alive (B's real tokio-tungstenite
+transport must set a WS ping/pong timeout so a half-open socket surfaces as a recv
+error). ZERO new fortuna-ops dep.
+
+**Remaining (GAPS).** B (operator-gated) = daemon wiring (HaltRequestSink → gate
+halt path; EphemeralSender → SlackRouter) + real WSS transport + `[slack.socket_mode]`
+config + `FORTUNA_SLACK_APP_TOKEN` + operator-run live.
+
+**Battery.** fmt --check; clippy --workspace --all-targets -D warnings; cargo test
+--workspace (134 bins, 1209 passed, 0 failed); run-dst.sh 200 (4 corpus + 200
+seeds, 0 invariant violations; ingest_dst 5/5; daemon_smoke 15/15). code-reviewer
+ACCEPT (1 should-fix folded). Protected crate untouched.
+
+### 2026-06-13 — T4.2 (v) A1: Slack Socket listener decision logic — `ca5082d`
+
+**What.** New `crates/fortuna-ops/src/socket.rs` (+14 tests) — the Slack inbound
+interactivity DECISION LOGIC (built to docs/research/ops/slack-api-2026-06-09).
+`dispatch_envelope` routes block_actions / slash to handlers.
+
+**Safety teeth.** I2 re-arm REFUSED (no halt path; `HaltRequestSink` exposes only
+`request_halt` — code-reviewer confirmed airtight); allow-list (fail-closed empty;
+absent user = no) + optional team restriction (WrongTeam); halt-only routing to
+an injected sink (NOT the I4 killswitch); untrusted-data (action_id ENUM-matched,
+reason bounded 500c opaque, panic-free indexing).
+
+**Dep-clean.** Injected `HaltRequestSink`/`EphemeralSender` traits → ZERO new
+fortuna-ops dep, no fortuna-runner/gates import.
+
+**Remaining (GAPS).** A2 = the ack-first envelope loop + WS transport mock
+(dedup/reconnect); B = daemon wiring + real WSS (tokio-tungstenite) + config +
+`FORTUNA_SLACK_APP_TOKEN` + operator-run live.
+
+**Battery.** fmt; clippy --workspace --all-targets; cargo test --workspace (133
+targets, 0 failed); run-dst.sh 200 (0 violations; daemon_smoke 15/15).
+code-reviewer ACCEPT (2 must-fixes folded). Protected crate untouched.
+
+### 2026-06-13 — T4.2 (iv) kill-switch Kalshi freeze machinery — `4e3a484`
+
+**What.** `crates/fortuna-killswitch/tests/kalshi_freeze.rs` (1 test; test-only) —
+proves the I4 freeze-and-cancel works over the REAL `KalshiVenue` adapter via a
+mock transport (no live socket): open_orders → cancel each (DELETE + reconcile
+GET → canceled) → KillReport(2 cancelled, 0 failed); 5 transport calls; the
+flat-file journal records the freeze.
+
+**I4.** Mock + `block_on` (no tokio runtime); `fortuna-venues` already a killswitch
+dep → ZERO new crate → `i4_killswitch_independence` invariant test verified GREEN.
+
+**Remaining (next slice, ledgered GAPS).** The live `freeze --venue kalshi` wiring
+(FORTUNA_KILLSWITCH_* creds + ReqwestKalshiTransport on a current-thread tokio
+runtime — I4 analysis flagged for verifier); live exercise operator-run after
+clearance.
+
+**Battery.** fmt; clippy --workspace --all-targets; cargo test --workspace (132
+targets, 0 failed, incl. i4_killswitch_independence); run-dst.sh 200 (0 violations;
+daemon_smoke 15/15). code-reviewer ACCEPT. Protected crate untouched.
+
+### 2026-06-13 — T4.2 (iii) Cluster 2/3: Kalshi auth-401 routing — `fe86cb5`
+
+**What.** +1 parametric test in `kalshi_recorded_roundtrip.rs`: each recorded 401
+auth-gateway body (bad-sig / unknown-key / missing-header / skew) → `balance()` →
+`VenueError::Rejected` with the venue code surfaced; two needles use the `code=`
+prefix so the auth path also proves G1 structured extraction discriminately.
+
+**Verdicts.** Clearance item 3 → PASS; item 2 adapter-mapping half (skew 401 →
+`header_timestamp_expired` → Rejected). code-reviewer ACCEPT. Battery green (131
+targets, 0 failed; run-dst.sh 200 0-violations; daemon_smoke 15/15).
+
+### 2026-06-13 — T4.2 (iii) Cluster 2: Kalshi exec round-trips — `811e383`
+
+**What.** `crates/fortuna-venues/tests/kalshi_recorded_roundtrip.rs` (4 tests;
+test-only) — transport round-trips driving place/cancel/fills through a scripted
+`MockKalshiTransport` over the operator-recorded response bodies.
+
+**Asserts.** place()→recorded 201→VenueOrderId; place()→recorded nested 400→
+Rejected with the venue code structure-carried (G1 e2e); the cancel STALE-READ
+RACE (F16)→Timeout, never a false success off the lagged reconcile GET;
+fills_since round-trips the recorded fills (taker yes/52c/fee 2c, coid resolved
+via GET order).
+
+**Verdicts.** Clearance items 6, 8-routing, 15, 19-roundtrip → PASS. REMAINING C2:
+409-dup-resolve routing, unauth GET, legacy order family; then Cluster 3.
+
+**Ledgered.** Cancel-hardening follow-up (poll-until-terminal + recancel-404-as-
+canceled) — safe today (Timeout → caller reconciles); see GAPS.
+
+**Battery.** fmt; clippy --workspace --all-targets; cargo test --workspace (131
+targets, 0 failed); run-dst.sh 200 (0 violations; daemon_smoke 15/15).
+code-reviewer ACCEPT. Protected crate untouched.
+
+### 2026-06-13 — G1 fix: Kalshi error_reason nested-object extraction — `b2087fc`
+
+**What.** `crates/fortuna-venues/src/kalshi/dto.rs` — `error_reason` now
+structure-extracts the nested `{"error":{"code","message","details"}}` body
+(`KalshiErrorBody.error: Option<serde_json::Value>`), the commonest recorded 4xx
+shape (17/19). The 429 string shape and the flat shape are unchanged.
+
+**Why.** Closes gap **G1** that the 2(iii) Cluster-1 clearance exposed — the
+venue's error code now reaches diagnostics structured (`code=order_already_exists;
+...`) instead of a raw-JSON dump. Diagnostic quality; HTTP-status routing was
+already correct. Zero blast radius (dto.rs-internal).
+
+**Tests.** TDD red-first: new `error_reason_extracts_the_nested_error_object`
+(kalshi_dto.rs); `recorded_nested_4xx_...` tightened to require the `code=` prefix.
+The 3 pre-existing error_reason tests unchanged + green.
+
+**Battery.** fmt; clippy --workspace --all-targets; cargo test --workspace (130
+targets, 0 failed); run-dst.sh 200 (0 violations; daemon_smoke 15/15).
+code-reviewer ACCEPT. Protected crate untouched.
+
+### 2026-06-13 — T4.2 (iii) Cluster 1: Kalshi paper-clearance — `f7206a4`
+
+**What.** `crates/fortuna-venues/tests/kalshi_recorded.rs` (18 tests; test-only) —
+the FIRST tests to load the operator-recorded `fixtures/kalshi/` bodies (every
+prior adapter test used doc-derived samples), asserting the adapter parses the
+real wire per the README findings. Plus the 27-item clearance record
+`docs/design/track-a-kalshi-paper-clearance.md` (operator-signed gate; UNSIGNED).
+
+**Why.** Queue 2(iii): an executable, operator-signable clearance that the adapter
+handles the wire the venue ACTUALLY sent — `venue=kalshi` stays boot-refused until
+signed.
+
+**Verdicts.** Cluster 1 PASS: 1,7,8,9,10,13,14,16,17,18,20,21. PENDING: Cluster 2
+(transport round-trips), Cluster 3 (auth-skew, WS live handshake). UNCOVERABLE
+(re-capture): demo/prod parity, STP maker mode, cursor stability/expired,
+settlement units, populated series fee fields, maintenance-window status.
+
+**Adapter gaps EXPOSED (ledgered GAPS, not fixed here).** G1 nested error body not
+structure-extracted (diagnostic quality; routing correct). G2 no exchange-status
+DTO/method (halt rails). Both resolve before promotion.
+
+**Battery.** fmt; clippy --workspace --all-targets; cargo test --workspace (127
+targets, 0 failed); run-dst.sh 200 (4 corpus + 200 seeds, 0 violations;
+daemon_smoke 15/15). code-reviewer pass folded in (C1 doc path; C2 legacy-family
+label). Protected crate untouched.
+
+### 2026-06-13 — T4.2 (ii) book-driven recorded-stream replay into PaperVenue — `e6dd7ec`
+
+**What.** New integration test `crates/fortuna-runner/tests/recorded_replay.rs`
+(7 tests; test-only, no production change). Drives the production replay seam
+`KalshiWsParser -> BookAssembler -> fortuna_paper::feed_stream_event ->
+PaperVenue` over the operator-recorded Kalshi WS fixtures
+(`fixtures/kalshi/ws__orderbook_trade_{yes,noleg}.jsonl`) and composes both
+mechanical strategies (`mech_structural`, `mech_extremes`) over the replayed book.
+
+**Why.** Queue item 2(ii): exercise the venue/exec/paper path against the
+RECORDED fixtures "as if live," not doc-derived/synthetic frames.
+
+**Asserts.** Gapless, fully-typed parse of both fixtures (0 trade frames); the
+EXACT assembled book inside PaperVenue (yes 47×3 / 52×2; noleg 47×3 / 48×1,
+including a transient empty book that replays clean); book-only replay yields NO
+fills (a resting maker order is untouched); both strategies consume the recorded
+book and abstain correctly, with liveness controls proving each fires on a
+qualifying input.
+
+**Fixture-blocked (ledgered in GAPS, never fabricated).** (1) Trade-through
+replay — no public trade frame was recorded (quiet market); paper maker fills are
+trade-driven (spec 11). (2) Structural-arb replay — a single-market recording
+cannot complete a bracket; needs a multi-market bracket fixture.
+
+**Battery.** `cargo fmt --check`; `cargo clippy --workspace --all-targets -- -D
+warnings`; `cargo test --workspace` (126 targets, 0 failed); `scripts/run-dst.sh
+200` (4 corpus + 200 seeds, 0 invariant violations; daemon_smoke 15/15;
+ingest_dst 5/5). code-reviewer pass folded in. Protected crate untouched.
+
+**Shared docs.** No architecture/runbook change warranted (test-only; the replay
+seam and strategies are unchanged production code). BUILD_PLAN T4.2 progress
+noted (box stays unticked — slices iii–v remain); queue item 2(ii) marked done.
 
 ### ROTA observability console (fortuna-ops, Track B)
 

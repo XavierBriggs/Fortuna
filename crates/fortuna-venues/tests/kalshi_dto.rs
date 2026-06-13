@@ -358,6 +358,26 @@ fn error_reason_survives_arbitrary_bodies() {
     assert!(!reason.is_empty());
 }
 
+#[test]
+fn error_reason_extracts_the_nested_error_object() {
+    // The most common recorded 4xx shape (17/19): {"error":{"code","message",
+    // "details"}} — an OBJECT, not the 429 string. error_reason must pull the
+    // nested code/message/details into the same diagnostic form as the flat shape.
+    let body = serde_json::json!({
+        "error": {
+            "code": "order_already_exists",
+            "message": "order already exists",
+            "service": "exchange"
+        }
+    });
+    let reason = error_reason(&body);
+    assert!(
+        reason.contains("code=order_already_exists"),
+        "structured nested code: {reason}"
+    );
+    assert!(reason.contains("order already exists"));
+}
+
 // ---- volume parsing (T1.3: mech_extremes sub-volume filter input) ----
 
 #[test]

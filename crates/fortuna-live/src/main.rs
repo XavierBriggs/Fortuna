@@ -133,12 +133,15 @@ async fn main() -> Result<()> {
         // ROTA mounts alongside the legacy boards off the same snapshot
         // (T4.3). perishable_dir = the recorder's output base ("data/perishable",
         // matching fortuna-recorder's default --out-dir) so the /streams panel
-        // shows recorder liveness; an absent dir degrades to an empty scan,
+        // shows recorder liveness; reviews_dir = the verifier's gate-record dir
+        // ("docs/reviews") for the /build gate-verdict badge on the LOCAL
+        // operator console. Either absent dir degrades to "unknown"/empty,
         // never a 500.
         let rota = fortuna_ops::rota::RotaState {
             snapshot: dash_state,
             pool: rota_pool,
             perishable_dir: Some(Arc::new(std::path::PathBuf::from("data/perishable"))),
+            reviews_dir: Some(Arc::new(std::path::PathBuf::from("docs/reviews"))),
         };
         if let Err(e) = serve_dashboard(listener, rota).await {
             eprintln!("fortuna-live: metrics endpoint died: {e}");

@@ -101,6 +101,9 @@ async fn main() -> Result<(), BoxErr> {
         snapshot: Arc::new(RwLock::new(snap)),
         pool: Some(read_pool),
         perishable_dir: Some(Arc::new(perishable)),
+        // The local console runs from the checkout, so the gate-verdict badge can
+        // read docs/reviews; absent => "unknown" (degrades, never a 500).
+        reviews_dir: Some(Arc::new(std::path::PathBuf::from("docs/reviews"))),
     };
 
     // 7. Serve the full console (legacy boards + the /rota tree).

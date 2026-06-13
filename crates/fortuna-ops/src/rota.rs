@@ -38,16 +38,22 @@ pub struct RotaState {
     pub snapshot: Arc<RwLock<DashboardSnapshot>>,
     pub pool: Option<PgPool>,
     pub perishable_dir: Option<Arc<PathBuf>>,
+    /// The verifier's gate-record dir (`docs/reviews/`) for the build badge — a
+    /// capability present only when ROTA runs from the checkout (the local
+    /// operator console). Absent => the badge renders "unknown" (a deployed
+    /// daemon has no `docs/`), never a 500.
+    pub reviews_dir: Option<Arc<PathBuf>>,
 }
 
 impl RotaState {
-    /// Standalone state (no Postgres, no recorder dir) — every Pg/fs
-    /// surface degrades gracefully. The daemon supplies the capabilities.
+    /// Standalone state (no Postgres, no recorder dir, no reviews dir) — every
+    /// Pg/fs surface degrades gracefully. The daemon supplies the capabilities.
     pub fn standalone(snapshot: Arc<RwLock<DashboardSnapshot>>) -> RotaState {
         RotaState {
             snapshot,
             pool: None,
             perishable_dir: None,
+            reviews_dir: None,
         }
     }
 }
@@ -65,6 +71,7 @@ pub fn rota_router(state: RotaState) -> Router {
         .route("/api/rota/v1/cognition", get(view_cognition))
         .route("/api/rota/v1/settlement", get(view_settlement))
         .route("/api/rota/v1/streams", get(view_streams))
+        .route("/api/rota/v1/build", get(view_build))
         .route("/api/rota/v1/ingest_sources", get(view_ingest_sources))
         .route("/api/rota/v1/ingest_feed", get(view_ingest_feed))
         .route("/api/rota/v1/ingest_funnel", get(view_ingest_funnel))
@@ -106,11 +113,171 @@ async fn view_health(State(s): State<RotaState>) -> impl IntoResponse {
 async fn view_money(State(s): State<RotaState>) -> impl IntoResponse {
     Json(read_view(&s, "money").await)
 }
+/// The gates panel: the daemon-shaped scalars (total_rejections, by-check) ride
+/// the "gates" snapshot view; ROTA's OWN R5-pool query adds `recent_rejections`
+/// (§5) — the recent per-check gate REJECTIONS from the audit trail. Absent pool
+/// => an explicit unavailable sub-surface, never fabricated zeros.
 async fn view_gates(State(s): State<RotaState>) -> impl IntoResponse {
-    Json(read_view(&s, "gates").await)
+    let mut out = read_view(&s, "gates").await; // R8: snapshot lock released inside.
+    let recent = match &s.pool {
+        None => ledger_unavailable("postgres capability absent (standalone ROTA)"),
+        Some(pool) => match recent_gate_rejections_page(pool, 20).await {
+            Ok(rows) => {
+                let rows: Vec<Value> = rows
+                    .into_iter()
+                    .map(|(audit_id, at, intent_ref, check, reason)| {
+                        json!({
+                            "audit_id": audit_id,
+                            "at": at,
+                            "check": check,
+                            "reason": reason,
+                            "intent_ref": intent_ref,
+                        })
+                    })
+                    .collect();
+                json!({ "available": true, "rows": rows })
+            }
+            Err(e) => {
+                // Neutral detail only — never raw sqlx text to the view.
+                eprintln!("rota: gate-rejections read degraded: {e}");
+                ledger_unavailable("gate-rejections read unavailable (dashboard pool degraded)")
+            }
+        },
+    };
+    if let Some(obj) = out.as_object_mut() {
+        obj.insert("recent_rejections".to_string(), recent);
+    }
+    Json(out)
 }
+/// The settlement panel: the daemon-shaped scalars (limbo, overdue, voids,
+/// reversals) ride the "settlement" snapshot view; ROTA's OWN R5-pool query adds
+/// `recent_watchdog_events` (§5) — the recent settlement-watchdog audit events
+/// (settlement_overdue / dispute_freeze / orphaned_position). Absent pool => an
+/// explicit unavailable sub-surface, never fabricated.
 async fn view_settlement(State(s): State<RotaState>) -> impl IntoResponse {
-    Json(read_view(&s, "settlement").await)
+    let mut out = read_view(&s, "settlement").await; // R8: snapshot lock released inside.
+    let recent = match &s.pool {
+        None => ledger_unavailable("postgres capability absent (standalone ROTA)"),
+        Some(pool) => match recent_watchdog_events_page(pool, 20).await {
+            Ok(rows) => {
+                let rows: Vec<Value> = rows
+                    .into_iter()
+                    .map(|(audit_id, at, market_ref, kind)| {
+                        json!({
+                            "audit_id": audit_id,
+                            "at": at,
+                            "kind": kind,
+                            "market_ref": market_ref,
+                        })
+                    })
+                    .collect();
+                json!({ "available": true, "rows": rows })
+            }
+            Err(e) => {
+                // Neutral detail only — never raw sqlx text to the view.
+                eprintln!("rota: watchdog-events read degraded: {e}");
+                ledger_unavailable("watchdog-events read unavailable (dashboard pool degraded)")
+            }
+        },
+    };
+    if let Some(obj) = out.as_object_mut() {
+        obj.insert("recent_watchdog_events".to_string(), recent);
+    }
+    Json(out)
+}
+
+/// The build badge (§7 cut it from v1 for "no parser"; T4.5 re-includes it):
+/// the LATEST gate verdict parsed from the verifier's `docs/reviews/*.md`. A
+/// capability of the LOCAL operator console (a deployed daemon has no `docs/`);
+/// absent => "unknown", never a 500.
+async fn view_build(State(s): State<RotaState>) -> impl IntoResponse {
+    let generated_at = { s.snapshot.read().await.generated_at.clone() }; // R8.
+    let verdict = match &s.reviews_dir {
+        None => json!({
+            "available": false,
+            "detail": "reviews dir capability absent (not running from a checkout)",
+        }),
+        Some(dir) => latest_gate_verdict(dir),
+    };
+    Json(json!({ "generated_at": generated_at, "latest_gate_verdict": verdict }))
+}
+
+/// Parse the verdict token from one line, tolerant of every recorded
+/// `docs/reviews/` format — line-start (`Verdict: ACCEPT`, `## VERDICT:
+/// ACCEPT-SLICE — ...`, `**Verdict: ACCEPT** (...)`) AND mid-line header rows
+/// (`Base: ... Head: ... Verdict: ACCEPT-SLICE`). Finds `verdict:` anywhere
+/// (case-insensitive), then captures the token after it. The token is VALIDATED
+/// against the real verdict vocabulary (ACCEPT* / BLOCK*) so a prose "verdict:"
+/// in a review body never false-positives; anything else => None (the caller
+/// renders "unknown"). Byte-boundary-safe (no panic).
+pub fn parse_verdict_token(line: &str) -> Option<String> {
+    let needle = "verdict:";
+    let pos = line.to_ascii_lowercase().find(needle)?;
+    // `pos` indexes ASCII "verdict:" (case-flipping preserves byte length), so
+    // `pos + needle.len()` is a valid char boundary in `line` — no panic.
+    let after = &line[pos + needle.len()..];
+    let token: String = after
+        .trim_start_matches(['*', ' ', '\t'])
+        .chars()
+        .take_while(|c| c.is_ascii_alphabetic() || *c == '-')
+        .collect();
+    let token = token.trim_matches('-').to_ascii_uppercase();
+    if token.starts_with("ACCEPT") || token.starts_with("BLOCK") {
+        Some(token)
+    } else {
+        None
+    }
+}
+
+/// Read up to `max_bytes` of a file (the Verdict: header sits near the top) so
+/// the scan is bounded even on a large doc. Lossy UTF-8 — a split multibyte at
+/// the boundary becomes U+FFFD, never a panic.
+fn read_prefix(path: &Path, max_bytes: usize) -> std::io::Result<String> {
+    use std::io::Read;
+    let mut f = std::fs::File::open(path)?;
+    let mut buf = vec![0u8; max_bytes];
+    let n = f.read(&mut buf)?;
+    buf.truncate(n);
+    Ok(String::from_utf8_lossy(&buf).into_owned())
+}
+
+/// The latest gate verdict for the build badge: scan `reviews_dir`'s `*.md`,
+/// parse each file's first `Verdict:` header, return the NEWEST-by-mtime file
+/// carrying a parseable verdict. The rolling GATE-FINDINGS bus + any file with
+/// no verdict line are naturally skipped. Dir absent / nothing parseable =>
+/// `{available:false}` (the badge renders "unknown"); never a panic.
+pub fn latest_gate_verdict(reviews_dir: &Path) -> Value {
+    let Ok(entries) = std::fs::read_dir(reviews_dir) else {
+        return json!({ "available": false, "detail": "reviews dir unreadable/absent" });
+    };
+    let mut best: Option<(std::time::SystemTime, String, String)> = None;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("md") {
+            continue;
+        }
+        let Ok(content) = read_prefix(&path, 8192) else {
+            continue;
+        };
+        let Some(verdict) = content.lines().find_map(parse_verdict_token) else {
+            continue;
+        };
+        let Ok(mtime) = entry.metadata().and_then(|m| m.modified()) else {
+            continue;
+        };
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
+        if best.as_ref().is_none_or(|(t, _, _)| mtime > *t) {
+            best = Some((mtime, verdict, name));
+        }
+    }
+    match best {
+        Some((_, verdict, file)) => json!({ "available": true, "verdict": verdict, "file": file }),
+        None => json!({ "available": false, "detail": "no parseable gate verdict found" }),
+    }
 }
 
 /// D-contract V2 Sources Health (ingestion-observability §4). A pure read of the
@@ -1082,6 +1249,74 @@ pub async fn audit_tail_page(
             Ok(rows)
         }
     }
+}
+
+/// Recent gate REJECTIONS for the /gates panel (§5 `recent_rejections`): the
+/// audit `gate_decision` rows whose serialized `GateCheckRecord` verdict is
+/// `Reject` (the per-check trail `runner.rs` writes via the I5 audit path),
+/// newest-first. The wanted fields are extracted as TEXT in SQL
+/// (`payload->>'check'` etc.) so no JSONB decode / sqlx-json feature is needed —
+/// the same deliberate runtime-sqlx choice as [`audit_tail_page`] (a
+/// schema-pinned read-only dashboard query, kept off the sqlx-offline cache).
+/// NOTE: the bus `gate_reject` event is a SEPARATE kind (the live event stream)
+/// — the audit TABLE carries `gate_decision`, which is what this queries.
+/// Returns `(audit_id, at, intent_ref, check, reason)`; `limit` clamped to [1, 200].
+pub async fn recent_gate_rejections_page(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<
+    Vec<(
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    )>,
+    sqlx::Error,
+> {
+    let limit = limit.clamp(1, 200);
+    sqlx::query_as::<
+        _,
+        (
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ),
+    >(
+        "SELECT audit_id, at, ref_id, payload->>'check', payload->>'reason' \
+         FROM audit \
+         WHERE kind = 'gate_decision' AND payload->>'verdict' = 'Reject' \
+         ORDER BY at DESC, audit_id DESC LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
+/// Recent settlement-watchdog events for the /settlement panel (§5
+/// `recent_watchdog_events`): the audit `watchdog` rows (sub-kinds
+/// settlement_overdue / dispute_freeze / orphaned_position — the runner writes
+/// them via `self.audit("watchdog", Some(market), {kind: <sub>})`). The §5
+/// `kind` is the payload sub-kind (`payload->>'kind'`); `market_ref` is the
+/// row's `ref_id`. TEXT-extract in SQL → runtime sqlx (the [`audit_tail_page`]
+/// precedent; off the sqlx-offline cache). Returns (audit_id, at, market_ref,
+/// kind), newest-first; `limit` clamped to [1, 200].
+pub async fn recent_watchdog_events_page(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<Vec<(String, String, Option<String>, Option<String>)>, sqlx::Error> {
+    let limit = limit.clamp(1, 200);
+    sqlx::query_as::<_, (String, String, Option<String>, Option<String>)>(
+        "SELECT audit_id, at, ref_id, payload->>'kind' \
+         FROM audit \
+         WHERE kind = 'watchdog' \
+         ORDER BY at DESC, audit_id DESC LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
 }
 
 async fn audit_tail(State(s): State<RotaState>, Query(q): Query<AuditQuery>) -> impl IntoResponse {

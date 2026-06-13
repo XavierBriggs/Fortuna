@@ -112,6 +112,264 @@ is verifier-owned.) `cargo test -p fortuna-venues --test kinetics_dto` + the two
 workspace battery green at the new path. NOTE for the verifier: main still carries the fixture at the
 2c17295 top-level path until this lands, so main's `cargo test --workspace` stays red there until merge.
 
+## RALPH STOP 2026-06-13T21:51:05Z (track A — completion-campaign queue exhausted, loop ends clean)
+
+Track A (venue/exec/recovery) has no buildable-without-operator item remaining.
+Stopping per implementer-loop.md rule 6 ("every priority item is blocked/exhausted
+— idle-and-stopped beats inventing unrequested work"). This is a CLEAN stop: the
+last battery is GREEN and main is fully integrated.
+
+STATE AT STOP: branch track-a @ f5a1865 (F16a cancel-hardening, this session); 34
+commits ahead of main, main 0 ahead (main @ cbd3860 fully merged in at fd6c386 —
+track-B ROTA dashboard integrated). Working tree clean. Full DoD battery GREEN this
+session at f5a1865: fmt --check clean; clippy --workspace --all-targets -D warnings
+0; cargo test --workspace 1413 passed / 0 failed (151 binaries); run-dst.sh 200 = 4
+corpus + 200 seeds, 0 invariant violations. Protected crate untouched all session.
+
+CAMPAIGN COMPLETE (track-a-completion-queue.md, all (b)-priority items done or blocked):
+- M3 rearm notices — DONE (gated ACCEPT, both surfaces, I2 no-auto-resume).
+- T4.2 (i) WS dial — DONE (gated; live socket round-trip is operator-run).
+  (ii) book-driven PaperVenue replay — DONE e6dd7ec (trade-frame ledgered, never
+  fabricated). (iii) 27-item paper-clearance — DONE bar live-WS-handshake (op-run);
+  clearance signed @77bbca5. (iv) kill-switch Kalshi plug — DONE (machinery 4e3a484
+  + live wiring 7f69b81; I4 green; live exercise op-run). (v) Slack listener A1+A2
+  DONE; sub-slice B operator-gated (xapp- token + real WSS).
+- CANCEL-HARDENING F16a — DONE this session (f5a1865): stale single-GET reconciles
+  via the order LIST (canceled→Ok / executed→Rejected / else→Timeout); README
+  finding-16 "recancel-404-as-canceled" rejected (fill-masking; 404 bodies collide);
+  mutation-proven.
+- T4.5 ROTA — buildable-without-operator surface DONE (audit-recents gates +
+  settlement + gate-verdict badge).
+
+WHY NO BUILDABLE ITEM REMAINS (each verified this iteration, not inherited):
+1. F16b (full multi-attempt bounded-backoff cancel poll) — DEFERRED. Guards a
+   list-ALSO-stale hypothetical with NO recorded basis (the recorded race shows the
+   list IS the fresh surface; F16a handles it), AND needs a Sleeper injected into
+   KalshiVenue::new (a constructor change rippling to every call site). Poor
+   risk/reward + partly synthetic-only; building it = inventing work. Unblock: a
+   recorded multi-stale sequence + operator-authorized Sleeper constructor change.
+2. Composition-root guard (= queue item 4 = BACKLOG #2, the distinct reader/writer
+   pool boot assertion) — DEFERRED WITH RATIONALE (GAPS BACKLOG #2): wiring is
+   CURRENTLY CORRECT (main.rs:66/:125/:138) and R5 isolation is handler-tested
+   (incl. track-B rota.rs:637-700); standalone closure = refactoring the composition
+   root of an ACCEPTED daemon to guard a correct wiring. Rides with the next
+   substantive main.rs change = the OPERATOR-GATED venue-wiring tranche.
+3. T4.2 live exercises — OPERATOR: live WS handshake (venue=kalshi un-refuse + demo
+   key); live freeze exercise (FORTUNA_KILLSWITCH_KALSHI_* env incl. _BASE_URL +
+   demo key); Slack sub-slice B (FORTUNA_SLACK_APP_TOKEN xapp- + WSS).
+4. T4.5 (c) WS gap/resync counters — need the operator-run live dial wired into
+   drive(); (d) full money model — needs an operator/design call (mark-loop
+   AccountView via a SimRunner accessor).
+5. Remaining 27-item clearance PARTIALs — recorder/operator-gated (settlement
+   capture post-close, voided market, series-fee event lookup [needs fixture],
+   maker-mode STP, busy-market WS, empty-book re-capture, cursor stability,
+   prod-parity re-record). NEVER fabricate a fixture.
+6. T5.B7/B8 — TRACK C's (operator reorg 7fa4115 assigned perps/cognition to track C,
+   actively building; the queue's "B7/B8→track A" section is superseded — corrected
+   in track-a-completion-queue.md this session).
+7. Soak start — OPERATOR (runbooks/soak-start.md, bus operator-queue #1).
+
+OPERATOR ACTIONS TO UNBLOCK (all rails built, none simulated): (1) sign the Kalshi
+paper-clearance + flip venue=kalshi for the first live WS handshake; (2) provide
+FORTUNA_KILLSWITCH_KALSHI_* (incl. _BASE_URL) + a demo key and run the live freeze;
+(3) provide FORTUNA_SLACK_APP_TOKEN (xapp-) for Slack sub-slice B; (4) the T4.5 (d)
+money-model design call; (5) start the soak. The venue-wiring tranche that lands the
+composition-root guard rides on (1).
+
+## TRACK A — T4.5 ROTA: buildable surface COMPLETE (audit-recents + gate-verdict badge); 2 pieces operator-BLOCKED
+
+T4.5 (deferred ROTA trading-side panels) — the BUILDABLE-WITHOUT-OPERATOR surface is DONE:
+- (e) `/gates.recent_rejections` — DONE 59fa594 (audit `gate_decision` verdict=Reject → §5).
+- (e) `/settlement.recent_watchdog_events` — DONE 9558d56 (audit `watchdog` rows → §5).
+- (b) gate-verdict badge `/api/rota/v1/build` — DONE 7ed3138 (docs/reviews verdict parse,
+  local-console build-health). Each has a populated-path test (the T4.5 TEST RULE).
+Ownership: trading-side surfaces are track A; the cognition panel + §9 presentation are track B.
+
+CORRECTION (the iter-14 validation over-claimed (a) as BUILDABLE-NOW — it is NOT): the
+discovery joins (triage recall/precision shadow cross-join + Tradability/Edges) are deferred
++ track-B, not a track-A slice — design §4 DEFERS them ("queries/prereqs don't exist yet";
+the shadow-scoring cross-join + the Tradability/Edges JOIN are UNWRITTEN), §12 puts the
+triage-recall panel explicitly NOT-in-v1, and GATE-FINDINGS "discovery" observability is
+TRACK-B's. NET: track-A's T4.5 buildable-without-operator work is COMPLETE; the only
+remaining T4.5 pieces are the two operator/verifier-BLOCKED ones below (c, d).
+
+OPERATOR / VERIFIER ASKS (two T4.5 pieces are BLOCKED — not track-A-buildable now):
+1. WS gap/resync counters "flip live" (design §4; BUILD_PLAN T4.5) — BLOCKED on the
+   operator-run LIVE Kalshi dial. `run_dial` emits SeqGap but is not wired into `drive()`
+   (the live socket is operator-run; venue=kalshi boot-refused until then), so the counter
+   has no live increment path and cannot be populated-path-tested (the stub-0 in
+   views.rs:174-175 stays). UNBLOCK = the operator runs the first live dial + it is wired
+   into the daemon; then the counter seam (an atomic the dial increments, exposed in
+   /streams) builds + tests. Same operator gate as the dial's first-live exercise.
+2. Full §5 money model (floating_cents/total_cents + per-strategy attribution) — BLOCKED
+   on an OPERATOR/DESIGN call. The mark-loop AccountView (fortuna-state) is not surfaced by
+   any SimRunner accessor views_from can read; floating/total are honest-null today. UNBLOCK
+   = an operator/design decision on a new SimRunner accessor surfacing the mark-based
+   floating value + per-strategy PnL/fee/exposure (the slice-5/7 fit-notes flagged this
+   design-blocked). Until then the money view stays sim-only with honest nulls.
+
+## TRACK A — MAIN WAS RED on `cargo test --workspace` (inherited; fixed) + verifier follow-up
+
+DISCOVERED at the iteration-13 merge full-battery: `cargo test --workspace` was RED
+— `fortuna-venues` `kinetics_dto::every_fixture_parses_into_its_typed_dto` fails with
+`paired_cycle_btc_perp_vs_kxbtc: UNCLASSIFIED`. CONFIRMED PRE-EXISTING ON MAIN (ran the
+same test against the main worktree @04a2c03 — same failure), so NOT a track-A
+regression. CAUSE: track-C's slice-3b commit 2c17295 added the cross-venue BASIS
+composite `fixtures/kinetics-perps/paired_cycle_btc_perp_vs_kxbtc.json` (BTC perp book +
+co-recorded KXBTC bracket ladder, for fortuna-cognition `perp_event_basis`) into the dir
+that the kinetics-DTO suite EXHAUSTIVELY globs — it is not a kinetics endpoint DTO and
+has no kinetics `Kind`, so the exhaustive-coverage test failed. The verifier's full
+`cargo test --workspace` was disk-deferred at that merge-gate, so it landed red.
+
+FIX (in fortuna-venues `tests/kinetics_dto.rs`, this commit): a documented
+`NON_KINETICS_FIXTURES` exclusion that skips that one stem BEFORE the counter — correct
+SCOPING, NOT a weakening (code-reviewer confirmed: every real kinetics fixture still
+classified + parsed + counted; `seen == table.len()` still exhaustive over the kinetics
+corpus; exact-stem match can't mask a future kinetics fixture; a broken kinetics fixture
+still fails). Unblocks `cargo test --workspace` for EVERY track.
+
+VERIFIER FOLLOW-UP (cleaner long-term, track-C/verifier call — not a track-A action): relocate
+`paired_cycle_btc_perp_vs_kxbtc.{json,meta.md}` OUT of `fixtures/kinetics-perps/` into a
+basis-specific dir (e.g. `fixtures/perps-basis/`) so it no longer co-locates with the kinetics
+captures; then `NON_KINETICS_FIXTURES` can be dropped. That move touches track-C's basis-test
+fixture path, so it is theirs to make.
+
+## TRACK A — T4.2 item 2(v) Slack Socket listener A1 (ca5082d) + A2 (f52ee66) DONE
+
+The Slack Socket Mode listener's DECISION LOGIC is built + tested
+(crates/fortuna-ops/src/socket.rs + tests/socket.rs, 14 tests): dispatch_envelope
+→ an allow-listed kill-request routes to an injected HaltRequestSink; I2 re-arm
+REFUSED (NO halt path; HaltRequestSink exposes only request_halt — code-reviewer
+confirmed airtight); non-allow-listed + empty-allow-list fail-closed; WrongTeam
+drop (distinct from Unauthorized); untrusted-data (action_id ENUM-matched, reason
+bounded 500c + opaque, serde_json indexing panic-free); malformed/unknown →
+no-op outcomes. DEP-CLEAN: injected HaltRequestSink/EphemeralSender traits → ZERO
+new fortuna-ops dep, no fortuna-runner/gates import. Full battery green (133
+targets 0-failed; run-dst 200 0-violations; daemon_smoke 15/15). Protected crate
+untouched.
+
+A2 DONE (f52ee66): the ack-FIRST envelope LOOP over a mockable SlackSocketTransport/
+SlackSocketConn (crates/fortuna-ops/src/socket.rs + tests/socket_loop.rs, 12 loop
+tests + 5 inline units) — mirrors the Kalshi WS dial seam (kalshi::dial). run_socket_loop:
+ack-BEFORE-process (the 3s deadline; proven by a shared ack-vs-sink ordering log),
+envelope-id dedup via a bounded ring (a durably-handled envelope suppressed, a
+SinkError-failed halt left UNrecorded so a redelivery RE-ATTEMPTS — code-reviewer
+should-fix folded + regression-tested), SocketDial capped-exponential reconnect that
+survives transport loss AND the disconnect/refresh_requested lifecycle WITHOUT
+escalating on planned refreshes, and a cancel watch (prompt mid-pump + mid-backoff).
+I2 preserved end-to-end (a re-arm on the socket is acked but REFUSED, never un-halts).
+SlackEnvelope.envelope_id is now #[serde(default)] (hello/disconnect carry none).
+ZERO new fortuna-ops dep. Full battery green (fmt + clippy --workspace --all-targets
++ test --workspace 134 bins/1209 0-failed + run-dst 200 0-violations + daemon_smoke
+15/15). Protected crate untouched.
+
+TWO faithful Slack-vs-Kalshi differences (ledgered for slice B): (1) NO client subscribe
+step — Slack pushes envelopes, the loop's only outbound frame is the ack; (2) NO app-level
+keep-alive — Slack drives the lifecycle via the disconnect envelope, so the real
+tokio-tungstenite transport (B) MUST configure a WS ping/pong timeout so a half-open
+socket surfaces as a recv error (Kalshi needed a Clock-injected keep-alive; Slack does not).
+
+REMAINING (next slice):
+- B (operator-gated): fortuna-live daemon wiring (HaltRequestSink → the gate
+  halt path / SimRunner::apply_external_halt; EphemeralSender → SlackRouter); the
+  REAL apps.connections.open + tokio-tungstenite WSS transport (adds
+  tokio-tungstenite to fortuna-ops — the only new dep then); config
+  [slack.socket_mode] (allowed_user_ids + allowed_team_id) + FORTUNA_SLACK_APP_TOKEN
+  (xapp-, env-only; add to .env.example + operator.md); LIVE exercise operator-run
+  with the app token (the Slack app-token gate is already in the GAPS operator
+  queue / "Slack app token(s)").
+
+## TRACK A — T4.2 item 2(iv) kill-switch Kalshi plug DONE: MACHINERY (4e3a484) + LIVE wiring (7f69b81)
+
+MACHINERY proven over the REAL KalshiVenue adapter (kalshi_freeze.rs, mock transport,
+NO live socket): open_orders → cancel each (DELETE + reconcile GET) → KillReport(seen 2,
+cancelled 2, failed 0); flat-file journal records the freeze.
+
+LIVE `freeze --venue kalshi` WIRING DONE (7f69b81), replacing the stub: main.rs reads the
+switch's OWN env creds → load_kalshi_creds (lib, pure, FAIL-CLOSED) → KalshiSigner →
+ReqwestKalshiTransport → KalshiVenue(series empty — freeze uses only open_orders + cancel)
+→ freeze_cancel_and_report_positions on a SELF-SPUN current-thread tokio runtime; RealClock
+(live signing needs real wall time).
+
+I4 CONFIRMED — the EXECUTOR DECISION (self-spun tokio runtime) is no longer "flagged
+pending"; i4_killswitch_independence is GREEN this battery as the executable proof: tokio
+is NOT in the forbidden set (sqlx/tokio-postgres/postgres/fortuna-ledger/fortuna-cognition)
+and is already transitive via fortuna-venues (the direct dep adds ZERO packages); a
+self-spun one-shot reactor for the HTTP cancels ≠ the daemon event loop / Postgres /
+cognition / LLM; the sim `self-test` path is BYTE-UNCHANGED (operational layer green);
+behavioral layer green. "tokio for IO at the edges." SECRET-SAFE: KalshiCreds has a
+hand-written redacting Debug (PEM → [redacted], MUTATION-tested); errors name only the env
+var / file path, never key material. Tests-first: 9 fail-closed tests (loader paths +
+debug-never-leaks + a SUBPROCESS test — the binary refuses without creds, exit 4, names the
+var, NO live cancel / no freeze journal line). Full battery green (fmt + clippy --workspace
+--all-targets + test --workspace 143 bins/1324/0 incl. i4 ok + run-dst 200 0-violations).
+
+OPERATOR DEP (REQUEST → orchestrator adds to operator.md, verified): the live freeze needs
+THREE env vars — FORTUNA_KILLSWITCH_KALSHI_API_KEY_ID + _PRIVATE_KEY_PATH (already in
+operator.md §1 + .env.example) PLUS the NEW _BASE_URL (added to .env.example @7f69b81;
+REQUIRED, never defaulted — prod vs demo must be explicit so the switch can't cancel on the
+wrong environment). operator.md §1 lists only the pair — please add _BASE_URL.
+
+REMAINING — the LIVE EXERCISE is operator-run (provision the 3 env vars + a demo key, run
+`fortuna-killswitch freeze --venue kalshi --journal <path>` against demo). The 27-item
+clearance is now SIGNED (main @77bbca5) so the precondition is met; the switch's first real
+cancel stays an operator action (build the rails, never simulate the human). A `report`-only
+verb (open orders + positions WITHOUT cancelling) has no lib path yet — small future add.
+
+## TRACK A — T4.2 item 2(iii) Cluster 2: Kalshi exec round-trips DONE (811e383)
+
+Transport round-trips over the recorded fixtures via MockKalshiTransport
+(crates/fortuna-venues/tests/kalshi_recorded_roundtrip.rs, 4 tests; test-only):
+place→201→VenueOrderId (orders__create_v2_taker_ioc); place→recorded-nested-400→
+Rejected with the venue code structure-carried (orders__insufficient_balance —
+G1 validated END-TO-END through place(), not just error_reason); the CANCEL
+STALE-READ RACE (F16/F3) → Timeout (orders__cancel_v2 DELETE acks reduced_by 1.00
+but orders__get_after_cancel reconcile GET reads resting → effect-unknown, NO
+false success off the lagged read surface); fills_since round-trip maps the
+recorded taker fill (fills__after_taker: yes/buy/52c/fee 2c, coid resolved via GET
+order). Clearance items 6, 8-routing, 15, 19-roundtrip → PASS. code-reviewer
+ACCEPT; full battery green (131 targets 0-failed; run-dst 200 0-violations;
+daemon_smoke 15/15). Protected crate untouched.
+
+C2 TAIL CLOSED (1e96d20): item 7 (409-dup-resolve) — recorded_place_duplicate_
+client_order_id_resolves_to_already_exists drives place() over the RECORDED nested
+409 (order_already_exists) → resolve-by-coid GET → AlreadyExists{existing}. Items 5
+(unauth GET /markets) + 12 (legacy /portfolio/orders write family) need NO new test
+— closed by CITED existing coverage (markets() round-trips ×5 in kalshi_adapter.rs;
+the adapter writes via /portfolio/events/orders exclusively per item 16, and the
+legacy body is DTO-identical to v2). The 27-item clearance tally now: PASS includes
+5,7,12 (clearance doc updated). Cluster 3 auth-skew DONE (fe86cb5); only the live WS
+handshake (operator-run) remains for the WS items.
+
+CANCEL-HARDENING F16 — F16a CLOSED (2026-06-13), F16b OPEN (deferred, scoped):
+
+F16a DONE: cancel()'s stale-read reconcile is hardened. On a DELETE-200 ack
+whose single reconcile GET reads stale `Resting`/`Unknown` (the recorded F16/F3
+race — DELETE acked `reduced_by:"1.00"`, GET ~360ms later still `resting`),
+cancel() now reconciles ONCE against the order LIST (`GET /portfolio/orders`,
+`cancel_reconcile_status_via_list`): list `Canceled`→Ok, `Executed`→Rejected,
+still-`Resting`/`Unknown`/absent→Timeout (the safe fallback unchanged), list-GET
+failure→Timeout. A genuinely-canceled order that read stale now resolves to a
+definite Ok instead of a false Timeout. The first-DELETE-404 → NotFound path is
+unchanged (we hold no ack, so we claim nothing — never-existed safety).
+DIVERGENCE FROM fixtures/kalshi/README.md finding-16 (deliberate, fixtures-
+grounded): the README's "treat recancel-404 as proof-of-canceled" heuristic is
+UNSAFE and is NOT implemented — the recorded 404 bodies for already-canceled,
+already-EXECUTED, and never-existed orders are BYTE-IDENTICAL (orders__cancel_*),
+so a recancel-404 cannot distinguish a cancel from a masked fill; the LIST status
+is the safe discriminator. Tests (kalshi_recorded_roundtrip.rs): stale→list-
+canceled→Ok, stale→list-EXECUTED→Rejected (the safety headline; MUTATION-PROVEN —
+flip the Executed arm to Ok(()) and that test reds), stale→absent→Timeout, plus
+the two existing stale tests extended to the 3-call flow (Timeout preserved). All
+verbatim recorded bodies; no fabricated fixture; protected crate untouched.
+
+F16b OPEN — full poll-until-terminal with bounded backoff: if the LIST also reads
+stale (order still `Resting` in the list, or absent from page 1), the outcome
+stays Timeout. A true multi-attempt poll needs (1) an injected Sleeper (not on
+KalshiVenue today — Clock has only now(); adding one is a constructor change,
+operator-authorized) and (2) a recorded multi-stale fixture sequence to test it
+(none exists; NEVER fabricate). Safe to defer: Timeout is the correct conservative
+outcome for an unresolvable stale state.
 ## TRACK C — slice 3b: PAIRED-CYCLE FIXTURE sampled + the basis VALIDATED on real co-recorded data (2026-06-13)
 
 Drove the operator's fixture unblock (operator-queue #4) MYSELF off the live recorder capture (READ-only;
@@ -757,6 +1015,41 @@ BATTERY: scoped green (fmt --check; clippy -p fortuna-live --all-targets
 fortuna-live suite (daemon_smoke etc.) is unaffected (no schema/query change) and
 is the verifier's merge gate (disk + concurrent cross-track batteries).
 
+## TRACK A — T4.2 item 2(iii) Cluster 1: Kalshi paper-clearance DONE (f7206a4)
+
+Queue item 2(iii) (the 27-item paper-clearance record). NO production change.
+Cluster 1 = recorded-fixture PARSING/error/units/status assertions: a new test
+(crates/fortuna-venues/tests/kalshi_recorded.rs, 18 tests) loads the OPERATOR-
+RECORDED fixtures (fixtures/kalshi/) — the FIRST tests to do so (every prior
+adapter test used doc-derived samples in tests/kalshi_doc_samples/) — and asserts
+the adapter handles the real wire per the README findings (3 error-body shapes,
+409 order_already_exists, cancel-404s, balance/fill units, taker fee, orderbook
+no-leg, status vocab, endpoint costs, exchange status). error_reason assertions
+are CONTAINS-based + Value-level ground truth (non-bug-locking). Clearance record
+(track-owned per the doc-ownership model): docs/design/track-a-kalshi-paper-
+clearance.md (operator signs; UNSIGNED). Cluster 1 PASS items
+1,7,8,9,10,13,14,16,17,18,20,21; Clusters 2 (transport round-trips) + 3
+(auth-skew, WS live handshake) PENDING; venue=kalshi stays boot-refused until
+signed. Full battery green (fmt + clippy --workspace --all-targets + test
+--workspace 127 targets 0-failed + run-dst 200 0-violations; daemon_smoke 15/15).
+
+TWO ADAPTER GAPS the recording EXPOSED (clearance doing its job; resolve before
+promotion; NOT fixed this slice — own-battery follow-ups):
+- G1 NESTED ERROR BODY — RESOLVED (b2087fc): error_reason now structure-extracts
+  the nested {"error":{"code","message","details"}} object (KalshiErrorBody.error
+  is Option<serde_json::Value>; the 429 String shape preserved; the flat shape
+  unchanged). TDD red-first; full battery green (130 targets 0-failed; run-dst 200
+  0-violations). WAS: error was Option<String> so 17/19 recorded 4xx bodies fell
+  to a raw-JSON dump (diagnostic quality only; HTTP-status routing was always
+  correct).
+- G2 NO HALT-STATUS DTO: no KalshiExchangeStatus DTO / KalshiVenue::exchange_status()
+  method; exchange__status.json parses into a local test struct but the adapter
+  cannot consume exchange status for the I2/I3 halt rails. Structural; land before
+  live halt detection depends on the venue.
+
+NEXT (queue order): 2(iii) Cluster 2 (transport round-trips) + Cluster 3 (auth/WS),
+the G1/G2 fixes, then 2(iv) kill-switch Kalshi plug, 2(v) Slack listener.
+
 ## TRACK D — OBS-1 telemetry data surface (slice 1): deferred follow-ups + scoped-battery note
 
 OBS-1 (2026-06-13) added the live `IngestionTelemetry` snapshot to the scheduler
@@ -816,6 +1109,42 @@ gate runs the full battery + the executed mutation check). Predicted mutation:
 neutralize the (Nws,"climate") arm => wires_the_climate_grader_and_aeolus reds
 (unwrap on the Err arm). Not operator-blocked; verifier-gated on merge.
 
+## TRACK A — T4.2 item 2(ii) book-driven PaperVenue replay DONE (e6dd7ec)
+
+Queue item 2(ii): venue-generic recorded-stream replay into PaperVenue for both
+mech strategies. NO production change — a new integration test
+(crates/fortuna-runner/tests/recorded_replay.rs, 7 tests) drives the SAME
+production seam the live dial uses (KalshiWsParser -> BookAssembler ->
+fortuna_paper::feed_stream_event -> PaperVenue) over the OPERATOR-RECORDED WS
+fixtures (fixtures/kalshi/ws__orderbook_trade_{yes,noleg}.jsonl), exercised as if
+live (not doc-derived/synthetic):
+- both fixtures parse fully-typed + GAPLESS, with ZERO trade frames (quiet market);
+- snapshot+deltas assemble into the EXACT book in PaperVenue (yes 47x3/52x2;
+  noleg 47x3/48x1, incl. a transient empty book that replays clean);
+- BOOK-ONLY replay yields NO fills (a resting maker order is untouched);
+- both mech strategies consume the replayed recorded book and abstain correctly,
+  with liveness controls proving each FIRES on a qualifying input.
+Battery green: fmt + clippy --workspace --all-targets -D warnings + test
+--workspace (126 targets, 0 failed) + run-dst.sh 200 (4 corpus + 200 seeds, 0
+violations; daemon_smoke 15/15; ingest_dst 5/5). code-reviewer pass folded in
+(M1 liveness controls; m1 gated() note). Protected crate untouched.
+
+TWO fixture-blocked dependencies precisely ledgered (NEVER fabricate a trade/
+bracket fixture; both ride an operator/recorder capture):
+1. TRADE-THROUGH replay — the public WS `trade` frame was never captured (quiet
+   market); paper maker fills are trade-driven (spec 11), so trade-through fills
+   cannot be asserted from book-only data. The book-driven replay is built and
+   asserts what the book supports; trade-through stays RED until the busy-market
+   trade-frame capture lands (already in the operator queue, item 3).
+2. STRUCTURAL-ARB replay (NEW) — the recording captured ONE market, so a bracket
+   (>=2 mutually-exclusive markets) cannot be completed from it; mech_structural
+   correctly abstains. A positive structural-arb replay against recorded data
+   needs a MULTI-MARKET BRACKET fixture (>=2 co-recorded bracket members under
+   one event) — a NEW operator/recorder capture (verifier to fold into the
+   operator queue; market data only, no keys).
+
+NEXT (queue order): 2(iii) the 27-item paper-clearance record, 2(iv) kill-switch
+Kalshi plug, 2(v) Slack Socket listener.
 ## TRACK B — RE-MISSIONED 2026-06-13: TOTAL ROTA OBSERVABILITY (operator single pane of glass)
 
 The operator re-activated the Ralph loop and re-missioned track B off the

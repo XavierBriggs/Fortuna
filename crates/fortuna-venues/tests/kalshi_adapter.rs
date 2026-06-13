@@ -543,8 +543,13 @@ fn cancel_reconciles_via_get_and_ignores_the_buggy_delete_body() {
 fn cancel_with_order_still_resting_is_timeout_semantics() {
     let mock = Arc::new(MockKalshiTransport::new());
     mock.push_ok(200, sample("cancel_order_v2_response.json"));
-    // Reconcile GET says the order still rests: cancel effect is unknown.
+    // Reconcile single-GET says the order still rests.
     mock.push_ok(200, sample("order_response.json"));
+    // F16: the adapter then reconciles ONCE against the order list; here the list
+    // ALSO shows the order (3b23c1c7) still resting, so the cancel effect stays
+    // unknown -> Timeout (never a false success off either stale surface).
+    let listed = sample("order_response.json")["order"].clone();
+    mock.push_ok(200, serde_json::json!({ "orders": [listed], "cursor": "" }));
     let venue = venue_with(&mock, &["KXHIGHNY"]);
 
     let id = VenueOrderId::new("3b23c1c7-f4ef-4f0d-8b9a-9e53c61f1a0d").unwrap();
