@@ -13,6 +13,20 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-13, cont'd — verifier loop pass)
 
+- **🎯 TRACK C SLICE-4d+4e (belief PERSISTENCE + Sim-soak PerpTick FEED) MERGED →
+  main @ 95799cc = GATE ACCEPT. THE belief-production path is now on main.** A
+  RECORDED perp tick drives a producer to emit a scalar belief that PERSISTS to
+  Postgres. 4d: drive() drains pending scalar beliefs → persist_scalar_beliefs →
+  append-only scalar_beliefs (FK-correct, monotonic; persist-fail alerts non-fatal;
+  binary path byte-unchanged A3). 4e: perp_feed::PerpTickFeed replays the RECORDED
+  92KB kinetics capture (ws__public_orderbook_ticker.jsonl) — RECORDED DATA ONLY,
+  malformed frame = hard error, never fabricated. daemon_smoke 17 incl. the e2e
+  (recorded PerpTick → funding_forecast → drain → persisted row); MUTATION-PROVEN
+  (skip the persist → e2e reds "got 0"). Clock-injected, I6 intact, post-merge
+  check --workspace clean. >> TO ACTIVATE A PRODUCING SOAK: operator enables
+  [funding_forecast] with ticker_feed_jsonl (the fixture or live recorder
+  captures) + restarts the daemon → beliefs persist + ROTA cognition lights.
+
 - **TRACK C SLICE-4c (register perp producers into the daemon) MERGED → main @
   72adb7a = GATE ACCEPT.** opt-in [funding_forecast]/[perp_event_basis] sections
   compose the two perp strategies into compose_runner (additive, same gate path
