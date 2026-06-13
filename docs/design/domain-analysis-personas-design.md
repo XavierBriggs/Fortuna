@@ -1,6 +1,7 @@
 # Domain-Analysis Personas — Design (Track E)
 
-Status: **design committed for build; concept validated by a live spike 2026-06-13 (§12).**
+Status: **design committed for build; concept validated by a live spike 2026-06-13 (§12);
+verifier precision-corrected 2026-06-13 (§17).**
 The §2 artifact-model decision is **RESOLVED — persisted artifact** (operator-endorsed in
 the 2026-06-13 design session). Conforms to `docs/spec.md` v0.9 (§3 invariants, §5.5 beliefs,
 §5.7 context assembler, §5.8 loops/triggers, §5.9 Mind, §5.10 calibration, §5.11 signal
@@ -69,7 +70,10 @@ mandatory, the shared artifact strictly dominates:
 - **I6 (propose-only):** a persona reasons over ingested data and emits an artifact (and
   downstream belief drafts). It has **zero** tools that fetch, size, time, or place orders. The
   artifact and runner-outcome types carry no order/size field — structural, like today's
-  `ReconciliationOutcome`. Provable by the existing I6 dependency-direction check.
+  `ReconciliationOutcome`. Provable by a **new field-surface pin** asserting those types' field set
+  carries no order/size field (the same mechanism as the existing `ProposalDraft`/`MindOutput`
+  field-set pin), alongside the existing dependency-direction assertion (cognition cannot name
+  venue/exec/state types — a different I6 facet).
 - **I1 (universal gate):** any belief derived from an analysis still passes the full gate
   pipeline. The persona cannot influence gates.
 - **I5 (append-only audit):** every persona run and artifact is append-only + audited; a
@@ -91,18 +95,21 @@ mandatory, the shared artifact strictly dominates:
 Two structurally distinct streams that never mix:
 
 - **Trusted (method).** The persona's prompt — *how a professional reasons over the data and
-  what questions they ask* — is operator-authored, lives in a trusted skill file (§6), is loaded
-  **only** from that trusted path, and is rendered on the **charter side** of the context
-  assembler. It is never a `ContextItem`, never sourced from the DB or any model-writable
-  surface, never derived from a signal.
+  what questions they ask* — is operator-authored, lives in a trusted skill file (§6), and is
+  injected as the **Mind transport's system message** (the `system_charter` path,
+  `mind.rs:491-498`) — the model's trusted instruction channel, which states that all
+  context-block content is data. It is never packed into the `AssembledContext` as a data item,
+  and never sourced from the DB, a signal, or any model-writable surface. (NB: the assembler's
+  own `SectionKind::Charter` is itself a `ContextItem` rendered into the data context — it is
+  *not* the trust boundary; the transport system message is.)
 - **Untrusted (signals).** Every signal the persona reads renders **only** inside delimited
   `<context-item>` data blocks (the assembler's existing injection hygiene), with the charter
   instructing the model that block content is data. A poisoned signal's worst case is a bad
   analysis → a bad belief → still gated (I1) and edge-floored; it can never rewrite the method.
 
 **Testable assertions (written before code):** (a) the method text never appears as a
-`ContextItem`/data block; (b) the runner constructs the `Mind` call with method-as-charter and
-signals-as-data; (c) the findings schema is strict — free prose / unknown fields are a counted
+`ContextItem`/data block; (b) the runner builds the `Mind` call with the method as the transport
+**system message** and every signal inside the delimited `AssembledContext` data; (c) the findings schema is strict — free prose / unknown fields are a counted
 defect, never executed; (d) a persona definition loads only from the trusted skill path and is
 rejected if its method-hash doesn't match the active registry row.
 
@@ -176,7 +183,8 @@ config/personas/meteorologist/
 ```
 
 `persona.md` frontmatter carries `id, version, domain, domain_tags, reads_signal_kinds, tier,
-region_key, output_schema_version`; the body is the method. The composition loads each persona
+region_key, output_schema_version`; the body is the method (injected as the Mind's system message,
+§4). The composition loads each persona
 from this path, hashes `persona.md` → `method_hash`, validates against the `personas` registry
 head, and **refuses a method whose hash doesn't match the active row** — so the operator's
 promotion (a superseding registry insert + the file edit) is deliberate and audited. Mirrors
@@ -206,8 +214,8 @@ This replaces domain-hardcoded triggers: the trigger layer is config, not code p
 
 1. **Budget check first** (throttle-before-spend, like `DiscoveryBudget`).
 2. **Assemble context** via the existing assembler: untrusted signals as point-in-time
-   `ContextItem`s (content-hashed; strictly before the trigger); method as charter. Yields
-   `AssembledContext` + `manifest_hash`.
+   `ContextItem`s (content-hashed; strictly before the trigger); the method rides in the Mind's
+   system message (`mind.rs:491-498`), NOT the context. Yields `AssembledContext` + `manifest_hash`.
 3. **One cheap-tier `Mind.decide()`**; cost recorded against budget.
 4. **Parse findings** against the strict output schema (free prose / unknown fields → counted
    defect, never crash — degrade exactly like discovery).
@@ -232,12 +240,19 @@ Clock-injected; a scripted `StubMind` → byte-identical artifact + `content_has
 - **Beside the baseline.** The persona path sits **beside** today's direct Aeolus→belief mapping
   (`reconciliation.rs`, `model_id="aeolus"`); the raw-source-direct beliefs remain the
   **baseline** the persona is scored against (§11).
+- **Per-threshold beliefs are BINARY.** The multi-outcome `findings` blob is the persisted
+  *artifact*, never a belief; each threshold/outcome fans out onto one existing **binary**
+  `BeliefDraft` (≥60, ≥65, ≥70 = three separate binary beliefs; macro `outcomes[].p` likewise),
+  exactly as `map_aeolus_envelope` already does (`reconciliation.rs:65-104`). Track E therefore
+  does **not** depend on any scalar/multi-outcome claim type — it is independent of the
+  `prob_claims/v1` scalar-claims pass and builds against the binary belief ledger as-is.
 
 ## 10. Scoring & promotion (extends `review.rs`; I7 analog)
 
-- Extend the review `ScopeKey` to carry the persona: `{model_id, persona_id, persona_version,
-  category}`. The existing scoring job + `calibration_report` aggregate per persona-version
-  (Brier / CLV / calibration-quality).
+- Extend the review `ScopeKey` (today `{model_id, strategy, category}`, `review.rs:37-41`) by
+  **adding** persona dimensions — `{model_id, strategy, category, persona_id, persona_version}` —
+  keeping the spec-mandated `strategy` dimension (add, never replace). The existing scoring job +
+  `calibration_report` aggregate per persona-version (Brier / CLV / calibration-quality).
 - The weekly review compares each `(persona, version)` against (a) the prior version and (b) the
   **no-persona baseline** (raw-source-direct beliefs) and the **market-implied baseline** (§11).
 - It **proposes** promote/retire to `#fortuna-review` — recommendation-only, like lessons and
@@ -350,9 +365,10 @@ following ROTA §5's `views: serde_json::Value` + `generated_at` discipline; eac
   counted defect; coalesced re-triggers → one run.
 - **Scoring scope** — persona-version calibration aggregates correctly; baseline + market
   comparison; recommendation-only (no mutation surface).
-- **`crates/fortuna-invariants` (ADD only):** a propose-only assertion that the persona path
-  exposes no order/size type (extends the existing I6 dependency-direction check). Existing
-  assertions untouched.
+- **`crates/fortuna-invariants` (ADD only; auto-flags the operator waive queue):** a
+  **field-surface pin** asserting the `PersonaOutcome`/`domain_analyses` types carry no order/size
+  field — the same mechanism as the existing `ProposalDraft`/`MindOutput` field-set pin, NOT the
+  dependency-direction check (which proves a different I6 facet). Existing assertions untouched.
 
 ## 16. House-style compliance (CLAUDE.md / DoD)
 
@@ -376,6 +392,14 @@ weakened; never `git add -A`; no secrets in repo/config/logs/audit; never push.
 - Viability is gated by zero-capital evaluation + a beat-both-baselines test (§11), not assumed.
 - Concept **validated by the 2026-06-13 spike** (§12); default meteorologist tier = `cheap` →
   `claude-sonnet-4-6` until Track M makes it configurable.
+- **Verifier precision corrections applied 2026-06-13** (gate-found, non-structural — mechanism
+  right, doc cited the wrong component): (1) the trust firewall is the Mind transport system
+  message (`mind.rs:491-498`), not the assembler's `Charter` (which is itself a `ContextItem`) —
+  §4/§6/§8; (2) the review `ScopeKey` **adds** persona dims and keeps the spec-mandated `strategy`
+  dimension — §10; (3) the no-order/size-field I6 guarantee is a new field-surface pin, not the
+  dependency-direction check — §3/§15. The verifier also confirmed Track E fans out to **binary**
+  `BeliefDraft`s (`reconciliation.rs:65-104`) and is independent of the `prob_claims/v1` pass —
+  buildable now (§9).
 
 **Track-D requests (→ GAPS; not built here):** `nws.observed_high`, `nws.forecast_discussion`,
 the macro/event calendar, consensus/news kinds. The meteorologist proof uses live
