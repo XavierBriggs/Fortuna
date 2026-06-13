@@ -572,6 +572,15 @@ Polymarket research+fixtures, spec v0.9 touch-up).
         view_discovery handler; fortuna-ops only; DB-backed populated test;
         screenshot-verified (this commit, 13 boards). Benchmark detail + per-event
         drill-in + sources inventory are follow-ons (GAPS).
+  - [x] Database board (mission item 5, "honest visibility into the actual tables —
+        counts") — db_table_counts runtime-sqlx (exact COUNT(*) over all 24 ledger
+        tables incl. the scalar_beliefs/belief_scores plane, literal names/no
+        injection, ORDER BY busiest-first) + view_db handler + {tables,total_rows}
+        summary via boardTable; fortuna-ops only; DB-backed populated test (24-table
+        inventory + real counts + ordering + honest 0 + scalar-plane sweep guard);
+        reviewer-clean; FULL-WORKSPACE battery green (fmt+clippy+test 1263/0+run-dst
+        exit 0); screenshot-verified (this commit, 14 boards). reltuples-at-scale +
+        per-table drill-in are follow-ons (GAPS).
 
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)

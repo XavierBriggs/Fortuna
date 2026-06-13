@@ -71,6 +71,7 @@ pub fn rota_router(state: RotaState) -> Router {
         .route("/api/rota/v1/fills", get(view_fills))
         .route("/api/rota/v1/strategies", get(view_strategies))
         .route("/api/rota/v1/discovery", get(view_discovery))
+        .route("/api/rota/v1/db", get(view_db))
         .route("/api/rota/v1/audit", get(audit_tail))
         .with_state(state)
 }
@@ -302,6 +303,88 @@ pub async fn recent_discovery_events(
          ORDER BY e.created_at DESC LIMIT $1",
     )
     .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
+/// DB visibility (mission item 5: "honest visibility into the actual tables —
+/// counts"). An exact-COUNT sweep over every ledger table, busiest-first. Runtime
+/// sqlx (the audit-tail precedent). NOTE: exact COUNT(*) is accurate at the current
+/// Sim scale; when a table grows large in live trading (audit/signals), switch this
+/// to pg reltuples estimates or a less-frequent poll — ledgered in GAPS. Degrades
+/// to unavailable (HTTP 200) without the pool.
+async fn view_db(State(s): State<RotaState>) -> impl IntoResponse {
+    let Some(pool) = s.pool.clone() else {
+        return Json(json!({
+            "status": "unavailable",
+            "detail": "postgres capability absent (standalone ROTA)",
+        }));
+    };
+    match db_table_counts(&pool).await {
+        Ok(rows) => {
+            let generated_at = { s.snapshot.read().await.generated_at.clone() }; // R8
+            let tables = rows.len();
+            let total: i64 = rows.iter().map(|r| r.1).sum();
+            let json_rows: Vec<Value> = rows
+                .into_iter()
+                .map(|(table, n)| json!({ "table": table, "rows": n }))
+                .collect();
+            Json(json!({
+                "title": "Database",
+                "generated_at": generated_at,
+                "columns": [
+                    {"key":"table","label":"Table"},
+                    {"key":"rows","label":"Rows"},
+                ],
+                "rows": json_rows,
+                "summary": {"tables": tables, "total_rows": total},
+            }))
+        }
+        Err(e) => {
+            eprintln!("rota: db read degraded: {e}");
+            Json(json!({
+                "status": "unavailable",
+                "detail": "db read unavailable (dashboard pool degraded)",
+            }))
+        }
+    }
+}
+
+/// One DB-inventory row: (table_name, row_count).
+type DbCountRow = (String, i64);
+
+/// Exact row counts for every ledger table, busiest-first. Static query (every
+/// table name is a literal — no interpolation). A new migration's table must be
+/// ADDED here (the list is hardcoded; an absent table just isn't shown, never an
+/// error). Runtime sqlx (audit-tail precedent).
+pub async fn db_table_counts(pool: &PgPool) -> Result<Vec<DbCountRow>, sqlx::Error> {
+    sqlx::query_as::<_, DbCountRow>(
+        "SELECT 'audit' t, COUNT(*) n FROM audit \
+         UNION ALL SELECT 'belief_scores', COUNT(*) FROM belief_scores \
+         UNION ALL SELECT 'beliefs', COUNT(*) FROM beliefs \
+         UNION ALL SELECT 'calibration_params', COUNT(*) FROM calibration_params \
+         UNION ALL SELECT 'discrepancies', COUNT(*) FROM discrepancies \
+         UNION ALL SELECT 'discrepancy_resolutions', COUNT(*) FROM discrepancy_resolutions \
+         UNION ALL SELECT 'domain_analyses', COUNT(*) FROM domain_analyses \
+         UNION ALL SELECT 'events', COUNT(*) FROM events \
+         UNION ALL SELECT 'exec_cursors', COUNT(*) FROM exec_cursors \
+         UNION ALL SELECT 'fills', COUNT(*) FROM fills \
+         UNION ALL SELECT 'halt_events', COUNT(*) FROM halt_events \
+         UNION ALL SELECT 'intent_events', COUNT(*) FROM intent_events \
+         UNION ALL SELECT 'journal', COUNT(*) FROM journal \
+         UNION ALL SELECT 'lessons', COUNT(*) FROM lessons \
+         UNION ALL SELECT 'market_event_edges', COUNT(*) FROM market_event_edges \
+         UNION ALL SELECT 'market_snapshots', COUNT(*) FROM market_snapshots \
+         UNION ALL SELECT 'personas', COUNT(*) FROM personas \
+         UNION ALL SELECT 'price_snapshots', COUNT(*) FROM price_snapshots \
+         UNION ALL SELECT 'reservation_events', COUNT(*) FROM reservation_events \
+         UNION ALL SELECT 'scalar_beliefs', COUNT(*) FROM scalar_beliefs \
+         UNION ALL SELECT 'settlement_entries', COUNT(*) FROM settlement_entries \
+         UNION ALL SELECT 'signals', COUNT(*) FROM signals \
+         UNION ALL SELECT 'source_registry', COUNT(*) FROM source_registry \
+         UNION ALL SELECT 'tradability_scores', COUNT(*) FROM tradability_scores \
+         ORDER BY 2 DESC, 1",
+    )
     .fetch_all(pool)
     .await
 }
@@ -773,6 +856,7 @@ const ROTA_SHELL: &str = r#"<!doctype html><html lang="en"><head>
   <div class="panel wide"><h2>Recent Fills</h2><div id="fills">…</div></div>
   <div class="panel wide"><h2>Strategy P&amp;L</h2><div id="strategies">…</div></div>
   <div class="panel wide"><h2>Discovery — Events</h2><div id="discovery">…</div></div>
+  <div class="panel wide"><h2>Database</h2><div id="db">…</div></div>
   <div class="panel"><h2>Audit tail</h2><div id="audit">…</div></div>
 </div>
 <script>
@@ -856,6 +940,7 @@ const R={
  fills(j){return boardTable(j);},
  strategies(j){return boardTable(j);},
  discovery(j){return boardTable(j);},
+ db(j){return boardTable(j);},
  audit(j){if(!j.available)return `<div class="warn">${esc(j.detail||"unavailable")}</div>`;
   let h="";j.rows.slice(-12).forEach(r=>h+=`<div class="row">${esc(r.at)} UTC ${esc(r.kind)}${r.actor?" · "+esc(r.actor):""}</div>`);
   return h||`<div class="row">no audit rows yet</div>`;}
@@ -868,4 +953,5 @@ async function poll(name){const el=document.getElementById(name);
 function every(ms,names){names.forEach(poll);setInterval(()=>names.forEach(poll),ms);}
 every(2000,["health","audit"]);every(5000,["money","gates","ingest_sources","ingest_feed","ingest_funnel"]);
 every(10000,["cognition","settlement","fills","strategies"]);every(15000,["streams","discovery"]);
+every(30000,["db"]);
 </script></body></html>"#;

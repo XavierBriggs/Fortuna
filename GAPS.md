@@ -763,6 +763,34 @@ Until those land, the new boards ship as read-only frontend + honest-degraded
 (`available:false`) handlers — the discipline all three contracts specify
 ("build the panels now; they light up when the data lands").
 
+### DATABASE INVENTORY DONE (2026-06-13) — mission item 5 (honest table counts)
+Built the Database board: `db_table_counts(pool)` runtime-sqlx — an exact COUNT(*)
+sweep over every one of the 24 ledger tables (UNION ALL of literal table names — no
+interpolation, zero injection surface), `ORDER BY 2 DESC, 1` (busiest-first) —
++ view_db handler (degrades unavailable HTTP 200, no leak) rendered via boardTable
+with a `{tables,total_rows}` summary. fortuna-ops ONLY (the audit-tail/fills/discovery
+pattern; no fortuna-live touch). DB-backed populated-path test
+(`db_board_counts_every_ledger_table`: events×2 + beliefs×1 on a freshly-migrated DB →
+asserts all 24 tables inventoried, the real non-zero counts, busiest-first ordering,
+the running total, an honest 0 for a genuinely-empty table, AND a guard that the
+scalar plane — `belief_scores` + `scalar_beliefs`, which track-C merged with the
+perp/scalar foundation 2026-06-13 — is swept, so a future migration cannot silently
+escape the board) + PATHS[16] + degraded-loop entry. Reviewer RAN
+(feature-dev:code-reviewer) — CLEAN: all names match migrations, partitioned-parent
+COUNT(`audit`/`signals`) correct, i64 sum no overflow, no unwrap/panic in the handler
+path. FULL-WORKSPACE BATTERY GREEN (disk crisis resolved 6.9→41Gi; re-run on the
+rebased base after track-C's scalar plane merged): fmt + clippy --workspace
+--all-targets -D warnings + `cargo test --workspace` 1263 passed/0 failed + run-dst.sh
+exit 0 (regression corpus + 300 seeds × all DST harnesses) + the env -u DATABASE_URL
+no-coupling build of fortuna-ops. Screenshot-verified (14 boards; Database shows
+tables=24, total_rows=20:
+beliefs 6 / audit 5 / fills 3 / calibration_params·events·market_event_edges 2 each /
+honest 0 for the rest); archived rota-db-2026-06-13.png. NOTE (ledgered follow-on):
+exact COUNT(*) is accurate at the current Sim scale; when `audit`/`signals` grow large
+in live trading, switch this one query to `pg_class.reltuples` estimates or a slower
+poll — the `db_table_counts` query is the single change point. Per-table drill-in
+(recents / column shapes) is a later R5 slice.
+
 ### DISCOVERY — EVENTS DONE (2026-06-13) — mission item 4 (canonical events + markets)
 Built the Discovery — Events board: `recent_discovery_events(pool, limit)` runtime-
 sqlx query — `events` LEFT JOIN `market_event_edges`, COUNT(DISTINCT market_id) =

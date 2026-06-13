@@ -229,6 +229,15 @@ with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
   event's status + DISTINCT mapped-market count (a LEFT JOIN to
   `market_event_edges`, supersession-safe). A fortuna-ops runtime-sqlx query (the
   audit-tail pattern). Benchmark snapshots + per-event drill-in are follow-ons.
+- **Database board** (`GET /api/rota/v1/db`, mission item 5 "honest visibility into
+  the actual tables — counts") — an exact `COUNT(*)` sweep over every one of the 24
+  ledger tables (incl. the `scalar_beliefs`/`belief_scores` scalar plane), busiest-
+  first, with a `{tables, total_rows}` summary. The table
+  names are query literals (UNION ALL, no interpolation — zero injection surface);
+  a genuinely-empty table shows a real `0`, never an omitted row. A fortuna-ops
+  runtime-sqlx query (the audit-tail pattern). NOTE (GAPS): exact COUNT is accurate
+  at Sim scale — swap to `pg_class.reltuples` when `audit`/`signals` grow; per-table
+  drill-in (recents / columns) is a follow-on.
 - **Strategy P&L board** (`GET /api/rota/v1/strategies`, mission item 3 "realized
   PnL per strategy") — per-strategy realized PnL / fees / fills / open exposure,
   shaped daemon-side from `runner.digest_snapshot()` (the same attribution the

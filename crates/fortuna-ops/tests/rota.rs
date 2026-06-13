@@ -66,7 +66,7 @@ async fn serve() -> (String, tokio::task::JoinHandle<()>) {
     (format!("http://{addr}"), handle)
 }
 
-const PATHS: [&str; 15] = [
+const PATHS: [&str; 16] = [
     "/rota",
     "/assets/rota/logo.svg",
     "/api/rota/v1/health",
@@ -81,6 +81,7 @@ const PATHS: [&str; 15] = [
     "/api/rota/v1/fills",
     "/api/rota/v1/strategies",
     "/api/rota/v1/discovery",
+    "/api/rota/v1/db",
     "/api/rota/v1/audit",
 ];
 
@@ -134,6 +135,7 @@ async fn degraded_surfaces_are_200_with_explicit_unavailable() {
         "fills",
         "strategies",
         "discovery",
+        "db",
     ] {
         let j: serde_json::Value = client
             .get(format!("{base}/api/rota/v1/{name}"))
@@ -1287,4 +1289,76 @@ async fn cognition_carries_daemon_counters_when_the_view_is_populated() {
     );
     // The ledger arrays still degrade independently (no pool here).
     assert_eq!(j["recent_beliefs"]["available"], false);
+}
+
+// Mission item 5 ("honest visibility into the actual tables — counts"): the DB
+// inventory board sweeps EVERY ledger table and returns real counts, busiest-
+// first. Seeds two tables (events x2, beliefs x1) on a freshly-migrated DB and
+// asserts the full 24-table inventory, the exact non-zero counts, the busiest-
+// first ordering, the running total, and that a genuinely empty table honestly
+// shows 0 (a true COUNT(*), never an omitted row or a fabricated number).
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn db_board_counts_every_ledger_table(pool: sqlx::PgPool) {
+    use fortuna_ledger::BeliefsRepo;
+    // events: 2 rows; beliefs: 1 row (FK to one event); every other table: 0.
+    seed_event(&pool, "01EVENTDB0000000000000001").await;
+    seed_event(&pool, "01EVENTDB0000000000000002").await;
+    BeliefsRepo::new(pool.clone())
+        .insert(
+            "01BELIEFDB0000000000000001",
+            "2026-06-12T01:00:00.000Z",
+            "01EVENTDB0000000000000001",
+            0.5,
+            0.5,
+            "2026-06-13T00:00:00.000Z",
+            &serde_json::json!({"reasoning": "seed"}),
+            &serde_json::json!({"model_id": "m"}),
+            None,
+        )
+        .await
+        .unwrap();
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+    };
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/db"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    // The full sweep — every ledger table inventoried, not a subset.
+    assert_eq!(rows.len(), 24, "all 24 ledger tables inventoried: {j}");
+    assert_eq!(j["summary"]["tables"], 24);
+    // Busiest-first: events(2) precedes beliefs(1) precedes the empty tables.
+    assert_eq!(j["rows"][0]["table"], "events");
+    assert_eq!(j["rows"][0]["rows"], 2, "events count is real: {j}");
+    assert_eq!(j["rows"][1]["table"], "beliefs");
+    assert_eq!(j["rows"][1]["rows"], 1, "beliefs count is real: {j}");
+    // total_rows == the sum of every table's count.
+    assert_eq!(j["summary"]["total_rows"], 3);
+    // A genuinely empty table honestly shows a real 0 (never omitted, never faked).
+    let fills = rows
+        .iter()
+        .find(|r| r["table"] == "fills")
+        .expect("fills row present in the inventory");
+    assert_eq!(fills["rows"], 0, "an empty table shows a real 0: {j}");
+    // The scalar-belief plane (belief_scores + scalar_beliefs, added with the
+    // perp/scalar foundation) is swept too — both present, honest 0 when empty.
+    // This pins the sweep against a future migration silently escaping the board.
+    for t in ["belief_scores", "scalar_beliefs"] {
+        let row = rows
+            .iter()
+            .find(|r| r["table"] == t)
+            .unwrap_or_else(|| panic!("{t} row present in the inventory: {j}"));
+        assert_eq!(row["rows"], 0, "{t} empty → honest 0: {j}");
+    }
 }
