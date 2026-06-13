@@ -964,3 +964,48 @@ at E.3 (the PersonaOutcome no-order/size field-surface pin) under operator waive
 
 ROTA views (§14/§20) + persona telemetry (§19) are operator-requested detailed contracts
 (2026-06-13) — Track B builds the four views; Track E provides the data across E.1–E.5.
+- [x] OBS-2a funnel loop-stages (fortuna-live ingestion.rs). IngestionCore now
+      accumulates `normalized` (items that became SignalEnvelopes) + `deduped`
+      (authoritative-dedup drops); IngestionWiring accumulates `persisted` +
+      `persist_failures`. Both expose `telemetry(now) -> IngestionTelemetry` (the
+      core fills the normalize stages, the wiring overlays persistence) — so the
+      funnel is complete end-to-end (it read 0 for these in OBS-1). Contained to
+      ingestion.rs (no main.rs/boot.rs → zero track-A collision). 3 core tests
+      (no DB): funnel projection, normalized accumulation across ticks, and that a
+      cross-tick exact duplicate is caught by the validator's persistent
+      recent-set (counts as `validated_dropped`, NOT `deduped` — `deduped` only
+      fires for dups past the validator's window). (DONE 2026-06-13 <hash>; scoped
+      battery green — fmt + clippy -p fortuna-live --all-targets -D warnings +
+      test -p fortuna-live --lib ingestion = 6/6; the DB-backed fortuna-live
+      suite is the verifier's merge gate.) [2ed28d3]
+- [x] OBS-2b snapshot publish: the "one writer" side of §2. New
+      `IngestionTelemetryHandle = Arc<RwLock<IngestionTelemetry>>` +
+      `new_telemetry_handle()`; `run_ingestion_loop` publishes `wiring.telemetry(now)`
+      into it each tick (the projection uses the same `now` as the tick).
+      `IngestionTelemetry` derives `Default` (the empty pre-first-tick snapshot
+      readers see). main.rs creates the handle (inert empty Arc when ingestion is
+      OFF → daemon byte-unchanged), passes the writer to the loop, and logs the
+      final funnel at shutdown. NO RotaState touch (track B owns the read endpoint
+      = OBS-2c). 1 DB-free test (handle starts empty, then round-trips a published
+      snapshot). (DONE 2026-06-13 <hash>; scoped battery green — fmt + clippy
+      -p fortuna-sources -p fortuna-live --all-targets -D warnings + test
+      -p fortuna-sources 119+5 + test -p fortuna-live --lib ingestion 7/7;
+      daemon_smoke unaffected = verifier's merge gate.) [7a9e28d]
+- [ ] OBS-2c ROTA read wiring (track-B-coordinated): track B adds an
+      `ingestion: Option<IngestionTelemetryHandle>` reader to `RotaState`
+      (fortuna-ops) + the V1/V2/V3 boards project it; main.rs passes
+      `ingest_telemetry.clone()` into the dashboard state. Deferred to land WITH
+      track B's ROTA harness (the bus queue item) so writer+reader stay coherent
+      and we don't both edit RotaState.
+- [x] OBS-3 domain_tags population: carry each source's domain (weather|macro|…)
+      from the `source_registry` admission into `SourceTelemetry.domain_tags` (was
+      hard-coded empty in OBS-1). Registry-sourced via a new `domain_of` resolver
+      on `build_scheduler` (parallel to `tier_of`) → `SourceSchedule.domain_tags`
+      → the telemetry projection; build_ingestion_wiring builds the domain map
+      from the same `source_registry` rows it loads tiers from. No drift (the
+      Layer-0 admission is the source of truth, not config). New test
+      `domain_of_flows_through_to_telemetry`. SourceTelemetry now has no empty
+      placeholder fields. (DONE 2026-06-13 <hash>; scoped battery green — fmt +
+      clippy -p fortuna-sources -p fortuna-live --all-targets -D warnings +
+      test -p fortuna-sources = 119 lib + 5 DST + test -p fortuna-live --lib
+      ingestion 6/6. Subagent-built, main-loop reviewed + verified.) [06b247c]

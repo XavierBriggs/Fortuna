@@ -39,15 +39,18 @@ pub struct FactoryConfig {
 
 /// Build a scheduler from config. `tier_of` supplies each source's trust tier
 /// from the `source_registry` (fail-closed: a source with no registry tier is
-/// refused — it must be admitted before it runs). `secret_resolver` maps an
-/// env-var NAME (an `auth_env` from config) to its value — so the LIB never
-/// reads env directly; the caller (the binary) owns env access (Aeolus
-/// contract §3.1, house secrets rule). Only ENABLED, Phase-A-buildable sources
-/// are registered.
+/// refused — it must be admitted before it runs). `domain_of` supplies each
+/// source's domain tags (weather | macro | …) from the same registry admission
+/// (parallel to `tier_of` supplying the tier), surfaced in telemetry.
+/// `secret_resolver` maps an env-var NAME (an `auth_env` from config) to its
+/// value — so the LIB never reads env directly; the caller (the binary) owns
+/// env access (Aeolus contract §3.1, house secrets rule). Only ENABLED,
+/// Phase-A-buildable sources are registered.
 pub fn build_scheduler(
     config: &SourcesConfig,
     factory: &FactoryConfig,
     tier_of: impl Fn(&str) -> Option<u8>,
+    domain_of: impl Fn(&str) -> Vec<String>,
     secret_resolver: impl Fn(&str) -> Option<String>,
     clock: Arc<dyn Clock>,
 ) -> Result<IngestionScheduler, SourcesError> {
@@ -60,9 +63,10 @@ pub fn build_scheduler(
             source_id: id.clone(),
             reason: "enabled source has no source_registry tier (admit it first)".to_string(),
         })?;
+        let domain_tags = domain_of(id);
         let (source, claimed): (Box<dyn Source>, ClaimedTimeFn) =
             build_adapter(id, src, factory, &secret_resolver, clock.clone())?;
-        let schedule = source_schedule(src, factory, tier);
+        let schedule = source_schedule(src, factory, tier, domain_tags);
         let validator_cfg = StructuralConfig {
             volume_envelope: factory.volume_envelope,
             ..Default::default()
@@ -193,7 +197,12 @@ fn build_client(
     ))
 }
 
-fn source_schedule(src: &SourceConfig, factory: &FactoryConfig, tier: u8) -> SourceSchedule {
+fn source_schedule(
+    src: &SourceConfig,
+    factory: &FactoryConfig,
+    tier: u8,
+    domain_tags: Vec<String>,
+) -> SourceSchedule {
     let base = src.base_interval.unwrap_or(Duration::from_secs(1800));
     // Boost to the tightest configured window interval during any window.
     let boosted = src
@@ -211,6 +220,7 @@ fn source_schedule(src: &SourceConfig, factory: &FactoryConfig, tier: u8) -> Sou
         backoff_cap: Duration::from_secs(3600),
         trust_tier: tier,
         trigger_floor: factory.trigger_floor,
+        domain_tags,
     }
 }
 
@@ -283,11 +293,24 @@ enabled = false
         None
     }
 
+    /// Test domain resolver: no domain tags (the existing tests don't care).
+    fn no_domains(_id: &str) -> Vec<String> {
+        Vec::new()
+    }
+
     #[test]
     fn builds_enabled_sources_skips_disabled() {
         let cfg = SourcesConfig::from_toml_str(CONFIG).unwrap();
         let c = clock();
-        let s = build_scheduler(&cfg, &factory_cfg(), tiers, no_secrets, c.clone()).unwrap();
+        let s = build_scheduler(
+            &cfg,
+            &factory_cfg(),
+            tiers,
+            no_domains,
+            no_secrets,
+            c.clone(),
+        )
+        .unwrap();
         let mut ids = s.source_ids();
         ids.sort_unstable();
         assert_eq!(ids, vec!["bls_schedule", "fed_press", "nws_alerts"]);
@@ -323,7 +346,15 @@ auth_env = "AEOLUS_API_TOKEN"
             "aeolus" => Some(7),
             _ => None,
         };
-        let s = build_scheduler(&cfg, &factory_cfg(), tier_of, secrets, c.clone()).unwrap();
+        let s = build_scheduler(
+            &cfg,
+            &factory_cfg(),
+            tier_of,
+            no_domains,
+            secrets,
+            c.clone(),
+        )
+        .unwrap();
         let mut ids = s.source_ids();
         ids.sort_unstable();
         assert_eq!(ids, vec!["aeolus", "nws_climate"]);
@@ -333,9 +364,16 @@ auth_env = "AEOLUS_API_TOKEN"
     fn enabled_source_without_a_registry_tier_is_refused() {
         let cfg = SourcesConfig::from_toml_str(CONFIG).unwrap();
         let c = clock();
-        let err = build_scheduler(&cfg, &factory_cfg(), |_| None, no_secrets, c.clone())
-            .err()
-            .unwrap();
+        let err = build_scheduler(
+            &cfg,
+            &factory_cfg(),
+            |_| None,
+            no_domains,
+            no_secrets,
+            c.clone(),
+        )
+        .err()
+        .unwrap();
         assert!(err.to_string().contains("no source_registry tier"), "{err}");
     }
 
@@ -352,9 +390,16 @@ rate_budget_per_min = 6
         )
         .unwrap();
         let c = clock();
-        let err = build_scheduler(&cfg, &factory_cfg(), |_| Some(9), no_secrets, c.clone())
-            .err()
-            .unwrap();
+        let err = build_scheduler(
+            &cfg,
+            &factory_cfg(),
+            |_| Some(9),
+            no_domains,
+            no_secrets,
+            c.clone(),
+        )
+        .err()
+        .unwrap();
         assert!(err.to_string().contains("alerts"), "{err}");
     }
 
@@ -371,9 +416,16 @@ rate_budget_per_min = 6
         )
         .unwrap();
         let c = clock();
-        let err = build_scheduler(&cfg, &factory_cfg(), |_| Some(4), no_secrets, c.clone())
-            .err()
-            .unwrap();
+        let err = build_scheduler(
+            &cfg,
+            &factory_cfg(),
+            |_| Some(4),
+            no_domains,
+            no_secrets,
+            c.clone(),
+        )
+        .err()
+        .unwrap();
         assert!(err.to_string().contains("format=rss"), "{err}");
     }
 
@@ -393,7 +445,15 @@ auth_env = "AEOLUS_API_TOKEN"
         let c = clock();
         // The caller resolves the env var; the lib never reads env.
         let resolver = |env: &str| (env == "AEOLUS_API_TOKEN").then(|| "secret-key".to_string());
-        let s = build_scheduler(&cfg, &factory_cfg(), |_| Some(6), resolver, c.clone()).unwrap();
+        let s = build_scheduler(
+            &cfg,
+            &factory_cfg(),
+            |_| Some(6),
+            no_domains,
+            resolver,
+            c.clone(),
+        )
+        .unwrap();
         assert_eq!(s.source_ids(), vec!["aeolus_knyc"]);
     }
 
@@ -403,9 +463,16 @@ auth_env = "AEOLUS_API_TOKEN"
         // unauthenticated fetch).
         let cfg = SourcesConfig::from_toml_str(AEOLUS_CONFIG).unwrap();
         let c = clock();
-        let err = build_scheduler(&cfg, &factory_cfg(), |_| Some(6), |_| None, c.clone())
-            .err()
-            .unwrap();
+        let err = build_scheduler(
+            &cfg,
+            &factory_cfg(),
+            |_| Some(6),
+            no_domains,
+            |_| None,
+            c.clone(),
+        )
+        .err()
+        .unwrap();
         assert!(err.to_string().contains("did not resolve"), "{err}");
     }
 
@@ -424,12 +491,57 @@ auth_header = "x-api-key"
         )
         .unwrap();
         let c = clock();
-        let err = build_scheduler(&cfg, &factory_cfg(), |_| Some(6), no_secrets, c.clone())
-            .err()
-            .unwrap();
+        let err = build_scheduler(
+            &cfg,
+            &factory_cfg(),
+            |_| Some(6),
+            no_domains,
+            no_secrets,
+            c.clone(),
+        )
+        .err()
+        .unwrap();
         assert!(
             err.to_string().contains("BOTH auth_header and auth_env"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn domain_of_flows_through_to_telemetry() {
+        // The registry-sourced `domain_of` resolver populates each source's
+        // domain_tags, which surface in the per-source telemetry projection.
+        let cfg = SourcesConfig::from_toml_str(
+            r#"
+[sources.nws_alerts]
+kind = "nws"
+feed = "alerts"
+url = "https://api.weather.gov/alerts/active?area=TX"
+base_interval = "10m"
+rate_budget_per_min = 30
+"#,
+        )
+        .unwrap();
+        let c = clock();
+        let domain_of = |id: &str| match id {
+            "nws_alerts" => vec!["weather".to_string()],
+            _ => Vec::new(),
+        };
+        let s = build_scheduler(
+            &cfg,
+            &factory_cfg(),
+            |_| Some(9),
+            domain_of,
+            no_secrets,
+            c.clone(),
+        )
+        .unwrap();
+        let t = s.telemetry(UtcTimestamp::from_epoch_millis(0).unwrap());
+        let src = t
+            .sources
+            .iter()
+            .find(|st| st.source_id == "nws_alerts")
+            .expect("source present in telemetry");
+        assert_eq!(src.domain_tags, vec!["weather"]);
     }
 }
