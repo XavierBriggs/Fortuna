@@ -117,12 +117,7 @@ envelope, dedup) → `SignalsRepo.insert` → `TriggerEngine.signal_matches` →
 wake a decision cycle. Per-source failure isolation: one erroring source never blocks
 the fleet.
 
-**Trust attribution job.** Extends the weekly review: join resolved belief outcomes
-against belief evidence source refs; compute per-source correlation with good/bad
-beliefs; write append-only trust-tier adjustment rows. Demotions are automatic
-on-the-record; promotions require operator confirmation (humans gate upward moves).
-This automates 5.11's "a source whose evidence correlates with bad beliefs is demoted
-on the record."
+**Trust attribution job.** Extends the weekly review; specified in §4.4 (Layer 3).
 
 ### 4.3 Configuration and registry
 
@@ -149,6 +144,75 @@ enabled = false
 Registry decides *whether* a source may exist; config decides *how* it behaves. A
 source present in config but absent/disabled in the registry is refused (existing
 behavior).
+
+### 4.4 Trust and source quality (the four layers)
+
+Operator priority (2026-06-12): source quality is a first-class concern — "we want the
+best sources." Trust is therefore not a label but four layers of mechanism, and a
+source's tier changes what it is *allowed to do*, not just how it is described.
+
+**Layer 0 — Admission.** No registry row without a vetting dossier under
+`docs/research/sources/<source_id>/` (house practice: third-party facts are grounded in
+research, not training-data memory). The dossier scores six dimensions:
+
+1. **Authority** — is it the ground truth or reporting about the ground truth?
+2. **Directness** — primary > wire service > aggregator > commentary.
+3. **Contract stability** — versioned API > RSS > HTML page.
+4. **Latency-to-event** — how early does it carry the information?
+5. **ToS cleanliness** — feed/API blessed, scraping tolerated, or hostile?
+6. **Resolution eligibility** — can it *grade* beliefs (5.12), not just inform them?
+
+Governing principle: **prefer the primary source over reporting about it** (BLS over a
+wire story about CPI; the awarding body over an entertainment blog; NWS over a weather
+aggregator). The primary source is usually also the free one, so the acquisition
+posture and the quality bar point the same direction. Initial tier bands: official
+statistical/government/venue-resolution sources 8–10; established wires and major
+outlets 5–7; aggregators (GDELT) 3–5; anything model-extracted or MCP-fetched capped
+per §4.2 regardless of publisher.
+
+**Layer 1 — Structural validation at ingest.** Host pinning, schema conformance, and
+dedup (§4.2, existing normalizer), plus: timestamp sanity — future-dated items
+rejected; re-published stale content (a classic feed pathology that masquerades as
+fresh signal) detected by content-hash against history and flagged, not re-ingested as
+new — and per-source volume envelopes (§7).
+
+**Layer 2 — Corroboration.** Syndication launders single-source claims into fake
+consensus: ten outlets carrying one wire story are ONE origin, not ten. Near-duplicate
+clustering across sources (content-similarity over already-hashed payloads) assigns a
+cluster id; context items for world-forward synthesis are annotated
+`corroborated by N independent origins (tiers ...)` vs `single-source (tier t)`. The
+model is told the difference; the annotation is computed deterministically, never
+self-reported by the model.
+
+**Layer 3 — Empirical scoring (was the source right?).** The trust attribution job,
+run in the weekly review: join resolved belief outcomes against belief evidence source
+refs and write per-(source, category) reliability stats to an append-only
+`source_reliability` table. Two scores per (source, category): **accuracy** (evidence
+correlation with good/bad Brier outcomes) and **earliness** (did the source carry the
+information before the benchmark snapshot moved — CLV for sources; right-and-early is
+tradeable, right-but-late is confirmation). The registry keeps the spec's single
+`trust_tier`; the weekly review proposes tier changes from the stats. Demotions are
+automatic on-the-record; promotions require operator confirmation (humans gate upward
+moves). This automates 5.11's "a source whose evidence correlates with bad beliefs is
+demoted on the record." Earliness stats also nominate sources for event-window boost
+treatment.
+
+**Layer 4 — Consumption (tiers change behavior).**
+
+- **Resolution-source floor:** only sources at tier >= `resolution_floor` (config,
+  default 8) may be declared resolution sources for watchlist events. Via 5.12's
+  unscoreable rule this gates which hypotheses the system may generate at all.
+- **Trigger floor:** only sources at tier >= `trigger_floor` (config, default 5) can
+  wake a decision cycle. Lower-tier sources land and sleep; they inform slow discovery
+  only. A tabloid can never page the frontier model.
+- **Evidence weighting and context priority:** higher-tier evidence packs into the
+  context budget first (5.11 requires tiers to feed evidence weighting; the assembler's
+  greedy packing gets tier-aware ordering).
+- **Extraction/MCP cap:** derived content tier-capped regardless of publisher (§4.2).
+
+Net effect: quality compounds. Bad sources demote themselves on their own track
+record, lose the ability to wake the model or grade beliefs, and fade from context;
+good-and-early sources earn event windows.
 
 ## 5. Data flow
 
@@ -267,10 +331,13 @@ Per house rules: tests written from this document before implementation.
 
 - **Phase A (v1):** `fortuna-sources` crate, FetchClient, scheduler wired into
   `drive()`, CalendarSource + NwsSource + RssSource + GdeltSource, registry rows +
-  config, fixtures + tests + DST scenarios. Pure deterministic Rust; no model in the
-  ingestion path yet.
-- **Phase B:** trust attribution job in the weekly review; event-window automation from
-  `release_scheduled` signals.
+  config, vetting dossiers (Layer 0) for every admitted source, timestamp-sanity and
+  volume envelopes (Layer 1), consumption floors as config rules (Layer 4: resolution
+  floor, trigger floor), fixtures + tests + DST scenarios. Pure deterministic Rust; no
+  model in the ingestion path yet.
+- **Phase B:** trust attribution job + `source_reliability` stats in the weekly review
+  (Layer 3); corroboration clustering and context annotation (Layer 2); event-window
+  automation from `release_scheduled` signals.
 - **Phase C (when first needed):** ScrapeSource + extraction stage + extraction budget.
 - **Phase D (config-gated):** McpSource; webhook push class.
 
@@ -287,7 +354,14 @@ Per house rules: tests written from this document before implementation.
    emit" with explicit failure handling; no spec conflict.
 4. **Trust attribution automation** — 5.11 requires demotion "on the record" but does
    not specify the mechanism; this design proposes the weekly-review job with
-   operator-gated promotions.
+   operator-gated promotions, backed by an append-only per-(source, category)
+   `source_reliability` stats table (new table; the registry's single `trust_tier`
+   stays as spec'd).
+5. **Consumption floors** (§4.4 Layer 4) — resolution-source floor and trigger floor
+   are config-defined uses of the trust tier; spec is silent, conservative extension
+   (both floors fail toward less model wake-up and fewer gradeable hypotheses).
+6. **Corroboration annotation** (§4.4 Layer 2) — deterministic near-dup clustering and
+   origin counting; spec is silent on syndication, conservative extension.
 
 ## 12. Open questions (deferred, not blocking Phase A)
 
@@ -297,3 +371,7 @@ Per house rules: tests written from this document before implementation.
   docs before implementation — docs/research/ per house practice).
 - Entertainment structured sources: TMDb/OMDb licensing posture vs. scrape-class
   Rotten Tomatoes (Phase C decision).
+- Default floor values (resolution_floor = 8, trigger_floor = 5) are starting points;
+  revisit after the first month of reliability stats.
+- Near-dup clustering algorithm (Layer 2): simhash/minhash over normalized text vs.
+  exact-substring heuristics — pick during Phase B with real feed data in hand.
