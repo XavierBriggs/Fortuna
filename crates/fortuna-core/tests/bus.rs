@@ -439,3 +439,82 @@ fn replay_of_an_empty_recording_is_ok() {
     let rec = Recording::from_jsonl("").unwrap();
     replay_verify(&rec, vec![Box::new(Deriver::new(42))]).unwrap();
 }
+
+// ---- PerpTick variant (perp-strategies design §2.1) ----
+//
+// PerpTick is an ADDITIVE EventPayload variant; these pin that it rides the
+// recorder/replay path byte-identically. The replay byte-compare is the whole
+// determinism contract, and the embedded FundingObservation carries a
+// `Decimal` (serialized as a STRING) — the field most at risk of byte drift.
+
+mod perp_tick {
+    use super::*;
+    use fortuna_core::market::{MarketId, VenueId};
+    use fortuna_core::perp::{FundingObservation, PerpMarks, PerpPrice};
+    use rust_decimal::Decimal;
+    use std::str::FromStr;
+
+    fn perp_tick() -> EventPayload {
+        EventPayload::PerpTick {
+            venue: VenueId::new("kinetics").unwrap(),
+            market: MarketId::new("KXBTCPERP").unwrap(),
+            marks: PerpMarks {
+                venue_settlement: PerpPrice::new(626_010_000),
+                conservative: Some(PerpPrice::new(626_005_000)),
+            },
+            funding: FundingObservation {
+                estimate: Decimal::from_str("-0.00012500").unwrap(),
+                next_funding_time: ts(1_718_294_400_000),
+                reference_price: PerpPrice::new(626_000_000),
+                obs_at: ts(1_718_290_800_000),
+            },
+        }
+    }
+
+    #[test]
+    fn perp_tick_payload_serde_round_trips_byte_stable() {
+        let p = perp_tick();
+        let once = serde_json::to_string(&p).unwrap();
+        let back: EventPayload = serde_json::from_str(&once).unwrap();
+        let twice = serde_json::to_string(&back).unwrap();
+        assert_eq!(once, twice, "PerpTick payload JSON is not byte-stable");
+        assert_eq!(p, back, "PerpTick did not survive the round trip");
+        // The variant tag follows the enum's snake_case contract.
+        assert!(
+            once.contains("\"type\":\"perp_tick\""),
+            "unexpected tag: {once}"
+        );
+    }
+
+    #[test]
+    fn perp_tick_rides_the_recording_jsonl_byte_identically() {
+        // A PerpTick dispatched as an external event must survive
+        // to_jsonl -> from_jsonl -> to_jsonl unchanged (the replay record's
+        // serialization-stability property, now exercised for the Decimal-
+        // bearing funding field).
+        let clock = Arc::new(SimClock::new(ts(1_718_290_800_000)));
+        let mut bus = EventBus::new(clock);
+        bus.publish_external(perp_tick());
+        bus.run_until_idle().unwrap();
+
+        let jsonl = bus.recording().to_jsonl().unwrap();
+        let back = Recording::from_jsonl(&jsonl).unwrap();
+        assert_eq!(back.events(), bus.recording().events());
+        assert_eq!(back.to_jsonl().unwrap(), jsonl);
+    }
+
+    #[test]
+    fn perp_tick_replays_byte_for_byte() {
+        // The full determinism contract: a recording carrying a PerpTick
+        // external event replays without divergence (no handler needed; the
+        // event is re-injected and byte-compared against the recording).
+        let clock = Arc::new(SimClock::new(ts(1_718_290_800_000)));
+        let mut bus = EventBus::new(clock);
+        bus.publish_external(perp_tick());
+        bus.publish_external(raw("after", json!({"ok": true})));
+        bus.run_until_idle().unwrap();
+
+        let recording = bus.recording().clone();
+        replay_verify(&recording, vec![]).unwrap();
+    }
+}

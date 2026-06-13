@@ -128,6 +128,14 @@ pub struct SimRunner<J: IntentJournal + Send = MemoryJournal> {
     /// persistence (req 6). The runner never writes them (Pg-agnostic);
     /// the daemon drains via `drain_pending_beliefs`.
     pending_beliefs: Vec<(StrategyId, fortuna_cognition::beliefs::BeliefDraft)>,
+    /// SCALAR belief drafts drained from strategies, awaiting composition-side
+    /// persistence to the `scalar_beliefs` path (perp-strategies design §2.5).
+    /// Parallel to `pending_beliefs`; the runner never writes them (Pg-
+    /// agnostic), the daemon drains via `drain_pending_scalar_beliefs`.
+    pending_scalar_beliefs: Vec<(
+        StrategyId,
+        fortuna_cognition::scalar_beliefs::ScalarBeliefDraft,
+    )>,
     veto_mind: Option<Arc<dyn VetoMind>>,
     veto_strategies: std::collections::BTreeSet<StrategyId>,
     /// Vetoed-away quantity awaiting its market's settlement for
@@ -439,6 +447,7 @@ impl<J: IntentJournal + Send> SimRunner<J> {
             clock,
             audit_dead: false,
             pending_beliefs: Vec::new(),
+            pending_scalar_beliefs: Vec::new(),
             veto_mind: config.veto_mind,
             veto_strategies: config.veto_strategies.into_iter().collect(),
             open_vetoes: Vec::new(),
@@ -554,6 +563,19 @@ impl<J: IntentJournal + Send> SimRunner<J> {
         &mut self,
     ) -> Vec<(StrategyId, fortuna_cognition::beliefs::BeliefDraft)> {
         std::mem::take(&mut self.pending_beliefs)
+    }
+
+    /// Take the SCALAR belief drafts buffered since the last drain (perp-
+    /// strategies design §2.5). Parallel to `drain_pending_beliefs`; the
+    /// daemon persists them to the `scalar_beliefs` path. Draining empties
+    /// the buffer so a draft is persisted once.
+    pub fn drain_pending_scalar_beliefs(
+        &mut self,
+    ) -> Vec<(
+        StrategyId,
+        fortuna_cognition::scalar_beliefs::ScalarBeliefDraft,
+    )> {
+        std::mem::take(&mut self.pending_scalar_beliefs)
     }
 
     /// Record an externally-raised ALERT (non-halting) on the audit
@@ -715,6 +737,11 @@ impl<J: IntentJournal + Send> SimRunner<J> {
             // daemon owns BeliefsRepo). A draft per (strategy, draft).
             for belief in strategy.drain_beliefs() {
                 self.pending_beliefs.push((id.clone(), belief));
+            }
+            // Scalar belief drafts (perp-strategies design §2.5): the
+            // parallel additive buffer, drained beside the binary path.
+            for scalar in strategy.drain_scalar_beliefs() {
+                self.pending_scalar_beliefs.push((id.clone(), scalar));
             }
         }
         for (strategy_id, record) in degrades {

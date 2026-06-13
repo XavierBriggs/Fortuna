@@ -18,6 +18,33 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK C — slice 2a (perp-strategy seam) DONE + the funding_forecast input decision for 2b (2026-06-13)
+
+SLICE 2a LANDED (additive seam): EventPayload::PerpTick + FundingObservation (fortuna-core
+bus/perp), ScalarBeliefDraft (fortuna-cognition::scalar_beliefs, mirrors BeliefDraft +
+deny_unknown_fields), the drain_scalar_beliefs() default Strategy-trait method + the runner
+pending_scalar_beliefs buffer (the §2.5 egress seam). Bus events replay BYTE-STABLE (Decimal
+rate preserves scale — confirmed; no i64 fixed-point needed). The binary BeliefDraft/
+drain_beliefs/pending_beliefs path is BYTE-UNCHANGED. Built via feature-dev implementer ->
+code-reviewer (ACCEPT, all 7 probes clean: replay-stability, the Copy+Eq derive [required
+because EventPayload derives Eq — sound], additivity, drain-once). Battery: fmt + clippy
+--workspace -D warnings green; the additive seam cannot break unchanged crates (git-diff-
+confirmed). COORDINATION: drain_scalar_beliefs is a shared ADDITIVE touch on track-A's
+fortuna-runner/src/lib.rs (default-impl, breaks no strategy).
+
+DECISION for slice 2b (funding_forecast) — the explorer's R1, ADJUDICATED: funding_forecast's
+PRIMARY input is the recorded funding ESTIMATE used DIRECTLY (point forecast =
+finalize_funding_rate(estimate)), NOT fed into FundingWindow. The estimate IS the venue's
+running TWAP; feeding it into FundingWindow (= per-candle premiums) would compute a "mean of
+means". This MATCHES the verifier's prior adjudication (bus: "forecast = project the recorded
+estimate trajectory to next_funding_time"). FundingWindow stays the SECONDARY path (the
+mark−reference premium proxy, labeled approximate). remaining-in-window is derived from
+obs_at -> next_funding_time; the dispersion model widens the quantile band with remaining
+(rung-0, documented, CRPS-measured). To be recorded in ASSUMPTIONS at 2b.
+
+Next: slice 2b (funding_forecast strategy + dispersion + live-data CRPS test vs
+funding__rates_historical + DST arm), then slice 4 (daemon persist wiring).
+
 ## TRACK C — slices 1a+1b VERIFIER-ACCEPTED; doc-hygiene directive applied (2026-06-13)
 
 The independent gate ACCEPTED slice 1a (docs/reviews/2026-06-13-T5.B7-slice-1a.md —

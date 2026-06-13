@@ -199,6 +199,17 @@ pub trait Strategy: Send {
     fn drain_beliefs(&mut self) -> Vec<fortuna_cognition::beliefs::BeliefDraft> {
         Vec::new()
     }
+    /// SCALAR belief drafts produced since the last drain (perp-strategies
+    /// design §2.5 — the additive egress seam parallel to `drain_beliefs`,
+    /// NOT a widening of it). The runner buffers them; the composition
+    /// persists them to the `scalar_beliefs` path. Default empty, so every
+    /// existing strategy is unaffected (the same additive shape
+    /// `drain_beliefs` itself uses).
+    fn drain_scalar_beliefs(
+        &mut self,
+    ) -> Vec<fortuna_cognition::scalar_beliefs::ScalarBeliefDraft> {
+        Vec::new()
+    }
     /// This strategy's live tradeable edge count, or `None` for a strategy
     /// that trades no edge set (every mechanical strategy). The daemon reads
     /// it through the runner to confirm a per-segment refresh took

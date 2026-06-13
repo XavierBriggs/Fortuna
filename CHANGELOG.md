@@ -16,6 +16,13 @@ The `prob_claims/v1` scalar-belief foundation + perp strategies (design
 
 #### Added
 
+- **Perp-strategy seam** (slice 2a, additive): `EventPayload::PerpTick` + the
+  `FundingObservation` type (`fortuna-core`), `ScalarBeliefDraft`
+  (`fortuna-cognition::scalar_beliefs`), the `drain_scalar_beliefs()` default
+  Strategy-trait method + the runner's `pending_scalar_beliefs` buffer
+  (`fortuna-runner`) — the plumbing the `funding_forecast` strategy (2b) rides.
+  Bus events replay byte-stable (the `Decimal` rate preserves scale). The binary
+  `BeliefDraft` / `drain_beliefs` path is byte-unchanged.
 - **Scalar belief type + swappable scoring** (`fortuna-cognition::scoring`,
   slice 1a): `PredictiveDistribution {Binary, Categorical, Scalar{quantiles,
   unit}}` + `RealizedOutcome` + the swappable `ScoringRule` trait; `BrierRule`

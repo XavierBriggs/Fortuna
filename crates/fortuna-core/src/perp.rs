@@ -434,6 +434,40 @@ pub struct PerpMarks {
     pub conservative: Option<PerpPrice>,
 }
 
+/// A point-in-time funding observation off the WS `ticker` frame +
+/// `/funding_rates/estimate` (docs/design/perp-strategies-and-scalar-claims.md
+/// §2.1, §4: every field is a verbatim recorded field — no invention). It
+/// rides the bus inside `PerpTick` alongside `PerpMarks`; the premium proxy
+/// (§2.3 secondary) is then `PerpMarks.venue_settlement − reference_price`,
+/// settlement from the marks, reference from here, no field duplicated.
+///
+/// Same derives as `PerpMarks` (`Eq`/`Copy` included): every field is an
+/// integer or a `Decimal`/`UtcTimestamp`, all of which are `Eq` + `Copy`, so
+/// `EventPayload`'s `Eq` derive is preserved when this is embedded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FundingObservation {
+    /// The venue's recorded funding ESTIMATE — the running time-weighted
+    /// average of the premium index over `[last_funding_time, now)` (the
+    /// running TWAP itself). This is the AUTHORITATIVE input per §2.3:
+    /// funding_forecast tracks it across capture cycles and projects it to
+    /// `next_funding_time`. A `Decimal` (the venue-payload rate domain, the
+    /// same not-re-deriving discipline as `FundingAccrual.rate`): a small
+    /// decimal fraction per window, NOT a price — the price lives in
+    /// `reference_price`.
+    pub estimate: Decimal,
+    /// When the in-progress window finalizes and the venue pays the rate
+    /// (`finalize_funding_rate` applied to the projected estimate). Verbatim
+    /// `next_funding_time` off the funding frame.
+    pub next_funding_time: UtcTimestamp,
+    /// The CF Benchmarks index (`reference_price` off the `ticker` frame), the
+    /// reference half of the labeled `mark − reference` premium proxy (§2.3).
+    /// A `PerpPrice`: this IS a price (ten-thousandths of a dollar), distinct
+    /// from the `estimate` rate.
+    pub reference_price: PerpPrice,
+    /// The capture timestamp of this observation (`ts_ms` off the frame).
+    pub obs_at: UtcTimestamp,
+}
+
 /// Margin-account view with conservative marking (spec 5.15): the margin
 /// ACCOUNT — not the position — is the exposure unit, and when the venue
 /// mark and our conservative mark disagree, the worse-for-us unrealized
