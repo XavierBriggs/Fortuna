@@ -1740,3 +1740,24 @@ domain-analysis artifact (authoritative design: docs/design/domain-analysis-pers
 - **The baselines are INPUTS** (the no-persona raw-source-direct beliefs + the
   market-implied beliefs, both over the same events) — the composition computes them; the
   scoring just compares, keeping the slice pure + testable.
+
+## Track E — E.6 (end-to-end meteorologist proof; design §9/§10/§11)
+
+- **The e2e proof lives in `fortuna-ledger/tests`** (it needs the real DB + the
+  Track-E repos + the cognition dev-dep), mirroring the existing
+  `aeolus_eval_writes_scored_beliefs_from_the_fixture_envelope` test. It persists
+  beliefs via `BeliefsRepo::insert` directly (NOT the daemon's `persist_beliefs`), so
+  it is boundary-clean — no fortuna-live/daemon (Track A) dependency.
+- **A scripted `StubMind` stands in for the model** (the §12 spike de-risked the live
+  shape). The e2e proves the RUST pipeline (registry→loader→runner→persist→fan-out→
+  persist→resolve→score→replay); it does NOT exercise the §4 firewall proper (the
+  method-in-system-message boundary — that needs a Mind receiving the system charter;
+  it is proven in `persona_runner.rs`'s SpyMind tests). The e2e's persist-path check is
+  explicitly framed as a sanity check, not a firewall test.
+- **The replay anchor is asserted on the content_hash**, not just the analysis_id: a
+  persisted belief's provenance carries `{persona_id, persona_version, analysis_id,
+  analysis_content_hash}`, and the domain_analyses row round-trips the same content_hash
+  (the I5/5.7 tamper-evident link).
+- **E.6 is the build CAPSTONE**: the core persona pipeline is proven end-to-end. The
+  remaining items (E.4b SectionKind, the §15 invariant pin, the §10 ScopeKey + live
+  daemon wiring) are coordination/operator work, not pure Track-E build slices.

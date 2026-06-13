@@ -18,18 +18,39 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
-## TRACK E — BUILD PHASE (operator-approved 2026-06-13); E.1 + E.2 + E.3 + E.4a + E.5a DONE
+## TRACK E — BUILD PHASE; CORE PIPELINE PROVEN END-TO-END (E.1–E.6); remainder = coordination
 
 STATUS 2026-06-13 (SUPERSEDES the design-phase RALPH STOP preserved below): the operator
 APPROVED the design ("looks good, rearm"; commit b4eaae3) and re-armed Track E in worktree
-fortuna-wt-e. BUILD PHASE active — building design §18's six slices, one gate-clean slice
-per iteration. E.3 done: E.3a (runner+firewall, 4e8b9e4) + E.3b (triggers §7, 96cdb79) + E.3c
-(seeded DST, 510ee8e) + telemetry §19 (f65fd64). E.4a (belief consumption, c1c1b55) DONE.
-E.5a (persona scoring §10/§11) DONE this commit.
-REMAINING: E.4b (SectionKind::DomainAnalysis context item), E.6 (e2e proof), the §15 invariant
-pin (operator-waive, below), and the §10 ScopeKey/daemon-wiring coordination (below).
+fortuna-wt-e. The persona pipeline is now PROVEN END-TO-END in code (E.1–E.6, gate-clean):
+E.1 ledger (dfdf3e0) → E.2 loader (d6e8c23) → E.3a runner+firewall (4e8b9e4) → E.3b triggers
+(96cdb79) → E.3c DST (510ee8e) → telemetry (f65fd64) → E.4a belief consumption (c1c1b55) →
+E.5a scoring (1009bb8) → E.6 end-to-end meteorologist proof DONE this commit.
 
-**E.5a (persona scoring & promote/retire proposal §10/§11) DONE this commit.** New
+REMAINING = COORDINATION / operator work (no pure Track-E build slice left; the core is done):
+- **E.4b** — SectionKind::DomainAnalysis context-section (the artifact as a high-priority context
+  item for the synthesis-Mind judgment path; the deterministic fan-out E.4a is the meteorologist's
+  belief path and needs no SectionKind). Track-E-buildable but touches the shared SectionKind enum
+  (additive variant; daemon match arms may need a case — verify before doing).
+- **§15 PersonaOutcome invariant pin** — operator-waive of the fortuna-invariants touch (below).
+- **§10 ScopeKey + daemon weekly-review wiring** — Track-A coordination (below).
+- **Live daemon wiring** — run personas on the real drive() loop (trigger→run→persist→fan-out→
+  persist_beliefs) — Track-A coordination; E.6 proves the pieces connect.
+
+**E.6 (end-to-end meteorologist proof) DONE this commit.** New crates/fortuna-ledger/tests/persona_e2e.rs:
+one #[sqlx::test] wires the WHOLE pipeline on the real DB — register a personas row → load the
+SHIPPED meteorologist def + validate_against the registry head (method_hash binds, DB round-trip) →
+run_persona_analysis (scripted StubMind = §12 spike findings) → persist domain_analyses → fan-out to
+3 BINARY beliefs → persist events+beliefs → resolve + resolved_stats → score_persona +
+propose_promotion. Asserts every belief REPLAYS to the artifact (provenance carries analysis_id AND
+the content_hash anchor; the domain_analyses row round-trips the hash), the §11 gate is Evaluating
+(zero-capital) at low n, and the persist path injects no method text. Boundary-clean (Track-E repos +
+cognition only; BeliefsRepo::insert directly, no daemon — mirrors aeolus_eval). Full battery green.
+feature-dev review: 1 Critical (firewall assertion vacuous vs StubMind → reframed, points to E.3a's
+SpyMind test) + 1 Major (content_hash anchor now asserted on all 3 beliefs) — both fixed.
+fortuna-invariants UNTOUCHED.
+
+**E.5a (persona scoring & promote/retire proposal §10/§11) DONE (commit 1009bb8).** New
 `fortuna_cognition::persona_scoring`: `PersonaScope{persona_id, persona_version}` + `score_persona`
 (Brier/quality/CLV via the existing calibration primitives) + `propose_promotion` (the §11 gate —
 below min_resolved → Evaluating/zero-capital; at/above → Promotable iff it beats the no-persona AND
@@ -196,10 +217,13 @@ and any fortuna-invariants touch is an operator-waive item per the loop — so s
 correctly does NOT touch the protected crate. The `domain_analyses`/`PersonaRow` row types are
 already structurally order-free (review-confirmed).
 
-NEXT: E.6 (the end-to-end meteorologist proof — wire the runner→persist domain_analyses→fan-out
-beliefs→persist_beliefs path on real Aeolus + NWS/fixture signals; the §11 evaluation gate live;
-full battery). Also open: E.4b (SectionKind::DomainAnalysis context item), the §15 invariant pin
-(operator-waive, below), and the §10 ScopeKey/daemon-wiring Track-A coordination (above).
+NEXT: the core persona pipeline is PROVEN END-TO-END (E.1–E.6). The remaining items are
+coordination/operator work, not pure Track-E build slices (see the REMAINING list in the header):
+E.4b (SectionKind::DomainAnalysis — additive but touches the shared enum; verify the daemon match
+arms first), the §15 invariant pin (operator-waive), and the §10 ScopeKey + live daemon wiring
+(Track-A coordination). A Track-E loop iteration that finds only these is at the "idle-and-stopped
+beats bloat" boundary — do E.4b if cleanly Track-E-buildable, else surface the coordination items
+and yield rather than invent work.
 
 --- HISTORICAL (design-phase RALPH STOP — SUPERSEDED by the operator approval above) ---
 

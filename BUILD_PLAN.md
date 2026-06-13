@@ -701,8 +701,16 @@ at E.3 (the PersonaOutcome no-order/size field-surface pin) under operator waive
       folding persona dims into the shared review::ScopeKey + the daemon weekly-review wiring is a
       GATED Track-A coordination (GAPS). REMAINING E.5: the ScopeKey/daemon wiring (Track-A coord)
       + the resolved_beliefs/clv_bp metric labels (fold into §19 at wiring).]
-- [ ] E.6 End-to-end meteorologist proof over Aeolus (+ NWS/fixture) + the macro mechanism test;
+- [x] E.6 End-to-end meteorologist proof over Aeolus (+ NWS/fixture) + the macro mechanism test;
       the §11 evaluation gate wired; full battery green.
+      (DONE this commit: crates/fortuna-ledger/tests/persona_e2e.rs — one #[sqlx::test] wires the
+      WHOLE pipeline on the real DB [register→hash-bound load→run (scripted StubMind)→persist
+      domain_analyses→fan-out 3 binary beliefs→persist→resolve→score_persona+propose_promotion],
+      asserting belief-replays-to-artifact [analysis_id + content_hash anchor], the §11 zero-capital
+      gate, and persist-path firewall. Boundary-clean [Track-E repos + cognition only, no daemon].
+      Macro mechanism covered by E.4a's macro fan-out test; the live daemon wiring + the §11 gate
+      WIRED INTO drive() is a Track-A coordination [GAPS]. The §12 spike de-risked the live-model
+      shape. Full battery green; feature-dev review applied. CORE PIPELINE PROVEN END-TO-END.]
 
 ROTA views (§14/§20) + persona telemetry (§19) are operator-requested detailed contracts
 (2026-06-13) — Track B builds the four views; Track E provides the data across E.1–E.5.

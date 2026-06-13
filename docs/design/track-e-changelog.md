@@ -10,7 +10,37 @@ commit gate, `fortuna-invariants` untouched except at E.3 (operator-waive-flagge
 
 ---
 
-## E.5a — persona scoring & promote/retire proposal (§10/§11) (this commit)
+## E.6 — end-to-end meteorologist proof (the capstone) (this commit)
+
+New `crates/fortuna-ledger/tests/persona_e2e.rs` (design §9/§10/§11) — one
+`#[sqlx::test]` wires the WHOLE persona pipeline on the real ledger DB:
+register a `personas` row → load the SHIPPED `config/personas/meteorologist` def +
+`validate_against` the registry head (the method_hash binds, round-tripped through the
+DB) → `run_persona_analysis` with a scripted StubMind (the §12 spike findings) →
+persist a `domain_analyses` row → `map_persona_analysis` fan-out to 3 BINARY beliefs →
+persist events + beliefs → resolve + `resolved_stats` → `score_persona` +
+`propose_promotion`. Asserts: every belief REPLAYS to the persisted artifact (its
+provenance carries the analysis_id AND the content_hash anchor, and that
+`domain_analyses` row round-trips the same hash); the §11 gate is `Evaluating`
+(zero-capital) at low n; and the persist path never injects method text. Boundary-clean
+— uses only the Track-E repos (Personas/DomainAnalyses/Events/Beliefs) + cognition
+logic, NOT the daemon (mirrors the existing `aeolus_eval` test; `BeliefsRepo::insert`
+directly).
+
+Full battery green. feature-dev:code-reviewer: 1 Critical (the firewall assertion is
+vacuous vs a StubMind → reframed as a persist-path sanity check pointing to E.3a's
+SpyMind test for the firewall proper) + 1 Major (the content_hash replay anchor was
+unasserted → now checked on all 3 beliefs) — both fixed; confirmed boundary-clean + the
+§11 gate. fortuna-invariants UNTOUCHED.
+
+This is the Track-E build CAPSTONE: the persona pipeline is proven end-to-end in code.
+What remains is COORDINATION/operator work, ledgered in GAPS: E.4b (the
+SectionKind::DomainAnalysis context-section for the synthesis-Mind path), the §15
+PersonaOutcome invariant pin (operator-waive), the §10 ScopeKey + daemon weekly-review
+wiring (Track-A coordination), and the live daemon wiring that runs personas on the
+real loop (Track-A coordination; this slice proves the pieces connect).
+
+## E.5a — persona scoring & promote/retire proposal (§10/§11) (commit 1009bb8)
 
 New `fortuna_cognition::persona_scoring`: `PersonaScope{persona_id, persona_version}` +
 `score_persona` (Brier / calibration-quality / CLV via the existing
