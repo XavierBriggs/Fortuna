@@ -1,0 +1,25 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<rss version="2.0">
+    <channel>
+        <title>FRB: Press Release - All Releases</title>
+        <link><![CDATA[https://www.federalreserve.gov/feeds/feeds.htm]]></link>
+        <description><![CDATA[All recent press releases from the Federal Reserve Board]]></description>
+        <language>en</language>
+        <item>
+            <title>Federal Reserve Board announces final rule that establishes data standards for certain information collections</title>
+            <link><![CDATA[https://www.federalreserve.gov/newsevents/pressreleases/bcreg20260611a.htm]]></link>
+            <guid><![CDATA[https://www.federalreserve.gov/newsevents/pressreleases/bcreg20260611a.htm]]></guid>
+            <description><![CDATA[Federal Reserve Board announces final rule that establishes data standards for certain information collections]]></description>
+            <category>Banking and Consumer Regulatory Policy</category>
+            <pubDate><![CDATA[Thu, 11 Jun 2026 15:00:00 GMT]]></pubDate>    
+        </item>
+        <item>
+            <title>Federal Reserve Board announces that results from its annual bank stress test will be released on Wednesday, June 24, at 4 p.m. EDT.</title>
+            <link><![CDATA[https://www.federalreserve.gov/newsevents/pressreleases/bcreg20260609a.htm]]></link>
+            <guid><![CDATA[https://www.federalreserve.gov/newsevents/pressreleases/bcreg20260609a.htm]]></guid>
+            <description><![CDATA[Federal Reserve Board announces that results from its annual bank stress test will be released on Wednesday, June 24, at 4 p.m. EDT.]]></description>
+            <category>Banking and Consumer Regulatory Policy</category>
+            <pubDate><![CDATA[Tue, 9 Jun 2026 20:00:00 GMT]]></pubDate>    
+        </item>
+    </channel>
+</rss>

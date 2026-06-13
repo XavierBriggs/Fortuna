@@ -693,8 +693,17 @@ crates/fortuna-sources + fixtures/sources/ + one flagged drive() seam.
       provenance + re-record cmds). Research-grounded dossier at
       docs/research/sources/nws/dossier.md (admitted tier 9). 9 tests.
       (DONE 2026-06-13, full battery green; hash next iteration.)
-- [ ] D5 RssSource via feed-rs (fixtures first: fixtures/sources/rss/,
-      including malformed documents).
+- [x] D5 RssSource (generic, impl cognition Source trait) via feed-rs:
+      ONE adapter, N configured feeds; feed-rs unifies RSS 2.0 / Atom / RDF /
+      JSON-Feed -> the same `rss.item` signal shape (format normalization, not
+      content interpretation). Conditional-GET across polls; malformed body ->
+      SignalError (never a panic). rss_claimed_time = published, fallback
+      updated (Layer-1 future check). Dates rendered in the system's fixed-ms
+      ISO8601. Fixtures REAL captures (2026-06-13): Fed press RSS 2.0 + SEC
+      EDGAR Atom (proves both formats -> one shape) + a malformed doc; README
+      has provenance. Research-grounded dossiers: rss_fed_press (tier 9) +
+      rss_sec_edgar (tier 9). 8 tests (55 crate total). (DONE 2026-06-13,
+      full battery green; hash next iteration.)
 - [ ] D6 CalendarSource — BLS/Fed/FRED release calendars; emits
       release_scheduled + release_printed signal types (fixtures first:
       fixtures/sources/calendar/).

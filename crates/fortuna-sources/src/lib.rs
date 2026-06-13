@@ -11,6 +11,7 @@ pub mod config;
 pub mod error;
 pub mod fetch;
 pub mod nws;
+pub mod rss;
 pub mod validate;
 
 pub use config::{EventWindow, ExtractionMode, SourceConfig, SourceKind, SourcesConfig};
@@ -20,4 +21,5 @@ pub use fetch::{
     PoliteLimiter, RawHttpResponse, ReqwestFetchTransport,
 };
 pub use nws::{nws_claimed_time, NwsFeed, NwsSource};
+pub use rss::{rss_claimed_time, RssSource, RSS_ITEM_KIND};
 pub use validate::{Candidate, StructuralConfig, StructuralValidator, Verdict};
