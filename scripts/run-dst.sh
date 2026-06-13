@@ -33,6 +33,9 @@ SETTLE_DST_SCENARIOS="$N" cargo test -p fortuna-runner --test settlement_dst -- 
 PERP_DST_SCENARIOS="$N" cargo test -p fortuna-state --test perp_dst -- --nocapture
 # T5.B7 slice 2b: the funding_forecast belief-producer under PerpTick chaos.
 FUNDING_FORECAST_DST_SCENARIOS="$N" cargo test -p fortuna-runner --test funding_forecast_dst -- --nocapture
+# Track E E.3c: the persona runner under the cost budget + chaos mind (budget
+# throttle, signal absence, schema-invalid findings, coalesced re-triggers).
+PERSONA_DST_SCENARIOS="$N" cargo test -p fortuna-cognition --test persona_dst -- --nocapture
 # T4.1 req 10: the daemon-composition smoke (boot -> ticks -> stop signal
 # -> graceful shutdown, deterministic under SimClock, vs the example config).
 cargo test -p fortuna-live --test daemon_smoke -- --nocapture

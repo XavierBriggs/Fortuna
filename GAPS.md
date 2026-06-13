@@ -682,12 +682,142 @@ neutralize the (Nws,"climate") arm => wires_the_climate_grader_and_aeolus reds
 
 ## TRACK A — T4.2 item 2(i) WS dial COMPLETE: full KalshiWsTransport built (operator runs the first live exercise)
 ## TRACK E — BUILD PHASE (operator-approved 2026-06-13); E.1 + E.2 + E.3a DONE
+## TRACK E — BUILD COMPLETE + GENERALIZED (2 domains); remainder = operator/Track-A-gated + 1 doc
 
 STATUS 2026-06-13 (SUPERSEDES the design-phase RALPH STOP preserved below): the operator
 APPROVED the design ("looks good, rearm"; commit b4eaae3) and re-armed Track E in worktree
-fortuna-wt-e. BUILD PHASE active — building design §18's six slices, one gate-clean slice
-per iteration. E.3 is sub-sliced: E.3a (runner core + firewall) this commit; E.3b (triggers §7
-+ DST-under-budget) and E.3c (telemetry §19 + the invariant pin) next.
+fortuna-wt-e. The persona pipeline is PROVEN END-TO-END in code AND across TWO domains, all
+gate-clean: E.1 ledger (dfdf3e0) → E.2 loader (d6e8c23) → E.3a runner+firewall (4e8b9e4) → E.3b
+triggers (96cdb79) → E.3c DST (510ee8e) → telemetry (f65fd64) → E.4a belief consumption (c1c1b55)
+→ E.5a scoring (1009bb8) → E.6 e2e meteorologist proof (ccdaeca) → E.4b DomainAnalysis context
+section (84106b9) → the macro-economist GENERALIZATION proof DONE this commit.
+
+**Persona authoring/promotion runbook (loop §8) DONE this commit.** New
+docs/runbooks/persona-authoring.md — the operator manual: the trust model, authoring a skill
+file, registering it hash-bound (shasum → the personas INSERT), how it runs, and how the
+operator promotes/retires (the §11 verdict → the §10 operator action; daemon never
+self-promotes, I7) + a read-only ROTA section + an honest built-vs-pending list. Doc-only
+(workspace unchanged from cc20e37, full-battery-green); every file ref / personas-column
+order / ROTA endpoint verified against the code. This is the LAST Track-E deliverable.
+
+**Macro-economist generalization proof (§13/§17) DONE (commit cc20e37).** Shipped a SECOND persona
+(config/personas/macro-economist/{persona.md, schema.json}) — different domain/signals/findings-
+shape (outcomes[] not thresholds[])/tier (synthesis)/backbone (pure judgment, no μ/σ) — flowing
+through the SAME loader + runner + fan-out with ZERO per-domain code. 2 tests (load + fixture-driven
+run+fan-out → 2 binary #out: beliefs); full battery green; feature-dev review NO FINDINGS.
+reads_signal_kinds declare not-yet-ingested macro kinds (Track-D request, fixture stands in).
+fortuna-invariants UNTOUCHED. This is the LAST pure-Track-E BUILD slice.
+
+**E.4b (SectionKind::DomainAnalysis context section §9) DONE (commit 84106b9).** Added the
+`DomainAnalysis` variant to the shared SectionKind enum (just under OpenBeliefs, high priority)
++ `as_str` arm, and `persona_beliefs::domain_analysis_context_item` (builds a high-priority
+DATA context item from a persisted artifact so the synthesis Mind reads the pre-digested findings
+alongside the raw signals; item content_hash = hash of the rendered body per the assembler
+convention, the artifact anchor + analysis_id in the body/id for replay). Shared-enum safety
+verified (no exhaustive match outside as_str, no numeric discriminant cast, serde string-based,
+Ord relative order preserved). 3 tests; full battery green; feature-dev review CLEAN +
+two test-strengthenings applied. fortuna-invariants UNTOUCHED.
+
+REMAINING (no core build slice left; the persona pipeline is complete):
+- **The macro-economist GENERALIZATION proof (§17)** — a SECOND persona def
+  (config/personas/macro-economist/ + a parse/mechanism test) proving one-mechanism-not-per-domain.
+  Track-E-buildable (a config file + a test; reads_signal_kinds declare not-yet-ingested macro kinds,
+  live wiring deferred to Track D). This is the last pure-Track-E slice.
+- **§15 PersonaOutcome invariant pin** — operator-waive (below).
+- **§10 ScopeKey + live daemon wiring** — Track-A coordination (below).
+- (was: E.4b — DONE above) — SectionKind::DomainAnalysis context-section (the artifact as a high-priority context
+  item for the synthesis-Mind judgment path; the deterministic fan-out E.4a is the meteorologist's
+  belief path and needs no SectionKind). Track-E-buildable but touches the shared SectionKind enum
+  (additive variant; daemon match arms may need a case — verify before doing).
+- **§15 PersonaOutcome invariant pin** — operator-waive of the fortuna-invariants touch (below).
+- **§10 ScopeKey + daemon weekly-review wiring** — Track-A coordination (below).
+- **Live daemon wiring** — run personas on the real drive() loop (trigger→run→persist→fan-out→
+  persist_beliefs) — Track-A coordination; E.6 proves the pieces connect.
+
+**E.6 (end-to-end meteorologist proof) DONE (commit ccdaeca).** New crates/fortuna-ledger/tests/persona_e2e.rs:
+one #[sqlx::test] wires the WHOLE pipeline on the real DB — register a personas row → load the
+SHIPPED meteorologist def + validate_against the registry head (method_hash binds, DB round-trip) →
+run_persona_analysis (scripted StubMind = §12 spike findings) → persist domain_analyses → fan-out to
+3 BINARY beliefs → persist events+beliefs → resolve + resolved_stats → score_persona +
+propose_promotion. Asserts every belief REPLAYS to the artifact (provenance carries analysis_id AND
+the content_hash anchor; the domain_analyses row round-trips the hash), the §11 gate is Evaluating
+(zero-capital) at low n, and the persist path injects no method text. Boundary-clean (Track-E repos +
+cognition only; BeliefsRepo::insert directly, no daemon — mirrors aeolus_eval). Full battery green.
+feature-dev review: 1 Critical (firewall assertion vacuous vs StubMind → reframed, points to E.3a's
+SpyMind test) + 1 Major (content_hash anchor now asserted on all 3 beliefs) — both fixed.
+fortuna-invariants UNTOUCHED.
+
+**E.5a (persona scoring & promote/retire proposal §10/§11) DONE (commit 1009bb8).** New
+`fortuna_cognition::persona_scoring`: `PersonaScope{persona_id, persona_version}` + `score_persona`
+(Brier/quality/CLV via the existing calibration primitives) + `propose_promotion` (the §11 gate —
+below min_resolved → Evaluating/zero-capital; at/above → Promotable iff it beats the no-persona AND
+market baseline (Brier ≤ both) with positive CLV, else RetireCandidate; vs-prior-version reported).
+RECOMMENDATION-ONLY (I7 analog). 9 tests; full battery green. feature-dev review: 2 Important (CLV
+made an independent §11 condition; this GAPS entry) + 2 Minors (exact-floor + quality tests) — all
+applied. fortuna-invariants UNTOUCHED.
+
+**TRACK-A COORDINATION (gated, design §10 + Fit-validation §21): fold persona dims into the shared
+`review::ScopeKey` + wire persona scopes into the daemon's weekly review.** E.5a delivered the
+persona scoring as an ADDITIVE parallel `PersonaScope` because `review::ScopeKey` is a struct literal
+in Track A's fortuna-live/src/daemon.rs:1024 — adding fields there breaks Track A's composition, which
+the loop forbids Track E touching unilaterally. The persona scoring reuses the SAME calibration
+arithmetic, so no parity is lost. UNBLOCK (Track A or an operator boundary-waiver): (1) add
+`persona_id: Option<String>, persona_version: Option<i32>` to review::ScopeKey (review.rs:37), default
+None for model scopes; (2) update the daemon.rs:1024 literal (+ the review test) with the two None
+fields; (3) feed persona-attributed resolved beliefs (grouped by provenance.persona_id/version) into
+run_weekly_review so the existing calibration_report + Slack #review proposal cover personas. Until
+then persona scoring runs through `fortuna_cognition::persona_scoring` (E.5a) — wired at E.6.
+
+**E.4a (belief consumption: μ/σ→p backbone + artifact→belief fan-out §9) DONE (commit c1c1b55).** New
+`fortuna_cognition::persona_beliefs`: `normal_cdf`/`prob_at_least` (the deterministic μ/σ→p
+backbone the runner feeds the persona — LLM does no arithmetic; clamped to (ε,1-ε) for deep tails;
+reproduces the §12 spike backbone) + `map_persona_analysis` (fans a persisted artifact's findings
+onto one BINARY BeliefDraft per threshold/outcome, mirroring map_aeolus_envelope; belief p = the
+persona's stated p; evidence cites persona:<id>@<v> + analysis_id; provenance carries {persona_id,
+persona_version, analysis_id, analysis_content_hash} so the belief replays to the artifact). event_ids
+ge…/out:…-prefixed + de-duplicated (no collision). Builds on the existing binary belief ledger —
+independent of any scalar-claim type. 12 tests; full battery green. feature-dev review: 2 Major
+(deep-tail saturation → clamp; event_id collision → prefixes+dedup) fixed. fortuna-invariants
+UNTOUCHED. NOT-YET-WIRED: the composition persists the fanned beliefs via persist_beliefs (E.6).
+
+**E.3 telemetry (persona metrics §19) DONE (commit f65fd64).** New `fortuna_cognition::persona_metrics`:
+`PersonaCounters` folds PersonaOutcomes → the funnel (runs → analyses, with budget_skips /
+no_signal_skips / run_failures{reason} / triggers_coalesced explaining the drops), the cumulative
+cost_cents counter, and the daily spend_today_cents GAUGE (UTC-day roll). `samples()` emits
+`PersonaMetricSample`s shape-compatible with the runner's MetricSample, so the composition drains
+them into fortuna-ops's integer-only registry via the same loop — no new telemetry infra. Test-
+pinned accounting identity (runs == analyses + skips + failures). 10 tests; full battery green.
+feature-dev review: 2 Major — §19 `reason` listed `context` but context-assembly is the runner's
+ONE hard error (not a counted defect) → design §19 reconciled (reason ∈ provider/schema_invalid/
+other); the spend_today gauge was missing → IMPLEMENTED. NOT-YET-WIRED: the composition (E.6 / a
+Track-A drive() seam) maps samples() into the ops registry; this slice provides the fold + names.
+fortuna-invariants UNTOUCHED. Shared-doc touch (loop §8): design §19 row reconciled.
+
+**E.3c (Persona runner DST arm) DONE (commit 510ee8e).** New crates/fortuna-cognition/tests/persona_dst.rs
+(design §8/§15), wired into scripts/run-dst.sh (PERSONA_DST_SCENARIOS; battery runs 2000). Seeded
+chaos: 0..=4 signals (0 → skip path), a possibly-pre-exhausted DiscoveryBudget, a call-counting
+ChaosMind across all failure modes. Per-seed invariants: never crash/Err (degrade); throttle ⟹
+no call/artifact/spend; no-signals ⟹ skip; a reached run calls the mind EXACTLY once + artifact
+iff Valid (anchors set) else a counted defect; byte-identical content_hash on replay; and the
+INTEGRATION coalescing arm (gate threaded through the runner + counting mind: K+1 triggers → one
+run). Passes 2000 seeds. feature-dev review: reworked the coalescing arm from gate-only to the
+integration test, added the skip-path coverage (both real coverage gaps), fixed a clippy nit.
+SHARED-DOC TOUCH (loop §8): docs/verification.md DST-harness count 4→6 (was already stale, omitted
+perp; now lists perp + persona). fortuna-invariants UNTOUCHED.
+
+**E.3b (Persona trigger layer §7) DONE (commit 96cdb79).** New `fortuna_cognition::persona_trigger`:
+`Cadence` (EveryHours/DailyAtHourUtc) + `CadenceScheduler::due` (fire-once-per-period, generalizing
+the daemon's DailyScheduler) + `Cadence::validate()` (rejects hour≥24 silent-never-fire);
+`PersonaTriggerSpec::fires_on_signal` (signal-driven from the persona's reads_signal_kinds);
+`PersonaTriggerGate` REUSES the existing signals::TriggerEngine (unmodified) keyed by
+persona_region_key (0x1F separator, collision-safe) for per-(persona,region) serialization +
+debounce — duplicate/concurrent triggers coalesce into ONE in-flight run (the §8 coalesce). 9
+tests; full battery green. feature-dev review: 2 Major (hour≥24 validate; in-process contract) +
+Minor (separator) + Nit, all applied. DEFERRED (Major-2, ledgered): cadence fire-once is
+IN-PROCESS only (resets on restart, like the daemon schedulers) — cross-restart persistence is
+not built; a restart may re-fire the current period once (acceptable, matches the daemon). The
+DST runner-under-budget arm moved to E.3c (the trigger layer's coalescing is unit-tested here;
+the seeded DST arm exercises the runner+budget+coalesce together). fortuna-invariants UNTOUCHED.
 
 **OPERATOR-WAIVE PENDING — the E.3c `fortuna-invariants` touch (design §15).** The
 `PersonaOutcome` I6 field-surface pin (assert the type carries no order/size field, the same
@@ -699,7 +829,7 @@ UNBLOCK (operator, one action): waive the invariant-crate addition for Track E's
 E.3c lands it (pure ADD, existing assertions untouched). Until then the order-free guarantee is
 documented (the struct doc + design §15 + this entry), not yet pinned.
 
-**E.3a (Persona runner core + the trusted/untrusted FIREWALL) DONE this commit.** New
+**E.3a (Persona runner core + the trusted/untrusted FIREWALL) DONE (commit 4e8b9e4).** New
 `fortuna_cognition::persona_runner` (design §8): `run_persona_analysis(persona, region_key,
 signals, mind, budget, now) -> PersonaOutcome`. Budget-first (DiscoveryBudget throttle), assembles
 ONLY untrusted signals into the context (the trusted method is the Mind's system charter, NEVER a
@@ -784,9 +914,47 @@ and any fortuna-invariants touch is an operator-waive item per the loop — so s
 correctly does NOT touch the protected crate. The `domain_analyses`/`PersonaRow` row types are
 already structurally order-free (review-confirmed).
 
-NEXT: E.3b (triggers §7 — declarative + schedulable, decoupled from the persona; + the DST
-runner-under-budget arm). Then E.3c (persona telemetry §19 + the PersonaOutcome no-order/size
-invariant pin §15, gated on the operator-waive above). Then E.4 (belief consumption).
+## RALPH STOP 2026-06-13T17:25Z (Track E — build COMPLETE; every remaining item is gated; idle-and-stopped beats bloat)
+
+Per loop rule 6 (every priority item blocked/exhausted; do NOT invent unrequested work to stay
+busy), this Track-E loop stops. The persona/domain-analysis feature is BUILT, gate-clean, proven
+end-to-end on the real DB, generalized across two domains, and documented for the operator. There
+is NO pure-Track-E build slice left; everything remaining is operator/Track-A/Track-B-gated.
+
+DELIVERED (each gate-clean — the FULL workspace battery fmt/clippy --workspace --all-targets/
+cargo test --workspace/run-dst.sh 2000 ran green, real exit codes, on every code commit; review by
+feature-dev:code-reviewer on every slice):
+- E.1 ledger (dfdf3e0) — personas + domain_analyses tables/repos (append-only, content-immutable).
+- E.2 loader (d6e8c23) — skill-file PersonaDef::parse + method_hash registry validation.
+- E.3a runner + the trusted/untrusted FIREWALL (4e8b9e4) — the headline; budget/degrade/determinism.
+- E.3b triggers (96cdb79) — declarative cadences + per-(persona,region) coalescing.
+- E.3c seeded DST under the cost budget (510ee8e) — wired into run-dst.sh.
+- telemetry §19 (f65fd64) — the PersonaCounters funnel + the spend gauge.
+- E.4a belief consumption (c1c1b55) — the μ/σ→p backbone + artifact→binary-belief fan-out w/ provenance.
+- E.5a scoring §10/§11 (1009bb8) — per-(persona,version) calibration + beat-both-baselines proposal (I7).
+- E.6 end-to-end meteorologist proof (ccdaeca) — registry→...→scored beliefs on the real DB; replay-asserted.
+- E.4b SectionKind::DomainAnalysis (84106b9) — the artifact as a high-priority context item.
+- macro-economist GENERALIZATION proof (cc20e37) — one mechanism, two domains.
+- the persona authoring/promotion runbook (this commit) — the operator manual.
+
+REMAINING — ALL GATED (the operator/another track must act; exact unblock steps are in the entries
+above and the design doc):
+1. **§15 PersonaOutcome invariant pin** — OPERATOR-WAIVE of the fortuna-invariants touch (one action).
+   The order-free property holds + PersonaOutcome is Serialize-ready; the pin is a pure ADD when waived.
+2. **§10 ScopeKey + live daemon wiring** — TRACK-A coordination: fold persona dims into review::ScopeKey
+   (the daemon.rs:1024 literal) + run personas on the live drive() loop (trigger→run→persist→fan-out→
+   persist_beliefs) + feed persona scopes into the weekly review. Track E can't touch Track A's daemon
+   unilaterally (the persona scoring already runs additively via fortuna_cognition::persona_scoring).
+3. **ROTA panels (§14/§20)** — TRACK B builds the four read-only views; Track E provided the data + specs.
+4. **macro signal kinds + a `fortuna persona` registration CLI** — Track D / Track-A/B conveniences.
+
+RE-ENGAGE TRIGGER: re-arm this loop (from worktree fortuna-wt-e) if the operator waives the invariant
+pin (then E.3c-pin lands as a pure ADD) OR a Track-E-owned gate finding appears in
+GATE-FINDINGS-LATEST.md. Absent either, there is no Track-E build work — the morning decisions
+(the invariant waive; the Track-A daemon wiring to run personas live; whether to promote a persona
+after ≥60 resolved beliefs) are the operator's.
+
+(Loop deactivated via /ralph-loop:cancel-ralph this iteration.)
 
 --- HISTORICAL (design-phase RALPH STOP — SUPERSEDED by the operator approval above) ---
 

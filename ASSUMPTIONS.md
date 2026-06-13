@@ -1834,3 +1834,162 @@ domain-analysis artifact (authoritative design: docs/design/domain-analysis-pers
 - **Signals are point-in-time STRICTLY before the trigger** — the assembler excludes
   any item at-or-after the trigger time as "future" (`context.rs:154`); the runner
   inherits this. The composition passes already-ingested (earlier) signals.
+
+## Track E — E.3b (persona trigger layer; design §7)
+
+- **Cadences are fire-once-per-period, IN-PROCESS** (a `CadenceScheduler` instance's
+  lifetime), generalizing the daemon's `DailyScheduler` — which is also in-process.
+  Cross-restart persistence is NOT built; a restart may re-fire the current period
+  once (acceptable, and consistent with the daemon's existing schedulers). Conservative
+  reading of §7 ("schedulable"): match the existing scheduler semantics, defer durable
+  scheduling.
+- **`Cadence::validate()` rejects a never-fires config** (DailyAtHourUtc hour ≥ 24) at
+  config-load — a silent dead trigger is worse than a startup rejection. EveryHours{0}
+  is clamped to 1 at use.
+- **The trigger layer REUSES the existing `signals::TriggerEngine`** (unmodified) for
+  per-(persona, region) serialization + debounce, keyed by `persona_region_key`. Chosen
+  over a parallel debounce impl to honor "funnel through the existing serialization"
+  (§7) and "extend, don't break" — the engine is self-contained per instance (no shared
+  state), so reuse with empty `rules` is safe.
+- **`persona_region_key` joins with the ASCII Unit Separator (0x1F)**, not `::` — it
+  cannot appear in a persona id or expanded region key, so distinct (persona, region)
+  pairs never collide on one serialization slot.
+- **Signal-driven triggering reads the persona's own `reads_signal_kinds`** (from the
+  definition), not a separate rule list — "config, not per-domain code" (§7).
+
+## Track E — E.3c (persona runner DST arm; design §8/§15)
+
+- **The persona DST drives the async runner via `futures::executor::block_on`** (a
+  cognition dev-dep), like a single-future executor — no tokio runtime needed; the
+  DST is a plain `#[test]` (the runner is the only async surface).
+- **Master seed from `DST_MASTER_SEED` or `RealClock.now()` (printed); per-scenario
+  seeds via `SplitMix64`; count via `PERSONA_DST_SCENARIOS` (default 20; battery runs
+  2000)** — matching the existing DST arms (synthesis/settlement/perp). `RealClock` is
+  the sanctioned wall source for the seed (not an injected-Clock violation; the same
+  pattern synthesis_dst uses).
+- **The coalescing invariant is tested at the INTEGRATION level**: a trigger gate is
+  threaded through `run_persona_analysis` with a call-counting mind, so "K+1 triggers →
+  exactly one run" is proven against the runner, not the gate in isolation (the gate's
+  own coalescing is separately unit-tested in tests/persona_trigger.rs).
+- **The budget throttle is exact-boundary**: `allowed = spent < cap` mirrors
+  `DiscoveryBudget::allows` (`<`, not `<=`); a throttle makes zero mind calls and no
+  spend; a single permitted call may push cumulative spend past `cap` (throttle is
+  before-spend, by design).
+
+## Track E — E.3 telemetry (persona metrics; design §19)
+
+- **`PersonaCounters` lives in cognition** (Track E's layer) and emits
+  `PersonaMetricSample` shape-compatible with the runner's `MetricSample`
+  (name/help/counter/labels/value). The COMPOSITION (E.6 / a Track-A drive() seam)
+  drains `samples()` into fortuna-ops's `MetricsRegistry` via the same loop it uses
+  for `metrics_export()` — Track E does NOT modify fortuna-runner/fortuna-ops
+  (extend, gated). This keeps cognition free of an ops dependency.
+- **`run_failures_total{reason}` reason ∈ {provider, schema_invalid, other}** —
+  classified from the outcome's defect strings. A **context-assembly** failure is the
+  runner's ONE hard error (§8), surfaced as `PersonaRunError`, NOT a counted run-
+  failure; so `context` is not a reason value (design §19 reconciled after the E.3
+  telemetry review). `other` is a defensive catch-all (test-covered, unreachable by
+  today's runner defects).
+- **`spend_today_cents` is a daily-reset GAUGE** tracked in the fold: `observe` takes
+  the injected `now` and rolls per UTC day (epoch_millis / 86_400_000), mirroring the
+  mind's `spent_today_cents`. `cost_cents_total` is the ever-growing counter (distinct).
+- **`observe` takes `domain` explicitly** (the metric label) from the persona def;
+  `PersonaOutcome` is not changed to carry domain (kept minimal). Float scorecard
+  (Brier/quality) stays in the ROTA JSON, never these integer counters (§19).
+
+## Track E — E.4a (belief consumption; design §9)
+
+- **The belief's `p` is the persona's STATED probability** (from the persisted
+  findings), exactly as `map_aeolus_envelope` uses the envelope's `p`. The μ/σ→p
+  backbone (`prob_at_least`) is a SEPARATE pure helper the runner feeds the persona
+  as data (the LLM never does the arithmetic, §9); it is NOT used to recompute the
+  belief p in the fan-out. So "deterministic numerics in code" = the backbone the
+  persona is given, not a code override of its output.
+- **`normal_cdf` is clamped to (ε, 1-ε)** so a deep-tail probability (e.g.
+  P(high≥40°F) in July, ~8σ out) stays a VALID belief probability — BeliefDraft
+  requires 0<p<1, and an exact 0/1 would be rejected. The clamp only bites beyond ~8σ.
+- **event_ids are derived deterministically** from `region_key` + a prefixed
+  threshold/label: `{region_key}#ge{ge}` (weather) / `{region_key}#out:{label}` (macro,
+  raw label = injective). The distinct prefixes make cross-branch collision impossible;
+  a duplicate event_id within one analysis is REJECTED (`DuplicateEvent`), never silently
+  emitted. Aligning these to canonical market event_ids (so the persona belief scores
+  against the same event as the raw-source baseline, §11) is the composition's job via
+  the edges (E.6 wiring) — recorded so the deterministic ids here aren't mistaken for
+  the canonical ones.
+- **The fan-out builds on the existing BINARY belief ledger** (BeliefDraft) and depends
+  on NO scalar/multi-outcome claim type — Track E is independent of the prob_claims pass (§9).
+
+## Track E — E.5a (persona scoring & promotion; design §10/§11)
+
+- **The persona scope is an ADDITIVE parallel `PersonaScope`, not a mutation of the
+  shared `review::ScopeKey`** (Fit-validation §21): ScopeKey is a struct literal in
+  Track A's daemon.rs:1024, so adding fields breaks Track A's composition (loop forbids
+  the unilateral touch). The persona scoring reuses the SAME calibration arithmetic
+  (calibration_curve/quality/Brier/CLV), so there is no parity loss; folding the dims
+  into ScopeKey + the daemon wiring is a gated Track-A coordination (GAPS).
+- **The §11 gate is three INDEPENDENT conditions** (kept as separate named booleans):
+  after `min_resolved` resolved beliefs, PROMOTABLE iff Brier ≤ the no-persona baseline
+  AND Brier ≤ the market baseline AND CLV > 0. A tie (`<=`) counts as beating (§11
+  "Brier ≤ market"). A None CLV (no measurable CLV) is treated as 0 → not promotable
+  (no demonstrated edge net of fees). Below the floor → EVALUATING (scored, zero-capital,
+  §11); at/above but not beating both → RETIRE-CANDIDATE.
+- **Recommendation-only (the I7 analog):** `propose_promotion` returns a proposal struct
+  with NO side effect; the daemon never self-promotes. The operator promotes (file edit +
+  superseding registry insert) or retires (status='retired') out-of-band.
+- **The baselines are INPUTS** (the no-persona raw-source-direct beliefs + the
+  market-implied beliefs, both over the same events) — the composition computes them; the
+  scoring just compares, keeping the slice pure + testable.
+
+## Track E — E.6 (end-to-end meteorologist proof; design §9/§10/§11)
+
+- **The e2e proof lives in `fortuna-ledger/tests`** (it needs the real DB + the
+  Track-E repos + the cognition dev-dep), mirroring the existing
+  `aeolus_eval_writes_scored_beliefs_from_the_fixture_envelope` test. It persists
+  beliefs via `BeliefsRepo::insert` directly (NOT the daemon's `persist_beliefs`), so
+  it is boundary-clean — no fortuna-live/daemon (Track A) dependency.
+- **A scripted `StubMind` stands in for the model** (the §12 spike de-risked the live
+  shape). The e2e proves the RUST pipeline (registry→loader→runner→persist→fan-out→
+  persist→resolve→score→replay); it does NOT exercise the §4 firewall proper (the
+  method-in-system-message boundary — that needs a Mind receiving the system charter;
+  it is proven in `persona_runner.rs`'s SpyMind tests). The e2e's persist-path check is
+  explicitly framed as a sanity check, not a firewall test.
+- **The replay anchor is asserted on the content_hash**, not just the analysis_id: a
+  persisted belief's provenance carries `{persona_id, persona_version, analysis_id,
+  analysis_content_hash}`, and the domain_analyses row round-trips the same content_hash
+  (the I5/5.7 tamper-evident link).
+- **E.6 is the build CAPSTONE**: the core persona pipeline is proven end-to-end. The
+  remaining items (E.4b SectionKind, the §15 invariant pin, the §10 ScopeKey + live
+  daemon wiring) are coordination/operator work, not pure Track-E build slices.
+
+## Track E — E.4b (SectionKind::DomainAnalysis context section; design §9)
+
+- **The `DomainAnalysis` SectionKind variant is inserted just under `OpenBeliefs`**
+  (high priority per §9) in the shared enum. Safe additive change: the only exhaustive
+  match on SectionKind is `as_str` (Track-E's context.rs, updated); no code casts the
+  discriminant numerically; serde is string-based (existing variants' wire form
+  unchanged); the Ord derive preserves every pre-existing variant's relative order.
+- **A `DomainAnalysis` context item's `content_hash` is `content_hash_of(rendered_body)`,
+  NOT the artifact's anchor.** The assembler validates `item.content_hash ==
+  content_hash_of(item.body)` (fail-closed), so the item must follow that convention.
+  The artifact's replay anchor (its content_hash) rides IN the body for traceability,
+  and the item_id is the analysis_id — so the context manifest references the artifact
+  by id, and the body replays from the persisted findings (5.7).
+- **The DomainAnalysis context item carries only DATA** (the findings rendering + the
+  artifact metadata), NEVER the trusted method body (which rides only in the Mind system
+  message, §4). It is a pre-digested-but-untrusted context item, rendered inside the
+  assembler's delimited `<context-item>` block.
+
+## Track E — macro-economist generalization proof (§13/§17)
+
+- **A SECOND persona (macro-economist) ships as the generalization proof** (§17): it
+  differs from the meteorologist in domain (macro), reads_signal_kinds, findings SHAPE
+  (`outcomes[{label,p}]` not `thresholds[{ge,p}]`), tier (synthesis), and backbone (PURE
+  JUDGMENT — outcomes[].p ARE the stated probabilities, no μ/σ code backbone, §13) — yet
+  flows through the SAME loader/runner/fan-out with ZERO per-domain code. This proves the
+  library is one mechanism, not per-domain code.
+- **The macro persona's reads_signal_kinds (macro.calendar / nowcast / consensus /
+  fed.speak) are NOT yet ingested** — they are a Track-D request (§17). The macro persona
+  is a DEFINITION + a fixture-driven mechanism test (a scripted StubMind stands in for the
+  model); the LIVE macro wiring is deferred until Track D provides macro signals.
+- **tier = synthesis for the macro persona** (vs cheap for the meteorologist) — exercising
+  that the tier is config (resolved to a model by Track M's factory), not code.
