@@ -21,6 +21,7 @@ use fortuna_core::clock::{Clock, SimClock, UtcTimestamp};
 use fortuna_core::ids::{IdGen, IntentGroupId, IntentId};
 use fortuna_core::market::{ClientOrderId, Contracts, MarketId, Side, StrategyId, VenueId};
 use fortuna_core::money::Cents;
+use fortuna_core::perp::{FundingObservation, PerpMarks};
 use fortuna_exec::{
     decide_complete_or_unwind, CancelOutcome, CompleteOrUnwind, ExecError, ExecPolicy,
     GroupDecision, GroupTracker, IntentJournal, IntentStatus, LegOutcome, MemoryJournal,
@@ -576,6 +577,35 @@ impl<J: IntentJournal + Send> SimRunner<J> {
         fortuna_cognition::scalar_beliefs::ScalarBeliefDraft,
     )> {
         std::mem::take(&mut self.pending_scalar_beliefs)
+    }
+
+    /// Inject an external `PerpTick` onto the bus for the NEXT `tick()` to
+    /// dispatch — the perp INGESTION seam (perp-strategies design §2.1/§3.2;
+    /// slice 4b). The two perp strategies (`funding_forecast`, `perp_event_basis`)
+    /// fire only on `PerpTick`s, and the deterministic `tick()` loop only sources
+    /// `BookSnapshot`s from the venue — so a producer (a Sim soak, or the live
+    /// kinetics feed) must hand perp data in HERE.
+    ///
+    /// The venue crate is bus-free, so the producer builds the perp-DOMAIN
+    /// components (e.g. via `KineticsPerpObservation::from_ws_ticker`) and this is
+    /// where the bus `PerpTick` is ASSEMBLED (the `venue` id is added). The event
+    /// is `EventOrigin::External` (exactly like the `BookSnapshot`s `tick()`
+    /// publishes), so it RECORDS and REPLAYS byte-stable — and crucially `tick()`
+    /// itself is UNCHANGED, so the record/replay determinism contract and every
+    /// existing DST recording (which never injects) are untouched.
+    pub fn inject_perp_tick(
+        &mut self,
+        venue: VenueId,
+        market: MarketId,
+        marks: PerpMarks,
+        funding: FundingObservation,
+    ) {
+        self.bus.publish_external(EventPayload::PerpTick {
+            venue,
+            market,
+            marks,
+            funding,
+        });
     }
 
     /// Record an externally-raised ALERT (non-halting) on the audit

@@ -33,10 +33,15 @@ PerpTick path, which the design §5 "register + confirm Sim soak" step did not a
     (MarketId + PerpMarks + FundingObservation) VERBATIM from a WS `ticker` frame; the venue crate stays
     BUS-FREE (the producer adds the `venue` id to make the bus event). 4 tests (synthetic exact-mapping +
     field-swap guards, recorded-frame re-derivation, malformed→Err). Foundation for every producer.
-  - 4b (NEXT — track-A coordination on runner.rs, carries the DST-REPLAY RISK): a scripted PerpTick source
-    drained in `tick()` step 1 before `run_until_idle()` (the EventOrigin::External injection slot) so a
-    Sim soak FIRES the perp strategies. Must re-run the full DST corpus (the tick() event order is the
-    record/replay contract; the injected PerpTick is External so replay stays byte-stable, but PROVE it).
+  - 4b (DONE — SAFER design than first sketched): `SimRunner::inject_perp_tick(venue, market, marks,
+    funding)` publishes an EventOrigin::External PerpTick onto the bus; the NEXT `tick()` dispatches it via
+    the EXISTING step-2 `new_events` read — so `tick()` itself is UNTOUCHED (NOT a new drain inside the
+    deterministic core, as first sketched). REPLAY-SAFE: existing DST recordings never inject, so they are
+    byte-identical; the full DST corpus re-ran GREEN (proven, not asserted). Sim-soak test
+    (perp_sim_soak.rs): the REAL funding_forecast FIRES on an injected PerpTick (one scalar belief drains,
+    tagged + Scalar + KXBTCPERP-keyed), and produces NOTHING without a tick — closing the inert-strategy
+    gap. perp_event_basis uses the SAME seam; its book-fed soak rides 4c. inject_perp_tick is also the LIVE
+    producer's seam (4e): KineticsPerpObservation (4a) → inject_perp_tick → the strategies.
   - 4c (track-A coordination on compose.rs/boot.rs/daemon.rs): register FundingForecast + PerpEventBasis
     via opt-in compose sections (MechExtremes precedent daemon.rs:312); the perp_event_basis bracket
     ladder comes from a CONFIG section (TOML MarketId->BracketStrike) — sidesteps the fortuna_venues::Market

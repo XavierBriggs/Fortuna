@@ -786,9 +786,11 @@ code.
       NO PRODUCER (only consumers) — registering the strategies alone leaves them
       inert; slice 4 must build the perp ingestion→PerpTick path. Decomposed 4a-4e
       (see GAPS). 4a DONE: KineticsPerpObservation::from_ws_ticker (fortuna-venues
-      kinetics, bus-free, verbatim WS-ticker→perp-domain, 4 tests). Remaining 4b
-      (scripted PerpTick source/Sim soak), 4c (compose/daemon registration), 4d
-      (scalar-belief drain) — all track-A-coordinated daemon work.
+      kinetics, bus-free, verbatim WS-ticker→perp-domain, 4 tests). 4b DONE:
+      SimRunner::inject_perp_tick (the ingestion seam; tick() UNTOUCHED → DST
+      corpus re-ran green; Sim-soak proves the real funding_forecast fires on an
+      injected PerpTick). Remaining 4c (compose/daemon registration + config
+      catalog), 4d (scalar-belief drain) — track-A-coordinated daemon work.
 - [ ] T5.B8 Ops: kill-switch perps flatten (reduce_only IOC + cancel-all),
       margin/funding telemetry, funding-regime dashboard panel.
 

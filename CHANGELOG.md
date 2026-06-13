@@ -18,6 +18,17 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
+- **`SimRunner::inject_perp_tick`** (slice 4b, `fortuna-runner`, additive): the perp
+  INGESTION seam. `EventPayload::PerpTick` has no producer in the deterministic
+  `tick()` loop (which sources only `BookSnapshot`s), so the perp strategies would
+  be inert in the daemon. This publishes an `EventOrigin::External` `PerpTick` onto
+  the bus for the next `tick()` to dispatch through its EXISTING `new_events` read —
+  so `tick()` itself is UNTOUCHED (the record/replay determinism contract and every
+  existing DST recording are unaffected; the full DST corpus re-ran green to prove
+  it). A Sim-soak test drives the REAL `funding_forecast` through a runner tick: it
+  produces a scalar belief BECAUSE it saw an injected `PerpTick`, and nothing
+  without one. The same seam carries the live kinetics feed
+  (`KineticsPerpObservation` → `inject_perp_tick`).
 - **`KineticsPerpObservation`** (slice 4a, `fortuna-venues::kinetics::perp_observation`,
   additive): the venue-side half of a `PerpTick`, built VERBATIM from a WS `ticker`
   frame — `MarketId` + `PerpMarks` (venue settlement; no conservative mark) +
