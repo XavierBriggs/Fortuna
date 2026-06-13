@@ -119,7 +119,13 @@ bracket_sets = [["SIM-BKT-LO", "SIM-BKT-MID", "SIM-BKT-HI"]]
 # not composed (fail closed). Uncomment to enable.
 #
 # [funding_forecast]        # PRESENCE composes the zero-capital funding belief
-#                           # producer (propose-nothing). No fields at rung-0.
+#                           # producer (propose-nothing).
+# ticker_feed_jsonl = "fixtures/kinetics-perps/ws__public_orderbook_ticker.jsonl"
+#                           # slice-4e Sim soak: replay RECORDED kinetics `ticker`
+#                           # frames as PerpTicks (one per segment) so the producer
+#                           # FIRES and PERSISTS scalar beliefs each segment — the
+#                           # Sim loop sources only BookSnapshots, so without a feed
+#                           # the producer is inert. Omit for the live kinetics feed.
 #
 # [perp_event_basis]        # PRESENCE composes the propose-only perp/bracket
 #                           # basis strategy over the ladder below.

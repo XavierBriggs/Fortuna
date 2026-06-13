@@ -53,10 +53,27 @@ PerpTick path, which the design §5 "register + confirm Sim soak" step did not a
     deliverable. 11 tests incl. a #[sqlx::test] that boots compose_runner and asserts strategy_ids contains
     both ONLY when the sections are present (fail-closed otherwise). Touched only compose.rs/boot.rs/
     daemon.rs/config example/fortuna-live tests — no tick(), no runner logic, no other crate.
-  - 4d (track-A coordination on daemon.rs/main.rs): wire `drain_pending_scalar_beliefs` into drive()
-    (parallel to drain_pending_beliefs daemon.rs:~563) → persist funding_forecast's scalar claims.
-COORDINATION: 4b-4d touch track-A HOT files (daemon.rs/compose.rs/boot.rs/runner.rs) — ADDITIVE only
+  - 4d (DONE — additive on daemon.rs/main.rs): `drain_pending_scalar_beliefs` wired into drive()'s
+    per-segment loop (parallel to drain_pending_beliefs) → `persist_scalar_beliefs` writes
+    funding_forecast's scalar claims to the `scalar_beliefs` ledger. Gated on a composed scalar producer
+    (`scalar_belief_persist: Option<PgPool>` = Some iff `[funding_forecast]`/`[perp_event_basis]`),
+    fail-closed otherwise; runs OUTSIDE the synthesis-refresh block (funding_forecast is synth-independent);
+    own monotonic id base (`01SCB…`, distinct from the binary `01BLF…`). Binary BeliefDraft path + tick()
+    byte-unchanged (A3).
+  - 4e (DONE — additive, new `fortuna-live::perp_feed`): `PerpTickFeed::from_ws_ticker_jsonl` replays
+    RECORDED kinetics `ticker` frames (`[funding_forecast].ticker_feed_jsonl`); drive() injects one PerpTick
+    per segment via the 4b seam so funding_forecast FIRES in a Sim soak (the Sim loop sources only
+    BookSnapshots — producers otherwise inert). Build path = the live producer's: ticker frame →
+    KineticsPerpObservation::from_ws_ticker (4a) → inject_perp_tick. 5 new tests (4 perp_feed parser vs the
+    real 489-frame capture + a #[sqlx::test] e2e that drives a recorded PerpTick → asserts the persisted
+    scalar_beliefs row, unit "rate"/{0.1,0.5,0.9} fan, MUTATION-PROVEN: break the egress → 0 rows → RED,
+    executed); all 8 drive() smokes at the 15-arg signature. (Live-market-list CATALOG population for
+    perp_event_basis is a SEPARATE future concern — now folded into the Kalshi demo-flip, not 4e.)
+COORDINATION: 4b-4e touch track-A HOT files (daemon.rs/compose.rs/boot.rs/main.rs/runner.rs) — ADDITIVE only
 (new opt-in blocks/fields, no existing body changed); re-check bus+rebase immediately before each.
+STATUS 2026-06-13: slice 4 (4a-4e) ALL DONE; the INERT-PRODUCER FINDING is CLOSED — the Sim soak now
+PRODUCES + PERSISTS scalar beliefs (mutation-proven in CI). Remaining: prove against a live wt-c daemon run
+(scalar_beliefs grows + ROTA /api/rota/v1/cognition shows rows), then the Kalshi demo-flip.
 
 ## TRACK C — slice 3b-STRATEGY (perp_event_basis) BUILT + bin_prob bug caught + DEMO-ENV validated on a fresh independent cycle (2026-06-13)
 

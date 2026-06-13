@@ -831,8 +831,17 @@ code.
       injected PerpTick). 4c DONE: registered both perp strategies into
       compose_runner via opt-in [funding_forecast]/[perp_event_basis] sections
       (config-supplied bracket ladder, strictly validated; no veto-enrollment;
-      additive 489/0; 11 tests incl. a compose_runner boot test). Remaining 4d
-      (wire drain_pending_scalar_beliefs into drive()) — track-A daemon work.
+      additive 489/0; 11 tests incl. a compose_runner boot test). 4d DONE: the
+      scalar egress — drain_pending_scalar_beliefs wired into drive(), persisted
+      to scalar_beliefs (gated on a composed scalar producer; synth-independent;
+      own 01SCB id space; binary path + tick() byte-unchanged). 4e DONE: the
+      Sim-soak PerpTickFeed (replays recorded kinetics ticker frames via
+      [funding_forecast].ticker_feed_jsonl, one PerpTick/segment through the 4b
+      seam) — funding_forecast now fires + PERSISTS in a soak. PROVEN end-to-end
+      by a #[sqlx::test] (recorded PerpTick → scalar_beliefs row, MUTATION-PROVEN);
+      5 new tests, all 8 drive() smokes at the 15-arg sig. Inert-producer finding
+      CLOSED. Remaining for T5.B7: live wt-c daemon-run proof + perp_event_basis
+      live-market catalog (folded into the Kalshi demo-flip).
 - [ ] T5.B8 Ops: kill-switch perps flatten (reduce_only IOC + cancel-all),
       margin/funding telemetry, funding-regime dashboard panel.
 

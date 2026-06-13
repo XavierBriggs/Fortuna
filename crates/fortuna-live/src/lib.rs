@@ -11,5 +11,6 @@ pub mod boot;
 pub mod compose;
 pub mod daemon;
 pub mod ingestion;
+pub mod perp_feed;
 pub mod run_loop;
 pub mod views;
