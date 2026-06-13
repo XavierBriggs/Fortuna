@@ -15,13 +15,16 @@
 //!   that IS the design); a params row that does not PARSE is corrupt
 //!   configuration and errors loudly, never a silent "uncalibrated".
 
+use fortuna_cognition::basis::BracketStrike;
 use fortuna_cognition::beliefs::calibration_curve;
 use fortuna_cognition::calibration::{calibration_quality, CalibrationParams};
 use fortuna_cognition::cycle::{CalibrationContext, EdgeView};
 use fortuna_cognition::events::{EdgeTier, MappingType};
+use fortuna_core::market::MarketId;
 use fortuna_ledger::{BeliefsRepo, CalibrationParamsRepo, EdgesRepo, LedgerError};
 use fortuna_ops::alerts::{degrade_alerts, DegradeSignals, DegradeThresholds};
 use fortuna_ops::MessageKind;
+use fortuna_runner::perp_event_basis::PerpEventBasisConfig;
 use sqlx::PgPool;
 use thiserror::Error;
 
@@ -123,6 +126,149 @@ pub struct MechExtremesSection {
     pub max_volume_contracts: Option<i64>,
     /// Skip markets closing sooner than this in ms (default 3_600_000 = 1h).
     pub min_ms_to_close: Option<i64>,
+}
+
+/// `[funding_forecast]` opt-in (slice 4c): its mere PRESENCE composes the
+/// zero-capital perp funding belief-producer (`FundingForecast`) into the
+/// daemon — a propose-NOTHING strategy that drafts funding beliefs only. No
+/// fields at rung-0 (the producer is config-free). Absent => not composed (fail
+/// closed). Like `mech_extremes`, it is INERT in pure-sim: it fires only on
+/// `EventPayload::PerpTick`s, which arrive only once a producer injects them
+/// (the live kinetics feed, a later sub-slice). The composition is the
+/// deliverable here.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FundingForecastSection {}
+
+/// `[perp_event_basis]` opt-in (slice 4c): its PRESENCE composes the
+/// propose-only mechanical perp/bracket basis strategy (`PerpEventBasis`). The
+/// bracket LADDER (market -> strike) is config-supplied because the venue
+/// `Market` type carries no strike metadata, so the operator declares it. All
+/// fields are REQUIRED (no silent default — a basis strategy with a guessed fee
+/// trap or empty ladder is a money risk); `build_perp_event_basis_config`
+/// validates the ladder STRICTLY. Absent => not composed (fail closed). Like
+/// `mech_extremes` it is INERT in pure-sim: it fires only on perp `PerpTick`s
+/// (a later kinetics-feed sub-slice injects them). The composition is the
+/// deliverable here.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PerpEventBasisSection {
+    /// The perp whose `PerpTick` triggers the basis comparison (e.g.
+    /// `"KXBTCPERP"`).
+    pub perp_market: String,
+    /// The assumed post-promo round-trip fee floor in dollars (the fee trap the
+    /// signed basis must clear); passed straight to the basis kernel.
+    pub fee_floor_dollars: f64,
+    /// The additional configured edge margin in dollars; the basis must clear
+    /// `fee_floor_dollars + min_basis_dollars`.
+    pub min_basis_dollars: f64,
+    /// The honest fair-value premium (cents) added to the join limit (the gates
+    /// re-check net edge from it).
+    pub edge_premium_cents: i64,
+    /// The KXBTC bracket LADDER: each bracket venue market id (the map KEY) ->
+    /// its strike kind. An empty ladder is an error (nothing to trade).
+    pub ladder: std::collections::BTreeMap<String, BracketStrikeToml>,
+}
+
+/// One ladder rung in TOML (slice 4c): a venue market id (the map KEY in
+/// [`PerpEventBasisSection::ladder`]) -> its strike kind. The strike fields are
+/// OPTIONAL in the schema because each `kind` requires a DIFFERENT subset;
+/// `build_perp_event_basis_config` enforces the per-kind requirements strictly.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BracketStrikeToml {
+    /// `"between"` | `"greater"` | `"less"` (exact; any other value is an error).
+    pub kind: String,
+    /// The lower strike edge in dollars. REQUIRED for `between`/`greater`; MUST
+    /// be absent for `less`.
+    pub floor_dollars: Option<f64>,
+    /// The upper strike edge in dollars. REQUIRED for `between`/`less`; MUST be
+    /// absent for `greater`.
+    pub cap_dollars: Option<f64>,
+}
+
+/// Build the runner config from a `[perp_event_basis]` section (slice 4c),
+/// validating the ladder STRICTLY. Returns a descriptive error STRING on any
+/// violation (the caller maps it to `DaemonError::Compose`). Mirrors the
+/// `ReviewSection::to_thresholds` shim shape: a pure, unit-testable mapping from
+/// the TOML section to the runner's `PerpEventBasisConfig`.
+///
+/// Validation (every rule is a refusal, never a silent fixup):
+/// - the ladder must be NON-EMPTY (an empty ladder has nothing to trade);
+/// - `perp_market` and every ladder KEY must be a valid `MarketId`;
+/// - each rung's `kind` is exactly `"between"` | `"greater"` | `"less"`;
+/// - `"between"` REQUIRES both `floor_dollars` and `cap_dollars` with
+///   `floor < cap`; a missing strike or `floor >= cap` is an error;
+/// - `"greater"` REQUIRES `floor_dollars` and `cap_dollars` MUST be absent;
+/// - `"less"` REQUIRES `cap_dollars` and `floor_dollars` MUST be absent.
+pub(crate) fn build_perp_event_basis_config(
+    section: &PerpEventBasisSection,
+) -> Result<PerpEventBasisConfig, String> {
+    if section.ladder.is_empty() {
+        return Err("ladder is empty (nothing to trade)".to_string());
+    }
+    let perp_market = MarketId::new(section.perp_market.clone())
+        .map_err(|e| format!("perp_market {:?}: {e}", section.perp_market))?;
+
+    let mut ladder = std::collections::BTreeMap::new();
+    for (market_id, rung) in &section.ladder {
+        let mkt = MarketId::new(market_id.clone())
+            .map_err(|e| format!("ladder market id {market_id:?}: {e}"))?;
+        let strike = match rung.kind.as_str() {
+            "between" => {
+                let floor = rung.floor_dollars.ok_or_else(|| {
+                    format!("ladder rung {market_id:?}: \"between\" requires floor_dollars")
+                })?;
+                let cap = rung.cap_dollars.ok_or_else(|| {
+                    format!("ladder rung {market_id:?}: \"between\" requires cap_dollars")
+                })?;
+                if floor >= cap {
+                    return Err(format!(
+                        "ladder rung {market_id:?}: \"between\" requires floor < cap \
+                         (got floor={floor}, cap={cap})"
+                    ));
+                }
+                BracketStrike::Between { floor, cap }
+            }
+            "greater" => {
+                let floor = rung.floor_dollars.ok_or_else(|| {
+                    format!("ladder rung {market_id:?}: \"greater\" requires floor_dollars")
+                })?;
+                if rung.cap_dollars.is_some() {
+                    return Err(format!(
+                        "ladder rung {market_id:?}: \"greater\" must not carry cap_dollars"
+                    ));
+                }
+                BracketStrike::Greater { floor }
+            }
+            "less" => {
+                let cap = rung.cap_dollars.ok_or_else(|| {
+                    format!("ladder rung {market_id:?}: \"less\" requires cap_dollars")
+                })?;
+                if rung.floor_dollars.is_some() {
+                    return Err(format!(
+                        "ladder rung {market_id:?}: \"less\" must not carry floor_dollars"
+                    ));
+                }
+                BracketStrike::Less { cap }
+            }
+            other => {
+                return Err(format!(
+                    "ladder rung {market_id:?}: unknown kind {other:?} \
+                     (expected \"between\" | \"greater\" | \"less\")"
+                ));
+            }
+        };
+        ladder.insert(mkt, strike);
+    }
+
+    Ok(PerpEventBasisConfig {
+        perp_market,
+        ladder,
+        fee_floor_dollars: section.fee_floor_dollars,
+        min_basis_dollars: section.min_basis_dollars,
+        edge_premium_cents: section.edge_premium_cents,
+    })
 }
 
 /// `[review]` opt-in: the weekly review's GO/NO-GO thresholds (T4.1/M2; spec
@@ -235,5 +381,145 @@ impl DegradeScrape {
         self.last_budget_breaches = budget_breaches_total;
         self.last_cognition_failures = cognition_failures_total;
         degrade_alerts(&signals, &self.thresholds)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A `[perp_event_basis]` section with the given ladder rungs and otherwise
+    /// fixed non-vacuous scalars (so the validation under test is the ladder).
+    fn section(ladder: Vec<(&str, BracketStrikeToml)>) -> PerpEventBasisSection {
+        PerpEventBasisSection {
+            perp_market: "KXBTCPERP".to_string(),
+            fee_floor_dollars: 2.0,
+            min_basis_dollars: 1.0,
+            edge_premium_cents: 2,
+            ladder: ladder
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v))
+                .collect(),
+        }
+    }
+
+    fn rung(kind: &str, floor: Option<f64>, cap: Option<f64>) -> BracketStrikeToml {
+        BracketStrikeToml {
+            kind: kind.to_string(),
+            floor_dollars: floor,
+            cap_dollars: cap,
+        }
+    }
+
+    #[test]
+    fn valid_three_kind_ladder_builds_the_right_strike_mapping() {
+        // A well-formed 3-rung ladder (one less, one between, one greater) maps
+        // each (market-id, BracketStrikeToml) -> (MarketId, BracketStrike) and
+        // carries the scalars through. NON-VACUOUS: the three distinct strike
+        // shapes + their dollar values are asserted exactly.
+        let sec = section(vec![
+            ("KXBTC-LO", rung("less", None, Some(60_000.0))),
+            ("KXBTC-MID", rung("between", Some(60_000.0), Some(70_000.0))),
+            ("KXBTC-HI", rung("greater", Some(70_000.0), None)),
+        ]);
+        let cfg = build_perp_event_basis_config(&sec).expect("a well-formed ladder builds");
+
+        assert_eq!(cfg.perp_market, MarketId::new("KXBTCPERP").unwrap());
+        assert_eq!(cfg.fee_floor_dollars, 2.0);
+        assert_eq!(cfg.min_basis_dollars, 1.0);
+        assert_eq!(cfg.edge_premium_cents, 2);
+        assert_eq!(cfg.ladder.len(), 3);
+        assert_eq!(
+            cfg.ladder.get(&MarketId::new("KXBTC-LO").unwrap()),
+            Some(&BracketStrike::Less { cap: 60_000.0 })
+        );
+        assert_eq!(
+            cfg.ladder.get(&MarketId::new("KXBTC-MID").unwrap()),
+            Some(&BracketStrike::Between {
+                floor: 60_000.0,
+                cap: 70_000.0
+            })
+        );
+        assert_eq!(
+            cfg.ladder.get(&MarketId::new("KXBTC-HI").unwrap()),
+            Some(&BracketStrike::Greater { floor: 70_000.0 })
+        );
+    }
+
+    #[test]
+    fn empty_ladder_is_an_error() {
+        let err = build_perp_event_basis_config(&section(vec![])).unwrap_err();
+        assert!(err.contains("empty"), "{err}");
+    }
+
+    #[test]
+    fn unknown_kind_is_an_error() {
+        let sec = section(vec![("KXBTC-X", rung("equal", Some(1.0), Some(2.0)))]);
+        let err = build_perp_event_basis_config(&sec).unwrap_err();
+        assert!(err.contains("unknown kind"), "{err}");
+    }
+
+    #[test]
+    fn between_missing_a_strike_is_an_error() {
+        // Missing cap.
+        let sec = section(vec![("KXBTC-MID", rung("between", Some(60_000.0), None))]);
+        let err = build_perp_event_basis_config(&sec).unwrap_err();
+        assert!(err.contains("cap_dollars"), "{err}");
+        // Missing floor.
+        let sec = section(vec![("KXBTC-MID", rung("between", None, Some(70_000.0)))]);
+        let err = build_perp_event_basis_config(&sec).unwrap_err();
+        assert!(err.contains("floor_dollars"), "{err}");
+    }
+
+    #[test]
+    fn between_with_floor_ge_cap_is_an_error() {
+        // floor == cap.
+        let sec = section(vec![(
+            "KXBTC-MID",
+            rung("between", Some(70_000.0), Some(70_000.0)),
+        )]);
+        let err = build_perp_event_basis_config(&sec).unwrap_err();
+        assert!(err.contains("floor < cap"), "{err}");
+        // floor > cap.
+        let sec = section(vec![(
+            "KXBTC-MID",
+            rung("between", Some(80_000.0), Some(70_000.0)),
+        )]);
+        let err = build_perp_event_basis_config(&sec).unwrap_err();
+        assert!(err.contains("floor < cap"), "{err}");
+    }
+
+    #[test]
+    fn greater_with_a_cap_is_an_error() {
+        let sec = section(vec![(
+            "KXBTC-HI",
+            rung("greater", Some(70_000.0), Some(80_000.0)),
+        )]);
+        let err = build_perp_event_basis_config(&sec).unwrap_err();
+        assert!(err.contains("must not carry cap_dollars"), "{err}");
+    }
+
+    #[test]
+    fn greater_missing_floor_is_an_error() {
+        let sec = section(vec![("KXBTC-HI", rung("greater", None, None))]);
+        let err = build_perp_event_basis_config(&sec).unwrap_err();
+        assert!(err.contains("requires floor_dollars"), "{err}");
+    }
+
+    #[test]
+    fn less_with_a_floor_is_an_error() {
+        let sec = section(vec![(
+            "KXBTC-LO",
+            rung("less", Some(50_000.0), Some(60_000.0)),
+        )]);
+        let err = build_perp_event_basis_config(&sec).unwrap_err();
+        assert!(err.contains("must not carry floor_dollars"), "{err}");
+    }
+
+    #[test]
+    fn less_missing_cap_is_an_error() {
+        let sec = section(vec![("KXBTC-LO", rung("less", None, None))]);
+        let err = build_perp_event_basis_config(&sec).unwrap_err();
+        assert!(err.contains("requires cap_dollars"), "{err}");
     }
 }

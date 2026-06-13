@@ -828,8 +828,11 @@ code.
       kinetics, bus-free, verbatim WS-ticker→perp-domain, 4 tests). 4b DONE:
       SimRunner::inject_perp_tick (the ingestion seam; tick() UNTOUCHED → DST
       corpus re-ran green; Sim-soak proves the real funding_forecast fires on an
-      injected PerpTick). Remaining 4c (compose/daemon registration + config
-      catalog), 4d (scalar-belief drain) — track-A-coordinated daemon work.
+      injected PerpTick). 4c DONE: registered both perp strategies into
+      compose_runner via opt-in [funding_forecast]/[perp_event_basis] sections
+      (config-supplied bracket ladder, strictly validated; no veto-enrollment;
+      additive 489/0; 11 tests incl. a compose_runner boot test). Remaining 4d
+      (wire drain_pending_scalar_beliefs into drive()) — track-A daemon work.
 - [ ] T5.B8 Ops: kill-switch perps flatten (reduce_only IOC + cancel-all),
       margin/funding telemetry, funding-regime dashboard panel.
 

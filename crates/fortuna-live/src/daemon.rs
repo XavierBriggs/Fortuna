@@ -75,8 +75,10 @@ use fortuna_core::money::Cents;
 use fortuna_ledger::{BeliefsRepo, CalibrationParamsRepo, HaltsRepo, PgIntentJournal};
 use fortuna_ops::alerts::DegradeThresholds;
 use fortuna_ops::FortunaConfig;
+use fortuna_runner::funding_forecast::FundingForecast;
 use fortuna_runner::mech_extremes::{MechExtremes, MechExtremesConfig};
 use fortuna_runner::mech_structural::{MechStructural, MechStructuralConfig};
+use fortuna_runner::perp_event_basis::PerpEventBasis;
 use fortuna_runner::synthesis::{SynthesisConfig, SynthesisStrategy};
 use fortuna_runner::{RunnerConfig, RunnerError, SimRunner, Stage, Strategy};
 use fortuna_state::MarkPolicy;
@@ -322,6 +324,35 @@ pub async fn compose_runner(
         veto_strategies.push(strat.id());
         veto_mind = Some(Arc::new(StubVetoMind::allow_all()));
         strategies.push(Box::new(strat));
+    }
+
+    // slice 4c: the two OPT-IN perp strategies, composed ALONGSIDE the
+    // mechanical/synthesis arms (I1: same gate/exec path). Both fire only on
+    // `EventPayload::PerpTick`s, so — exactly like mech_extremes is inert in
+    // pure-sim until real markets arrive — these are INERT until a producer
+    // injects PerpTicks (the live kinetics feed, a later sub-slice). Neither is
+    // veto-enrolled: funding_forecast proposes NOTHING (zero-capital belief
+    // producer), and leaving perp_event_basis out of the veto avoids requiring a
+    // veto mind (a veto-enrolled strategy with no veto mind FAILS to boot,
+    // runner.rs). The composition (registration) is the deliverable.
+    if dcfg.funding_forecast.is_some() {
+        strategies.push(Box::new(FundingForecast::new().map_err(|e| {
+            DaemonError::Compose {
+                reason: format!("funding_forecast rejected its config: {e}"),
+            }
+        })?));
+    }
+    if let Some(peb) = &dcfg.perp_event_basis {
+        let cfg = crate::compose::build_perp_event_basis_config(peb).map_err(|e| {
+            DaemonError::Compose {
+                reason: format!("perp_event_basis ladder invalid: {e}"),
+            }
+        })?;
+        strategies.push(Box::new(PerpEventBasis::new(cfg).map_err(|e| {
+            DaemonError::Compose {
+                reason: format!("perp_event_basis rejected its config: {e}"),
+            }
+        })?));
     }
 
     let envelopes = full

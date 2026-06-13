@@ -42,10 +42,17 @@ PerpTick path, which the design §5 "register + confirm Sim soak" step did not a
     tagged + Scalar + KXBTCPERP-keyed), and produces NOTHING without a tick — closing the inert-strategy
     gap. perp_event_basis uses the SAME seam; its book-fed soak rides 4c. inject_perp_tick is also the LIVE
     producer's seam (4e): KineticsPerpObservation (4a) → inject_perp_tick → the strategies.
-  - 4c (track-A coordination on compose.rs/boot.rs/daemon.rs): register FundingForecast + PerpEventBasis
-    via opt-in compose sections (MechExtremes precedent daemon.rs:312); the perp_event_basis bracket
-    ladder comes from a CONFIG section (TOML MarketId->BracketStrike) — sidesteps the fortuna_venues::Market
-    strike-metadata gap; live-market-list catalog is 4e (future).
+  - 4c (DONE — additive, 489 insertions / 0 deletions): registered FundingForecast + PerpEventBasis into
+    compose_runner via opt-in `[funding_forecast]` / `[perp_event_basis]` sections (MechExtremes precedent;
+    same gate/exec path I1). The perp_event_basis bracket ladder is a CONFIG section (TOML key=market ->
+    {kind=between/greater/less, floor_dollars, cap_dollars}, STRICTLY validated by
+    build_perp_event_basis_config) — sidesteps the fortuna_venues::Market strike-metadata gap; the
+    live-market-list catalog is 4e (future). NEITHER is veto-enrolled (funding_forecast proposes nothing;
+    leaving perp_event_basis out avoids requiring a veto mind). INERT in pure-sim until a producer injects
+    PerpTicks (4b seam) — exactly like mech_extremes is inert without real markets; the COMPOSITION is the
+    deliverable. 11 tests incl. a #[sqlx::test] that boots compose_runner and asserts strategy_ids contains
+    both ONLY when the sections are present (fail-closed otherwise). Touched only compose.rs/boot.rs/
+    daemon.rs/config example/fortuna-live tests — no tick(), no runner logic, no other crate.
   - 4d (track-A coordination on daemon.rs/main.rs): wire `drain_pending_scalar_beliefs` into drive()
     (parallel to drain_pending_beliefs daemon.rs:~563) → persist funding_forecast's scalar claims.
 COORDINATION: 4b-4d touch track-A HOT files (daemon.rs/compose.rs/boot.rs/runner.rs) — ADDITIVE only
