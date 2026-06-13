@@ -120,6 +120,11 @@ pub fn views_from<J: IntentJournal + Send>(runner: &SimRunner<J>, generated_at: 
             "stage": "sim",
             "halt_active": halt_active,
             "halt_reason": halt_reason,
+            // M3 / I2: ROTA's halt is the RUNNING daemon's state (active_halt),
+            // which never auto-clears on a re-arm — re-arm is RESTART-GATED. Flag
+            // that so the console can warn a re-arm takes effect only on restart;
+            // a re-armed-but-still-HALTED ROTA is by-design, not a bug.
+            "rearm_requires_restart": halt_active,
             "ticks_total": c.ticks,
             "last_tick_age_ms": Value::Null,
             "fill_latency_p90_ms": quant(0.90),

@@ -1082,12 +1082,24 @@ async fn db_command(args: &Args) -> Result<()> {
                         serde_json::json!({"action": "rearm", "scope": scope_raw, "reason": reason}),
                     )
                     .await?;
-                println!("re-armed {scope_raw} (operator: {operator})");
+                println!("{}", rearm_success_message(scope_raw, &operator));
             }
             Ok(())
         }
         _ => bail!("unreachable"),
     }
+}
+
+/// The operator-facing line(s) printed after a successful re-arm. Pure so the
+/// wording is unit-tested without a database. M3 (the re-arm notice): a re-arm
+/// clears the durable halt in the ledger, but I2 is restart-gated — the RUNNING
+/// daemon never auto-resumes, so the operator must be told to restart.
+fn rearm_success_message(scope_raw: &str, operator: &str) -> String {
+    format!(
+        "re-armed {scope_raw} (operator: {operator})\n\
+         halt cleared in the ledger; the RUNNING daemon resumes only on restart \
+         — run: fortuna stop && fortuna start"
+    )
 }
 
 #[cfg(test)]
@@ -1100,6 +1112,28 @@ mod tests {
     //! sequence (pidfile content + stopping-marker clear).
 
     use super::*;
+
+    #[test]
+    fn rearm_message_tells_the_operator_to_restart() {
+        // M3: a re-arm clears the durable ledger halt, but I2 is restart-gated —
+        // the RUNNING daemon resumes ONLY on restart. The notice must say so and
+        // give the exact command, or an operator who re-armed sees trading stay
+        // halted with no explanation (the four-state divergence in
+        // runbooks/halt-and-rearm.md).
+        let msg = rearm_success_message("global", "xavier");
+        assert!(
+            msg.contains("re-armed global") && msg.contains("operator: xavier"),
+            "keeps the scope + operator line: {msg}"
+        );
+        assert!(
+            msg.to_lowercase().contains("restart"),
+            "must tell the operator a restart is required: {msg}"
+        );
+        assert!(
+            msg.contains("fortuna stop && fortuna start"),
+            "must give the exact restart command: {msg}"
+        );
+    }
 
     fn scratch(case: &str) -> PathBuf {
         let dir =

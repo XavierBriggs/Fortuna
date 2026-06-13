@@ -18,6 +18,51 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK A RE-ACTIVATED (operator 2026-06-13): completion-campaign queue — M3 DONE (queue item 1)
+
+The operator re-activated the Ralph loop after the RALPH STOP below; the loop doc
+now points (b)-priority at docs/design/track-a-completion-queue.md (verifier-
+amended), which re-pointed the queue: M3 -> T4.2 buildable-now -> T4.5 -> backlog.
+The RALPH STOP below is SUPERSEDED.
+
+M3 REARM NOTICES — DONE (queue item 1; "small, one iteration"). The queue
+explicitly released M3 to track A including the fortuna-cli touch. Built across
+the three authorized surfaces, TDD where testable:
+- fortuna-cli (rearm arm): extracted pure rearm_success_message(); a re-arm now
+  also prints "halt cleared in the ledger; the RUNNING daemon resumes only on
+  restart — run: fortuna stop && fortuna start". RED-first unit test
+  rearm_message_tells_the_operator_to_restart.
+- fortuna-live/views.rs (health view): new "rearm_requires_restart" field (= the
+  running halt state; honest — I2 is restart-gated, so a running halt clears only
+  on restart). RED-first test a_halted_health_view_flags_that_rearm_requires_a_
+  restart (clear => not flagged; halted => flagged true).
+- fortuna-ops/rota.rs (ROTA surface, queue-authorized): the health panel renders
+  the restart guidance when the field is set, and the full-screen #halt overlay
+  now carries the restart instruction. Presentation layer (the JS template is not
+  content-tested in this repo; the /rota 200 route test guards serving; the DATA
+  is the tested views.rs field). Satisfies runbooks/halt-and-rearm.md's design
+  intent — the four-state divergence is readable off the console.
+DESIGN NOTE: views_from is PURE (no DB), so it cannot compute the TRUE ledger-vs-
+running divergence (that needs the R5 read pool in fortuna-ops). The queue's
+"simplest honest form" is the always-true I2 fact (a running halt clears only on
+restart), surfaced whenever halted — no false divergence claim. A richer ledger-
+vs-running comparison (read halt_events via rota_pool, flag only when ledger=clear
+but running=halted) is a possible later enhancement, ledgered here.
+
+CROSS-TRACK FMT FIX (committed separately): c139386's T4.2 WS work left a COMMITTED
+fmt red on main (crates/fortuna-venues/examples/record_kalshi_fixtures.rs) that
+blocked the shared workspace battery. Cleared mechanically (cargo fmt, whitespace
+only); T4.2/Kalshi is now track A's queue item 2, so this file is in-purview.
+
+Battery (commit-gate, all real exit codes): fmt --check clean; clippy --workspace
+--all-targets -D warnings exit 0; cargo test --workspace exit 0 (110 ok-result
+lines, incl. the two new M3 tests); run-dst.sh 10000 exit 0 (zero invariant
+violations).
+
+NEXT: queue item 2 = T4.2 buildable-now (Kalshi WS dial first, using the ledgered
+venue evidence in fixtures/kalshi/README.md). Also re-check the new (untracked)
+docs/reviews/completion-audit-2026-06-13.md as priority (a) next iteration.
+
 ## RALPH STOP 2026-06-13T01:16:26Z (Track A — queue exhausted; loop ends clean)
 
 Per implementer-loop.md rule 6 (every priority item blocked/exhausted; idle-and-

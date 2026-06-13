@@ -484,10 +484,12 @@ const ROTA_SHELL: &str = r#"<!doctype html><html lang="en"><head>
   details.belief summary{font-size:12px;color:var(--text)}
   details.belief pre{padding:6px 0 4px 12px;color:#bdbdb8}
   #halt{display:none;position:fixed;inset:0;background:var(--halt);
-        color:#fff;align-items:center;justify-content:center;
+        color:#fff;align-items:center;justify-content:center;flex-direction:column;
         font-size:28px;letter-spacing:3px;z-index:9}
+  #halt .rearm{font-size:13px;letter-spacing:1px;margin-top:16px;opacity:.85;
+        max-width:80%;text-align:center}
 </style></head><body>
-<div id="halt">SYSTEM HALTED</div>
+<div id="halt">SYSTEM HALTED<div class="rearm">a re-arm clears the ledger halt, but this running daemon resumes only on restart — run: fortuna stop &amp;&amp; fortuna start</div></div>
 <header><span class="logo"><!--ROTA_LOGO--></span>
 <span class="mark">FORTUNA</span><span class="sub">ROTA</span></header>
 <div class="grid">
@@ -512,6 +514,7 @@ function gate(j){if(j&&j.status==="unavailable")return `<div class="warn">${esc(
 const R={
  health(j){let h=kv("halt",j.halt_active?pill("HALTED","bad"):pill("clear","ok"));
   if(j.halt_reason)h+=kv("reason",esc(j.halt_reason));
+  if(j.rearm_requires_restart)h+=kv("re-arm","takes effect only on restart: fortuna stop &amp;&amp; fortuna start");
   h+=kv("ticks",j.ticks_total??"—")
    +kv("fill p90/p95/p99 ms",`${j.fill_latency_p90_ms??"—"} / ${j.fill_latency_p95_ms??"—"} / ${j.fill_latency_p99_ms??"—"}`)
    +kv("dead-man",j.dead_man_last_ping_age_secs==null?pill("external","dim"):esc(j.dead_man_last_ping_age_secs)+"s ago");

@@ -105,6 +105,37 @@ async fn an_external_halt_surfaces_in_the_health_view_with_its_reason() {
 }
 
 #[tokio::test]
+async fn a_halted_health_view_flags_that_rearm_requires_a_restart() {
+    // M3: ROTA's halt indicator is the RUNNING daemon's state (active_halt),
+    // which NEVER auto-clears on a re-arm — I2 is restart-gated. The health view
+    // must carry that fact so the console can warn that a re-arm takes effect
+    // only on restart; otherwise a re-armed-but-still-HALTED ROTA reads as a bug
+    // (the four-state divergence in runbooks/halt-and-rearm.md). A clear daemon
+    // must NOT flag it (no false "restart needed").
+    let clear = views_from(&ticked_runner(3, 2).await, GEN);
+    assert_eq!(
+        clear["health"]["halt_active"], false,
+        "precondition: not halted"
+    );
+    assert_ne!(
+        clear["health"]["rearm_requires_restart"],
+        serde_json::json!(true),
+        "a clear daemon must not claim a restart is required: {}",
+        clear["health"]
+    );
+
+    let mut r =
+        SimRunner::new(runner_config(8), vec![strategy()], Box::new(NullSink), t0()).unwrap();
+    r.apply_external_halt("drawdown breach (test)");
+    let h = &views_from(&r, GEN)["health"];
+    assert_eq!(h["halt_active"], true, "precondition: halted");
+    assert_eq!(
+        h["rearm_requires_restart"], true,
+        "a halted running daemon must flag that a re-arm takes effect only on restart: {h}"
+    );
+}
+
+#[tokio::test]
 async fn settlement_view_carries_limbo_voids_and_reversals() {
     let r = ticked_runner(9, 3).await;
     let s = &views_from(&r, GEN)["settlement"];
