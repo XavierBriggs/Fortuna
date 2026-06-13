@@ -64,10 +64,11 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Deferred
 
-- funding_forecast (slice 2, live-data driven), perp_event_basis (slice 3 —
-  fixture-gated on a paired KXBTC15M cycle), daemon composition (slice 4), and
-  F5–F9 (Aeolus weather → belief) — all build on the scalar foundation above.
-  Marked pending, not done.
+- perp_event_basis STRATEGY (slice 3b — the Cents bracket-leg trade + the
+  KalshiMarket floor/cap DTO; the slice-3 basis kernel above is DONE+merged, the
+  trade is fixture-gated), daemon composition (slice 4), and F5–F9 (Aeolus
+  weather → belief) — all build on the scalar foundation above. Marked pending,
+  not done. (Slices 1–2 + the slice-3 basis kernel are DONE + merged to main.)
 
 ### Ingestion & data sources (fortuna-sources, Track D)
 

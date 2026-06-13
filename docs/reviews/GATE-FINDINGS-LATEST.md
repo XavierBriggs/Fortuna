@@ -13,6 +13,25 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-13, cont'd — verifier loop pass)
 
+- **TRACK C PERP SLICE-3 (perp_event_basis basis kernel) MERGED → main @ 4db8764
+  = GATE ACCEPT.** fortuna-cognition::basis (bracket_implied_median + compute_basis,
+  the FEE-TRAP `is_tradeable` rule) + the paired_cycle_btc_perp_vs_kxbtc fixture.
+  PROVENANCE: real read-only recorder capture (data/perishable/2026-06-13/), cycle-
+  aligned, SECRETS-SCANNED zero hits. MONEY/CLOCK: f64 correctly in the cognition/
+  forecast domain (only PerpPrice boundary read; no money arithmetic; no clock; no
+  panic). VALIDATION genuine not asserted: two independent sources agree — perp mark
+  $63,906 vs ladder median $63,961.53 = −$55.53 (~0.09%). basis 10 tests; MUTATION-
+  PROVEN (drop fee-floor → fee_trap_below_floor reds). Full cognition suite green
+  (additive). Proposes nothing — the Cents bracket-leg trade is slice-3b (fixture-
+  gated). Self-correction VERIFIED: brief's KXBTCPERP1 → real key KXBTCPERP.
+  ⚠️ **CROSS-SLICE FINDING for TRACK C (needs confirm, not a slice-3 blocker):** TWO
+  BTC-perp representations are in play — **Kinetics `KXBTCPERP1`** (slice-2b
+  funding_forecast's fixture, `.meta.json`-provenanced, Kinetics venue session) vs
+  **Kalshi-recorder `KXBTCPERP`** (slice-3 basis; `KXBTCPERP1` = 0 rows, `KXBTCPERP`
+  = 7384 rows in the real capture). Confirm each strategy targets the intended
+  venue/instrument BEFORE the producers are relied on in production; if they are the
+  same underlying on two venues, document the mapping. Logged to GAPS for track-C.
+
 - **TRACK C SCALAR/PERP PLANE MERGED → main @ 2809aea = GATE ACCEPT.** Merged the
   fully-gated tip 7015dd5 (slices 1a prob_claims/v1 + 1b ledger storage + 2a
   perp-strategy seam + funding kernel). Conflict-free 3-way merge. Integration
