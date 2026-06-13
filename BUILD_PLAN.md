@@ -704,17 +704,133 @@ crates/fortuna-sources + fixtures/sources/ + one flagged drive() seam.
       has provenance. Research-grounded dossiers: rss_fed_press (tier 9) +
       rss_sec_edgar (tier 9). 8 tests (55 crate total). (DONE 2026-06-13,
       full battery green; hash next iteration.)
-- [ ] D6 CalendarSource — BLS/Fed/FRED release calendars; emits
-      release_scheduled + release_printed signal types (fixtures first:
-      fixtures/sources/calendar/).
-- [ ] D7 GdeltSource (fixtures first: fixtures/sources/gdelt/; query design
-      needs a docs/research pass — open question in the design doc).
-- [ ] D8 Layer 2 corroboration: deterministic near-dup clustering +
-      independent-origin counting + annotation fields (design §4.4 Layer 2).
-- [ ] D9 Ingestion scheduler: Clock+CancellationToken loop, per-source cadence
-      + static event windows, health state machine healthy→degraded→
-      quarantined (loud), per-source isolation, trigger/resolution floors as
-      config rules; DST scenarios (timeout mid-window, 429 storm,
-      crash-in-window recovery, burst coalescing, quarantine escalation).
-- [ ] D10 drive() seam: ONE minimal flagged commit wiring the scheduler into
-      fortuna-live behind a config flag (default off).
+- [x] D6 CalendarSource (impl cognition Source trait): BLS macro release
+      calendar, two feed modes. Schedule (bls.ics iCalendar) → release_scheduled
+      signals {uid, release, scheduled_at (UTC), categories}; the iCalendar
+      DTSTART;TZID=US-Eastern naive-local → UTC via chrono-tz America/New_York
+      (deterministic, pinned tz db; VTIMEZONE confirms the mapping) — tested
+      against a real EST (Jan→15:00Z) AND a real EDT (Jul→14:00Z) event.
+      LatestReleases (bls_latest.rss) → release_printed (reuses the feed-rs
+      parser via a shared kind-param helper). Fail-closed: unknown TZID /
+      floating time / unparseable DTSTART refuse; incomplete VEVENT skipped.
+      LOAD-BEARING NUANCE: calendar_claimed_time returns None for
+      release_scheduled (its scheduled_at is intentionally FUTURE data, not an
+      occurred-at claim — must not trip the Layer-1 future-dated reject);
+      release_printed → publish time. Fixtures REAL (2026-06-13). Dossier
+      calendar_bls (tier 9). FRED deferred (needs API key → GAPS). 10 tests
+      (68 crate total). (DONE 2026-06-13, full battery green; hash next iter.)
+- [~] D7 GdeltSource — DEFERRED (fixture-blocked, GAPS). The GDELT DOC API
+      (api.gdeltproject.org/api/v2/doc/doc, mode=artlist&format=json) put this
+      session's IP into a sustained 429 cooldown after a few probes (it allows
+      1 req / 5s); no real fixture could be captured, and the loop rule is
+      "missing fixture = stub + GAPS, never invent feed behavior." INTERIM
+      COVERAGE: GDELT also serves format=rss, parseable by the existing D5
+      RssSource with zero new code (config a GDELT feed). The dedicated
+      GdeltSource (richer JSON: domain/sourcecountry/language for Layer-2
+      corroboration) lands when a real artlist fixture can be captured (a
+      later session / different network, or contact GDELT for a key). Not a
+      blocker for Phase A. (Skipped 2026-06-13 per loop fixture rule.)
+- [x] D8 Layer 2 corroboration (deterministic near-dup clustering): collapses
+      SYNDICATION so it cannot launder a single-source claim into fake consensus
+      ("ten outlets carrying one wire story are ONE origin"). corroborate() over
+      a signal batch → token-set Jaccard similarity + union-find connected
+      components → stable cluster ids + per-signal annotation distinguishing
+      `single-source (tier t)` from `syndicated: same content from N sources
+      [...] — treat as ONE origin`. Annotation computed deterministically, never
+      self-reported by the model (spec 5.11). Same-source-repeat correctly NOT
+      syndication; empty text never clusters on emptiness; output is replay-
+      stable (test asserts identical output on re-run). BOUNDARY (honest): the
+      deterministic half is text near-dup; "N independent origins corroborating
+      EVENT X" (differently-worded items about one event) is semantic — the
+      model / world-forward composes these clusters with its event grouping
+      (noted in module). Algorithm = Jaccard now (simple, transparent, O(n²)
+      bounded by the per-tick volume envelope); simhash/MinHash is the
+      documented refinement for larger batches, interface stable across it. Pure
+      logic, no network/fixtures. 7 tests (75 crate total). (DONE 2026-06-13,
+      full battery green; hash next iter.)
+- [x] D9 Ingestion scheduler (THE HARD GATE — re-gate required the validator
+      live on the ingest path). IngestionScheduler::tick(now)->TickOutcome is
+      the deterministic core (SimClock-driven, never sleeps; the async run-loop
+      is the D10 seam). WIRES THE StructuralValidator on every fetched item:
+      future-dated/republished/over-volume are REFUSED-and-recorded
+      (DropReason), never passed downstream — HARD GATE SATISFIED, tested
+      adversarially. Per-source cadence (daily time-windows boost the interval;
+      day-set restriction is the Phase-B refinement) + health state machine
+      Healthy→Degraded(n)→Quarantined (LOUD alert, deterministic exponential
+      backoff, no auto-resume — operator rearm() only, I2 spirit) + per-source
+      isolation (one fault never aborts the fleet) + trigger-floor TAG
+      (wakes_decision_cycle = tier>=trigger_floor; below-floor still lands for
+      slow discovery; resolution floor stays cognition-side). FIRST-CLASS
+      per-source SourceMetrics telemetry (operator request): polls, empty_polls
+      (304 proxy), fetch_errors, accepted, drops-by-reason, quarantines, rearms.
+      content_hash via sha2 (bounded republication flag; ledger UNIQUE is
+      authoritative). 10 unit tests + 5 ENUMERATED DST scenarios (timeout, 429
+      storm, crash+rebuild, burst/volume-cap, quarantine+rearm) in
+      tests/ingest_dst.rs, wired into scripts/run-dst.sh. Adds sha2 dep. 89
+      crate tests + 5 ingest_dst. (DONE 2026-06-13, full battery green; hash
+      next iter.)
+- [x] D10 drive() seam: the scheduler wired LIVE into fortuna-live behind the
+      [ingestion] flag (default OFF). Closes the hard gate — the Layer-1
+      validator now runs on the LIVE ingest path in the daemon.
+      Design choice: rather than mutate drive()'s huge shared signature (breaks
+      every caller, high collision risk), ingestion runs as an INDEPENDENT loop
+      spawned by main.rs alongside drive() — it is its own IO loop, not part of
+      the deterministic trading cycle. Pieces:
+      - fortuna-sources factory build_scheduler (D10 1/2, 30ae38f).
+      - fortuna-live ingestion.rs: IngestionCore (scheduler tick -> validate ->
+        normalize_and_dedup -> SignalEnvelopes; TESTABLE, no DB) + IngestionWiring
+        (adds SignalsRepo persistence + Slack) + run_ingestion_loop (Clock-read,
+        real-time sleep at the IO edge, stop-signal) + build_ingestion_wiring
+        (loads tiers from source_registry, parses [sources], factory).
+      - boot.rs [ingestion] section (enabled/tick_ms/trigger_floor/
+        volume_envelope/user_agent), deny_unknown_fields, default off.
+      - main.rs: spawn the loop when enabled; stop it with the daemon.
+      HARD GATE PROVEN END-TO-END: ingestion test
+      validator_is_live_a_future_item_never_becomes_an_envelope — a future-dated
+      item is refused by the validator and NEVER reaches the signals store.
+      REGRESSION: daemon_smoke 15/15 green (daemon byte-unchanged when off).
+      OPERATOR PREREQ to enable (ledgered GAPS): seed source_registry rows
+      (tiers, per the Layer-0 dossiers) + [sources.*] config + [ingestion]
+      enabled = true. DEFERRED: ingestion-alert Slack routing (quarantines
+      counted/logged now); wakes_decision_cycle tag not persisted (trigger-
+      engine wiring is cognition-side). 3 ingestion tests (92 sources-crate +
+      daemon_smoke 15). (DONE 2026-06-13, full battery green.)
+
+### Track D — Aeolus integration (F-series; operator-approved 2026-06-13)
+
+Authority: docs/design/aeolus-fortuna-source-contract.md (rev 3, reconciled with
+the Aeolus producer handoff olympus/aeolus/docs/fortuna-integration-handoff.md).
+The handoff's critical path: F2 (NWS observations grader) is the LONG POLE — it
+blocks ALL Aeolus weather beliefs (§5.12 forbids unscoreable beliefs) and is
+independently the grader for any weather belief; F1 (auth) blocks F3. PRIORITY
+after the SSRF re-gate clears: F2 + F1 first (ahead of D6/D7), since they close
+a full end-to-end loop and reuse the substrate already built.
+
+OWNERSHIP: F1–F4 + F10(registry/dossier/fixture) are crates/fortuna-sources
+(MINE). F5–F9 are cognition (NOT Track D — fortuna-cognition owner; F4's
+scheduler is shared with D9). The skill/persona layer is a separate session
+(docs/design/PROMPT-domain-analysis-skills.md).
+
+- [ ] F2 NWS observed-daily-extreme grader (LONG POLE — do first): a
+      `NwsFeed::Observations` variant or sibling fetching the official daily
+      max/min (`/stations/{id}/observations` or CF6) per station/date; real
+      fixtures; registered as a §5.12 resolution source. Reuses FetchClient +
+      the D4 NWS dossier/claimed-time pattern.
+- [ ] F1 Generic per-source auth header in FetchClient: header-name-agnostic
+      injector (Aeolus = `x-api-key` from env `AEOLUS_API_TOKEN`), redacted in
+      every error/debug/telemetry path; redaction test. Blocks F3.
+- [ ] F3 AeolusSource adapter: dumb wrapper over FetchClient (host-pin,
+      conditional GET, politeness, F1 auth); emits one RawSignal per envelope
+      untouched; exposes the identity tuple + run_at (cf. nws_claimed_time).
+      No strict-parse/validate/dedup (downstream). Fixtures-first (Aeolus's
+      one real captured response IS the contract). tmax/tmin only (rev 3).
+- [ ] F4 D9 scheduler integration: StructuralValidator Layer-1a on Aeolus
+      signals; consume next_run_at + GEFS release pattern for release-aware
+      cadence. (Folds into D9.)
+- [ ] F10 registry row + Layer-0 dossier (docs/research/sources/aeolus/, stating
+      MEASURED reality not an unproven edge, per contract §1/§5) + v1→v2 fixture
+      migration (keep v1 behind "schema absent ⇒ v1"; aeolus_eval T2.7 stays
+      green; do NOT weaken it).
+- [ ] (cognition, not Track D — ledgered for the owner) F5 identity-tuple dedup,
+      F6 strict v2 parser + pinned-erf μ/σ→p, F7 world-forward match, F8
+      belief→calibration→gates→sizing, F9 Layer-3 empirical scoring.

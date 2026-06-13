@@ -222,6 +222,13 @@ async fn main() -> Result<()> {
             monthly: fortuna_live::daemon::MonthlyScheduler::new(),
             envelopes: full.envelopes.clone(),
         });
+    // D10: clone the pool for the ingestion loop BEFORE it moves into the halt
+    // poller (only when [ingestion] is enabled — otherwise no clone, no loop).
+    let ingest_pool = if dcfg.ingestion.as_ref().is_some_and(|s| s.enabled) {
+        Some(pool.clone())
+    } else {
+        None
+    };
     let mut poller = PgHaltPoller::new(pool);
     let loop_cfg = LoopConfig {
         tick_interval_ms: dcfg.daemon.tick_interval_ms,
@@ -245,6 +252,34 @@ async fn main() -> Result<()> {
     if slack_router.is_some() {
         eprintln!("fortuna-live: Slack routing active (alerts -> #fortuna-alerts/#fortuna-ops)");
     }
+
+    // D10: spawn the news-aggregation ingestion loop alongside the trading loop,
+    // behind [ingestion].enabled (default OFF => the daemon is byte-unchanged).
+    // The Layer-1 validator runs LIVE on the ingest path here; this loop is
+    // independent of the deterministic trading cycle and stops with the daemon.
+    let (ingest_stop, ingest_handle) = match (dcfg.ingestion.as_ref(), ingest_pool) {
+        (Some(sec), Some(ipool)) if sec.enabled => {
+            let wiring = fortuna_live::ingestion::build_ingestion_wiring(
+                &config_text,
+                sec,
+                ipool,
+                runner.clock.clone(),
+            )
+            .await
+            .context("ingestion wiring")?;
+            let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+            let tick = std::time::Duration::from_millis(sec.tick_ms);
+            let clk = runner.clock.clone();
+            eprintln!("fortuna-live: news-aggregation ingestion ACTIVE (validator live on the ingest path)");
+            (
+                Some(tx),
+                Some(tokio::spawn(fortuna_live::ingestion::run_ingestion_loop(
+                    wiring, clk, tick, rx,
+                ))),
+            )
+        }
+        _ => (None, None),
+    };
 
     let snapshot_for_segments = snapshot.clone();
     let (stats, shutdown) = drive(
@@ -279,6 +314,21 @@ async fn main() -> Result<()> {
     )
     .await
     .context("daemon loop")?;
+
+    // D10: stop the ingestion loop with the daemon, then drain its last stats.
+    if let Some(tx) = ingest_stop {
+        let _ = tx.send(());
+    }
+    if let Some(h) = ingest_handle {
+        match h.await {
+            Ok(s) => eprintln!(
+                "fortuna-live: ingestion stopped — persisted={} duplicates={} dropped={} \
+                 alerts={} persist_failures={}",
+                s.persisted, s.duplicates, s.dropped, s.alerts, s.persist_failures
+            ),
+            Err(e) => eprintln!("fortuna-live: ingestion task join error: {e}"),
+        }
+    }
 
     eprintln!(
         "fortuna-live: clean shutdown — ticks={} polls={} poll_failures={} \

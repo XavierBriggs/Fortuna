@@ -7,19 +7,33 @@
 //! Phase A invariant: NO model anywhere in the ingestion path — enforced
 //! at config validation (see `config`), not by convention.
 
+pub mod calendar;
 pub mod config;
+pub mod corroborate;
 pub mod error;
+pub mod factory;
 pub mod fetch;
 pub mod nws;
 pub mod rss;
+pub mod scheduler;
 pub mod validate;
 
+pub use calendar::{
+    calendar_claimed_time, CalendarFeed, CalendarSource, RELEASE_PRINTED_KIND,
+    RELEASE_SCHEDULED_KIND,
+};
 pub use config::{EventWindow, ExtractionMode, SourceConfig, SourceKind, SourcesConfig};
+pub use corroborate::{corroborate, Corroboration, CorroborationInput};
 pub use error::SourcesError;
+pub use factory::{build_scheduler, FactoryConfig};
 pub use fetch::{
     Conditional, FetchCaps, FetchClient, FetchError, FetchOutcome, FetchTransport, HostPin,
     PoliteLimiter, RawHttpResponse, ReqwestFetchTransport,
 };
 pub use nws::{nws_claimed_time, NwsFeed, NwsSource};
 pub use rss::{rss_claimed_time, RssSource, RSS_ITEM_KIND};
+pub use scheduler::{
+    AcceptedSignal, Alert, ClaimedTimeFn, DropReason, Dropped, Health, IngestionScheduler,
+    SourceMetrics, SourceSchedule, TickOutcome,
+};
 pub use validate::{Candidate, StructuralConfig, StructuralValidator, Verdict};

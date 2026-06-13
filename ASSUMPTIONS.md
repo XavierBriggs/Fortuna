@@ -1559,3 +1559,28 @@ crates/fortuna-venues/tests/kalshi_doc_samples/ are NOT recordings.
   or enabled model extraction fails SourcesConfig validation outright (loop
   file: "NO model in the ingestion path in Phase A"). Loosening this in
   Phase C/D is a deliberate, reviewable diff in fortuna-sources/src/config.rs.
+
+## Track D — D9 ingestion scheduler
+
+- **scripts/run-dst.sh gains an `ingest_dst` stage.** D9's five enumerated
+  ingestion DST scenarios (crates/fortuna-sources/tests/ingest_dst.rs) are
+  appended as a battery stage, matching the existing per-crate
+  `cargo test -p <crate> --test <name>` pattern. This is a one-line additive
+  edit to a shared script (the DST runner), treated as part of the D9 DST
+  deliverable so the scenarios run in the battery the gate checks. No existing
+  stage altered.
+- **D9 backoff is deterministic (no random jitter).** Exponential, capped, a
+  pure function of (base, cap, consecutive_failures) — for DST/replay
+  determinism. One daemon's handful of sources need no thundering-herd jitter;
+  seeded jitter can be added later if a herd ever forms.
+- **D9 event windows are daily time-of-day windows.** The per-source
+  `event_windows` boost the poll interval whenever `now`'s UTC time-of-day is in
+  `[from,to]`, every day. Restricting a window to specific dates (the
+  `days_ref` date-set, e.g. only CPI days) is the Phase-B refinement driven by
+  `release_scheduled` signals (Aeolus contract §3.4). Daily windows over-poll
+  slightly on non-release days within the window — bounded and acceptable.
+- **content_hash in the scheduler is a bounded republication flag, not
+  authoritative dedup.** sha2 over canonical JSON payload, used only for the
+  StructuralValidator's recent-hash buffer; the ledger's
+  `UNIQUE(source, content_hash)` remains the source of truth (consistent with
+  the D3 note).

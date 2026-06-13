@@ -29,3 +29,8 @@ PERP_DST_SCENARIOS="$N" cargo test -p fortuna-state --test perp_dst -- --nocaptu
 # T4.1 req 10: the daemon-composition smoke (boot -> ticks -> stop signal
 # -> graceful shutdown, deterministic under SimClock, vs the example config).
 cargo test -p fortuna-live --test daemon_smoke -- --nocapture
+# D9: the ingestion-scheduler DST — the five enumerated failure scenarios
+# (timeout, 429 storm, crash+rebuild, burst/volume-cap, quarantine+rearm),
+# each deterministic under SimClock, with the Layer-1 validator on the live
+# refuse-and-quarantine path (crates/fortuna-sources/tests/ingest_dst.rs).
+cargo test -p fortuna-sources --test ingest_dst -- --nocapture

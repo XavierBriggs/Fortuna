@@ -2239,6 +2239,96 @@ rebased on main f4b4a54-era; all work committed, nothing pushed.
 
 ## Track D — news-aggregation Phase A
 
+- **D10 OPERATOR PREREQ to ENABLE ingestion (default off).** Turning on the
+  ingestion loop needs THREE things together: (1) `[ingestion] enabled = true`
+  + `user_agent` in fortuna.toml; (2) `[sources.<id>]` tables for the sources to
+  run (kind/feed/url/base_interval/rate_budget_per_min — see
+  fortuna_sources::config); (3) `source_registry` ROWS (trust tiers) for those
+  ids — the factory is FAIL-CLOSED: an enabled source with no registry tier is
+  refused (admit-first, per the Layer-0 dossiers). The dossiers under
+  docs/research/sources/ inform the tiers. No rows / no `[sources]` ⇒ the loop
+  spawns with zero sources (harmless) or refuses at build. Daemon is
+  byte-unchanged when `[ingestion]` is absent (daemon_smoke 15/15).
+
+- **D10 DEFERRED bits (non-blocking).** (a) Ingestion-alert Slack routing: the
+  IngestionWiring counts quarantine alerts and can slack them, but main.rs wires
+  `slack=None` to avoid a second SlackRouter under the borrow constraints —
+  quarantines are counted/logged, not slacked yet (pass a router to
+  build_ingestion_wiring to enable). (b) The `wakes_decision_cycle` trigger-floor
+  tag (D9) is computed but NOT persisted — actually waking the decision cycle is
+  the cognition trigger engine's job; the tag is available in TickOutcome for
+  that wiring. (c) AFD volume: configure a tight `volume_envelope` for the AFD
+  source (the firehose finding below).
+
+- **LIVE FINDING (2026-06-13, examples/live_smoke): NWS AFD is a firehose.**
+  `GET /products?type=AFD` returns the FULL set of every office's discussions —
+  4,705 signals in one fetch. As one source that floods the signals table every
+  poll. MITIGATION (config, D9): give the AFD source a tight `volume_envelope`
+  (the Layer-1 per-tick cap), and/or query per-office / with a recency filter
+  rather than the whole catalog. This is the concrete case for D9's
+  refuse-and-quarantine + per-source telemetry (drops-by-reason). Other live
+  sources are well-bounded (alerts 5, Fed 20, SEC 10, BLS schedule 313, BLS
+  latest 1). Live smoke proved the claimed-time semantics in the wild
+  (release_scheduled -> None; alerts/filings/press -> real past times) and the
+  iCalendar US-Eastern->UTC conversion against live data.
+
+- **D9 telemetry (operator request 2026-06-13): make it first-class.** D9's
+  TickOutcome carries accepted/dropped(by reason)/alerts; ADD a per-source
+  SourceMetrics (polls, accepts, drops-by-reason, 304-hit-rate, politeness
+  throttles, fetch latency, health transitions) so the D10 drive seam exports
+  it to metrics/ROTA. Observability of what got dropped and why is required,
+  not optional.
+
+- **D7 GdeltSource: DEFERRED — fixture-blocked (transient GDELT IP rate-limit).**
+  The GDELT DOC API (api.gdeltproject.org/api/v2/doc/doc, mode=artlist&
+  format=json) returns `{articles:[{url,title,seendate,domain,language,
+  sourcecountry,...}]}` but enforces 1 req / 5s and put this session's IP into a
+  sustained 429 cooldown after a handful of probes — no real fixture capturable.
+  Per the loop rule (missing fixture = stub + GAPS, never invent feed behavior)
+  the dedicated GdeltSource is NOT built on a fabricated response. INTERIM:
+  GDELT serves `format=rss`, parseable by the existing D5 RssSource with zero
+  new code (configure a GDELT RSS feed). Build the dedicated JSON adapter
+  (richer fields for Layer-2 corroboration) when a real artlist fixture is
+  capturable (later session / different network, or request a GDELT key). NOT a
+  Phase-A blocker; D8/D9 proceed.
+
+- **D6 FRED release-dates source: deferred (operator-blocked, needs API key).**
+  `api.stlouisfed.org/fred/releases/dates` requires a free FRED API key
+  (env `FRED_API_KEY`, via the F1 auth-header substrate). Stubbed; no fixture
+  until a key is provisioned. BLS (bls.ics + bls_latest.rss) covers the macro
+  release calendar meanwhile. CalendarSource is FRED-ready (add a feed mode +
+  the auth header once the key exists).
+
+- **D6 `release_scheduled` carries an intentionally-FUTURE time — Layer-1
+  handling.** `calendar_claimed_time` returns None for `release_scheduled` so
+  its `scheduled_at` (a future release time, in the payload) does NOT trip the
+  StructuralValidator future-dated reject (D9). The scheduler reads
+  `payload.scheduled_at` directly for event-window cadence (design §3.4); the
+  future-check input is deliberately decoupled. Wiring note for D9: do not feed
+  `scheduled_at` into the future-dated check.
+
+- **D6 iCalendar TZID mapping assumption.** BLS uses the non-standard
+  `US-Eastern` TZID; the adapter maps it to `America/New_York` (chrono-tz),
+  validated against the ICS's own VTIMEZONE block (standard US Eastern DST
+  rules). Unknown TZIDs are refused, not guessed. DST correctness is pinned by
+  two real fixtures (EST Jan, EDT Jul). chrono-tz version is pinned via
+  Cargo.lock for deterministic replay.
+
+- **Aeolus contract reconciled to producer reality (rev 3, 2026-06-13).** The
+  Aeolus team's handoff (olympus/aeolus/docs/fortuna-integration-handoff.md)
+  corrected rev-2 assumptions; contract updated + operator-approved: auth is
+  `x-api-key` not Bearer; variables are tmax/tmin ONLY (no DD forecast model —
+  hdd/cdd walked back, NOT built); trust framing sobered (μ is commodity, edge
+  over market unproven — admit HIGH on authenticity but MODEST empirical tier,
+  Layer-3-earned; the future Aeolus dossier must state measured reality, not an
+  edge); `brackets[].p` clamp-not-reject; `skill.*` nullable (`crpss_vs_raw`
+  ships null); latest-run-per-station-day. The Aeolus integration is slotted
+  into BUILD_PLAN as the F-series. POST-RE-GATE PRIORITY: F2 (NWS
+  observed-daily-extreme grader) is the long pole and is MINE — it unblocks the
+  whole Aeolus loop and is the grader for any weather belief; build it (and the
+  trivial F1 auth) ahead of D6/D7. This is a queue REORDER, not new scope; the
+  SSRF re-gate still gates everything first.
+
 - **GATE RESPONSE — CRITICAL SSRF fail-open: FIXED (2026-06-13).** The gate
   (track-d-nws-gate-2026-06-13.md + the STOP escalation) reproduced a
   parser-differential host-pin bypass: the hand-rolled `host_of_https` in
@@ -2266,16 +2356,19 @@ rebased on main f4b4a54-era; all work committed, nothing pushed.
   `canonical_https_host` via `HostPin`, the single parser. Awaiting re-gate of
   the whole D1–D5 unit.
 
-- **GATE RESPONSE — MAJOR (Layer-1 validator unwired): is D9, by design.** The
-  gate noted the `StructuralValidator` (validate.rs) is not wired into a
-  per-item ingest path. That is correct and intended for this stage: the
-  validator runs in the INGESTION SCHEDULER (D9), between adapter.fetch() and
-  the cognition normalizer — adapters stay dumb (spec 5.11). There is no ingest
-  path to wire it into until D9 exists. The adapters already expose the inputs
-  the scheduler needs (`nws_claimed_time`, `rss_claimed_time`). Tracked as D9
-  scope; not part of this SSRF-only fix iteration (per the bus: "your NEXT
-  iteration is THE SSRF FIX, nothing else"). If the gate wants the validator
-  wired sooner, D9 can be pulled forward after the SSRF re-gate.
+- **GATE RESPONSE — MAJOR (Layer-1 validator unwired): RESOLVED in D9
+  (2026-06-13).** The hard gate is satisfied: `IngestionScheduler::tick`
+  (scheduler.rs) calls `StructuralValidator::assess` on EVERY fetched item and
+  REFUSES-and-records future-dated / republished / over-volume items
+  (`DropReason`), never passing them downstream — proven by unit tests
+  (`future_dated_item_is_refused_not_ingested`, `republished_and_over_volume_
+  are_refused`) and the `ingest_dst` burst scenario (10 accepted / 90 refused).
+  Per-source claimed-time dispatch uses the adapters' `nws_/rss_/calendar_
+  claimed_time`. NOTE: the live `drive()` wiring (the scheduler actually running
+  inside the daemon) is D10 — until then the crate is still unreachable from the
+  daemon; D9 delivers the validated ingest CORE + DST, D10 plugs it in.
+  ORIGINAL (kept for history): the validator runs in the scheduler between
+  adapter.fetch() and the cognition normalizer; adapters stay dumb (spec 5.11).
 
 - **D4 NWS AFD full-text is a deferred second hop.** NwsSource emits the AFD
   product SUMMARY (id, office, issuanceTime, code) from the `/products?type=AFD`

@@ -98,12 +98,23 @@ impl<T: FetchTransport> Source for RssSource<T> {
 /// fixtures. `feed-rs` leaves missing dates as `None` (no wall-time fill), so
 /// this stays deterministic.
 fn parse_feed(body: &[u8], received_at: UtcTimestamp) -> Result<Vec<RawSignal>, String> {
+    parse_feed_kind(body, received_at, RSS_ITEM_KIND)
+}
+
+/// As `parse_feed`, but tagging each entry with an explicit signal `kind`.
+/// Shared with `CalendarSource` (BLS latest-numbers RSS → `release_printed`)
+/// so feed-format normalization lives in one place.
+pub(crate) fn parse_feed_kind(
+    body: &[u8],
+    received_at: UtcTimestamp,
+    kind: &str,
+) -> Result<Vec<RawSignal>, String> {
     let feed = feed_rs::parser::parse(body).map_err(|e| format!("feed parse: {e}"))?;
     Ok(feed
         .entries
         .into_iter()
         .map(|entry| RawSignal {
-            kind: RSS_ITEM_KIND.to_string(),
+            kind: kind.to_string(),
             payload: entry_payload(entry),
             received_at,
         })

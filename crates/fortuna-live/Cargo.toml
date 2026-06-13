@@ -12,6 +12,7 @@ fortuna-gates = { path = "../fortuna-gates" }
 fortuna-ledger = { path = "../fortuna-ledger" }
 fortuna-ops = { path = "../fortuna-ops" }
 fortuna-runner = { path = "../fortuna-runner" }
+fortuna-sources = { path = "../fortuna-sources" }
 fortuna-state = { path = "../fortuna-state" }
 fortuna-venues = { path = "../fortuna-venues" }
 serde = { workspace = true }
