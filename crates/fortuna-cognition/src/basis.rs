@@ -1,6 +1,6 @@
 //! The `perp_event_basis` BASIS KERNEL — the deterministic comparison between a
-//! perp settlement mark and a KXBTC15M bracket ladder's implied central
-//! estimate (design: docs/design/perp-strategies-and-scalar-claims.md §3, §3.1,
+//! perp settlement mark and a KXBTC (price-level) bracket ladder's implied
+//! central estimate (design: docs/design/perp-strategies-and-scalar-claims.md §3, §3.1,
 //! §7; GAPS "TRACK C — slice 3 (perp_event_basis) GROUNDED").
 //!
 //! # What this is (and is not)
@@ -22,20 +22,27 @@
 //! harness toward the perp forecast) is the DEFERRED `perp_event_basis`
 //! STRATEGY's exec-boundary money op (`fortuna-runner`), not part of this
 //! kernel. The real-orderbook end-to-end (live KXBTC15M books) is fixture-gated
-//! on operator-queue #4 (the paired KXBTCPERP1 + KXBTC15M cycle fixture) plus a
+//! on operator-queue #4 (the paired KXBTCPERP1 + KXBTC cycle fixture) plus a
 //! `KalshiMarket`/`Market` DTO extension carrying `floor_strike`/`cap_strike`
 //! (track-A's Kalshi venue surface) — synthetic ladders here prove the LOGIC
 //! only, never an e2e/calibration claim.
 //!
-//! # Bracket structure (grounded, never invented)
+//! # Bracket structure (grounded in the LIVE capture; never invented)
 //!
-//! A KXBTC15M bracket is a binary event contract: BTC ∈ `[floor_strike,
-//! cap_strike]` at the 15-minute mark, quoted with a YES bid/ask in cents
-//! (0..=100). The fields are grounded in the recorded Kalshi schema
-//! (docs/research/venue/kalshi-api-2026-06-10: asyncapi.yaml:1688 the KXBTC15M
-//! ticker + `yes_sub_title: above $95,000`; :3174-3176 `floor_strike` /
-//! `cap_strike` as `number`; research.md:251-253 the strike-field list). Only
-//! the synthetic test VALUES are invented; the STRUCTURE is the venue's.
+//! CORRECTED 2026-06-13 against the live recorder capture (GAPS "LIVE
+//! BRACKET-FORMAT INVESTIGATION"): the price-level ladder this kernel scores is
+//! **KXBTC**, NOT KXBTC15M. A KXBTC market is a binary event contract with a
+//! `strike_type`: `between` (a closed `[floor_strike, cap_strike]` range bin,
+//! e.g. "$74,500 to 74,999.99") plus open tails `greater` (floor only) and
+//! `less` (cap only); YES is quoted in DOLLAR-STRINGS on a $1 payout
+//! (`yes_bid_dollars:"0.0100"` = 1¢). (KXBTC15M — this kernel's earlier guess —
+//! is instead a single DIRECTIONAL "BTC up in 15 min?" binary, not a price
+//! ladder; KXBTCD is a cumulative-threshold CDF ladder.) This kernel's
+//! `BracketBin` models a CLOSED `between` bin (floor+cap); handling the open
+//! `greater`/`less` tails + parsing the dollar-strings is a flagged refinement
+//! (slice 3b) before the real-KXBTC e2e. Only synthetic test VALUES are
+//! invented; the STRUCTURE is the venue's (live-captured, schema at
+//! docs/research/venue/kalshi-api-2026-06-10 research.md:251-253).
 
 use fortuna_core::perp::PerpPrice;
 

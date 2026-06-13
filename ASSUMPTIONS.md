@@ -5,6 +5,12 @@ conservative option, and the spec section it interprets.
 
 ## T5.B7 slice 3 — perp_event_basis BASIS KERNEL (track C, 2026-06-13; interprets design §3/§3.1/§7 + GAPS "slice 3 GROUNDED")
 
+- **CORRECTION (2026-06-13, live-capture investigation — GAPS "LIVE BRACKET-FORMAT INVESTIGATION"):
+  the price-level bracket ladder is KXBTC (`strike_type=between` range bins + `greater`/`less`
+  tails, YES in dollar-strings), NOT KXBTC15M (which is a directional "BTC up in 15 min?" binary).
+  The "KXBTC15M" references below should read "KXBTC". The kernel's median ALGORITHM is sound for the
+  closed `between` bins; handling the open `greater`/`less` tails + parsing the dollar-strings is
+  slice 3b (flagged), before the real-KXBTC e2e + the paired KXBTCPERP1 + KXBTC fixture.**
 - **Kernel PLACEMENT: `fortuna-cognition` (`src/basis.rs`), NOT `fortuna-core`.**
   The kernel is `f64`-forecast (bracket probabilities + the basis signal), and
   CLAUDE.md forbids `f64` for PRICES in `fortuna-core`. So the kernel lives in

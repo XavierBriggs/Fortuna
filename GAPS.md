@@ -18,6 +18,43 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK C — LIVE BRACKET-FORMAT INVESTIGATION (operator-directed: "drive it yourself, demo keys"): the design's bracket series was WRONG (2026-06-13)
+
+The operator directed me to drive the KXBTC bracket-structure investigation myself off the live
+demo capture. The running recorder (PID 79813, CWD /Users/xavierbriggs/fortuna, flags
+`--bracket-series KXBTC15M,KXBTC,KXBTCD`) is ALREADY capturing all three series to
+/Users/xavierbriggs/fortuna/data/perishable/<day>/bracket_quotes.jsonl (paired by cycle_id with
+perp_orderbook.jsonl) — so the live format is in hand WITHOUT a fresh API call. The decisive finding
+(market data only, no keys):
+- **KXBTC15M is NOT a price-bracket ladder** — it is a SINGLE DIRECTIONAL "BTC price up in next 15
+  mins?" binary per 15-min window: `strike_type=greater_or_equal`, `floor_strike`=the reference price
+  (e.g. 63532.24), no cap, ONE active market (yes_bid $0.58 / ask $0.60). The other 15 markets in the
+  GET /markets response are future windows (status `initialized`, no quotes). It gives a P(up), NOT a
+  price distribution.
+- **KXBTC IS the price-level ladder** (the median source the basis needs): 200 markets / ~50 active,
+  `strike_type=between` range bins (e.g. floor=74500 cap=74999.99 "$74,500 to 74,999.99") PLUS open
+  tails `greater` (floor only, "$75,000 or above") and `less` (cap only, "$50,999.99 or below"). YES
+  quotes are DOLLAR-STRINGS (`yes_bid_dollars:"0.0100"` = 1¢ on a $1 payout), `response_price_units:
+  usd_cent`, `price_level_structure: tapered_deci_cent`.
+- **KXBTCD** = cumulative `greater` thresholds (P(BTC ≥ X)) — a CDF ladder, a different shape again.
+
+CONSEQUENCE — design + kernel were grounded on the WRONG series:
+1. DESIGN §3 (line 232 "the KXBTC15M event-contract ladder") is corrected: the bracket-implied-median
+   source is **KXBTC** (the `between` ladder), NOT KXBTC15M (which is directional). (Corrected in the
+   design doc this commit.)
+2. KERNEL (basis.rs, 70f333a): the ALGORITHM (implied median from closed [floor,cap] bins via
+   cumulative-prob interpolation) is SOUND and maps to KXBTC's `between` bins — but (a) its grounding
+   comments cite KXBTC15M (false → corrected to KXBTC this commit) and (b) it does NOT handle the open
+   `greater`/`less` TAILS, and the YES input is i64 cents (caller converts the dollar-strings). The
+   tail-handling + a real-KXBTC parse are a FLAGGED REFINEMENT (slice-3b), not a silent gap.
+
+NEXT (operator-directed, now UNBLOCKED — the live data is captured):
+- Sample ONE paired cycle (matching cycle_id: perp_orderbook + the KXBTC `between`-ladder bracket_quotes)
+  from data/perishable/ into a committed fixtures/kinetics-perps/ file (market data only, no keys) —
+  this is operator-queue #4, now drivable by me. Recipe recorded in ASSUMPTIONS.
+- Refine the basis kernel to the real KXBTC structure (the 3 strike_types incl. the open tails; the
+  dollar-string→probability parse) — slice 3b, then the perp_event_basis STRATEGY can drive it e2e.
+
 ## TRACK C — slice 3 (perp_event_basis) GROUNDED: kernel buildable-now-synthetic, e2e fixture-gated (2026-06-13)
 
 Design-validation (explorer, grounded vs current code + Kalshi research):
