@@ -880,3 +880,32 @@ scheduler is shared with D9). The skill/persona layer is a separate session
 - [ ] (cognition, not Track D — ledgered for the owner) F5 identity-tuple dedup,
       F6 strict v2 parser + pinned-erf μ/σ→p, F7 world-forward match, F8
       belief→calibration→gates→sizing, F9 Layer-3 empirical scoring.
+
+### Track D — ingestion observability (data surface; contract: docs/design/ingestion-observability-contract.md §2)
+
+- [x] OBS-1 telemetry data surface (slice 1, fortuna-sources). The scheduler now
+      projects a live `IngestionTelemetry` snapshot (§2): per-source
+      `SourceTelemetry` (health, trust_tier, last_poll/last_success/next_due ISO
+      timestamps, the D9 counters, redacted `last_error`, last-seen `kind`), a
+      process-wide `FunnelCounts` (validate stages summed from per-source metrics;
+      loop stages stay 0), and a bounded (256) newest-first `recent` feed of
+      `SignalRecord`s — the operator's "signals coming in + their data" (V1). Each
+      record carries a REDACTED `summary`: a 7-key allowlist projection truncated
+      to 120 chars (untrusted payloads are never dumped; spec 5.11), with
+      `redact_error` capping errors to 200. `telemetry(generated_at)` is a pure
+      projection — Clock injected, no wall-time, no unwrap/panic. New pub types
+      exported from lib.rs for track-B. 6 mutation-structured tests (truncation
+      ==120 on a 5k input, ring bound ==256, last_error set→cleared, funnel
+      1/2/3, accept+future-drop feed). Subagent-built, I reviewed + verified.
+      (DONE 2026-06-13 <hash>; SCOPED battery green — fmt + clippy -p
+      fortuna-sources --all-targets -D warnings + test -p fortuna-sources = 118
+      lib + 5 ingest_dst; full-workspace battery is the verifier's merge gate,
+      see GAPS "TRACK D — OBS-1".)
+- [ ] OBS-2 funnel loop-stages + snapshot wiring (fortuna-live): the ingestion
+      loop sets `normalized`/`deduped`/`persisted`/`persist_failures` on the
+      funnel and publishes the snapshot behind `Arc<RwLock<IngestionTelemetry>>`
+      for the metrics renderer + ROTA handlers (§2 "one writer, many readers").
+      Touches fortuna-live (the drive() seam slice) — sequence vs track A.
+- [ ] OBS-3 domain_tags population: carry each source's domain (weather|macro|…)
+      from the source_registry/config admission into `SourceTelemetry.domain_tags`
+      (empty in slice 1). Needs a config/registry field — fold with F10.

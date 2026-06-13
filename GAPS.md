@@ -18,6 +18,36 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK D — OBS-1 telemetry data surface (slice 1): deferred follow-ups + scoped-battery note
+
+OBS-1 (2026-06-13) added the live `IngestionTelemetry` snapshot to the scheduler
+(crates/fortuna-sources only: scheduler.rs + lib.rs). Subagent-built, main-loop
+verified (full-diff review + independent scoped battery + by-inspection mutation
+audit of all 6 tests — each asserts an exact value a logic-mutation breaks).
+
+DEFERRED (honest carve-outs, NOT operator-blocked — they are the next OBS slices):
+- OBS-2: the funnel's loop-side stages (`normalized`/`deduped`/`persisted`/
+  `persist_failures`) stay 0 — they are produced AFTER the scheduler, in the
+  fortuna-live ingestion loop (normalize_and_dedup -> persist). Wiring them + the
+  `Arc<RwLock<IngestionTelemetry>>` publish for the metrics renderer + ROTA
+  handlers touches fortuna-live (the drive() seam slice / track A's crate) — a
+  separate slice to sequence vs track A. Track B builds V1-V3 against the §2
+  struct now (field names stable, per the contract).
+- OBS-3: `SourceTelemetry.domain_tags` is EMPTY this slice — the domain
+  (weather|macro|…) comes from the source_registry/config admission, which has no
+  such field yet; fold with F10. The struct shape is stable so the column renders.
+- `kind` is the LAST-SEEN signal kind ("" until the first signal) — a live proxy,
+  not a static declaration; acceptable for the feed/health views.
+
+BATTERY: scoped green (fmt --check; clippy -p fortuna-sources --all-targets
+-D warnings; test -p fortuna-sources = 118 lib + 5 ingest_dst). Full-workspace
+battery deferred to the verifier's merge gate (same rationale as F4 below:
+concurrent cross-track full-workspace batteries + ~27Gi disk; a single-crate
+additive change cannot affect other crates). Predicted gate mutations: drop
+`.take(120)` in summarize -> telemetry_summary_truncates_untrusted_payload reds;
+drop the `pop_front` bound -> telemetry_recent_is_bounded_to_cap reds; drop
+`last_error = None` on success -> telemetry_last_error_…_cleared reds.
+
 ## TRACK D — F4 factory wiring: SCOPED-battery deferral (verifier owns the full-workspace merge gate)
 
 F4 (2026-06-13) wired the F2 grader into the source factory ((Nws,"climate") ->
