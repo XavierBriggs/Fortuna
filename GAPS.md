@@ -18,17 +18,25 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
-## TRACK E — BUILD COMPLETE (E.1–E.6 + E.4b); remainder = operator/Track-A-gated + 1 generalization slice
+## TRACK E — BUILD COMPLETE + GENERALIZED (2 domains); remainder = operator/Track-A-gated + 1 doc
 
 STATUS 2026-06-13 (SUPERSEDES the design-phase RALPH STOP preserved below): the operator
 APPROVED the design ("looks good, rearm"; commit b4eaae3) and re-armed Track E in worktree
-fortuna-wt-e. The persona pipeline is PROVEN END-TO-END in code, all gate-clean:
-E.1 ledger (dfdf3e0) → E.2 loader (d6e8c23) → E.3a runner+firewall (4e8b9e4) → E.3b triggers
-(96cdb79) → E.3c DST (510ee8e) → telemetry (f65fd64) → E.4a belief consumption (c1c1b55) →
-E.5a scoring (1009bb8) → E.6 e2e meteorologist proof (ccdaeca) → E.4b DomainAnalysis context
-section DONE this commit.
+fortuna-wt-e. The persona pipeline is PROVEN END-TO-END in code AND across TWO domains, all
+gate-clean: E.1 ledger (dfdf3e0) → E.2 loader (d6e8c23) → E.3a runner+firewall (4e8b9e4) → E.3b
+triggers (96cdb79) → E.3c DST (510ee8e) → telemetry (f65fd64) → E.4a belief consumption (c1c1b55)
+→ E.5a scoring (1009bb8) → E.6 e2e meteorologist proof (ccdaeca) → E.4b DomainAnalysis context
+section (84106b9) → the macro-economist GENERALIZATION proof DONE this commit.
 
-**E.4b (SectionKind::DomainAnalysis context section §9) DONE this commit.** Added the
+**Macro-economist generalization proof (§13/§17) DONE this commit.** Shipped a SECOND persona
+(config/personas/macro-economist/{persona.md, schema.json}) — different domain/signals/findings-
+shape (outcomes[] not thresholds[])/tier (synthesis)/backbone (pure judgment, no μ/σ) — flowing
+through the SAME loader + runner + fan-out with ZERO per-domain code. 2 tests (load + fixture-driven
+run+fan-out → 2 binary #out: beliefs); full battery green; feature-dev review NO FINDINGS.
+reads_signal_kinds declare not-yet-ingested macro kinds (Track-D request, fixture stands in).
+fortuna-invariants UNTOUCHED. This is the LAST pure-Track-E BUILD slice.
+
+**E.4b (SectionKind::DomainAnalysis context section §9) DONE (commit 84106b9).** Added the
 `DomainAnalysis` variant to the shared SectionKind enum (just under OpenBeliefs, high priority)
 + `as_str` arm, and `persona_beliefs::domain_analysis_context_item` (builds a high-priority
 DATA context item from a persisted artifact so the synthesis Mind reads the pre-digested findings
@@ -234,15 +242,15 @@ and any fortuna-invariants touch is an operator-waive item per the loop — so s
 correctly does NOT touch the protected crate. The `domain_analyses`/`PersonaRow` row types are
 already structurally order-free (review-confirmed).
 
-NEXT: the macro-economist GENERALIZATION proof (§17) — the LAST pure-Track-E slice: ship
-config/personas/macro-economist/{persona.md, schema.json} (a second persona, domain=macro, an
-outcomes[]-shaped findings schema) + a parse/load test (like the meteorologist), proving the
-library is ONE mechanism, not per-domain code (the macro FAN-OUT mechanism is already tested in
-E.4a's macro_outcomes test). reads_signal_kinds declare not-yet-ingested macro kinds — live wiring
-is deferred to Track D (a recorded fixture signal stands in). AFTER that, every remaining item is
-operator/Track-A-gated (§15 invariant pin operator-waive; §10 ScopeKey + live daemon wiring) — a
-Track-E iteration finding only those is at the loop-§6 "idle-and-stopped beats bloat" boundary:
-surface them and RALPH STOP rather than invent work.
+NEXT: the persona AUTHORING/PROMOTION RUNBOOK (loop §8 — "a persona authoring/promotion runbook
+lands by E.6") — docs/runbooks/persona-authoring.md: how the operator authors a persona skill-file
+(config/personas/<id>/), registers it (the registry insert + method_hash), promotes/retires it (the
+§10 proposal → operator action), and reads the scoring/ROTA. This is the operator MANUAL for the
+feature — a genuine deliverable, not bloat (the operator needs it to USE the system). It is the
+last Track-E item. AFTER it, EVERYTHING remaining is operator/Track-A-gated (§15 invariant pin
+operator-waive; §10 ScopeKey + live daemon wiring; ROTA §14/§20 = Track B) — at which point the
+loop is at the §6 "idle-and-stopped beats bloat" boundary: surface the gated items and RALPH STOP
+rather than invent work.
 
 --- HISTORICAL (design-phase RALPH STOP — SUPERSEDED by the operator approval above) ---
 

@@ -10,7 +10,29 @@ commit gate, `fortuna-invariants` untouched except at E.3 (operator-waive-flagge
 
 ---
 
-## E.4b — SectionKind::DomainAnalysis context section (§9) (this commit)
+## Macro-economist GENERALIZATION proof (§13/§17) (this commit)
+
+Shipped a SECOND persona — config/personas/macro-economist/{persona.md, schema.json} —
+to prove the library is ONE mechanism, not per-domain code. The macro-economist differs
+from the meteorologist in domain (macro), signal kinds (macro.calendar / nowcast /
+consensus / fed.speak), findings SHAPE (`outcomes[{label,p}]`, not `thresholds[{ge,p}]`),
+tier (synthesis vs cheap), and backbone (PURE JUDGMENT — outcomes[].p ARE the persona's
+stated probabilities, no μ/σ Rust backbone, §13) — yet it flows through the SAME loader
+(PersonaDef::parse), runner (run_persona_analysis), and fan-out (map_persona_analysis)
+with ZERO per-domain code. The trusted method carries the same §4 firewall.
+
+2 tests (tests/persona_macro.rs): the def loads through the same loader (asserts the
+outcomes-shape, the synthesis tier, the firewall); and a fixture-driven run+fan-out
+through the same machinery (the §13 example findings → 2 binary `#out:`-prefixed beliefs
+citing macro-economist@1). Full battery green. feature-dev:code-reviewer: NO FINDINGS.
+reads_signal_kinds declare not-yet-ingested macro kinds — live wiring is a Track-D
+request (deferred; a recorded fixture stands in). fortuna-invariants UNTOUCHED.
+
+This is the LAST pure-Track-E build slice. The persona library is now proven across TWO
+domains. What remains is operator/Track-A-gated (the §15 invariant pin, the §10 ScopeKey +
+live daemon wiring) + the operator-facing persona authoring/promotion runbook (loop §8).
+
+## E.4b — SectionKind::DomainAnalysis context section (§9) (commit 84106b9)
 
 Added the `DomainAnalysis` variant to the shared `SectionKind` enum
 (`context.rs`), inserted just under `OpenBeliefs` (high priority, per §9) + its

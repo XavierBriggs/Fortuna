@@ -1779,3 +1779,18 @@ domain-analysis artifact (authoritative design: docs/design/domain-analysis-pers
   artifact metadata), NEVER the trusted method body (which rides only in the Mind system
   message, §4). It is a pre-digested-but-untrusted context item, rendered inside the
   assembler's delimited `<context-item>` block.
+
+## Track E — macro-economist generalization proof (§13/§17)
+
+- **A SECOND persona (macro-economist) ships as the generalization proof** (§17): it
+  differs from the meteorologist in domain (macro), reads_signal_kinds, findings SHAPE
+  (`outcomes[{label,p}]` not `thresholds[{ge,p}]`), tier (synthesis), and backbone (PURE
+  JUDGMENT — outcomes[].p ARE the stated probabilities, no μ/σ code backbone, §13) — yet
+  flows through the SAME loader/runner/fan-out with ZERO per-domain code. This proves the
+  library is one mechanism, not per-domain code.
+- **The macro persona's reads_signal_kinds (macro.calendar / nowcast / consensus /
+  fed.speak) are NOT yet ingested** — they are a Track-D request (§17). The macro persona
+  is a DEFINITION + a fixture-driven mechanism test (a scripted StubMind stands in for the
+  model); the LIVE macro wiring is deferred until Track D provides macro signals.
+- **tier = synthesis for the macro persona** (vs cheap for the meteorologist) — exercising
+  that the tier is config (resolved to a model by Track M's factory), not code.
