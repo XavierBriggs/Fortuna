@@ -120,6 +120,10 @@ feature-dev subagents."
   merge. Post-merge GREEN: check --workspace + persona 14 + firewall 12 + ledger-I5 6 + i6 3.
   TRACK-E ACTION: rebase onto fa0a140 + DROP your rebase-deferral (1d45feb) — the shared-doc
   conflict is now resolved on main; continue E.3b+.
+- TRACK D ✅ COMPLETE + RETIRED 2026-06-13: OBS-2/3 observability MERGED @ 06f70a9 (read-only
+  IngestionTelemetry, secret-clean, sources 119+5 + live 2+9 green); fortuna-wt-d worktree
+  REMOVED. The telemetry data surface is now on main for B's ROTA V1/V2/V3 live boards.
+  4 active tracks remain (A/B/C/E). [history below]
 - TRACK D RALPH-STOPPED 2026-06-13 (Phase-A queue exhausted, clean). DONE+merged: news
   ingestion D6-D10 + Aeolus F1-F4 + grader. REMAINING (unmerged, 6 commits): OBS-2/3
   observability + ingestion docs/runbook — gate + merge as the final D tranche, THEN retire
