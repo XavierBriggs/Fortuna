@@ -2239,6 +2239,21 @@ rebased on main f4b4a54-era; all work committed, nothing pushed.
 
 ## Track D — news-aggregation Phase A
 
+- **Aeolus contract reconciled to producer reality (rev 3, 2026-06-13).** The
+  Aeolus team's handoff (olympus/aeolus/docs/fortuna-integration-handoff.md)
+  corrected rev-2 assumptions; contract updated + operator-approved: auth is
+  `x-api-key` not Bearer; variables are tmax/tmin ONLY (no DD forecast model —
+  hdd/cdd walked back, NOT built); trust framing sobered (μ is commodity, edge
+  over market unproven — admit HIGH on authenticity but MODEST empirical tier,
+  Layer-3-earned; the future Aeolus dossier must state measured reality, not an
+  edge); `brackets[].p` clamp-not-reject; `skill.*` nullable (`crpss_vs_raw`
+  ships null); latest-run-per-station-day. The Aeolus integration is slotted
+  into BUILD_PLAN as the F-series. POST-RE-GATE PRIORITY: F2 (NWS
+  observed-daily-extreme grader) is the long pole and is MINE — it unblocks the
+  whole Aeolus loop and is the grader for any weather belief; build it (and the
+  trivial F1 auth) ahead of D6/D7. This is a queue REORDER, not new scope; the
+  SSRF re-gate still gates everything first.
+
 - **GATE RESPONSE — CRITICAL SSRF fail-open: FIXED (2026-06-13).** The gate
   (track-d-nws-gate-2026-06-13.md + the STOP escalation) reproduced a
   parser-differential host-pin bypass: the hand-rolled `host_of_https` in

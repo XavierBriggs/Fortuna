@@ -718,3 +718,42 @@ crates/fortuna-sources + fixtures/sources/ + one flagged drive() seam.
       crash-in-window recovery, burst coalescing, quarantine escalation).
 - [ ] D10 drive() seam: ONE minimal flagged commit wiring the scheduler into
       fortuna-live behind a config flag (default off).
+
+### Track D — Aeolus integration (F-series; operator-approved 2026-06-13)
+
+Authority: docs/design/aeolus-fortuna-source-contract.md (rev 3, reconciled with
+the Aeolus producer handoff olympus/aeolus/docs/fortuna-integration-handoff.md).
+The handoff's critical path: F2 (NWS observations grader) is the LONG POLE — it
+blocks ALL Aeolus weather beliefs (§5.12 forbids unscoreable beliefs) and is
+independently the grader for any weather belief; F1 (auth) blocks F3. PRIORITY
+after the SSRF re-gate clears: F2 + F1 first (ahead of D6/D7), since they close
+a full end-to-end loop and reuse the substrate already built.
+
+OWNERSHIP: F1–F4 + F10(registry/dossier/fixture) are crates/fortuna-sources
+(MINE). F5–F9 are cognition (NOT Track D — fortuna-cognition owner; F4's
+scheduler is shared with D9). The skill/persona layer is a separate session
+(docs/design/PROMPT-domain-analysis-skills.md).
+
+- [ ] F2 NWS observed-daily-extreme grader (LONG POLE — do first): a
+      `NwsFeed::Observations` variant or sibling fetching the official daily
+      max/min (`/stations/{id}/observations` or CF6) per station/date; real
+      fixtures; registered as a §5.12 resolution source. Reuses FetchClient +
+      the D4 NWS dossier/claimed-time pattern.
+- [ ] F1 Generic per-source auth header in FetchClient: header-name-agnostic
+      injector (Aeolus = `x-api-key` from env `AEOLUS_API_TOKEN`), redacted in
+      every error/debug/telemetry path; redaction test. Blocks F3.
+- [ ] F3 AeolusSource adapter: dumb wrapper over FetchClient (host-pin,
+      conditional GET, politeness, F1 auth); emits one RawSignal per envelope
+      untouched; exposes the identity tuple + run_at (cf. nws_claimed_time).
+      No strict-parse/validate/dedup (downstream). Fixtures-first (Aeolus's
+      one real captured response IS the contract). tmax/tmin only (rev 3).
+- [ ] F4 D9 scheduler integration: StructuralValidator Layer-1a on Aeolus
+      signals; consume next_run_at + GEFS release pattern for release-aware
+      cadence. (Folds into D9.)
+- [ ] F10 registry row + Layer-0 dossier (docs/research/sources/aeolus/, stating
+      MEASURED reality not an unproven edge, per contract §1/§5) + v1→v2 fixture
+      migration (keep v1 behind "schema absent ⇒ v1"; aeolus_eval T2.7 stays
+      green; do NOT weaken it).
+- [ ] (cognition, not Track D — ledgered for the owner) F5 identity-tuple dedup,
+      F6 strict v2 parser + pinned-erf μ/σ→p, F7 world-forward match, F8
+      belief→calibration→gates→sizing, F9 Layer-3 empirical scoring.
