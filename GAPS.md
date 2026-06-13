@@ -105,6 +105,36 @@ run-dst.sh exit 0 (4 corpus seeds, all 7 perp arms). Branch track-c =
 main + the funding-kernel commit; nothing pushed. Phase-5 EXIT needs
 T5.B7 + T5.B8, both unblocked by the menu above.
 
+## TRACK C — scalar-claims + perp-strategy DESIGN: critique response (2026-06-13)
+
+Operator-directed design pass produced docs/design/perp-strategies-and-
+scalar-claims.md (beliefs as immutable (PredictiveDistribution,
+RealizedOutcome) + swappable ScoringRule [Brier + CRPS-pinball]; the
+PerpTick seam; the perp_event_basis basis model). The adversarial design
+critique (docs/reviews/track-c-scalar-claims-design-critique-2026-06-13.md)
+returned ACCEPT-WITH-CONDITIONS, crediting the durable-facts/derived-score
+separation + the quantile-CRPS choice as STRONGER than required. The one
+MUST-FIX + watch-items are FOLDED IN (commit pending):
+- A3 (must-fix): drain_beliefs() returns binary-only BeliefDraft (required
+  p in (0,1)); a scalar PredictiveDistribution cannot ride it. Corrected to
+  a NEW additive seam drain_scalar_beliefs() -> Vec<ScalarBeliefDraft> +
+  parallel runner buffer + parallel daemon persist (§2.5). This is a 2nd
+  shared touch on the fortuna-runner Strategy trait (beyond daemon
+  registration) — coordinate with track A on both (§2.4/§5).
+- I5 watch: scalar_beliefs/belief_scores carry the DB append-only trigger +
+  exactly-once scalar resolution (mirror resolve_and_score) — made explicit
+  (§1.4).
+- Cosmetic: the single-quantile degenerate case is scaled absolute error
+  |y-v|/2 (the median's proper score), NOT Brier squared error — fixed.
+- Status integrity (F): header reconciled to "design approved in the
+  2026-06-13 brainstorming session; build slice-by-slice gate-clean;
+  BUILD_PLAN T5.B7 in progress (kernel done, box unticked)".
+Build proceeds per §5's 4-slice sequence, each gate-clean (subagent-
+implemented, MAIN-LOOP-VERIFIED: full battery + review before every commit,
+per delegate-but-verify). Slice 1 (scalar foundation, cognition+ledger) is
+self-contained and first; perp_event_basis e2e stays unit-tested-only until
+the operator/recorder samples a KXBTC15M paired-cycle fixture.
+
 ## TRACK C — T5.B7 fit-validation + funding kernel (restarted/expanded scope, 2026-06-13)
 
 Track C re-armed by the operator for T5.B7 -> T5.B8 (perps plane MERGED;

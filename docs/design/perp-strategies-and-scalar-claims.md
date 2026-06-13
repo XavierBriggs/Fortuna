@@ -1,6 +1,14 @@
 # Perp strategies (T5.B7): runtime seam, `prob_claims/v1` scalar claims + swappable scoring, and the perp_event_basis basis model
 
-Status: OPERATOR-APPROVED design (brainstorming pass, 2026-06-13). Build authorized.
+Status: design approved by the operator in the 2026-06-13 brainstorming session (the
+load-bearing decisions — native-CRPS scalar scoring, the swappable `ScoringRule` layer,
+the `PredictiveDistribution`/`RealizedOutcome` naming, the `settlement_mark` basis
+forecast, "build what you need to be complete" — were made by the operator there); the
+adversarial design critique (track-c-scalar-claims-design-critique-2026-06-13.md,
+ACCEPT-WITH-CONDITIONS) is folded in (the A3 egress-seam must-fix is §2.5; watch-items
+addressed). Build proceeds SLICE-BY-SLICE, each gate-clean. BUILD_PLAN T5.B7 is IN
+PROGRESS (the `FundingWindow` kernel, 507b1ad, is done; this design covers the remaining
+slices §5); no box is ticked until its slice lands gated.
 Supersedes the "design-only" status of the scalar half of `signal-contract.md` §2/§5
 (this note authorizes the scalar build, "scalar with the first scalar consumer" =
 funding_forecast). Spec 5.11/5.15 + Section 6/11 govern; an adopted detail that the
@@ -68,8 +76,11 @@ First rules shipped as instances:
 - **`CrpsPinballRule`** (scalar): the mean pinball/quantile loss over the provided
   quantiles, which IS the discretized CRPS — no CDF reconstruction:
   `pinball_q(y, v) = q·(y − v)` if `y ≥ v` else `(1 − q)·(v − y)`;
-  `score = mean_k pinball_{q_k}(y, v_k)`. A proper scoring rule; lower is better; the
-  1-quantile degenerate case orders like Brier.
+  `score = mean_k pinball_{q_k}(y, v_k)`. A proper scoring rule; lower is better. The
+  single-quantile (median, q=0.5) degenerate case reduces to scaled absolute error
+  `|y − v|/2` — the proper score for the median; it is NOT Brier's squared error (the two
+  rules are distinct instances of the same swappable `ScoringRule`, not reductions of each
+  other).
 
 Adding a log-loss rule, a weighted-CRPS, a categorical Brier, etc. is a new `impl`, not a
 schema change.
@@ -93,15 +104,20 @@ A scalar-belief path PARALLEL to the existing binary `BeliefRow` (binary/categor
 beliefs are untouched in slice 1):
 
 - `scalar_beliefs`: `belief_id`, `event_key`, `quantiles` JSONB, `unit`, `horizon`,
-  `provenance` JSONB, `created_at` (append-only, INSERT-only at the app layer).
-- scalar resolution: the realized `value`, written exactly-once over the resolution
-  window (the same score-once discipline the binary path enforces).
-- `belief_scores`: `(belief_id, rule_id, score, scored_at)` — append-only; one row per
-  (belief, rule). The binary path's `brier` column is "the BrierRule score" conceptually;
-  it migrates onto `belief_scores` as a careful follow-up (slice 1 does NOT rip out the
-  working binary scoring under track A — it adds the trait + the scalar path, and provides
-  `BrierRule` so the binary path can adopt it incrementally).
-- One migration in `crates/fortuna-ledger/migrations/`.
+  `provenance` JSONB, `created_at`. **Append-only with the SAME DB-level trigger the
+  binary tables carry** (I5; mirror the INSERT-only/no-UPDATE-no-DELETE trigger from the
+  initial migration) — INSERT-only at the app layer too.
+- scalar resolution: the realized `value`, written **exactly-once** over the resolution
+  window — mirror `BeliefsRepo::resolve_and_score` (repos.rs:1056), which the repo enforces
+  to be a single write per belief; the scalar resolver carries the identical guard so a
+  belief is scored once.
+- `belief_scores`: `(belief_id, rule_id, score, scored_at)` — append-only (same trigger);
+  one row per (belief, rule). The binary path's inline `brier` column is "the BrierRule
+  score" conceptually; it migrates onto `belief_scores` as a careful follow-up (slice 1
+  does NOT rip out the working binary scoring under track A — it adds the trait + the
+  scalar path, and provides `BrierRule` so the binary path can adopt it incrementally).
+- One migration in `crates/fortuna-ledger/migrations/` (new tables + their append-only
+  triggers; binary tables untouched).
 
 ### 1.5 Two producers, one type
 
@@ -146,10 +162,10 @@ publishes `PerpTick`s; the Sim/DST/paper harness injects them. A strategy reads 
 
 - **funding_forecast — belief-producer, zero-capital.** Consumes `PerpTick`s; forecasts
   the FINAL funding rate from the recorded estimate trajectory (see §2.3); emits a scalar
-  `PredictiveDistribution` (quantiles over the next finalized funding rate) via
-  `drain_beliefs()`. NO `Proposal`, no perp execution path, no `Cents` impedance. It is the
-  first scalar consumer and exercises §1 end-to-end. Stage = Sim; scored by `CrpsPinballRule`
-  against the realized funding rate at `next_funding_time`.
+  `PredictiveDistribution` (quantiles over the next finalized funding rate) via a NEW
+  additive egress seam (§2.5). NO `Proposal`, no perp execution path, no `Cents` impedance.
+  It is the first scalar consumer and exercises §1 end-to-end. Stage = Sim; scored by
+  `CrpsPinballRule` against the realized funding rate at `next_funding_time`.
 - **perp_event_basis — trader.** Trades the event-contract BRACKET legs (`Cents`, the
   existing `Proposal` path) using the perp + funding as a price INPUT (§3). This fits the
   current trader plumbing with NO perp-execution surgery. A native perp-leg execution path
@@ -174,12 +190,34 @@ Raw 1-minute premiums are NOT recorded and the premium-index formula is venue-un
   The exact dispersion shape is a rung-0 modelling choice, documented and unit-tested; it
   is the thing CRPS then measures and calibration refines.
 
+### 2.5 The scalar-belief egress seam (must-fix A3 — `drain_beliefs()` is binary-only)
+
+`Strategy::drain_beliefs()` returns `Vec<BeliefDraft>`, and `BeliefDraft`
+(fortuna-cognition beliefs.rs) is `deny_unknown_fields` with a REQUIRED `p: f64`
+validated strictly in (0,1) — it is BINARY-ONLY. A scalar `PredictiveDistribution`
+CANNOT flow through it, and (per the design's own "binary path untouched, no track-A
+collision" constraint) it must NOT be widened. So scalar egress is a NEW ADDITIVE seam:
+
+- a new `Strategy` trait method `drain_scalar_beliefs(&mut self) -> Vec<ScalarBeliefDraft>`
+  (default `Vec::new()`, so every existing strategy is unaffected — same additive shape
+  `drain_beliefs()` itself uses);
+- a parallel runner buffer that drains it each tick (mirroring the binary
+  `drain_pending_beliefs` path);
+- a parallel daemon persist into `scalar_beliefs` + `belief_scores` (mirroring the binary
+  `persist_beliefs`), append-only + audited.
+
+`ScalarBeliefDraft` carries `{event_key, predictive: PredictiveDistribution::Scalar,
+horizon, evidence}` — the scalar analog of `BeliefDraft`, the harness stamping provenance.
+This is the ONLY correct §1 mechanism; the doc previously mis-named it `drain_beliefs()`.
+
 ### 2.4 Files touched
 
 New files in `fortuna-runner` (`funding_forecast.rs`, `perp_event_basis.rs`) + the
-`PerpTick` variant in `fortuna-core` bus + the basis kernel in `fortuna-core` perp. All
-additive; the ONE shared touch is registering the strategies in the daemon composition
-(`fortuna-live`), the track-A coordination point (§5).
+`PerpTick` variant in `fortuna-core` bus + the basis kernel in `fortuna-core` perp + the
+`drain_scalar_beliefs()` method on the `fortuna-runner` `Strategy` trait (§2.5). All
+additive (default-impl trait method; new files). TWO shared touch-points to coordinate
+with track A (§5): the `Strategy`-trait scalar drain method AND registering the strategies
+in the daemon composition (`fortuna-live`) — neither rewrites track A's existing files.
 
 ## 3. The basis model (perp_event_basis)
 
@@ -240,10 +278,13 @@ This is an OPERATOR-DIRECTED cross-cutting build (the operator's design directiv
 transcends the per-track loop's crate partition). It spans `fortuna-cognition` +
 `fortuna-ledger` (the scalar foundation), `fortuna-runner` (the strategies),
 `fortuna-core` (PerpTick + basis kernel). Track C owns it as ONE effort with the
-operator-granted expanded scope, building ADDITIVELY (new files), and coordinating
-FILE-LEVEL with neighbors: track A at the daemon-composition registration (do not rewrite
-track A's runner files), and track D if/when Aeolus adopts the scalar `prob_claims/v1`
-(the mapper is shared). Every slice is independently gate-clean with the full battery.
+operator-granted expanded scope, building ADDITIVELY (new files + default-impl trait
+methods), and coordinating FILE-LEVEL with neighbors. TWO shared touch-points on
+track-A-adjacent files to coordinate (neither rewrites track A's existing logic): (i) the
+`drain_scalar_beliefs()` method on the `fortuna-runner` `Strategy` trait (§2.5), and (ii)
+registering the strategies in the daemon composition (`fortuna-live`). Track D coordinates
+if/when Aeolus adopts the scalar `prob_claims/v1` (the mapper is shared). Every slice is
+independently gate-clean with the full battery.
 
 **Build sequence (each its own gate-clean iteration + battery):**
 
