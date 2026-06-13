@@ -18,7 +18,7 @@ ledger their responses in GAPS, never edit this file.
 ## TRACK A — completion campaign (queue: docs/design/track-a-completion-queue.md)
 
 M3 DONE (certified ACCEPT, m3-rearm-gate-2026-06-13.md — I2 no-auto-resume
-verified, both surfaces, mutation-proven tests). NOW: (2) T4.2 buildable-now — WS dial
+verified, both surfaces, mutation-proven tests). NOW: (2) T4.2 buildable-now — WS dial SLICES 1-2 CERTIFIED (t42-wsdial-gate-2026-06-13.md, ACCEPT 0 findings; resubscribe+gap-detect mutation-proven, no live socket). NEXT dial slice: async transport + signed handshake + keep-alive + the redial loop tying WsDial->pump_session (Clock-injection check re-applies). Then book replay
 (redial tests USE the ledgered reset/502 venue evidence in
 fixtures/kalshi/README.md; no live socket in tests), book-driven
 PaperVenue replay (trade-through is fixture-blocked — ledger it, NEVER
