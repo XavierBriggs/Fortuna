@@ -174,6 +174,30 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-13 — T4.2 (iii) Cluster 2 tail: recorded 409→AlreadyExists — `1e96d20`
+
+**What.** One round-trip test in `kalshi_recorded_roundtrip.rs`:
+`recorded_place_duplicate_client_order_id_resolves_to_already_exists`. `place()`
+over the operator-recorded duplicate-409 fixture (nested
+`{"error":{"code":"order_already_exists",...}}`) → resolve-by-coid GET →
+`VenueError::AlreadyExists{existing}`.
+
+**Why.** Closes clearance item 7. The 409→AlreadyExists routing was covered
+synthetically (`kalshi_adapter.rs`) with a PLACEHOLDER code; this drives the real
+nested wire body that placeholder awaited — idempotent place, never a false success.
+
+**No vacuous re-tests.** Items 5 (unauth GET /markets) + 12 (legacy
+`/portfolio/orders` write family) are closed by CITED existing coverage, not new
+tests: `markets()` round-trips ×5 in `kalshi_adapter.rs` (the unauth distinction is
+a venue property, not mock-exercisable); the adapter writes via
+`/portfolio/events/orders` exclusively (item 16) and the legacy body is DTO-identical
+to v2. Clearance tally now PASSes 5, 7, 12; the 2(iii) checklist is done bar the
+operator-run live WS handshake.
+
+**Battery.** fmt --check; clippy --workspace --all-targets -D warnings; cargo test
+--workspace (1325 passed, 0 failed); run-dst.sh 200 (0 invariant violations).
+code-reviewer ACCEPT (sound, no issues). Protected crate untouched.
+
 ### 2026-06-13 — T4.2 (iv) kill-switch LIVE `freeze --venue kalshi` wiring — `7f69b81`
 
 **What.** `crates/fortuna-killswitch` `main.rs` gains the live Kalshi freeze path

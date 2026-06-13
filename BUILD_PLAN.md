@@ -405,8 +405,9 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       record docs/design/track-a-kalshi-paper-clearance.md) — first recorded-fixture
       adapter tests; exposed 2 adapter gaps — G1 nested-error extraction RESOLVED
       (b2087fc), G2 exchange-status DTO pending; Cluster 2 CORE DONE (811e383,
-      kalshi_recorded_roundtrip.rs: place/place-400/cancel-race/fills) — remaining
-      C2 (409-resolve/unauth/legacy) pending; Cluster 3 auth-401 routing DONE
+      kalshi_recorded_roundtrip.rs: place/place-400/cancel-race/fills) + TAIL DONE
+      (1e96d20: item 7 recorded 409→AlreadyExists; items 5/12 closed by cited
+      coverage) — clearance now PASSes 5,7,12; Cluster 3 auth-401 routing DONE
       (fe86cb5), WS live handshake op-run. Remaining:
       (iv) kill-switch Kalshi freeze MACHINERY proven (4e3a484, mock; i4
       invariant green) + LIVE `freeze --venue kalshi` wiring DONE (7f69b81,

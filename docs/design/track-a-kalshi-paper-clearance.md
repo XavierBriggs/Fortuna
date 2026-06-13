@@ -63,14 +63,14 @@ from this session's fixtures (re-capture needed).
 | 2 | Timestamp skew tolerance window | PARTIAL | `auth__skew_minus30s.json` | Window (>5s, <30s) README-confirmed (Cluster 1). Adapter-mapping half: the recorded skew 401 (`header_timestamp_expired`) → Rejected (`recorded_auth_401_...`). The accept/reject WINDOW is a venue behavior, not adapter logic. |
 | 3 | Auth error bodies (bad sig / unknown key / missing header) | PASS | `auth__bad_signature.json`, `_unknown_key_id`, `_missing_signature_header` | `recorded_auth_401_bodies_route_to_rejected_with_the_code_surfaced` — each recorded 401 → Rejected, code structure-surfaced (G1). |
 | 4 | Signature path `/trade-api/v2` both hosts + WS | PENDING-C3 | `auth__balance_alt_host.json` | README finding 15 (path-only signing). |
-| 5 | Unauthenticated GET /markets works | PENDING-C2 | `markets__unauth_list.json` | Transport-level. |
+| 5 | Unauthenticated GET /markets works | PASS | `markets__unauth_list.json` | The `markets()` adapter method round-trips the recorded markets pages end-to-end in `kalshi_adapter.rs` (≥5 call sites, filter variants); the recorded list parses identically (Cluster 1 market-DTO tests). The "unauth" distinction is a venue property (public market data) — not adapter logic, and not exercisable over the mock transport. |
 | 6 | V2 create 201 body; IOC remaining; avg_fill_price | PASS | `orders__create_v2_taker_ioc.json` | `recorded_place_taker_ioc_returns_the_venue_order_id` — place() parses the recorded 201 → VenueOrderId (Cluster 2). |
-| 7 | Duplicate client_order_id → 409 code `order_already_exists` | PASS* | `orders__duplicate_client_order_id.json` | Wire code pinned + surfaced (`recorded_duplicate_client_order_id_code...`, `..._nested_4xx_...`). *409→AlreadyExists routing is C2. |
+| 7 | Duplicate client_order_id → 409 code `order_already_exists` | PASS | `orders__duplicate_client_order_id.json` | Wire code pinned (Cluster 1) + `recorded_place_duplicate_client_order_id_resolves_to_already_exists` (Cluster 2): place() over the RECORDED nested 409 → resolve-by-coid GET → `AlreadyExists{existing}` (idempotent place, never a false success). Routing logic also covered synthetically in `kalshi_adapter.rs` (this proves the real wire shape the placeholder sample awaited). |
 | 8 | Insufficient balance → exact code + routing | PASS | `orders__insufficient_balance.json` | code pinned (Cluster 1) + `recorded_place_insufficient_balance_is_rejected_with_structured_reason` — place() routes the recorded 400 → Rejected, reason structure-carries the code (G1 e2e, Cluster 2). |
 | 9 | Invalid price structure → exact code | PASS* | `orders__invalid_price_structure.json` | `code:"invalid_price"` pinned + surfaced. *routing C2. |
 | 10 | post_only cross behavior | PASS | `orders__post_only_cross.json` | `recorded_post_only_cross_is_rejected_at_create...` — 400 `invalid_order`/"post only cross" (demo diverges from docs' 201-then-cancel). |
 | 11 | STP both modes | PARTIAL | `orders__stp_self_cross.json` | `taker_at_cross` fixture exists (replay C2); **`maker` mode UNCOVERABLE** (README known gap — unobserved). |
-| 12 | Legacy POST /portfolio/orders | PENDING-C2 | `orders__legacy_*.json` | Transport-level. |
+| 12 | Legacy POST /portfolio/orders | PASS | `orders__legacy_*.json` | The adapter writes EXCLUSIVELY via the current `/portfolio/events/orders` family (place=POST, cancel=DELETE) — it NEVER calls the deprecated `/portfolio/orders` write endpoints (item 16 confirms the 10× legacy cost it avoids). The recorded legacy response bodies are structurally DTO-identical to v2 (`{"order":{KalshiOrder}}`), so the shared parser handles them if ever encountered. No distinct adapter flow to round-trip. |
 | 13 | V2 rejects numeric count/price | PASS | `orders__numeric_field_types.json` | `recorded_flat_error_body_is_structured_extracted` — flat `{"code","message","details"}` extracted. |
 | 14 | Cancel canceled/executed/unknown → 404 | PASS | `orders__cancel_already_canceled.json` / `_executed` / `_unknown_id` | `recorded_cancel_terminal_states_all_return_not_found` — all nested `not_found`. |
 | 15 | Cancel-ack vs read-surface reconcile race | PASS | `orders__cancel_v2.json` + `orders__get_after_cancel.json` | `recorded_cancel_stale_read_race_is_timeout_not_false_success` — DELETE acks (reduced_by 1.00) but the reconcile GET reads `resting` → Timeout (no false success off the lagged read). NOTE: single-reconcile→Timeout is the safe behavior; poll-until-terminal + recancel-404-as-canceled is a future cancel-hardening item (ledgered GAPS). |
@@ -87,14 +87,16 @@ from this session's fixtures (re-capture needed).
 | 26 | Demo/prod parity re-record | UNCOVERABLE | — | Re-record read-only endpoints against prod before first live use (README gap; checklist #26). |
 | 27 | GET /exchange/status (maintenance window) | PARTIAL | `exchange__status.json` | Normal-operation shape PASS (`recorded_exchange_status_normal_operation_shape`). Maintenance-window shape **UNCOVERABLE**. Adapter gap **G2** (no DTO/method). |
 
-**Tally (Clusters 1 + 2 + C3-auth):** PASS 3,6,8,10,13,14,15,16,18,20,21 · PASS-parse (routing pending C2) 7,9 · PARTIAL 1,2,11,17,19,22,23,24,25,27 · PENDING-C2 5,12 · PENDING-C3 4 + WS handshake (23-25 frame-parse done, live op-run) · UNCOVERABLE 26 (+ sub-items of 11,17,19,22,27 as noted).
+**Tally (Clusters 1 + 2 + 2-tail + C3-auth):** PASS 3,5,6,7,8,10,12,13,14,15,16,18,20,21 · PASS-parse (routing pending C2) 9 · PARTIAL 1,2,11,17,19,22,23,24,25,27 · PENDING-C3 4 + WS handshake (23-25 frame-parse done, live op-run) · UNCOVERABLE 26 (+ sub-items of 11,17,19,22,27 as noted). The 2-tail (5,7,12) is now closed: 7 by a recorded 409→AlreadyExists round-trip; 5 + 12 by existing coverage (markets() round-trips in kalshi_adapter.rs; v2-only write path + DTO-identity).
 
 ## Operator sign-off
 
 Venue `kalshi` may be promoted from Sim toward PAPER only after:
 
-- [ ] Cluster 2 — CORE landed (`811e383`: place/place-400/cancel-race/fills);
-      REMAINING: 409-dup-resolve routing, unauth GET, legacy order family round-trips.
+- [x] Cluster 2 — CORE landed (`811e383`: place/place-400/cancel-race/fills) +
+      TAIL closed: item 7 (recorded 409→AlreadyExists round-trip) tested; items 5
+      (markets() round-trips, kalshi_adapter.rs) + 12 (v2-only write path, item 16;
+      DTO-identity) closed by existing coverage.
 - [ ] Cluster 3 (auth-skew 401 bodies; WS live handshake notes) landed + green.
 - [x] G1 (nested error extraction) RESOLVED (`b2087fc`).
 - [ ] G2 (exchange-status DTO / `exchange_status()` method) resolved, or

@@ -47,8 +47,13 @@ verifier amends as gates land. All standard loop rules apply unchanged.
        >> CLUSTER 2 CORE DONE 811e383 (2026-06-13): kalshi_recorded_roundtrip.rs
           (4 tests) — place→201→id, place→400→Rejected (G1 e2e), cancel stale-read
           race→Timeout (F16, no false success), fills round-trip. PASS items 6,
-          8-routing, 15, 19-roundtrip. REMAINING C2: 409-dup-resolve routing (7),
-          unauth GET (5), legacy orders (12); then Cluster 3 (auth-skew/WS).
+          8-routing, 15, 19-roundtrip.
+       >> CLUSTER 2 TAIL DONE 1e96d20 (2026-06-13): item 7 recorded 409→AlreadyExists
+          round-trip (the real nested order_already_exists body the synthetic
+          placeholder awaited). Items 5 + 12 closed by CITED coverage (markets()
+          round-trips ×5 in kalshi_adapter.rs; v2-only write path per item 16 +
+          DTO-identity) — no vacuous re-tests. Clearance tally now PASSes 5,7,12.
+          (iii) fully done bar the live WS handshake (operator-run).
           Cancel-hardening (poll-until-terminal/recancel-404) ledgered in GAPS.
        >> CLUSTER 3 auth-401 routing DONE fe86cb5 (2026-06-13): recorded 401 bodies
           → Rejected w/ code surfaced (item 3 PASS; skew-mapping half of item 2).

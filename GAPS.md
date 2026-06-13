@@ -115,8 +115,15 @@ order). Clearance items 6, 8-routing, 15, 19-roundtrip → PASS. code-reviewer
 ACCEPT; full battery green (131 targets 0-failed; run-dst 200 0-violations;
 daemon_smoke 15/15). Protected crate untouched.
 
-REMAINING C2 (next): 409-dup-resolve routing (item 7), unauth GET (item 5),
-legacy order family (item 12) round-trips; then Cluster 3 (auth-skew + WS).
+C2 TAIL CLOSED (1e96d20): item 7 (409-dup-resolve) — recorded_place_duplicate_
+client_order_id_resolves_to_already_exists drives place() over the RECORDED nested
+409 (order_already_exists) → resolve-by-coid GET → AlreadyExists{existing}. Items 5
+(unauth GET /markets) + 12 (legacy /portfolio/orders write family) need NO new test
+— closed by CITED existing coverage (markets() round-trips ×5 in kalshi_adapter.rs;
+the adapter writes via /portfolio/events/orders exclusively per item 16, and the
+legacy body is DTO-identical to v2). The 27-item clearance tally now: PASS includes
+5,7,12 (clearance doc updated). Cluster 3 auth-skew DONE (fe86cb5); only the live WS
+handshake (operator-run) remains for the WS items.
 
 CANCEL-HARDENING FOLLOW-UP (ledgered; NOT a gap this slice): cancel() does DELETE
 + ONE reconcile GET → Timeout if still resting (the SAFE outcome — Timeout
