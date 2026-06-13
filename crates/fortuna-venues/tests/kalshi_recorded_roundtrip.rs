@@ -206,6 +206,63 @@ fn recorded_place_insufficient_balance_is_rejected_with_structured_reason() {
 }
 
 // ===========================================================================
+// place() — the RECORDED duplicate-409 routes to AlreadyExists (item 7).
+// The logic is covered by kalshi_adapter.rs's place_duplicate_409_* tests, but
+// those used a SYNTHETIC sample whose code was the placeholder
+// `PLACEHOLDER_DUPLICATE_CODE_FIXTURE_NEEDED` (the real code was undocumented).
+// This drives the OPERATOR-RECORDED body — the NESTED
+// {"error":{"code":"order_already_exists",...}} the placeholder was awaiting —
+// proving the real wire shape resolves to the existing order (idempotent place;
+// never a false success).
+// ===========================================================================
+
+#[test]
+fn recorded_place_duplicate_client_order_id_resolves_to_already_exists() {
+    let coid = "33333333-3333-4333-8333-333333333333";
+    let existing_id = "e641ead7-badf-41d1-a4bf-04a6cb202714";
+
+    let mock = Arc::new(MockKalshiTransport::new());
+    // POST -> the recorded 409 (nested {"error":{"code":"order_already_exists"}}).
+    mock.push_ok(409, recorded("orders__duplicate_client_order_id.json"));
+    // The adapter then lists orders by client_order_id (resting bucket first); the
+    // existing order carries OUR coid, so the lookup resolves on the first page.
+    let mut existing = recorded("orders__get_after_create.json")["order"].clone();
+    existing["client_order_id"] = serde_json::json!(coid);
+    existing["order_id"] = serde_json::json!(existing_id);
+    existing["status"] = serde_json::json!("resting");
+    mock.push_ok(
+        200,
+        serde_json::json!({ "orders": [existing], "cursor": "" }),
+    );
+    let venue = venue_with(&mock);
+
+    let err = block_on(venue.place(gated(52, 1, 60, coid)))
+        .expect_err("a duplicate place must not succeed");
+    match err {
+        VenueError::AlreadyExists { existing } => assert_eq!(
+            existing.as_str(),
+            existing_id,
+            "the recorded duplicate resolves to the EXISTING order"
+        ),
+        other => {
+            panic!("recorded 409 order_already_exists must route to AlreadyExists, got {other:?}")
+        }
+    }
+
+    // POST then ONE lookup GET (found in the first status bucket → short-circuit).
+    let calls = mock.calls();
+    assert_eq!(calls.len(), 2, "POST then one resolve-by-coid GET");
+    assert_eq!(
+        (calls[0].method.as_str(), calls[0].path.as_str()),
+        ("POST", "/portfolio/events/orders")
+    );
+    assert_eq!(
+        (calls[1].method.as_str(), calls[1].path.as_str()),
+        ("GET", "/portfolio/orders")
+    );
+}
+
+// ===========================================================================
 // cancel() — the recorded STALE-READ RACE is Timeout, never a false success
 // ===========================================================================
 
