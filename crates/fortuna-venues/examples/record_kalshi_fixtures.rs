@@ -39,7 +39,12 @@ const WS_PATH: &str = "/trade-api/ws/v2";
 const FIXTURE_DIR: &str = "fixtures/kalshi";
 const PACE: Duration = Duration::from_millis(350);
 const ORDER_PACE: Duration = Duration::from_millis(1000);
-const WS_CAPTURE_SECS: u64 = 90;
+// Env-tunable (default 90): the 2026-06-11 session never observed a public
+// `trade` frame in its window — the trade-through replay (T4.2) needs one.
+// A longer window on a busy market raises the odds; set KALSHI_WS_SECS.
+fn ws_capture_secs() -> u64 {
+    std::env::var("KALSHI_WS_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(90)
+}
 const WS_MAX_FRAMES: usize = 5000;
 
 fn now_ms() -> i64 {
@@ -1131,7 +1136,7 @@ async fn ws_capture(r: &mut Recorder, name: &str, ticker: &str, use_yes_price: b
     let mut lines: Vec<String> = Vec::new();
     let mut pings = 0u32;
     let mut ping_payload: Option<String> = None;
-    let deadline = Instant::now() + Duration::from_secs(WS_CAPTURE_SECS);
+    let deadline = Instant::now() + Duration::from_secs(ws_capture_secs());
     while Instant::now() < deadline && lines.len() < WS_MAX_FRAMES {
         let remaining = deadline.saturating_duration_since(Instant::now());
         match tokio::time::timeout(remaining, ws.next()).await {
@@ -1167,7 +1172,7 @@ async fn ws_capture(r: &mut Recorder, name: &str, ticker: &str, use_yes_price: b
         "frames_captured": lines.len(),
         "pings_observed": pings,
         "first_ping_payload": ping_payload,
-        "duration_secs": WS_CAPTURE_SECS,
+        "duration_secs": ws_capture_secs(),
         "format": "one verbatim text frame per line (.jsonl) — feed lines to KalshiWsParser",
         "note": "checklist #23-#25: signed handshake, subscribed/snapshot/delta/trade capture",
     });

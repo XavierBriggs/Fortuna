@@ -63,3 +63,18 @@ this list was an overstatement.
 `crates/fortuna-venues/tests/kalshi_doc_samples/` remains the DOC-DERIVED
 set used to build the adapter pre-fixtures; retire entries only as adapter
 tests are re-pointed at the recordings here (T4.2).
+
+
+## WS recapture attempt 2026-06-13 ~02:30Z (verifier session) — venue-side failure, evidence preserved
+
+A 600s WS window targeting the missing public `trade` frame failed VENUE-SIDE:
+mid-capture `Connection reset without closing handshake` on stream 1, then
+HTTP 502 Bad Gateway on the next connect (demo WS host outage or long-window
+idle policy). No trade frame captured; committed fixtures restored untouched.
+VALUE: these are exactly the disconnect behaviors T4.2's redial-with-resubscribe
+must survive — raw log excerpts below. Retry the trade-frame capture at a later
+window (busy market, consider 180-300s windows x N rather than one 600s hold).
+
+    [ws__orderbook_trade_yes] FAILED: ws frame: WebSocket protocol error:
+        Connection reset without closing handshake
+    [ws__orderbook_trade_noleg] FAILED: ws connect: HTTP error: 502 Bad Gateway
