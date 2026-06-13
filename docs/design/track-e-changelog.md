@@ -10,7 +10,30 @@ commit gate, `fortuna-invariants` untouched except at E.3 (operator-waive-flagge
 
 ---
 
-## E.3b — persona trigger layer (declarative + schedulable) (this commit)
+## E.3c — persona runner DST arm (seeded, under the cost budget) (this commit)
+
+New `crates/fortuna-cognition/tests/persona_dst.rs` (design §8/§15), wired into
+`scripts/run-dst.sh` (`PERSONA_DST_SCENARIOS`, default 20; battery runs 2000). Each
+seed builds a chaos world — 0..=4 point-in-time signals (0 exercises the skip path),
+a random possibly-pre-exhausted `DiscoveryBudget`, and a call-counting `ChaosMind`
+spanning all failure modes (provider error / unknown / missing-required / non-JSON
+prose / empty journal). Per-seed invariants: never panics/errors (degrade); budget
+throttle ⟹ no call/artifact/spend; no signals ⟹ skip; a reached run calls the mind
+EXACTLY once and yields an artifact iff Valid (every anchor set) else a counted
+defect; byte-identical content_hash on replay; and an INTEGRATION coalescing arm —
+K+1 triggers through a gate threaded into the runner produce exactly ONE run (one
+mind call). Passes at 2000 seeds (≈113 artifacts / 1130 throttled / 173 skipped).
+
+feature-dev:code-reviewer (self-corrected several false positives): two confirmed —
+the coalescing arm was a GATE-only unit test (didn't prove "one run") → reworked to
+thread the gate through the runner with a counting mind; and the skip path was
+unreachable (signals always ≥1) → 0..=4 signals now exercise it. Plus a clippy
+`!= !` simplification fixed. fortuna-invariants UNTOUCHED.
+
+Shared-doc touch (loop §8): `docs/verification.md` DST-harness count corrected
+4→6 (it was already stale — omitted the perp arm; now lists perp + the persona arm).
+
+## E.3b — persona trigger layer (declarative + schedulable) (commit 96cdb79)
 
 `fortuna_cognition::persona_trigger` (design §7): the layer that decides WHEN a
 `(persona, region)` run fires, decoupled from the persona's method.

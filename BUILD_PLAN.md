@@ -677,11 +677,13 @@ at E.3 (the PersonaOutcome no-order/size field-surface pin) under operator waive
       (budget-first, untrusted-signals-only context, Mind.decide, strict findings validation,
       content_hash anchor); PersonaOutcome order-free + Serialize; the FIREWALL headline tests
       (method never in context; planted injection renders as data) + determinism + degrade arms.
-      E.3b DONE this commit: fortuna_cognition::persona_trigger — Cadence (fire-once-per-period,
+      E.3b DONE (commit 96cdb79): fortuna_cognition::persona_trigger — Cadence (fire-once-per-period,
       generalizing DailyScheduler) + validate(); PersonaTriggerSpec::fires_on_signal; and the
-      PersonaTriggerGate reusing signals::TriggerEngine for per-(persona,region) coalescing
-      (concurrent triggers → one in-flight run); 9 tests; full battery green. REMAINING: E.3c
-      = the DST runner-under-budget arm + telemetry §19 + the §15 invariant pin (operator-waive).]
+      PersonaTriggerGate reusing signals::TriggerEngine for per-(persona,region) coalescing.
+      E.3c DONE this commit: the seeded persona-runner DST arm (tests/persona_dst.rs, wired into
+      run-dst.sh) — chaos mind across all failure modes + pre-exhausted budget + skip path + the
+      integration coalescing arm (K+1 triggers → one run); passes 2000 seeds; full battery green.
+      REMAINING E.3: persona telemetry §19 + the §15 invariant pin (operator-waive).]
 - [ ] E.4 Belief consumption — DomainAnalysis section + evidence/provenance citation; the
       μ/σ→p helper in code; `fortuna_persona_beliefs_total` metric.
 - [ ] E.5 Scoring scope extension — ScopeKey + weekly-review promote/retire proposal (baseline +

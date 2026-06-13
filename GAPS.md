@@ -18,15 +18,28 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
-## TRACK E — BUILD PHASE (operator-approved 2026-06-13); E.1 + E.2 + E.3a + E.3b DONE
+## TRACK E — BUILD PHASE (operator-approved 2026-06-13); E.1 + E.2 + E.3a/b/c DONE
 
 STATUS 2026-06-13 (SUPERSEDES the design-phase RALPH STOP preserved below): the operator
 APPROVED the design ("looks good, rearm"; commit b4eaae3) and re-armed Track E in worktree
 fortuna-wt-e. BUILD PHASE active — building design §18's six slices, one gate-clean slice
 per iteration. E.3 is sub-sliced: E.3a (runner core + firewall, commit 4e8b9e4) + E.3b (trigger
-layer §7) DONE; E.3c (the DST runner-under-budget arm + telemetry §19 + the invariant pin) next.
+layer §7, commit 96cdb79) + E.3c (the seeded DST runner-under-budget arm) DONE. REMAINING E.3
+items: persona telemetry §19 + the PersonaOutcome invariant pin §15 (operator-waive).
 
-**E.3b (Persona trigger layer §7) DONE this commit.** New `fortuna_cognition::persona_trigger`:
+**E.3c (Persona runner DST arm) DONE this commit.** New crates/fortuna-cognition/tests/persona_dst.rs
+(design §8/§15), wired into scripts/run-dst.sh (PERSONA_DST_SCENARIOS; battery runs 2000). Seeded
+chaos: 0..=4 signals (0 → skip path), a possibly-pre-exhausted DiscoveryBudget, a call-counting
+ChaosMind across all failure modes. Per-seed invariants: never crash/Err (degrade); throttle ⟹
+no call/artifact/spend; no-signals ⟹ skip; a reached run calls the mind EXACTLY once + artifact
+iff Valid (anchors set) else a counted defect; byte-identical content_hash on replay; and the
+INTEGRATION coalescing arm (gate threaded through the runner + counting mind: K+1 triggers → one
+run). Passes 2000 seeds. feature-dev review: reworked the coalescing arm from gate-only to the
+integration test, added the skip-path coverage (both real coverage gaps), fixed a clippy nit.
+SHARED-DOC TOUCH (loop §8): docs/verification.md DST-harness count 4→6 (was already stale, omitted
+perp; now lists perp + persona). fortuna-invariants UNTOUCHED.
+
+**E.3b (Persona trigger layer §7) DONE (commit 96cdb79).** New `fortuna_cognition::persona_trigger`:
 `Cadence` (EveryHours/DailyAtHourUtc) + `CadenceScheduler::due` (fire-once-per-period, generalizing
 the daemon's DailyScheduler) + `Cadence::validate()` (rejects hour≥24 silent-never-fire);
 `PersonaTriggerSpec::fires_on_signal` (signal-driven from the persona's reads_signal_kinds);
@@ -135,10 +148,10 @@ and any fortuna-invariants touch is an operator-waive item per the loop — so s
 correctly does NOT touch the protected crate. The `domain_analyses`/`PersonaRow` row types are
 already structurally order-free (review-confirmed).
 
-NEXT: E.3c (the DST runner-under-budget arm — seeded budget-exhaustion / signal-absence /
-schema-invalid / coalesced-re-triggers, wired into run-dst.sh; + persona telemetry §19; + the
-PersonaOutcome no-order/size invariant pin §15, gated on the operator-waive above). Then E.4
-(belief consumption).
+NEXT: persona telemetry §19 (the PersonaCounters fold exported through metrics_export — runs /
+analyses / failures / budget_skips / no_signal_skips / coalesced / cost; integer-only to
+Prometheus), then the PersonaOutcome no-order/size invariant pin §15 (gated on the operator-waive
+above), then E.4 (belief consumption — the DomainAnalysis section + provenance citation).
 
 --- HISTORICAL (design-phase RALPH STOP — SUPERSEDED by the operator approval above) ---
 

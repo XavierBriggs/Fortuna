@@ -1657,3 +1657,22 @@ domain-analysis artifact (authoritative design: docs/design/domain-analysis-pers
   pairs never collide on one serialization slot.
 - **Signal-driven triggering reads the persona's own `reads_signal_kinds`** (from the
   definition), not a separate rule list — "config, not per-domain code" (§7).
+
+## Track E — E.3c (persona runner DST arm; design §8/§15)
+
+- **The persona DST drives the async runner via `futures::executor::block_on`** (a
+  cognition dev-dep), like a single-future executor — no tokio runtime needed; the
+  DST is a plain `#[test]` (the runner is the only async surface).
+- **Master seed from `DST_MASTER_SEED` or `RealClock.now()` (printed); per-scenario
+  seeds via `SplitMix64`; count via `PERSONA_DST_SCENARIOS` (default 20; battery runs
+  2000)** — matching the existing DST arms (synthesis/settlement/perp). `RealClock` is
+  the sanctioned wall source for the seed (not an injected-Clock violation; the same
+  pattern synthesis_dst uses).
+- **The coalescing invariant is tested at the INTEGRATION level**: a trigger gate is
+  threaded through `run_persona_analysis` with a call-counting mind, so "K+1 triggers →
+  exactly one run" is proven against the runner, not the gate in isolation (the gate's
+  own coalescing is separately unit-tested in tests/persona_trigger.rs).
+- **The budget throttle is exact-boundary**: `allowed = spent < cap` mirrors
+  `DiscoveryBudget::allows` (`<`, not `<=`); a throttle makes zero mind calls and no
+  spend; a single permitted call may push cumulative spend past `cap` (throttle is
+  before-spend, by design).
