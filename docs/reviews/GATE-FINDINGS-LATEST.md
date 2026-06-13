@@ -62,6 +62,37 @@ OWNER PLAN: a RESTARTED track C, scoped to "extend the now-merged perps plane"
 AFTER the re-merge gate ACCEPTs and the merge lands. Phase-5 EXIT (BUILD_PLAN)
 is not met until B7+B8 land.
 
+## TRACK D — BLOCKED: Critical SSRF on the injection surface (track-d-nws-gate-2026-06-13.md)
+
+DO-NOT-MERGE. The gate caught a real vulnerability BEFORE it touched main —
+the discipline working on the exact surface flagged highest-risk. Track D
+fixes forward at priority (a); the D1-D4 unit does not merge until re-gated.
+
+[CRITICAL — SSRF fail-open, reproduced end-to-end] fetch.rs host-pin uses a
+hand-rolled `host_of_https` (fetch.rs:103-122) that parses
+`https://evil.example.com\@api.weather.gov/x` as host api.weather.gov (PASSES
+the pin) while reqwest's WHATWG url crate resolves it to evil.example.com and
+CONNECTS there (fetch.rs:304-316 redirect follow). A malicious Location header
+defeats host-pinning — the entire SSRF control. PARSER-DIFFERENTIAL is the root
+cause. FIX (root-cause, NOT a backslash blocklist — band-aids on parser
+differentials are whack-a-mole): the pin check MUST use the SAME parser as the
+HTTP client — `url::Url::parse()` then compare `.host_str()` to the pin, so the
+authorization decision and the connection resolve the host IDENTICALLY. Delete
+host_of_https. Re-validate EVERY redirect hop through that one canonical parser
+(or disable redirect-follow and handle Location explicitly through it).
+Regression test: the exact backslash-authority payload + a redirect-to-unpinned
+Location, both asserting REFUSAL through the public FetchClient::fetch path.
+
+[MAJOR] Layer-1 per-item structural validation gap + the validator is unwired
+(nws.rs:122-150, validate.rs): a shape-drifted NWS item is not refused
+per-item. Wire the validator into the ingest path; a non-conforming payload
+from the pinned host must refuse-and-quarantine (Layer 1).
+
+Otherwise gate-clean: fmt/clippy/47-of-47 sources tests, no test weakening, no
+f64, no wall-time, no unwrap/panic in the source path, protected crate
+untouched. The BLOCK rests solely on the SSRF (an explanation cannot waive a
+reproduced Critical).
+
 ## TRACK D — news-aggregation Phase A (queue: implementer-loop-track-d.md)
 
 fortuna-sources crate, FetchClient, four v1 adapters, registry admission
