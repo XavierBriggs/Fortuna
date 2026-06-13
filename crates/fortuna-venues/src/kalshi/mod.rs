@@ -47,6 +47,7 @@
 pub mod adapter;
 pub mod auth;
 pub mod client;
+pub mod dial;
 pub mod dto;
 pub mod ws;
 

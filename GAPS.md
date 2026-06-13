@@ -18,6 +18,39 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK A — T4.2 item 2(i) WS dial: DECISION CORE done (dial.rs); async transport deferred to the next slice
+
+Queue item 2(i) (Kalshi WS dial). Built the SURVIVAL DECISION core as a pure,
+deterministic state machine — crates/fortuna-venues/src/kalshi/dial.rs (new;
+`pub mod dial`) — paired with the existing ws.rs message layer (which already
+detects seq gaps via KalshiWsEvent::SeqGap):
+- DisconnectCause {ResetWithoutClose, ConnectHttpError{status}, KeepAliveTimeout,
+  Transport}; DialAction {Subscribe, Redial{backoff}, Resync}; WsDial with
+  capped-exponential backoff (base 500ms, cap 30s; reset on a clean connect;
+  retries INDEFINITELY — a persistent outage surfaces via the venue error
+  counter + health view, not a give-up).
+- Behaviors: a reconnect ALWAYS re-subscribes (never assumes a surviving
+  subscription); any loss/refusal redials after backoff; a seq gap resyncs
+  WITHOUT perturbing the connection-level backoff.
+- TDD (RED-first via a stubbed backoff, then the real schedule): the recorded
+  venue evidence is the headline test — dial_survives_the_recorded_reset_then_
+  502_evidence replays fixtures/kalshi/README.md's 2026-06-13 sequence (healthy
+  connect -> mid-stream reset-without-close -> 502 on reconnect -> recovery) and
+  asserts subscribe/redial(500ms)/redial(1000ms)/resubscribe. Plus
+  a_seq_gap_resyncs_without_touching_the_redial_backoff and the_backoff_is_capped.
+  NO live socket in any test (pure state machine).
+Full battery green (fmt/clippy --workspace --all-targets/cargo test --workspace =
+110 ok-result lines/run-dst.sh 10000 — all exit 0, zero invariant violations).
+
+DEFERRED to the NEXT 2(i) slice (ledgered, NOT silently dropped): the async half
+that DRIVES this state machine — (a) a WsTransport trait + a scripted mock async
+transport for an integration test replaying the same reset/502 evidence; (b) the
+signed-handshake connect (auth.rs recipe); (c) the ping/pong keep-alive timer
+(the KeepAliveTimeout cause is already modelled); (d) the frame-pump loop wiring
+WsDial + KalshiWsParser + subscribe_orderbook_cmd. A REFINEMENT to ledger when
+that lands: backoff currently resets on TCP-connect; a flap-resistant version
+resets only after the first healthy frame/Subscribed ack.
+
 ## TRACK A RE-ACTIVATED (operator 2026-06-13): completion-campaign queue — M3 DONE (queue item 1)
 
 The operator re-activated the Ralph loop after the RALPH STOP below; the loop doc
