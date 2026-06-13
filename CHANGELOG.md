@@ -18,6 +18,16 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
+- **`KineticsPerpObservation`** (slice 4a, `fortuna-venues::kinetics::perp_observation`,
+  additive): the venue-side half of a `PerpTick`, built VERBATIM from a WS `ticker`
+  frame — `MarketId` + `PerpMarks` (venue settlement; no conservative mark) +
+  `FundingObservation` (rate→`Decimal` estimate, `next_funding_time`, reference
+  price, capture `obs_at`). The venue crate stays BUS-FREE: this returns perp-domain
+  components, and the producer (a later sub-slice) adds the `venue` id to make the
+  bus event. 4 tests (synthetic exact-mapping + field-swap guards, recorded-frame
+  re-derivation, malformed→`Err`). The foundation for the PerpTick producer —
+  WITHOUT a producer the perp strategies are inert (slice-4 architectural finding,
+  see GAPS). NEXT: the scripted PerpTick source (Sim soak) + daemon registration.
 - **`perp_event_basis` STRATEGY** (slice 3b-strategy, `fortuna-runner::perp_event_basis`,
   additive): the propose-only, mechanical, Sim-stage bracket trader. On a `PerpTick`
   it rebuilds bin probabilities from `core.books` (YES mid `(bid_or_0 + ask_or_0)/2`

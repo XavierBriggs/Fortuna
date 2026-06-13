@@ -782,7 +782,13 @@ code.
       verification pass caught + fixed a bin_prob bug (one-sided bins were dropped
       to 0, breaking the validated basis); 14 tests + DST oracle. DEMO-ENV
       validated on a fresh live cycle (perp/ladder agree <0.1%, both basis signs).
-      Remaining: daemon wiring (slice 4).
+      SLICE 4 (daemon composition) SCOPED: found that EventPayload::PerpTick has
+      NO PRODUCER (only consumers) — registering the strategies alone leaves them
+      inert; slice 4 must build the perp ingestion→PerpTick path. Decomposed 4a-4e
+      (see GAPS). 4a DONE: KineticsPerpObservation::from_ws_ticker (fortuna-venues
+      kinetics, bus-free, verbatim WS-ticker→perp-domain, 4 tests). Remaining 4b
+      (scripted PerpTick source/Sim soak), 4c (compose/daemon registration), 4d
+      (scalar-belief drain) — all track-A-coordinated daemon work.
 - [ ] T5.B8 Ops: kill-switch perps flatten (reduce_only IOC + cancel-all),
       margin/funding telemetry, funding-regime dashboard panel.
 

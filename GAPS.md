@@ -18,6 +18,34 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK C — slice 4 (daemon composition) SCOPED + the PerpTick-PRODUCER GAP found + sub-slice 4a (KineticsPerpObservation) DONE (2026-06-13)
+
+ARCHITECTURAL FINDING (slice-4 scoping): `EventPayload::PerpTick` has NO PRODUCER anywhere outside tests —
+it is referenced only by the bus definition (fortuna-core) and the two CONSUMER strategies
+(funding_forecast, perp_event_basis). The daemon's event source is INLINE in `SimRunner::tick()`
+(runner.rs:~657): it polls `SimVenue` for books and publishes `BookSnapshot` events; nothing converts
+venue/recorder perp data into `PerpTick`. So merely REGISTERING the perp strategies into the daemon would
+leave them INERT (they ignore every non-PerpTick event). Slice 4's real scope = build the perp ingestion →
+PerpTick path, which the design §5 "register + confirm Sim soak" step did not account for. DECOMPOSITION
+(dependency-ordered, by ownership cleanness):
+  - 4a (DONE, this commit — pure track-C, no coordination): `KineticsPerpObservation::from_ws_ticker`
+    (crates/fortuna-venues/src/kinetics/perp_observation.rs) — builds the perp-DOMAIN half of a PerpTick
+    (MarketId + PerpMarks + FundingObservation) VERBATIM from a WS `ticker` frame; the venue crate stays
+    BUS-FREE (the producer adds the `venue` id to make the bus event). 4 tests (synthetic exact-mapping +
+    field-swap guards, recorded-frame re-derivation, malformed→Err). Foundation for every producer.
+  - 4b (NEXT — track-A coordination on runner.rs, carries the DST-REPLAY RISK): a scripted PerpTick source
+    drained in `tick()` step 1 before `run_until_idle()` (the EventOrigin::External injection slot) so a
+    Sim soak FIRES the perp strategies. Must re-run the full DST corpus (the tick() event order is the
+    record/replay contract; the injected PerpTick is External so replay stays byte-stable, but PROVE it).
+  - 4c (track-A coordination on compose.rs/boot.rs/daemon.rs): register FundingForecast + PerpEventBasis
+    via opt-in compose sections (MechExtremes precedent daemon.rs:312); the perp_event_basis bracket
+    ladder comes from a CONFIG section (TOML MarketId->BracketStrike) — sidesteps the fortuna_venues::Market
+    strike-metadata gap; live-market-list catalog is 4e (future).
+  - 4d (track-A coordination on daemon.rs/main.rs): wire `drain_pending_scalar_beliefs` into drive()
+    (parallel to drain_pending_beliefs daemon.rs:~563) → persist funding_forecast's scalar claims.
+COORDINATION: 4b-4d touch track-A HOT files (daemon.rs/compose.rs/boot.rs/runner.rs) — ADDITIVE only
+(new opt-in blocks/fields, no existing body changed); re-check bus+rebase immediately before each.
+
 ## TRACK C — slice 3b-STRATEGY (perp_event_basis) BUILT + bin_prob bug caught + DEMO-ENV validated on a fresh independent cycle (2026-06-13)
 
 The propose-only `perp_event_basis` STRATEGY (fortuna-runner, additive: new `perp_event_basis.rs` + 1-line
