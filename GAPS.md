@@ -18,6 +18,49 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK A — SOAK: GO received (7923255); verifier re-pointed the queue — item 1 (operator runbook) CLOSED
+
+The verifier's first UNCONDITIONAL ACCEPT (docs/reviews/soak-go-gate-2026-06-12.md;
+top of GATE-FINDINGS-LATEST.md) declares the daemon at 8ea8a4d FIT TO START the
+7-day Phase-4 EXIT soak (Sim, mock funds; the START itself is the operator's). It
+RE-POINTS Track A, in order (this supersedes my prior "#2 distinct-pools next"
+self-sequencing — the verifier's queue governs; #2 stays a valid backlog item after):
+1. **Operator runbook — CLOSED (this commit).** FINAL_REPORT.md gained "## 5.
+   Phase-4 EXIT soak runbook — start/stop/observe (Sim)", closing the gate's
+   Minor 2 (the start contract existed only by reconstruction; `grep -rn
+   "target/release/fortuna-live" --include="*.md"` found 0 hits → now present).
+   GROUNDED IN CODE, not invented: required env from boot.rs::validate_env
+   (DATABASE_URL, FORTUNA_SLACK_BOT_TOKEN, the five FORTUNA_SLACK_CHANNEL_*,
+   FORTUNA_DEADMAN_URL; ANTHROPIC_API_KEY optional iff [cognition] allow_stub_mind);
+   start/stop via the `fortuna` CLI (`start [--foreground]`, `stop [--timeout-secs
+   N]`) and the raw `./target/release/fortuna-live config/fortuna.toml`;
+   SIGTERM/SIGINT → graceful shutdown; the rearm-requires-restart fact (I2 is
+   RESTART-GATED — run_loop.rs:127-136; test
+   a_running_daemon_never_auto_clears_a_halt_on_rearm_only_a_restart_does). Ten
+   soak-watch metrics cross-referenced to the verdict. Sections renumbered 5→6
+   (go-live), 6→7 (watch-first); no cross-refs to those numbers exist. Doc-only,
+   zero code delta; full battery still run green (fmt/clippy --workspace
+   --all-targets/cargo test --workspace/run-dst.sh 10000 — all exit 0).
+   COORDINATION FLAG (operator/orchestrator dedup): a CONCURRENT session created
+   an uncommitted standalone ops-doc suite in this shared checkout during this
+   iteration — docs/runbooks/{soak-start,halt-and-rearm,kill-switch-drill,
+   fixture-recording,key-rotation-and-secrets,troubleshooting}.md + docs/
+   {architecture,operations,quickstart,verification}.md + AGENTS.md + README
+   edits. docs/runbooks/soak-start.md OVERLAPS this FINAL_REPORT §5. I committed
+   FINAL_REPORT §5 because it is the verifier-directed, kickoff-specified
+   (FINAL_REPORT.md:126) Track-A item-1 location and their files are not on this
+   branch; the two should be reconciled (likely §5 → a pointer to the canonical
+   docs/runbooks/soak-start.md once that lands). I did NOT touch the concurrent
+   files (loop-doc boundary + never git add -A).
+2. **M3 rearm notices (CLI "pending restart" + ROTA health surface) — OPEN, next.**
+   RE-POINTED to TRACK A by this directive (my prior notes logged it track-B; the
+   gate finding overrides that boundary). Must land BEFORE the operator's first
+   soak halt drill.
+3. **Annotate the two stale M2-disclosure sites (`grep -n "Major M2" GAPS.md`;
+   BUILD_PLAN T4.1 "HONESTLY DEFERRED") as RESOLVED-visibly — OPEN, trivially small.**
+4. **T4.2 post-fixture tranche — OPEN, still operator-blocked** on the Kalshi
+   fixture-recording session.
+
 ## TRACK A — T4.1/M2 COMPLETE; "EXHAUSTED" was PREMATURE — two missed ROTA-slice follow-ups taken back (#3 CLOSED, #2 next)
 
 CORRECTION (2026-06-12, this commit): the "buildable valuable work EXHAUSTED"

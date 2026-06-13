@@ -33,7 +33,9 @@ replayable via `scripts/replay.sh --seed`.
 
 **The execution plane (Phase 1).** Kalshi adapter built against doc-derived
 samples and a dated research loop (docs/research/venue/kalshi-api-2026-06-10);
-cleared for Sim only pending operator fixture recording. Paper engine with the
+cleared for Sim only pending operator fixture recording (since this report:
+fixtures/kalshi/ was operator-recorded 2026-06-11 in the demo environment, with
+the session's open gaps listed in fixtures/kalshi/README.md). Paper engine with the
 honest fill rules (maker fills ONLY on trade-through with quantity haircut —
 there is a test that fails if anyone ever fills at touch; takers cross displayed
 depth, never mid). mech_structural (bracket-sum arbitrage) and mech_extremes
@@ -200,7 +202,88 @@ Everything below is also recorded in ASSUMPTIONS.md (decisions) or GAPS.md
 | GAPS.md operator-blocked-only with unblocks | DONE |
 | FINAL_REPORT.md | This document |
 
-## 5. Operator go-live runbook
+## 5. Phase-4 EXIT soak runbook — start / stop / observe (Sim; do this now)
+
+This is the IMMEDIATE operator action: run the daemon continuously on the Sim
+venue (mock funds, zero live capital, no venue credentials) to accumulate the
+Phase-4 EXIT criterion — a continuous week green. Distinct from the go-live
+path in Section 6, which begins only after the soak and the Kalshi fixture
+session. Verified fit to start by docs/reviews/soak-go-gate-2026-06-12.md
+(ACCEPT, first unconditional). All commands run from the repo root.
+
+**Step 0 — build.** `cargo build --release` (produces `target/release/fortuna`
+— the lifecycle CLI — and `target/release/fortuna-live` — the daemon).
+
+**Step 1 — config.** Copy the committed example, which now ships `[review]` and
+the synthesis envelope:
+```
+cp config/fortuna.example.toml config/fortuna.toml
+```
+`[daemon].venue` stays `"sim"` — the only bootable venue until Kalshi fixture
+clearance (T4.2); a `kalshi` venue refuses to boot without it. For a no-LLM-spend
+soak set `[cognition] allow_stub_mind = true` (inert stub); otherwise provide
+`ANTHROPIC_API_KEY` below. Booting with NEITHER a key NOR `allow_stub_mind` is a
+deliberate hard refusal, not a silent stub.
+
+**Step 2 — secrets (`.env`; never in the repo, config, logs, or audit).** Each
+REQUIRED var below is enforced by `validate_env`; a missing or placeholder value
+refuses boot naming only the offending VAR (never its value):
+- `DATABASE_URL`
+- `FORTUNA_SLACK_BOT_TOKEN`
+- `FORTUNA_SLACK_CHANNEL_TRADING`, `_ALERTS`, `_REVIEW`, `_DIGEST`, `_OPS`
+- `FORTUNA_DEADMAN_URL`
+- OPTIONAL `ANTHROPIC_API_KEY` (absent ⇒ stub mind, only if Step 1 opted in).
+
+Load them into the environment without committing them:
+```
+set -a && source .env && set +a
+```
+
+**Step 3 — start.** Operator lifecycle is the `fortuna` CLI (it reads
+`config/fortuna.toml` by default; `--config-path <p>` overrides):
+- Managed (detached; writes pidfiles under the runtime dir, also starts the
+  perishable recorder; idempotent — a second `start` is a clean exit 0):
+  `./target/release/fortuna start`
+- Foreground (the daemon owns the terminal — simplest to watch a soak; no
+  pidfile, no recorder): `./target/release/fortuna start --foreground`, which
+  execs `./target/release/fortuna-live config/fortuna.toml`. The raw binary
+  invocation is equivalent.
+
+**Step 4 — observe.**
+- Metrics: `curl -s http://127.0.0.1:9187/metrics` (GET-only Prometheus;
+  `[daemon].metrics_bind`).
+- Slack routing (every outbound message also writes an audit row): degrade/ops
+  and the monthly operator drills → `_OPS`; the daily digest + weekly-review
+  summary → `_DIGEST`; lesson candidates → `_REVIEW`; halt/runaway alerts →
+  `_ALERTS`.
+- Dead-man: the daemon pings `FORTUNA_DEADMAN_URL` every minute — arm your
+  external monitor against that endpoint's freshness.
+- The ten soak-watch metrics the verifier tracks each firing are enumerated in
+  docs/reviews/soak-go-gate-2026-06-12.md (§SOAK-WATCH METRICS); the running
+  log is docs/reviews/soak-log.md.
+- Restart re-fires are EXPECTED, not anomalies: the weekly/monthly review
+  schedulers are in-memory and re-fire on every restart; only the daily
+  reconciliation is Postgres-idempotent (exactly one journal row per UTC day).
+
+**Step 5 — stop.** `./target/release/fortuna stop [--timeout-secs N]` (default
+60): SIGTERM the daemon then the recorder, never SIGKILL, idempotent; success
+requires the clean-shutdown line in the log AFTER the signal (process exit alone
+is not success). A foreground daemon stops on SIGTERM or SIGINT (Ctrl-C) — both
+run the same graceful `SimRunner::shutdown` (cancel working orders + a final
+audit row).
+
+**Step 6 — halt and re-arm (I2 — RESTART-GATED by design).** A drawdown or
+runaway-rate breach sets a DURABLE halt that only a human can clear, out-of-band.
+The running daemon NEVER auto-resumes when the halt is cleared — re-arming is
+gated on a restart, which is where "no automatic resumption" is strongest
+(asserted by `a_running_daemon_never_auto_clears_a_halt_on_rearm_only_a_restart_does`).
+To re-arm: (a) clear the durable halt out-of-band (operator action — not the
+daemon, not Slack), then (b) RESTART the daemon; its boot fold reads the
+set→rearm sequence and resumes. Until the restart, a cleared halt has no effect.
+[M3 — a CLI "pending restart" line + a ROTA health surface making this visible
+to the operator — lands before the first soak halt drill.]
+
+## 6. Operator go-live runbook
 
 Live capital requires every step below, in order. Nothing in the codebase can
 skip one: credentials alone unlock nothing, promotions are records only you can
@@ -260,7 +343,7 @@ beliefs per active category). System-level kill criterion (Section 11): if
 after 90 live days no strategy sustains positive CLV, shelve the synthesis
 pipeline and run mechanical-only while the thesis is re-examined.
 
-## 6. What I would watch first
+## 7. What I would watch first
 
 1. The fee model against real fills (per-fill reconciliation writes a
    discrepancy on mismatch) — fees are the quiet killer of thin edges.
