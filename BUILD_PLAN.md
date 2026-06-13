@@ -546,9 +546,11 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       deferred behind is now live). Build order: (e) /gates.recent_rejections
       [gate_reject audit] -> (e) /settlement.recent_watchdog -> (a) discovery
       joins -> (b) verdict badge. SLICE 1 DONE (59fa594): /gates.recent_rejections
-      — view_gates merges recent gate REJECTIONS from the audit gate_decision
-      trail (§5 shape, newest-first); 3 populated-path tests; battery green
-      (1384/0 + run-dst 200 0-viol). NEXT: /settlement.recent_watchdog. BLOCKED
+      (recent gate REJECTIONS from the audit gate_decision trail). SLICE 2 DONE
+      (9558d56): /settlement.recent_watchdog_events (the audit watchdog rows —
+      settlement_overdue/dispute_freeze/orphaned_position); both §5-shaped,
+      newest-first, 3 populated-path tests each, battery green (1387/0 + run-dst
+      200 0-viol). NEXT: (a) the discovery joins. BLOCKED
       (operator/verifier, GAPS): the WS gap/resync counters (need the operator-run
       live dial wired into drive()); the full s5 money model (need an operator/
       design call surfacing the mark-loop AccountView via a new SimRunner accessor).

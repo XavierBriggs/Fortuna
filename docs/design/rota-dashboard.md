@@ -681,6 +681,16 @@ explicit unavailable. 3 populated-path tests; battery green (test --workspace 13
 run-dst 200 0-viol). NEXT: /settlement recent_watchdog (resolve the watchdog vs
 settlement_overdue audit-sink path).
 
+T4.5 SLICE 2 BUILT (2026-06-13, `9558d56`): /settlement `recent_watchdog_events`.
+Audit-sink path resolved: the runner writes the table via `self.audit("watchdog",
+Some(market), {kind: <sub>})` (settlement_overdue / dispute_freeze / orphaned_position) —
+the `settlement_overdue` BUS event is separate, not the table. `view_settlement` merges
+the recent `watchdog` rows (NO verdict filter — every row is an event) → §5 `{audit_id,
+at, kind (the sub-kind), market_ref (ref_id)}`; `recent_watchdog_events_page` runtime-sqlx
+text-extract. Daemon "settlement" base view preserved; degraded/no-pool → explicit
+unavailable. 3 populated-path tests; battery green (1387/0 + run-dst 200 0-viol). NEXT:
+(a) the discovery joins (shadow-triage + tradability/edges — a new repo query).
+
 ## 11. Implementation sequence
 
 Phase 1 skeleton (tests first): ledger dep after V-5; rota module (sse,

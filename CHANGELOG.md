@@ -206,6 +206,28 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-13 — T4.5 slice: /settlement.recent_watchdog_events — `9558d56`
+
+**What.** Second T4.5 build slice (design §5), mirroring the gates slice.
+`view_settlement` (rota.rs) merges `recent_watchdog_events` when the R5 pool is
+present: the audit `watchdog` rows (sub-kinds settlement_overdue / dispute_freeze /
+orphaned_position) → `{audit_id, at, kind (the sub-kind), market_ref}`, newest-first.
+New `recent_watchdog_events_page` (runtime sqlx, `payload->>'kind'` text-extract).
+No verdict filter — every watchdog row is an event.
+
+**Honest/degraded.** Daemon-shaped "settlement" base view preserved (`views_from`
+untouched — the fortuna-live views test still asserts the array is absent there); no
+pool → explicit `available:false`; errors neutral. The bus `settlement_overdue` event
+is a separate kind; the audit table carries `watchdog`.
+
+**Tests (populated-path).** Seed all 3 watchdog sub-kinds + a non-watchdog row; assert
+only the watchdog rows surface newest-first with the full §5 shape (first/middle/last
+pinned), foreign kind excluded; available-but-empty; degraded-no-pool. code-reviewer
+ACCEPT (clean faithful mirror).
+
+**Battery.** fmt --check; clippy --workspace --all-targets -D warnings; cargo test
+--workspace (1387 passed, 0 failed); run-dst.sh 200 (0 violations).
+
 ### 2026-06-13 — T4.5 slice: /gates.recent_rejections (audit-recents) — `59fa594`
 
 **What.** First T4.5 build slice (design §5). `view_gates` (rota.rs) now merges a

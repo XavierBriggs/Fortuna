@@ -104,8 +104,13 @@ verifier amends as gates land. All standard loop rules apply unchanged.
       >> SLICE 1 DONE 59fa594 (2026-06-13): /gates.recent_rejections — view_gates merges
          recent_rejections from the audit gate_decision trail (verdict=Reject), §5 shape,
          newest-first; runtime-sqlx text-extract (audit_tail precedent); 3 populated-path
-         tests; battery green (1384/0 + run-dst 200 0-viol). NEXT: /settlement.recent_watchdog
-         (resolve the watchdog vs settlement_overdue audit-sink path first).
+         tests; battery green (1384/0 + run-dst 200 0-viol).
+      >> SLICE 2 DONE 9558d56 (2026-06-13): /settlement.recent_watchdog_events — view_settlement
+         merges the audit `watchdog` rows (sub-kinds settlement_overdue/dispute_freeze/
+         orphaned_position; ref_id=market), §5 {audit_id,at,kind,market_ref}, newest-first;
+         runtime-sqlx text-extract; 3 populated-path tests; battery green (1387/0 + run-dst
+         200 0-viol). NEXT: (a) discovery joins (shadow-triage recall/precision + tradability/
+         edges) — a NEW repo query; then (b) verdict badge (low value).
       BLOCKED (operator/verifier, see GAPS): (c) WS counters need the operator-run live
       dial wired into drive(); (d) full money model needs an operator/design call to
       surface the mark-loop AccountView via a SimRunner accessor.
