@@ -41,6 +41,18 @@ truth, reclaim disk, and think like the principal engineer of this team. Every l
 prompt now carries: a clear goal, the production-ready/live-tested bar, and "use the
 feature-dev subagents."
 
+## DOC OWNERSHIP (doc-hygiene directive 2026-06-13 — codifying the emerging model; prevents 5-track collisions)
+- ONE root `CHANGELOG.md`; each track APPENDS its own scoped subsection (append-only; track-A/D
+  already converged here — NO per-track changelog FILES).
+- `docs/operator.md` = ORCHESTRATOR-owned (cross-cutting operator deps: keys/flags/signatures/
+  promotions/views; NOT vendor fixtures = AGENT work). Created + code-verified this session.
+  A track introducing a new operator dep REQUESTS it via GAPS; orchestrator adds it, verified.
+- `docs/architecture.md` = per-subsystem SECTIONS; each track targeted-edits ONLY its own section.
+- Domain docs (`docs/design/track-X-*`, `docs/runbooks/X-ops.md`) = track-owned; verifier docs
+  (`docs/reviews/*`, this bus, `docs/verification.md`) = orchestrator-owned.
+- EVERY doc edit: TARGETED + accurate + VERIFY-CLAIM-AGAINST-CODE + mark not-yet-built as pending
+  (never as done). No stale docs.
+
 ## CAMPAIGN STATE (completion-audit-2026-06-13.md is authoritative)
 
 - Phases 0–3 + T4.1 daemon (SOAK: GO) + T4.4 CLI + T4.3 ROTA (R12 PASSED):
