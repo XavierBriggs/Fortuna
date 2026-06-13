@@ -13,6 +13,21 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-13, cont'd — verifier loop pass)
 
+- **TRACK A VENUE/EXEC (kill-switch I4 Kalshi plug + Slack listener) MERGED → main
+  @ 62d4ce4 = GATE ACCEPT.** The last + most safety-critical tranche (track-a
+  RALPH-STOPPED). I4: `freeze --venue kalshi` on a self-spun reactor (own
+  FORTUNA_KILLSWITCH_* creds, NOT the daemon loop); i4_killswitch_independence
+  PASSES (structural dep-graph clean — tokio added but NOT in the forbidden
+  postgres/ledger/cognition set; behavioral freeze with DATABASE_URL gone +
+  runtime killed). kalshi_freeze 1 + kalshi_live_wiring 9. **PROTECTED crate
+  fortuna-invariants UNTOUCHED — the I4 test was NOT weakened to admit tokio
+  (verified by empty diff).** I2: re-arm over Slack REFUSED BY CONSTRUCTION (the
+  HaltRequestSink trait has only request_halt, no rearm/clear — a compromised
+  token can halt but never un-halt); allow-list fail-closed, MUTATION-PROVEN
+  (bypass user_allowed → unauthorized + fail_closed tests red). socket 14 +
+  socket_loop 12 + rota 43. Sim/demo only. >> **ALL FOUR ACTIVE TRACKS' WORK NOW
+  ON MAIN** — producers + first trader + dashboard + kill-switch/listener.
+
 - **TRACK C PERP PIPELINE (perp_event_basis STRATEGY + slice-4 composition) MERGED
   → main @ 9c4026e = GATE ACCEPT.** The FIRST perp trader + its Sim ingestion seam.
   I6: the strategy emits ONE UNSIZED maker leg (no qty — the harness sizes; never
