@@ -28,7 +28,30 @@ listener (mock transport; live needs operator token). (3) T4.5 deferred
 panels + the re-scoped §5 money model + audit-recents. Accommodate track
 D's one flagged drive() seam as a neighbor's commit, do not rewrite it.
 
-## TRACK C — DONE. Perp PLANE merged; funding-forecast kernel (507b1ad) is the B7 input. B7/B8 REASSIGNED to track A (they live in track A's crates — ownership correction; track C correctly stopped). Track C has no remaining in-ownership work.
+## TRACK C — DONE; B7/B8 are DESIGN-BLOCKED (not just track-A coding — verifier correction)
+
+Perp plane merged; funding-forecast kernel (507b1ad) is the only in-clear-
+ownership B7 piece, done + gate-clean (battery 991/0 at stop). Track C's
+design-validation surfaced that B7/B8 hit THREE walls, two of them DESIGN
+decisions an implementer cannot make:
+1. INTERFACE IMPEDANCE: Strategy/Proposal/CoreHandle are Cents/YES-NO-shaped;
+   CoreHandle exposes no perp data. No seam exists to plug a perp strategy in.
+2. UNBUILT FOUNDATION: funding_forecast emits SCALAR claims but BeliefDraft is
+   binary-only; the prob_claims/v1 scalar type does not exist. (Same scalar
+   gap the Aeolus weather signal and possibly track E's personas hit — a
+   foundational type worth designing ONCE.)
+3. UN-INVENTABLE MODELING: perp_event_basis needs an unspecified basis model +
+   bracket math (never-invent rule forbids guessing).
+VERIFIER CORRECTION: my prior "B7/B8 -> track A, ~4-6 iterations" was WRONG —
+this is design-blocked. RESOLUTION MENU (operator picks): (a) grant track C
+new-FILE ownership of perp strategy plugins in fortuna-runner + sequence
+against track A's active work + pick the perp-data seam + specify the models;
+OR (b) track A builds the runner perp-seam (the perp-data interface) first,
+then strategies build on it; OR (c) a focused DESIGN pass (perp-strategy seam
++ prob_claims/v1 scalar type + the basis model), operator-approved, then
+built. RECOMMENDED: (c) — the scalar-claims type is foundational across perps
++ weather + personas; design it once, properly, before three features each
+hack around BeliefDraft being binary-only.
 
 Branch: you Reapplied the reverted merge (d81ab6c) — tip = main + the full
 perps tranche as forward history. REBASE RULE: never plain-rebase onto
