@@ -1936,6 +1936,59 @@ observed so far: `INVALID_PARAMETER` (malformed key id) and
   5.2 alongside the corrections; the Kalshi event quadratic x0.07 is now
   marked fixture-confirmed (real demo fill, 2026-06-11).
 
+## RALPH STOP 2026-06-13T02:34:09Z (track C — queue exhausted/out-of-ownership)
+
+Stopping per loop rule 6 ("every priority item is blocked/exhausted — do
+NOT invent unrequested work to stay busy; idle-and-stopped beats bloat").
+Verified against the 2026-06-13 bus (main @ caefc14) this iteration:
+
+PRIORITY (a) — bus track-C work = the perps RE-MERGE PACKAGE. COMPLETE
+from my side at commit e027250 (this branch, tip = reapply d81ab6c + my
+fixes):
+  1. kinetics test re-recording-proof rework (all 4 suites derive
+     through the path; the revert root-cause UUID pin is gone) — DONE.
+  2. operator 2x leverage ceiling (min(config, asset cap), boundary-
+     pinned) — DONE.
+  3. full re-gate at 10000 -> re-merge — the BATTERY is green at 10000
+     (fmt/clippy/workspace 966/0/DST exit 0, corpus 4 seeds); the
+     re-gate + re-merge itself is VERIFIER-OWNED. I am blocked on the
+     verifier for the perps plane to land on main. No track-c re-gate
+     verdict exists past e027250 yet (latest reviews are 2026-06-12,
+     pre-dating this commit).
+
+PRIORITY (b) — loop queue after the red-seed fix = T5.B7 -> T5.B8. BOTH
+are OUTSIDE track-C ownership (rule 7: I own perp modules in
+fortuna-core, fortuna-gates perp extensions, fortuna-state margin pieces,
+fortuna-venues/src/kinetics*, perp DST arms — and nothing else):
+  - T5.B7 perp strategies (perp_event_basis / funding_forecast /
+    funding_carry) would live in crates/fortuna-runner/ alongside
+    mech_structural/mech_extremes/synthesis — NOT an owned crate.
+  - T5.B8 kill-switch perps flatten lives in crates/fortuna-killswitch/
+    (a SEPARATE I4 binary the loop forbids coupling to my crates);
+    margin/funding telemetry + the funding-regime ROTA panel live in
+    fortuna-ops / fortuna-runner / assets — none owned.
+  Per rule 7 these are LEDGER + SKIP, not buildable by track C. They
+  need either a track that owns those crates, or an explicit ownership
+  expansion + the perps plane RE-MERGED first (B7 strategies consume the
+  perp gate arm + types + sim; B8 flatten consumes the kinetics adapter
+  — both should build on a MERGED base, not stack more on the unmerged
+  re-merge branch and compound re-gate risk).
+
+NET: the entire in-ownership perps tranche (B2, B3, B4, B5, B6 + the
+gate-fix batch + the re-merge package) is DONE and gate-clean; the
+north-star "B2-B6 as gate-clean work allows" is fully met. Nothing
+in-ownership remains. The branch awaits the verifier's re-gate + the
+operator's standing signatures (waive batch 5 + F1, already approved) to
+re-merge. REBASE HAZARD (bus): do NOT plain-rebase this branch onto main
+while revert 19b3888 is in history — it drops these commits as
+duplicate-applied; the verifier re-merges, or use
+`git rebase --reapply-cherry-picks`.
+
+Battery at stop (this iteration, current HEAD e027250): fmt 0, clippy 0,
+workspace 966/0, run-dst.sh 10000 exit 0 (4 corpus seeds incl. the
+committed red seed; all 7 perp DST arms fire). Branch clean, nothing
+pushed.
+
 ## PERPS RE-MERGE PACKAGE: COMPLETE (track C, 2026-06-12, re-armed loop)
 
 Per the bus ("FOR THE POOL / restarted TRACK C") + the amended loop
