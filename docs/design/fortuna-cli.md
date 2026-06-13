@@ -17,6 +17,13 @@ A1. T4.1 SHUTDOWN CONTRACT (was Blocker 1 — the body's Section 1.3 claim
     that assertion exists, and `stop` declares success only after confirming
     the shutdown audit line in the daemon log — process exit alone is not
     success.
+    [2026-06-12: the contracted assertions now EXIST —
+    `signal_with_working_orders_cancels_them_and_audits` and
+    `daemon_smoke_boot_ticks_signal_shutdown`
+    (crates/fortuna-live/tests/daemon_smoke.rs) fire the same stop channel
+    main's SIGTERM handler fires and assert cancel-working-orders + the
+    final audit row, atop `shutdown_cancels_acked_working_orders_and_audits`
+    (crates/fortuna-live/tests/shutdown.rs).]
 A2. RECORDER COLLISION (was Blocker 2): a recorder is ALREADY running,
     started manually, no pidfile (live invocation: fortuna-recorder
     --interval-secs 30 --bracket-series KXBTC15M,KXBTC,KXBTCD, cwd = repo
