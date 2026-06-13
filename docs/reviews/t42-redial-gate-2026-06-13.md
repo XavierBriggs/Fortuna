@@ -57,3 +57,24 @@ agent's incomplete word; every PASS here carries a command I ran this session.
 
 Merge note: the slice is on main as track-A's own commit; this CERTIFIES it
 (ACCEPT-WITH-GAPS). No fix-forward required; the Minor is a coverage add.
+
+## ADDENDUM 1 — Sleeper-injection follow-up (7fb57c9) + a self-correction
+
+The Sleeper follow-up (7fb57c9): CERTIFIED. Track A went beyond this gate's
+requirement — my rubric A accepted the tokio edge sleep as PASS, but track A
+injected it through a `Sleeper` trait (TokioSleeper prod / RecordingSleeper
+tests), so run_dial now embeds NO wall time and tests are deterministic without
+real delays. The cancellable select is preserved (cancel.changed() arm still
+present alongside sleeper.sleep). async-trait is a workspace dep. clippy
+-D warnings clean.
+
+SELF-CORRECTION (claim-vs-reality discipline applies to the verifier too): the
+original verdict above cited `cargo test --test kalshi_ws => 7 passed` as
+evidence the recovery test passes — that was the WRONG TARGET (the WS-PARSER
+integration tests, coincidentally also 7). The dial recovery/cancel tests are
+LIB unit tests in dial.rs. Corrected: ran
+`cargo test -p fortuna-venues --lib dial` =>
+`run_dial_survives_a_reset_then_a_502_and_recovers ... ok` (7 passed, 0 failed)
+at 7fb57c9. The original verdict's CONCLUSION stands (the killed agent's
+mutation evidence and the non-vacuous assertion-reading carried it); only my
+cited command was mistargeted. Now confirmed by the correct target.
