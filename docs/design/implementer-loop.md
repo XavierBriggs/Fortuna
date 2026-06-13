@@ -19,12 +19,7 @@ EACH ITERATION, do exactly ONE item, then commit and start the next iteration.
 
 1. PRIORITY ORDER: (a) new gate findings — check BOTH
    docs/reviews/GATE-FINDINGS-LATEST.md (verifier-owned, race-free) AND
-   GAPS.md; a BLOCK preempts everything; (b) YOU ARE TRACK A (docs/design/orchestration.md governs): T4.1 tail —
-   synthesis-in-main is UNBLOCKED by docs/design/
-   synthesis-edge-source-decision.md (EdgesRepo, confirmed-only, binding
-   requirements 1-5 there) -> mech_extremes+veto -> mind binding -> rich
-   digest -> tick T4.1 (starts the soak) -> T4.2 -> T4.5. T4.3/T4.4 belong
-   to track B; T5.B belongs to track C — do not touch their files.
+   GAPS.md; a BLOCK preempts everything; (b) YOU ARE TRACK A: your queue is docs/design/track-a-completion-queue.md (re-read it every iteration; it is verifier-amended). T4.3/T4.4 were track B (merged); T5.B is track C; news is track D — do not touch their files except as the queue file states.
 
 2. DESIGN-VALIDATE-BEFORE-BUILD: T4.3 and T4.4 have authoritative design docs
    (docs/design/rota-dashboard.md, docs/design/fortuna-cli.md — INCLUDING their
