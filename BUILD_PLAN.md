@@ -532,8 +532,12 @@ Polymarket research+fixtures, spec v0.9 touch-up).
         local DB (d8bae95). The reusable screenshot rig for later boards.
   - [x] V2 Sources Health (D ingestion contract) — generic {title,columns,rows,
         summary} boardTable renderer (reused by V1/V3-V6) + /api/rota/v1/ingest_sources
-        handler + populated-path test; screenshot-verified with real rows (this
-        commit). Prod data pending track-A OBS-2 publish (IngestionTelemetry on main).
+        handler + populated-path test; screenshot-verified with real rows (c521ae1).
+        Prod data pending track-A OBS-2 publish (IngestionTelemetry on main).
+  - [x] V1 Live Signal Feed (D ingestion contract, the marquee) — reuses boardTable
+        via a data-driven `pill` column flag + /api/rota/v1/ingest_feed handler +
+        populated-path test; screenshot-verified with real rows (this commit).
+        Prod data pending track-A OBS-2 feed publish.
 
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)

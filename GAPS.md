@@ -763,6 +763,32 @@ Until those land, the new boards ship as read-only frontend + honest-degraded
 (`available:false`) handlers — the discipline all three contracts specify
 ("build the panels now; they light up when the data lands").
 
+### V1 LIVE SIGNAL FEED DONE (2026-06-13) — the marquee feed board + boardTable pill-flag refactor + the OBS-2 feed envelope contract
+Built the D-contract V1 Live Signal Feed (`view_ingest_feed` reads
+`snapshot.views["ingest_feed"]`; reuses the generic `boardTable`; new full-width
+panel + poll; PATHS/degraded extended; POPULATED-path test
+`ingest_feed_board_serves_seeded_signals`). REFACTOR: `boardTable`'s pill rendering
+is now a data-driven column flag (`{key,label,pill:true}` → `valuePill`) instead of
+a hardcoded `key==="health"` — so V1's status pill + V2's health pill share one
+generic path. CONTRACT UPDATE for track A's OBS-2: the V2 sources envelope's
+`health` column now carries `"pill": true` (else it renders as plain text).
+feature-dev code-reviewer: XSS trace clean on the untrusted `summary` (esc()'d both
+paths), no blockers; fixed null-pill to render `—`. Screenshot-verified with real
+rows; archived docs/reviews/rota-visual/rota-v1-live-feed-2026-06-13.png.
+
+OBS-2 FEED ENVELOPE for TRACK A (shape `IngestionTelemetry.recent` newest-first into
+`snapshot.views["ingest_feed"]`):
+  { title:"Live Signal Feed", generated_at:<clock>,
+    columns:[{key,label} for at, source_id, kind, claimed_time,
+       {key:"status",label:"Status",pill:true}, summary],
+    rows:[ one per SignalRecord newest-first: at (received_at), source_id, kind,
+       claimed_time (null ok), status ("accepted" | "dropped:<reason>"),
+       summary (REDACTED payload projection — untrusted DATA, the renderer esc()s
+       it; never secrets, spec 5.11) ],
+    summary:{ window (#shown), accepted, dropped } }
+Direct field copies from SignalRecord (no derivations). Until OBS-2 publishes the
+feed renders honest-degraded (available:false).
+
 ### V2 SOURCES HEALTH DONE (2026-06-13) — first ingestion board + the generic renderer + the OBS-2 envelope contract for track A
 Built the D-contract V2 Sources Health board: handler `view_ingest_sources` reads
 `snapshot.views["ingest_sources"]`; a GENERIC `boardTable` JS renderer for the

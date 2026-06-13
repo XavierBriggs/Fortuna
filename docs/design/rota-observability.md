@@ -30,7 +30,7 @@ telemetry on every layer — consuming the C/D/E observability contracts.
 | Streams | `/streams` | snapshot + recorder fs | B | DONE + verified |
 | Audit | `/audit` | ledger | B | DONE + verified |
 | Ingest — Sources (D V2) | `/ingest_sources` | `IngestionTelemetry` (on main) | D publish | **DONE** — handler + generic `boardTable` renderer + populated test + screenshot (harness seed); prod data pending track-A OBS-2 publish |
-| Ingest — Live Feed (D V1) | `/ingest_feed` | `IngestionTelemetry` (on main) | D publish | frontend-buildable now (generic `boardTable` landed); prod data = track-A OBS-2 |
+| Ingest — Live Feed (D V1) | `/ingest_feed` | `IngestionTelemetry.recent` (on main) | D publish | **DONE** — marquee feed board (reuses `boardTable` + a data-driven `pill` status flag) + populated test + screenshot; prod data pending OBS-2 publish |
 | Ingest — Funnel (D V3) | `/ingest_funnel` | `IngestionTelemetry` (on main) | D publish | "" |
 | Vendor Scorecard (D V4) | `/ingest/scorecard` | `source_reliability` | D (Layer-3 job) | BLOCKED on the Layer-3 trust-attribution job |
 | Forecast→Outcome (D V5) | `/forecast_outcome` | beliefs+events+settlements+signals | mixed | BLOCKED on the data flow |

@@ -66,6 +66,7 @@ pub fn rota_router(state: RotaState) -> Router {
         .route("/api/rota/v1/settlement", get(view_settlement))
         .route("/api/rota/v1/streams", get(view_streams))
         .route("/api/rota/v1/ingest_sources", get(view_ingest_sources))
+        .route("/api/rota/v1/ingest_feed", get(view_ingest_feed))
         .route("/api/rota/v1/audit", get(audit_tail))
         .with_state(state)
 }
@@ -111,6 +112,17 @@ async fn view_settlement(State(s): State<RotaState>) -> impl IntoResponse {
 /// projection — zero ingestion-crate dependency, exactly like `view_health`.
 async fn view_ingest_sources(State(s): State<RotaState>) -> impl IntoResponse {
     Json(read_view(&s, "ingest_sources").await)
+}
+
+/// D-contract V1 Live Signal Feed (ingestion-observability §4) — the marquee
+/// view: the recently ingested/dropped signals newest-first with their actual
+/// (redacted) payload summary. The same generic board envelope as V2, served
+/// from `snapshot.views["ingest_feed"]`; the daemon's OBS-2 publish shapes it
+/// from `IngestionTelemetry.recent` (the SignalRecord ring). Honest-degraded
+/// until that lands. Untrusted summary text stays quoted data, esc()'d in the
+/// renderer (spec 5.11) — never interpreted.
+async fn view_ingest_feed(State(s): State<RotaState>) -> impl IntoResponse {
+    Json(read_view(&s, "ingest_feed").await)
 }
 
 /// Evidence payloads are operator-readable JSONB of unbounded size; the
@@ -523,6 +535,7 @@ const ROTA_SHELL: &str = r#"<!doctype html><html lang="en"><head>
   <div class="panel"><h2>Settlement</h2><div id="settlement">…</div></div>
   <div class="panel"><h2>Streams</h2><div id="streams">…</div></div>
   <div class="panel wide"><h2>Sources Health</h2><div id="ingest_sources">…</div></div>
+  <div class="panel wide"><h2>Live Signal Feed</h2><div id="ingest_feed">…</div></div>
   <div class="panel"><h2>Audit tail</h2><div id="audit">…</div></div>
 </div>
 <script>
@@ -535,10 +548,14 @@ const pill=(t,c)=>`<span class="pill ${esc(c)}">${esc(t)}</span>`;
 const raw=j=>`<details class="raw"><summary>raw</summary><pre>${esc(JSON.stringify(j,null,2))}</pre></details>`;
 const asof=j=>j.generated_at?`<div class="asof">as of ${esc(j.generated_at)} UTC</div>`:"";
 function gate(j){if(j&&j.status==="unavailable")return `<div class="warn">${esc(j.detail||"unavailable")}</div>`;return null;}
-const healthPill=h=>{const c=h==="healthy"?"ok":h==="quarantined"?"bad":"dim";return pill(h||"?",c);};
-// Generic D-contract board: {title,columns,rows,summary} rendered as a table —
-// every ingestion board (V1-V6) reuses this with only a new view key (§4 "render
-// any board generically"). A `health` column renders a pill; nulls render "—".
+// A status-token pill: green for healthy/accepted, red for quarantined, muted
+// otherwise (degraded, dropped:*). Drives any column the envelope flags `pill`.
+const valuePill=v=>{if(v==null)return "—";const s=String(v);const c=(s==="healthy"||s==="accepted")?"ok":s==="quarantined"?"bad":"dim";return pill(s,c);};
+// Generic D-contract board: {title, columns:[{key,label,pill?}], rows, summary}
+// rendered as a table — every ingestion board (V1-V6) reuses this with only a new
+// view key (§4 "render any board generically"). A column flagged `pill:true`
+// renders its value as a status pill; nulls render "—". Cells, labels, and
+// summary values are all esc()'d (untrusted ingestion data, spec 5.11).
 function boardTable(j){
   const cols=(j&&j.columns)||[],rows=(j&&j.rows)||[];
   if(!cols.length)return `<div class="warn">no columns</div>`;
@@ -547,7 +564,7 @@ function boardTable(j){
   if(!rows.length)return h+`<div class="row">no rows yet</div>`;
   h+=`<table class="board"><thead><tr>`+cols.map(c=>`<th>${esc(c.label||c.key)}</th>`).join("")+`</tr></thead><tbody>`;
   rows.forEach(r=>{h+=`<tr>`+cols.map(c=>{const v=r[c.key];
-    return c.key==="health"?`<td>${healthPill(v)}</td>`:`<td>${v==null?"—":esc(v)}</td>`;}).join("")+`</tr>`;});
+    return c.pill?`<td>${valuePill(v)}</td>`:`<td>${v==null?"—":esc(v)}</td>`;}).join("")+`</tr>`;});
   h+=`</tbody></table>`;
   return h;
 }
@@ -592,6 +609,7 @@ const R={
     (r.healthy?pill("live","ok"):pill("stale","bad"))+" "+(r.last_capture_age_secs??"—")+"s"));
   return h;},
  ingest_sources(j){return boardTable(j);},
+ ingest_feed(j){return boardTable(j);},
  audit(j){if(!j.available)return `<div class="warn">${esc(j.detail||"unavailable")}</div>`;
   let h="";j.rows.slice(-12).forEach(r=>h+=`<div class="row">${esc(r.at)} UTC ${esc(r.kind)}${r.actor?" · "+esc(r.actor):""}</div>`);
   return h||`<div class="row">no audit rows yet</div>`;}
@@ -602,6 +620,6 @@ async function poll(name){const el=document.getElementById(name);
   el.innerHTML=(gate(j)??R[name](j))+raw(j)+asof(j);
  }catch(e){el.innerHTML=`<div class="warn">unreachable: ${esc(e)}</div>`;}}
 function every(ms,names){names.forEach(poll);setInterval(()=>names.forEach(poll),ms);}
-every(2000,["health","audit"]);every(5000,["money","gates","ingest_sources"]);
+every(2000,["health","audit"]);every(5000,["money","gates","ingest_sources","ingest_feed"]);
 every(10000,["cognition","settlement"]);every(15000,["streams"]);
 </script></body></html>"#;

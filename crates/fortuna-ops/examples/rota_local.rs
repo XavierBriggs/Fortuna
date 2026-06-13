@@ -379,7 +379,7 @@ fn representative_views(generated_at: &str) -> Value {
             "generated_at": generated_at,
             "columns": [
                 { "key": "source_id", "label": "Source" },
-                { "key": "health", "label": "Health" },
+                { "key": "health", "label": "Health", "pill": true },
                 { "key": "last_ok_age_s", "label": "Last OK" },
                 { "key": "polls", "label": "Polls" },
                 { "key": "accepted", "label": "Acc" },
@@ -405,6 +405,41 @@ fn representative_views(generated_at: &str) -> Value {
                   "next_due_at": "2026-06-13T12:40:00Z" },
             ],
             "summary": { "healthy": 2, "degraded": 1, "quarantined": 0, "accepted": 166, "dropped": 188 },
+        },
+        // D-contract V1 Live Signal Feed — the marquee view: recent signals
+        // newest-first with their actual (redacted) payload summary + accept/drop
+        // status. In prod the daemon shapes this from IngestionTelemetry.recent
+        // (SignalRecord ring). The `summary` cells are UNTRUSTED ingestion data
+        // (quoted, esc()'d in the renderer, never interpreted — spec 5.11).
+        "ingest_feed": {
+            "title": "Live Signal Feed",
+            "generated_at": generated_at,
+            "columns": [
+                { "key": "at", "label": "Time (UTC)" },
+                { "key": "source_id", "label": "Source" },
+                { "key": "kind", "label": "Kind" },
+                { "key": "claimed_time", "label": "Claimed" },
+                { "key": "status", "label": "Status", "pill": true },
+                { "key": "summary", "label": "Data" },
+            ],
+            "rows": [
+                { "at": "2026-06-13T12:34:58Z", "source_id": "nws_alerts", "kind": "nws.alert",
+                  "claimed_time": "2026-06-13T12:34:40Z", "status": "accepted",
+                  "summary": "Severe Thunderstorm Warning — Kings County NY until 13:30 EDT" },
+                { "at": "2026-06-13T12:34:55Z", "source_id": "nws_afd", "kind": "nws.afd",
+                  "claimed_time": "2026-06-13T12:30:00Z", "status": "dropped:over_volume",
+                  "summary": "Area Forecast Discussion (NYC) — 14KB, over per-poll volume cap" },
+                { "at": "2026-06-13T12:34:31Z", "source_id": "aeolus_forecast", "kind": "aeolus.forecast",
+                  "claimed_time": "2026-06-13T12:00:00Z", "status": "accepted",
+                  "summary": "KNYC tmax μ=67.2 σ=3.1 (run 2026-06-13T06Z)" },
+                { "at": "2026-06-13T12:33:12Z", "source_id": "nws_alerts", "kind": "nws.alert",
+                  "claimed_time": "2026-06-13T11:50:00Z", "status": "dropped:republished",
+                  "summary": "Flood Watch (re-issue, identity match) — Bronx" },
+                { "at": "2026-06-13T12:32:40Z", "source_id": "nws_afd", "kind": "nws.afd",
+                  "claimed_time": Value::Null, "status": "dropped:future",
+                  "summary": "AFD with claimed_time ahead of now — rejected" },
+            ],
+            "summary": { "window": 5, "accepted": 2, "dropped": 3 },
         },
     })
 }

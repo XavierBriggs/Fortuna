@@ -66,7 +66,7 @@ async fn serve() -> (String, tokio::task::JoinHandle<()>) {
     (format!("http://{addr}"), handle)
 }
 
-const PATHS: [&str; 10] = [
+const PATHS: [&str; 11] = [
     "/rota",
     "/assets/rota/logo.svg",
     "/api/rota/v1/health",
@@ -76,6 +76,7 @@ const PATHS: [&str; 10] = [
     "/api/rota/v1/settlement",
     "/api/rota/v1/streams",
     "/api/rota/v1/ingest_sources",
+    "/api/rota/v1/ingest_feed",
     "/api/rota/v1/audit",
 ];
 
@@ -124,6 +125,7 @@ async fn degraded_surfaces_are_200_with_explicit_unavailable() {
         "settlement",
         "streams",
         "ingest_sources",
+        "ingest_feed",
     ] {
         let j: serde_json::Value = client
             .get(format!("{base}/api/rota/v1/{name}"))
@@ -224,6 +226,55 @@ async fn ingest_sources_board_serves_seeded_rows() {
     // The AFD-firehose (huge over-volume drop) the V2 board exists to surface.
     assert_eq!(j["rows"][1]["dropped_over_volume"], 171);
     assert_eq!(j["summary"]["degraded"], 1);
+}
+
+// D-contract V1 Live Signal Feed: the marquee feed board serves the recent
+// SignalRecords newest-first. POPULATED-path — asserts real seeded rows incl. an
+// untrusted summary and a drop status, served verbatim for the boardTable
+// renderer (which esc()'s the untrusted summary, spec 5.11).
+#[tokio::test]
+async fn ingest_feed_board_serves_seeded_signals() {
+    let snap = empty_snapshot();
+    {
+        let mut s = snap.write().await;
+        s.views = serde_json::json!({
+            "ingest_feed": {
+                "title": "Live Signal Feed",
+                "columns": [
+                    {"key":"at","label":"Time (UTC)"},
+                    {"key":"source_id","label":"Source"},
+                    {"key":"status","label":"Status","pill":true},
+                    {"key":"summary","label":"Data"}
+                ],
+                "rows": [
+                    {"at":"2026-06-13T12:34:58Z","source_id":"nws_alerts","status":"accepted",
+                     "summary":"Severe Thunderstorm Warning — Kings County NY"},
+                    {"at":"2026-06-13T12:34:55Z","source_id":"nws_afd","status":"dropped:over_volume",
+                     "summary":"AFD over per-poll volume cap"}
+                ],
+                "summary": {"window":2,"accepted":1,"dropped":1}
+            }
+        });
+    }
+    let app = rota_router(RotaState::standalone(snap));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/ingest_feed"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "both seeded signals served");
+    assert_eq!(j["rows"][0]["source_id"], "nws_alerts");
+    assert_eq!(j["rows"][0]["status"], "accepted");
+    // The untrusted summary is carried verbatim as DATA (the renderer esc()s it).
+    assert_eq!(j["rows"][1]["status"], "dropped:over_volume");
+    assert_eq!(j["summary"]["dropped"], 1);
 }
 
 #[tokio::test]
