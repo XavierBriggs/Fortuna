@@ -638,6 +638,19 @@ Polymarket research+fixtures, spec v0.9 touch-up).
         (track-C/A, not track-B); screenshot-verified (this commit, 19 boards). Completes
         the Personas board's two halves (registry + scorecard). The §20.1 baselines/
         verdict + §20.3 provenance-linking + §20.4 pipeline funnel remain (GAPS).
+  - [x] Telemetry board (mission item 6, "the Prometheus stack on the console" — the
+        LAST untouched pillar) — MetricsRegistry::telemetry_board (NEW fortuna-ops
+        method) folds the registry's structured series into a board (one row per
+        series: subsystem-from-name-prefix + metric + type + value, grouped by
+        subsystem); daemon composition adds one additive views["telemetry"] key (the
+        ROTA seam, daemon_smoke 15/15); view_telemetry is a read_view passthrough (R2 —
+        no Prometheus-text parsing). metrics.rs unit test (the shaping) + fortuna-ops
+        handler test + harness exercises the real telemetry_board; reviewer-clean;
+        battery green EXCEPT the same pre-existing main kinetics_dto red (track-C/A);
+        screenshot-verified (this commit, 20 boards). >>> THE SINGLE PANE OF GLASS NOW
+        SPANS ALL 6 MISSION ITEMS (cognition, pipeline, trades, discovery, DB,
+        telemetry). Live prod metrics populate when the daemon runs; help-text + metric
+        search are later polish (GAPS).
 
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)

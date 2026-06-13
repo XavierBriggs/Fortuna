@@ -36,6 +36,7 @@ use fortuna_ledger::{
     ScalarBeliefsRepo,
 };
 use fortuna_ops::dashboard::{serve_dashboard, DashboardSnapshot};
+use fortuna_ops::metrics::MetricsRegistry;
 use fortuna_ops::rota::RotaState;
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -895,7 +896,51 @@ fn representative_views(generated_at: &str) -> Value {
             ],
             "summary": { "working": 2 },
         },
+        // Telemetry (mission item 6): exercise the REAL MetricsRegistry::telemetry_board
+        // shaping with a representative cross-subsystem registry, so the screenshot
+        // matches the daemon path exactly (not a hand-written envelope).
+        "telemetry": representative_telemetry(generated_at),
     })
+}
+
+/// A representative `MetricsRegistry` across several subsystems, shaped through the
+/// SAME `telemetry_board` the daemon calls — so the local Telemetry board renders the
+/// real exposition shape with real (non-zero) integer series.
+fn representative_telemetry(generated_at: &str) -> Value {
+    let mut m = MetricsRegistry::new();
+    m.describe_gauge(
+        "fortuna_exec_working_orders",
+        "intents resting at the venue",
+    );
+    m.set_gauge("fortuna_exec_working_orders", &[], 2);
+    m.describe_counter("fortuna_gate_rejections_total", "orders refused by a gate");
+    m.inc_counter(
+        "fortuna_gate_rejections_total",
+        &[("check", "edge_floor")],
+        7,
+    )
+    .expect("positive representative counter");
+    m.inc_counter(
+        "fortuna_gate_rejections_total",
+        &[("check", "rate_limit")],
+        1,
+    )
+    .expect("positive representative counter");
+    m.describe_counter(
+        "fortuna_ingest_accepted_total",
+        "signals accepted by ingestion",
+    );
+    m.inc_counter(
+        "fortuna_ingest_accepted_total",
+        &[("source", "nws_alerts")],
+        58,
+    )
+    .expect("positive representative counter");
+    m.describe_gauge("fortuna_state_capital_in_limbo_cents", "unsettled capital");
+    m.set_gauge("fortuna_state_capital_in_limbo_cents", &[], 4200);
+    m.describe_gauge("fortuna_killswitch_armed", "kill-switch armed (1=armed)");
+    m.set_gauge("fortuna_killswitch_armed", &[], 1);
+    m.telemetry_board(generated_at)
 }
 
 /// Create a temp perishable dir with a today-dated `.jsonl` stream file so the

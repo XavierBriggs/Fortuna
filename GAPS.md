@@ -778,6 +778,39 @@ Track-B impact: my full-workspace battery is green on EVERYTHING ELSE (1216 pass
 this 1 pre-existing main red / DST exit 0 / daemon_smoke 15/15 / clippy + fmt clean);
 this red is inherited from main, independent of the ROTA work.
 
+### TELEMETRY DONE (2026-06-13) — mission item 6 (the Prometheus stack on the console)
+Built the Telemetry board (`/api/rota/v1/telemetry`) — mission item 6, the LAST untouched
+pillar: the metric SERIES the daemon exports (the SAME `MetricsRegistry` the `/metrics`
+exposition is rendered from), grouped by subsystem, on the console. R2-CLEAN by design:
+the DAEMON shapes it, ROTA serves it — `MetricsRegistry::telemetry_board(generated_at)`
+(NEW method, fortuna-ops) folds the registry's structured `series` (family → series_key →
+i64) into a {title,columns,rows,summary} board: one row per series with {subsystem (derived
+from the `fortuna_<sub>_` name prefix → ingest/gate/exec/state/venue/killswitch/cognition/…;
+no prefix → "other"), metric (name+labels), type (counter/gauge), value}, grouped by
+subsystem (the name-sorted families). The daemon composition (main.rs, the ROTA seam) binds
+the registry it already builds for `render_prometheus()` and adds ONE additive view key
+`views["telemetry"] = registry.telemetry_board(...)`. view_telemetry is a `read_view`
+passthrough — ROTA NEVER parses Prometheus text (R2). A PURE read of the already-structured
+registry (no clock/IO/mutation; panic-free subsystem derivation). PATHS[22] + degraded-loop
++ harness `representative_telemetry` (builds a real cross-subsystem registry + calls
+telemetry_board → the screenshot exercises the EXACT daemon path). TWO tests: the metrics.rs
+unit test (`telemetry_board_shapes_registered_metrics_by_subsystem` — multi-subsystem +
+labelled multi-series + the "other" fallback) is the POPULATED-path shaping test, + a
+fortuna-ops handler test (seeded view served). Reviewer RAN — CLEAN (panic-free derivation,
+additive key, R2 passthrough, genuine test, label values are code/config + esc'd by
+boardTable; the one flagged harness `let _ = inc_counter` → `.expect`). BATTERY: green for
+all track-B work + the workspace EXCEPT the SAME ONE pre-existing main `kinetics_dto` red
+(track-C/A, unchanged): fmt + clippy --workspace clean, `cargo test --workspace` 1265 passed
+/ 1 pre-existing-main-failed (incl. daemon_smoke 15/15 — the additive key is safe; a first
+run showed a transient 10/15 from concurrent-reviewer target contention, clean on re-run per
+[[fortuna-battery-ops]]), run-dst.sh exit 0. Screenshot-verified (20 boards; Telemetry shows
+families 5 / series 6 across exec/gate/ingest/killswitch/state). >>> THE SINGLE PANE OF GLASS
+NOW SPANS ALL 6 MISSION ITEMS: (1) cognition (lifecycle + personas registry+scorecard +
+analyses), (2) pipeline (V1/V2/V3 + funnel), (3) trades (fills + working orders + strategy
+P&L), (4) discovery (events), (5) DB (24-table inventory), (6) telemetry. FOLLOW-ONS
+(ledgered): live prod metrics populate when the daemon runs (the harness/test prove the
+shape); per-family help text + a metric search/filter are later polish.
+
 ### PERSONA SCORECARD DONE (2026-06-13) — track-E §20.1 OUTCOMES half (now UNBLOCKED)
 Built the Persona Scorecard board (`/api/rota/v1/persona_scores`) — the §20.1 outcomes
 half I previously deferred, now UNBLOCKED by track-E's persona runtime (E.3c-E.6 merged

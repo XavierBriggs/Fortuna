@@ -77,6 +77,7 @@ pub fn rota_router(state: RotaState) -> Router {
         .route("/api/rota/v1/analyses", get(view_analyses))
         .route("/api/rota/v1/forecasts", get(view_forecasts))
         .route("/api/rota/v1/db", get(view_db))
+        .route("/api/rota/v1/telemetry", get(view_telemetry))
         .route("/api/rota/v1/audit", get(audit_tail))
         .with_state(state)
 }
@@ -164,6 +165,15 @@ async fn view_strategies(State(s): State<RotaState>) -> impl IntoResponse {
 /// rests (honest). Absent => unavailable.
 async fn view_working_orders(State(s): State<RotaState>) -> impl IntoResponse {
     Json(read_view(&s, "working_orders").await)
+}
+
+/// Telemetry (mission item 6: "the Prometheus stack on the console") — the metric
+/// SERIES the daemon exports (the same `MetricsRegistry` the `/metrics` exposition is
+/// rendered from), grouped by subsystem, shaped daemon-side into
+/// `snapshot.views["telemetry"]` (`MetricsRegistry::telemetry_board`). A read_view
+/// passthrough — ROTA never parses Prometheus text (R2). Absent => unavailable.
+async fn view_telemetry(State(s): State<RotaState>) -> impl IntoResponse {
+    Json(read_view(&s, "telemetry").await)
 }
 
 /// Recent fills — the trades EXECUTED, from the durable `fills` ledger (mission
@@ -1232,6 +1242,7 @@ const ROTA_SHELL: &str = r#"<!doctype html><html lang="en"><head>
   <div class="panel wide"><h2>Domain Analyses</h2><div id="analyses">…</div></div>
   <div class="panel wide"><h2>Forecasts</h2><div id="forecasts">…</div></div>
   <div class="panel wide"><h2>Database</h2><div id="db">…</div></div>
+  <div class="panel wide"><h2>Telemetry</h2><div id="telemetry">…</div></div>
   <div class="panel"><h2>Audit tail</h2><div id="audit">…</div></div>
 </div>
 <script>
@@ -1321,6 +1332,7 @@ const R={
  analyses(j){return boardTable(j);},
  forecasts(j){return boardTable(j);},
  db(j){return boardTable(j);},
+ telemetry(j){return boardTable(j);},
  audit(j){if(!j.available)return `<div class="warn">${esc(j.detail||"unavailable")}</div>`;
   let h="";j.rows.slice(-12).forEach(r=>h+=`<div class="row">${esc(r.at)} UTC ${esc(r.kind)}${r.actor?" · "+esc(r.actor):""}</div>`);
   return h||`<div class="row">no audit rows yet</div>`;}
@@ -1333,5 +1345,5 @@ async function poll(name){const el=document.getElementById(name);
 function every(ms,names){names.forEach(poll);setInterval(()=>names.forEach(poll),ms);}
 every(2000,["health","audit"]);every(5000,["money","gates","ingest_sources","ingest_feed","ingest_funnel"]);
 every(10000,["cognition","settlement","fills","strategies","working_orders"]);every(15000,["streams","discovery"]);
-every(30000,["db","personas","persona_scores","analyses","forecasts"]);
+every(30000,["db","personas","persona_scores","analyses","forecasts","telemetry"]);
 </script></body></html>"#;

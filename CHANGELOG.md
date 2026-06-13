@@ -284,6 +284,15 @@ with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
   + calibration_quality are NOT computed in ROTA (unpersisted / cognition logic;
   omitted, never faked). Completes the Personas board's two halves (registry +
   scorecard). Honest-`unavailable` until the persona runner is daemon-wired.
+- **Telemetry board** (`GET /api/rota/v1/telemetry`, mission item 6 "the Prometheus
+  stack on the console") — the metric series the daemon exports (the same
+  `MetricsRegistry` the `/metrics` exposition is rendered from), grouped by subsystem
+  (ingest/gate/exec/state/venue/killswitch/cognition/…), one row per series with its
+  type + integer value. R2-clean: the daemon shapes it via the new
+  `MetricsRegistry::telemetry_board` (an additive `views["telemetry"]` key, daemon
+  snapshot byte-stable) and ROTA serves it via `read_view` — the handler never parses
+  Prometheus text. Completes the operator's single-pane-of-glass across all six
+  mission areas (cognition, pipeline, trades, discovery, DB, telemetry).
 - **Strategy P&L board** (`GET /api/rota/v1/strategies`, mission item 3 "realized
   PnL per strategy") — per-strategy realized PnL / fees / fills / open exposure,
   shaped daemon-side from `runner.digest_snapshot()` (the same attribution the

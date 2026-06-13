@@ -66,7 +66,7 @@ async fn serve() -> (String, tokio::task::JoinHandle<()>) {
     (format!("http://{addr}"), handle)
 }
 
-const PATHS: [&str; 21] = [
+const PATHS: [&str; 22] = [
     "/rota",
     "/assets/rota/logo.svg",
     "/api/rota/v1/health",
@@ -87,6 +87,7 @@ const PATHS: [&str; 21] = [
     "/api/rota/v1/analyses",
     "/api/rota/v1/forecasts",
     "/api/rota/v1/db",
+    "/api/rota/v1/telemetry",
     "/api/rota/v1/audit",
 ];
 
@@ -146,6 +147,7 @@ async fn degraded_surfaces_are_200_with_explicit_unavailable() {
         "analyses",
         "forecasts",
         "db",
+        "telemetry",
     ] {
         let j: serde_json::Value = client
             .get(format!("{base}/api/rota/v1/{name}"))
@@ -1206,6 +1208,53 @@ async fn working_orders_board_serves_seeded_resting_orders() {
             .any(|c| c["key"] == "limit_cents" && c["cents"] == true),
         "limit is a cents column: {j}"
     );
+}
+
+// Telemetry board (mission item 6): the daemon-shaped MetricsRegistry view serves
+// verbatim. POPULATED-path — the shaping itself (MetricsRegistry::telemetry_board)
+// is proven in fortuna-ops/src/metrics.rs; this confirms the read_view handler
+// serves the seeded view (the same shape telemetry_board produces).
+#[tokio::test]
+async fn telemetry_board_serves_seeded_metric_series() {
+    let snap = empty_snapshot();
+    {
+        let mut s = snap.write().await;
+        s.views = serde_json::json!({
+            "telemetry": {
+                "title": "Telemetry",
+                "columns": [
+                    {"key":"subsystem","label":"Subsystem"},
+                    {"key":"metric","label":"Metric"},
+                    {"key":"type","label":"Type"},
+                    {"key":"value","label":"Value"}
+                ],
+                "rows": [
+                    {"subsystem":"exec","metric":"fortuna_exec_working_orders","type":"gauge","value":3},
+                    {"subsystem":"gate","metric":"fortuna_gate_rejections_total{check=\"edge\"}",
+                     "type":"counter","value":5}
+                ],
+                "summary": {"families":2,"series":2}
+            }
+        });
+    }
+    let app = rota_router(RotaState::standalone(snap));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/telemetry"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "both metric series served: {j}");
+    assert_eq!(j["rows"][0]["subsystem"], "exec");
+    assert_eq!(j["rows"][0]["value"], 3);
+    assert_eq!(j["rows"][1]["type"], "counter");
+    assert_eq!(j["summary"]["families"], 2);
 }
 
 // Discovery — Events board: the canonical events with their mapped-market count.
