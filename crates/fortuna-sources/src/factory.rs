@@ -13,6 +13,7 @@ use std::time::Duration;
 use fortuna_cognition::signals::Source;
 use fortuna_core::clock::Clock;
 
+use crate::aeolus::{aeolus_claimed_time, AeolusSource};
 use crate::calendar::{calendar_claimed_time, CalendarFeed, CalendarSource};
 use crate::config::{SourceConfig, SourceKind, SourcesConfig};
 use crate::error::SourcesError;
@@ -37,12 +38,16 @@ pub struct FactoryConfig {
 
 /// Build a scheduler from config. `tier_of` supplies each source's trust tier
 /// from the `source_registry` (fail-closed: a source with no registry tier is
-/// refused — it must be admitted before it runs). Only ENABLED, Phase-A-
-/// buildable sources are registered.
+/// refused — it must be admitted before it runs). `secret_resolver` maps an
+/// env-var NAME (an `auth_env` from config) to its value — so the LIB never
+/// reads env directly; the caller (the binary) owns env access (Aeolus
+/// contract §3.1, house secrets rule). Only ENABLED, Phase-A-buildable sources
+/// are registered.
 pub fn build_scheduler(
     config: &SourcesConfig,
     factory: &FactoryConfig,
     tier_of: impl Fn(&str) -> Option<u8>,
+    secret_resolver: impl Fn(&str) -> Option<String>,
     clock: Arc<dyn Clock>,
 ) -> Result<IngestionScheduler, SourcesError> {
     let mut scheduler = IngestionScheduler::new();
@@ -55,7 +60,7 @@ pub fn build_scheduler(
             reason: "enabled source has no source_registry tier (admit it first)".to_string(),
         })?;
         let (source, claimed): (Box<dyn Source>, ClaimedTimeFn) =
-            build_adapter(id, src, factory, clock.clone())?;
+            build_adapter(id, src, factory, &secret_resolver, clock.clone())?;
         let schedule = source_schedule(src, factory, tier);
         let validator_cfg = StructuralConfig {
             volume_envelope: factory.volume_envelope,
@@ -70,13 +75,14 @@ fn build_adapter(
     id: &str,
     src: &SourceConfig,
     factory: &FactoryConfig,
+    secret_resolver: &impl Fn(&str) -> Option<String>,
     clock: Arc<dyn Clock>,
 ) -> Result<(Box<dyn Source>, ClaimedTimeFn), SourcesError> {
     let url = src
         .url
         .as_deref()
         .ok_or_else(|| invalid(id, "missing url"))?;
-    let client = build_client(url, src, factory)?;
+    let client = build_client(id, url, src, factory, secret_resolver)?;
     let feed = src.feed.as_deref();
     match (src.kind, feed) {
         (SourceKind::Nws, Some("alerts")) => Ok((
@@ -125,6 +131,10 @@ fn build_adapter(
             id,
             "calendar source requires feed = \"schedule\" | \"latest\"",
         )),
+        (SourceKind::Aeolus, _) => Ok((
+            Box::new(AeolusSource::new(id, url, client, clock)),
+            aeolus_claimed_time,
+        )),
         (SourceKind::Gdelt, _) => Err(invalid(
             id,
             "gdelt adapter not built yet (D7 deferred; use rss against GDELT format=rss)",
@@ -136,12 +146,37 @@ fn build_adapter(
 }
 
 fn build_client(
+    id: &str,
     url: &str,
     src: &SourceConfig,
     factory: &FactoryConfig,
+    secret_resolver: &impl Fn(&str) -> Option<String>,
 ) -> Result<FetchClient<ReqwestFetchTransport>, SourcesError> {
     let pin = HostPin::from_url(url)?;
-    let transport = ReqwestFetchTransport::new(factory.fetch_timeout, &factory.user_agent)?;
+    let mut transport = ReqwestFetchTransport::new(factory.fetch_timeout, &factory.user_agent)?;
+    // Per-source auth header (Aeolus contract §3.1): when config names a header
+    // + env var, resolve the SECRET via the caller-supplied resolver (the lib
+    // never reads env) and inject it sensitive/redacted. A named env that does
+    // not resolve is fail-closed: an authenticated source that cannot find its
+    // key must not silently fetch unauthenticated.
+    if let (Some(header), Some(env)) = (src.auth_header.as_deref(), src.auth_env.as_deref()) {
+        let secret = secret_resolver(env).ok_or_else(|| {
+            invalid(
+                id,
+                &format!(
+                    "auth_env `{env}` did not resolve to a secret (set it in the environment)"
+                ),
+            )
+        })?;
+        transport = transport.with_auth_header(header, &secret)?;
+    } else if src.auth_header.is_some() != src.auth_env.is_some() {
+        // Half-configured auth is a config error, not a silent unauthenticated
+        // fetch — both or neither.
+        return Err(invalid(
+            id,
+            "auth requires BOTH auth_header and auth_env (set both, or neither)",
+        ));
+    }
     let budget = src.rate_budget_per_min.unwrap_or(6);
     Ok(FetchClient::new(
         transport,
@@ -236,11 +271,16 @@ enabled = false
         }
     }
 
+    /// Test resolver: no secrets needed by the base CONFIG (keyless sources).
+    fn no_secrets(_env: &str) -> Option<String> {
+        None
+    }
+
     #[test]
     fn builds_enabled_sources_skips_disabled() {
         let cfg = SourcesConfig::from_toml_str(CONFIG).unwrap();
         let c = clock();
-        let s = build_scheduler(&cfg, &factory_cfg(), tiers, c.clone()).unwrap();
+        let s = build_scheduler(&cfg, &factory_cfg(), tiers, no_secrets, c.clone()).unwrap();
         let mut ids = s.source_ids();
         ids.sort_unstable();
         assert_eq!(ids, vec!["bls_schedule", "fed_press", "nws_alerts"]);
@@ -250,7 +290,7 @@ enabled = false
     fn enabled_source_without_a_registry_tier_is_refused() {
         let cfg = SourcesConfig::from_toml_str(CONFIG).unwrap();
         let c = clock();
-        let err = build_scheduler(&cfg, &factory_cfg(), |_| None, c.clone())
+        let err = build_scheduler(&cfg, &factory_cfg(), |_| None, no_secrets, c.clone())
             .err()
             .unwrap();
         assert!(err.to_string().contains("no source_registry tier"), "{err}");
@@ -269,7 +309,7 @@ rate_budget_per_min = 6
         )
         .unwrap();
         let c = clock();
-        let err = build_scheduler(&cfg, &factory_cfg(), |_| Some(9), c.clone())
+        let err = build_scheduler(&cfg, &factory_cfg(), |_| Some(9), no_secrets, c.clone())
             .err()
             .unwrap();
         assert!(err.to_string().contains("alerts"), "{err}");
@@ -288,9 +328,65 @@ rate_budget_per_min = 6
         )
         .unwrap();
         let c = clock();
-        let err = build_scheduler(&cfg, &factory_cfg(), |_| Some(4), c.clone())
+        let err = build_scheduler(&cfg, &factory_cfg(), |_| Some(4), no_secrets, c.clone())
             .err()
             .unwrap();
         assert!(err.to_string().contains("format=rss"), "{err}");
+    }
+
+    const AEOLUS_CONFIG: &str = r#"
+[sources.aeolus_knyc]
+kind = "aeolus"
+url = "https://forecasts.aeolus.internal/v2/forecasts?station=KNYC&variable=tmax"
+base_interval = "6h"
+rate_budget_per_min = 6
+auth_header = "x-api-key"
+auth_env = "AEOLUS_API_TOKEN"
+"#;
+
+    #[test]
+    fn builds_aeolus_source_when_secret_resolves() {
+        let cfg = SourcesConfig::from_toml_str(AEOLUS_CONFIG).unwrap();
+        let c = clock();
+        // The caller resolves the env var; the lib never reads env.
+        let resolver = |env: &str| (env == "AEOLUS_API_TOKEN").then(|| "secret-key".to_string());
+        let s = build_scheduler(&cfg, &factory_cfg(), |_| Some(6), resolver, c.clone()).unwrap();
+        assert_eq!(s.source_ids(), vec!["aeolus_knyc"]);
+    }
+
+    #[test]
+    fn aeolus_source_with_unresolved_secret_is_refused() {
+        // An authenticated source whose key is absent fails closed (no silent
+        // unauthenticated fetch).
+        let cfg = SourcesConfig::from_toml_str(AEOLUS_CONFIG).unwrap();
+        let c = clock();
+        let err = build_scheduler(&cfg, &factory_cfg(), |_| Some(6), |_| None, c.clone())
+            .err()
+            .unwrap();
+        assert!(err.to_string().contains("did not resolve"), "{err}");
+    }
+
+    #[test]
+    fn half_configured_auth_is_refused() {
+        // auth_header without auth_env (or vice versa) is a config error.
+        let cfg = SourcesConfig::from_toml_str(
+            r#"
+[sources.x]
+kind = "aeolus"
+url = "https://forecasts.aeolus.internal/v2/forecasts?station=KNYC&variable=tmax"
+base_interval = "6h"
+rate_budget_per_min = 6
+auth_header = "x-api-key"
+"#,
+        )
+        .unwrap();
+        let c = clock();
+        let err = build_scheduler(&cfg, &factory_cfg(), |_| Some(6), no_secrets, c.clone())
+            .err()
+            .unwrap();
+        assert!(
+            err.to_string().contains("BOTH auth_header and auth_env"),
+            "{err}"
+        );
     }
 }

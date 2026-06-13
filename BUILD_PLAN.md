@@ -829,14 +829,32 @@ scheduler is shared with D9). The skill/persona layer is a separate session
       Fixtures REAL (2026-06-13: cli_list + cli_product). Research-grounded
       dossier docs/research/sources/nws_climate/ (admitted tier 10 — the
       settlement record). 6 tests. (DONE 2026-06-13, battery green; hash next.)
-- [ ] F1 Generic per-source auth header in FetchClient: header-name-agnostic
-      injector (Aeolus = `x-api-key` from env `AEOLUS_API_TOKEN`), redacted in
-      every error/debug/telemetry path; redaction test. Blocks F3.
-- [ ] F3 AeolusSource adapter: dumb wrapper over FetchClient (host-pin,
-      conditional GET, politeness, F1 auth); emits one RawSignal per envelope
-      untouched; exposes the identity tuple + run_at (cf. nws_claimed_time).
-      No strict-parse/validate/dedup (downstream). Fixtures-first (Aeolus's
-      one real captured response IS the contract). tmax/tmin only (rev 3).
+- [x] F1 Generic per-source auth header in FetchClient (subagent-built, I
+      reviewed + verified). ReqwestFetchTransport.with_auth_header(name, secret):
+      Aeolus = `x-api-key`, generic by name (Bearer drops in). The value is
+      HeaderValue::set_sensitive(true) (the http crate prints "Sensitive", never
+      logs it); manual Debug elides values as `<redacted>`; a malformed value's
+      error reports only the (non-secret) name. SECRET resolved by the caller via
+      a `secret_resolver: impl Fn(&str)->Option<String>` on build_scheduler — the
+      LIB never reads env (the daemon does: `|n| std::env::var(n).ok()`).
+      Fail-closed: a named auth_env that doesn't resolve is a hard error (no
+      silent unauthenticated fetch); half-configured auth rejected. config gains
+      auth_header + auth_env (env-var NAME, never the secret). SSRF host-pin code
+      UNTOUCHED (pin_ tests 6/6 unchanged). Redaction tests
+      (is_sensitive, Debug-redacts). (DONE 2026-06-13, battery green.)
+- [x] F3 AeolusSource adapter (subagent-built, I reviewed + verified). Dumb
+      wrapper over FetchClient (host-pin, conditional GET, politeness, F1 auth):
+      splits `{"forecasts":[envelope]}` -> one RawSignal {kind aeolus.forecast,
+      payload = raw envelope UNTOUCHED, received_at = clock.now()} per envelope;
+      304 -> empty; non-JSON / missing forecasts[] -> SignalError (never panic,
+      never silently emitted). NO strict-parse/validate/dedup (downstream, F6).
+      aeolus_claimed_time = run_at (the forecast init_time, past). SourceKind
+      ::Aeolus + factory arm. Fixtures REAL — captured from the LIVE Aeolus
+      endpoint 2026-06-13 (fixtures/sources/aeolus/knyc_tmax+tmin.json; the
+      response matched contract rev-3 EXACTLY incl. crpss_vs_raw=null,
+      n_scored=30). Research-grounded dossier (tier 7 — sober: μ commodity,
+      market edge unproven, Layer-3-earned; resolution-elig 2, NOT the grader).
+      13 tests. (DONE 2026-06-13, battery green.)
 - [ ] F4 D9 scheduler integration: StructuralValidator Layer-1a on Aeolus
       signals; consume next_run_at + GEFS release pattern for release-aware
       cadence. (Folds into D9.)

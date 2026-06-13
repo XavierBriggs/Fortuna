@@ -24,6 +24,9 @@ pub enum SourceKind {
     Rss,
     Gdelt,
     Nws,
+    /// Aeolus probabilistic temperature forecasts (the proprietary,
+    /// operator-owned source; Aeolus contract §3). Buildable in Phase A.
+    Aeolus,
     Scrape,
     Mcp,
 }
@@ -35,14 +38,16 @@ impl SourceKind {
             "rss" => Some(SourceKind::Rss),
             "gdelt" => Some(SourceKind::Gdelt),
             "nws" => Some(SourceKind::Nws),
+            "aeolus" => Some(SourceKind::Aeolus),
             "scrape" => Some(SourceKind::Scrape),
             "mcp" => Some(SourceKind::Mcp),
             _ => None,
         }
     }
 
-    /// Phase A ships the four structured-feed adapters only (design §10;
-    /// loop file: "Scrape/Mcp/extraction are later phases").
+    /// Phase A ships the structured-feed adapters only (design §10; loop file:
+    /// "Scrape/Mcp/extraction are later phases"). Aeolus is a structured-feed
+    /// adapter (Aeolus contract §3.1, F3) and so IS buildable in Phase A.
     pub fn buildable_in_phase_a(self) -> bool {
         !matches!(self, SourceKind::Scrape | SourceKind::Mcp)
     }
@@ -86,6 +91,14 @@ pub struct SourceConfig {
     /// `alerts` | `afd`; `calendar` → `schedule` | `latest`. `rss`/`gdelt`
     /// take none. Required when ENABLING an `nws`/`calendar` source.
     pub feed: Option<String>,
+    /// Optional per-source auth header NAME (Aeolus contract §3.1): for Aeolus
+    /// `"x-api-key"`. Generic — Bearer or any scheme drops in by name. Paired
+    /// with `auth_env`; the SECRET is never in config, only the env-var name.
+    pub auth_header: Option<String>,
+    /// The env-var NAME holding the secret for `auth_header` (e.g.
+    /// `"AEOLUS_API_TOKEN"`). The LIB never reads env; the caller resolves it
+    /// (the factory takes a `secret_resolver`). Never the secret itself.
+    pub auth_env: Option<String>,
 }
 
 /// The full `[sources]` map. BTreeMap for deterministic iteration order.
@@ -113,6 +126,8 @@ struct RawSource {
     rate_budget_per_min: Option<u32>,
     enabled: Option<bool>,
     feed: Option<String>,
+    auth_header: Option<String>,
+    auth_env: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -247,6 +262,11 @@ fn validate_source(id: &str, raw: RawSource) -> Result<SourceConfig, SourcesErro
         rate_budget_per_min: raw.rate_budget_per_min,
         enabled,
         feed: raw.feed,
+        // Lenient: `auth_header`/`auth_env` pass through; the FACTORY enforces
+        // specifics (e.g. Aeolus needs both, resolved via the secret_resolver),
+        // consistent with how `feed` is handled.
+        auth_header: raw.auth_header,
+        auth_env: raw.auth_env,
     })
 }
 

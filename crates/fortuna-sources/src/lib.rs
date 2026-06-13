@@ -7,6 +7,7 @@
 //! Phase A invariant: NO model anywhere in the ingestion path — enforced
 //! at config validation (see `config`), not by convention.
 
+pub mod aeolus;
 pub mod calendar;
 pub mod config;
 pub mod corroborate;
@@ -19,6 +20,7 @@ pub mod rss;
 pub mod scheduler;
 pub mod validate;
 
+pub use aeolus::{aeolus_claimed_time, AeolusSource, AEOLUS_FORECAST_KIND};
 pub use calendar::{
     calendar_claimed_time, CalendarFeed, CalendarSource, RELEASE_PRINTED_KIND,
     RELEASE_SCHEDULED_KIND,

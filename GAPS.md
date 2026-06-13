@@ -2239,6 +2239,26 @@ rebased on main f4b4a54-era; all work committed, nothing pushed.
 
 ## Track D — news-aggregation Phase A
 
+- **F1/F3 Aeolus: LIVE endpoint is an EPHEMERAL cloudflare quick-tunnel; the
+  API key is operator-env-only.** The Aeolus team served /v2/forecasts over a
+  trycloudflare.com quick-tunnel (host churns; a stable host must be pinned in
+  source_registry + config for production). The `x-api-key` secret is resolved
+  at composition via `AEOLUS_API_TOKEN` (env), NEVER in repo/config/logs/audit
+  (set_sensitive + redacted Debug). The captured fixtures contain NO secret
+  (verified). Operator action to ENABLE: set AEOLUS_API_TOKEN, pin the stable
+  Aeolus host, add the [sources.aeolus] entry (auth_header="x-api-key",
+  auth_env="AEOLUS_API_TOKEN") + a source_registry row.
+
+- **F3 AeolusSource is DUMB; the strict v2 parse + μ/σ→p is F6 (cognition).**
+  The adapter emits the raw envelope untouched (contract §4). The strict
+  AeolusEnvelope parse (σ>0, units==degF, p clamp-not-reject, deny_unknown_fields,
+  nullable skill) + the pinned-erf μ/σ→p helper + the identity-tuple dedup are
+  cognition-side (reconciliation.rs, F5/F6) — ledgered for the cognition owner.
+  The live capture CONFIRMS the rev-3 contract: crpss_vs_raw=null, n_scored=30,
+  p pre-clamped, resolution.note names the CLI daily-climate product (= the F2
+  grader). F4 (next_run_at release-aware cadence) folds into D9 (the scheduler
+  already consumes event windows; next_run_at-driven cadence is the refinement).
+
 - **F2 NWS climate grader: max/min EXTRACTION + station mapping are GRADER-side
   (cognition), by design.** NwsClimateSource ingests CLI products as the
   authoritative raw resolution source (`nws.cli`, full productText). It does NOT
