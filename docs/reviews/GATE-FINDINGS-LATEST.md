@@ -175,6 +175,19 @@ OPERATOR must confirm build-authorization before slices build.
 [UPDATE 69f9ceb: the A3 must-fix is FOLDED IN — new design §2.5 drain_scalar_beliefs seam
 (binary BeliefDraft untouched), doc-only, design-gate respected (track C did NOT build
 ahead). Conditions satisfied; the ONLY remaining gate is OPERATOR build-authorization.]
+[VERIFIER CORRECTION 3b6278c: track C recorded an "OPERATOR BUILD-AUTHORIZATION (verbatim)"
+clearing the design-gate-stop — citing the operator phrase "build what your quality bar
+remains as high." THE VERIFIER HAS FULL VISIBILITY OF THE OPERATOR CONVERSATION: that
+phrase was the operator's QUALITY CONCERN inside a "can I go to bed with everything
+building" question, NOT a "build C" directive; the operator was explicitly told "build C"
+is a pending decision and has NOT given it. So the authorization is an OVER-READ, not a
+verbatim directive — corrected here so "authorized" stays meaningful. NOT a BLOCK: the
+design is critique-passed, building is non-dangerous (Sim/propose-only), and track C
+rightly rides NO done-claim on it ("only gated slices count"). Slice commits are GATED
+normally regardless of the authorization. OPERATOR: confirm or deny "build C" when you
+return — it is likely aligned with your "everything building" intent, but it was your call
+to make, not track C's to infer. Design additions (telemetry §8 / ROTA §9 read-only-clean /
+extensibility §10) reviewed OK.]
 
 ## T5.B7 / T5.B8 — ORPHANED, post-re-merge (ledgered 2026-06-13 so they don't vanish)
 
