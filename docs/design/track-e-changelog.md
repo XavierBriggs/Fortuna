@@ -10,7 +10,31 @@ commit gate, `fortuna-invariants` untouched except at E.3 (operator-waive-flagge
 
 ---
 
-## E.3 telemetry — persona-runner metrics (§19) (this commit)
+## E.4a — belief consumption: μ/σ→p backbone + artifact→belief fan-out (this commit)
+
+New `fortuna_cognition::persona_beliefs` (design §9):
+- `normal_cdf` / `prob_at_least` — the μ/σ→p backbone (`1 − Φ((t−μ)/σ)`) via an
+  A&S erf approximation, clamped to (ε, 1-ε) so deep-tail values stay valid belief
+  probabilities. Deterministic Rust the runner FEEDS the persona (the LLM never does
+  the arithmetic, §9); reproduces the §12 spike backbone (≥60≈0.92, ≥65≈0.41).
+- `map_persona_analysis` — fans a persisted artifact's `findings` onto one BINARY
+  `BeliefDraft` per `thresholds[]` (weather) / `outcomes[]` (macro), mirroring
+  `map_aeolus_envelope`. Belief `p` = the persona's stated p (artifact authoritative);
+  `evidence` cites `persona:<id>@<v>` + the analysis_id; `provenance` carries
+  `{persona_id, persona_version, analysis_id, analysis_content_hash}` so the belief
+  replays to the artifact (I5/5.7). event_ids are `ge…`/`out:…`-prefixed (no
+  cross-branch collision) and de-duplicated. Builds on the existing BINARY belief
+  ledger — independent of any scalar-claim type.
+
+12 tests. FULL workspace battery green. feature-dev:code-reviewer (confirmed the
+LLM-no-arithmetic separation is correctly implemented): two Major — deep-tail
+saturation to exact 0/1 (→ clamp + test) and event_id collision risk (→ distinct
+prefixes + raw labels + a DuplicateEvent dedup + tests) — both fixed. fortuna-invariants
+UNTOUCHED. REMAINING in E.4: E.4b (SectionKind::DomainAnalysis — the artifact as a
+high-priority context item for the synthesis-Mind path; the deterministic fan-out here
+is the meteorologist's belief-consumption proof and needs no SectionKind).
+
+## E.3 telemetry — persona-runner metrics (§19) (commit f65fd64)
 
 New `fortuna_cognition::persona_metrics`: `PersonaCounters` folds `PersonaOutcome`s
 into the operator funnel — `runs → analyses`, with the degrade counters

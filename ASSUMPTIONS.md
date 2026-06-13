@@ -1697,3 +1697,25 @@ domain-analysis artifact (authoritative design: docs/design/domain-analysis-pers
 - **`observe` takes `domain` explicitly** (the metric label) from the persona def;
   `PersonaOutcome` is not changed to carry domain (kept minimal). Float scorecard
   (Brier/quality) stays in the ROTA JSON, never these integer counters (§19).
+
+## Track E — E.4a (belief consumption; design §9)
+
+- **The belief's `p` is the persona's STATED probability** (from the persisted
+  findings), exactly as `map_aeolus_envelope` uses the envelope's `p`. The μ/σ→p
+  backbone (`prob_at_least`) is a SEPARATE pure helper the runner feeds the persona
+  as data (the LLM never does the arithmetic, §9); it is NOT used to recompute the
+  belief p in the fan-out. So "deterministic numerics in code" = the backbone the
+  persona is given, not a code override of its output.
+- **`normal_cdf` is clamped to (ε, 1-ε)** so a deep-tail probability (e.g.
+  P(high≥40°F) in July, ~8σ out) stays a VALID belief probability — BeliefDraft
+  requires 0<p<1, and an exact 0/1 would be rejected. The clamp only bites beyond ~8σ.
+- **event_ids are derived deterministically** from `region_key` + a prefixed
+  threshold/label: `{region_key}#ge{ge}` (weather) / `{region_key}#out:{label}` (macro,
+  raw label = injective). The distinct prefixes make cross-branch collision impossible;
+  a duplicate event_id within one analysis is REJECTED (`DuplicateEvent`), never silently
+  emitted. Aligning these to canonical market event_ids (so the persona belief scores
+  against the same event as the raw-source baseline, §11) is the composition's job via
+  the edges (E.6 wiring) — recorded so the deterministic ids here aren't mistaken for
+  the canonical ones.
+- **The fan-out builds on the existing BINARY belief ledger** (BeliefDraft) and depends
+  on NO scalar/multi-outcome claim type — Track E is independent of the prob_claims pass (§9).

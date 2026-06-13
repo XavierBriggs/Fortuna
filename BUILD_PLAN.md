@@ -687,6 +687,11 @@ at E.3 (the PersonaOutcome no-order/size field-surface pin) under operator waive
       green. REMAINING E.3: ONLY the §15 PersonaOutcome invariant pin (operator-waive, see GAPS).]
 - [ ] E.4 Belief consumption — DomainAnalysis section + evidence/provenance citation; the
       μ/σ→p helper in code; `fortuna_persona_beliefs_total` metric.
+      [E.4a DONE this commit: fortuna_cognition::persona_beliefs — normal_cdf/prob_at_least (the
+      μ/σ→p backbone, clamped) + map_persona_analysis (artifact findings → one binary BeliefDraft
+      per threshold/outcome, evidence + provenance replay anchor, dedup'd event_ids); 12 tests;
+      full battery green. REMAINING E.4: E.4b SectionKind::DomainAnalysis context item +
+      fortuna_persona_beliefs_total (the beliefs metric folds into the §19 counters at wiring).]
 - [ ] E.5 Scoring scope extension — ScopeKey + weekly-review promote/retire proposal (baseline +
       market comparison; recommendation-only); resolved_beliefs/clv_bp metrics.
 - [ ] E.6 End-to-end meteorologist proof over Aeolus (+ NWS/fixture) + the macro mechanism test;

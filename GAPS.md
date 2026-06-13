@@ -18,16 +18,29 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
-## TRACK E — BUILD PHASE (operator-approved 2026-06-13); E.1 + E.2 + E.3a/b/c + telemetry DONE
+## TRACK E — BUILD PHASE (operator-approved 2026-06-13); E.1 + E.2 + E.3 + E.4a DONE
 
 STATUS 2026-06-13 (SUPERSEDES the design-phase RALPH STOP preserved below): the operator
 APPROVED the design ("looks good, rearm"; commit b4eaae3) and re-armed Track E in worktree
 fortuna-wt-e. BUILD PHASE active — building design §18's six slices, one gate-clean slice
-per iteration. E.3 is sub-sliced: E.3a (runner core + firewall, 4e8b9e4) + E.3b (trigger layer
-§7, 96cdb79) + E.3c (seeded DST runner-under-budget arm, 510ee8e) + telemetry §19 DONE.
-REMAINING E.3 item: ONLY the PersonaOutcome invariant pin §15 (operator-waive, below). Then E.4.
+per iteration. E.3 done: E.3a (runner+firewall, 4e8b9e4) + E.3b (triggers §7, 96cdb79) + E.3c
+(seeded DST, 510ee8e) + telemetry §19 (f65fd64). E.4a (belief consumption core) DONE this commit.
+REMAINING: E.4b (SectionKind::DomainAnalysis context item), E.5 (scoring), E.6 (e2e proof), and
+the PersonaOutcome invariant pin §15 (operator-waive, below).
 
-**E.3 telemetry (persona metrics §19) DONE this commit.** New `fortuna_cognition::persona_metrics`:
+**E.4a (belief consumption: μ/σ→p backbone + artifact→belief fan-out §9) DONE this commit.** New
+`fortuna_cognition::persona_beliefs`: `normal_cdf`/`prob_at_least` (the deterministic μ/σ→p
+backbone the runner feeds the persona — LLM does no arithmetic; clamped to (ε,1-ε) for deep tails;
+reproduces the §12 spike backbone) + `map_persona_analysis` (fans a persisted artifact's findings
+onto one BINARY BeliefDraft per threshold/outcome, mirroring map_aeolus_envelope; belief p = the
+persona's stated p; evidence cites persona:<id>@<v> + analysis_id; provenance carries {persona_id,
+persona_version, analysis_id, analysis_content_hash} so the belief replays to the artifact). event_ids
+ge…/out:…-prefixed + de-duplicated (no collision). Builds on the existing binary belief ledger —
+independent of any scalar-claim type. 12 tests; full battery green. feature-dev review: 2 Major
+(deep-tail saturation → clamp; event_id collision → prefixes+dedup) fixed. fortuna-invariants
+UNTOUCHED. NOT-YET-WIRED: the composition persists the fanned beliefs via persist_beliefs (E.6).
+
+**E.3 telemetry (persona metrics §19) DONE (commit f65fd64).** New `fortuna_cognition::persona_metrics`:
 `PersonaCounters` folds PersonaOutcomes → the funnel (runs → analyses, with budget_skips /
 no_signal_skips / run_failures{reason} / triggers_coalesced explaining the drops), the cumulative
 cost_cents counter, and the daily spend_today_cents GAUGE (UTC-day roll). `samples()` emits
@@ -161,11 +174,11 @@ and any fortuna-invariants touch is an operator-waive item per the loop — so s
 correctly does NOT touch the protected crate. The `domain_analyses`/`PersonaRow` row types are
 already structurally order-free (review-confirmed).
 
-NEXT: E.4 (belief consumption — a new SectionKind::DomainAnalysis high-priority context item +
-BeliefDraft evidence/provenance citing {persona_id, persona_version, analysis_id,
-analysis_content_hash}; the μ/σ→p helper in code; fans out to binary BeliefDrafts per
-reconciliation.rs:65-104). The PersonaOutcome invariant pin §15 remains gated on the
-operator-waive (below) — pick it up whenever the operator waives the fortuna-invariants touch.
+NEXT: E.5 (scoring scope extension §10 — extend review.rs ScopeKey by adding persona_id/
+persona_version dims, keeping the spec-mandated strategy dim; weekly-review promote/retire
+proposal vs the no-persona + market baselines, recommendation-only). E.4b (the
+SectionKind::DomainAnalysis context item for the synthesis-Mind path) and the §15 invariant pin
+(operator-waive, below) are also open. Then E.6 (the end-to-end meteorologist proof + §11 gate).
 
 --- HISTORICAL (design-phase RALPH STOP — SUPERSEDED by the operator approval above) ---
 
