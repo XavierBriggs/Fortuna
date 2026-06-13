@@ -99,12 +99,16 @@ verifier amends as gates land. All standard loop rules apply unchanged.
    live as part of it; the rest per the BUILD_PLAN T4.5 entry and its
    TEST RULE — populated-path seeds, no vacuous tests).
    >> VALIDATED 2026-06-13 (fit-notes in rota-dashboard.md §10 "T4.5 validation";
-      code-explorer map). Build order (next iterations): (e) /gates.recent_rejections
-      (gate_reject audit kind, clean) → (e) /settlement.recent_watchdog (resolve the
-      watchdog/settlement_overdue sink path) → (a) discovery joins → (b) verdict badge
-      (low value). BLOCKED (operator/verifier, see GAPS): (c) WS counters need the
-      operator-run live dial wired into drive(); (d) full money model needs an operator/
-      design call to surface the mark-loop AccountView via a SimRunner accessor.
+      code-explorer map). Build order: (e) /gates.recent_rejections → (e)
+      /settlement.recent_watchdog → (a) discovery joins → (b) verdict badge (low value).
+      >> SLICE 1 DONE 59fa594 (2026-06-13): /gates.recent_rejections — view_gates merges
+         recent_rejections from the audit gate_decision trail (verdict=Reject), §5 shape,
+         newest-first; runtime-sqlx text-extract (audit_tail precedent); 3 populated-path
+         tests; battery green (1384/0 + run-dst 200 0-viol). NEXT: /settlement.recent_watchdog
+         (resolve the watchdog vs settlement_overdue audit-sink path first).
+      BLOCKED (operator/verifier, see GAPS): (c) WS counters need the operator-run live
+      dial wired into drive(); (d) full money model needs an operator/design call to
+      surface the mark-loop AccountView via a SimRunner accessor.
 
 4. Deferred backlog: the main.rs composition-root guard (rides with the
    next main.rs change per the ledgered rationale).

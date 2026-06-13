@@ -206,6 +206,31 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-13 — T4.5 slice: /gates.recent_rejections (audit-recents) — `59fa594`
+
+**What.** First T4.5 build slice (design §5). `view_gates` (rota.rs) now merges a
+`recent_rejections` sub-surface when the R5 read pool is present: recent per-check
+gate REJECTIONS from the audit `gate_decision` trail, mapped to `{audit_id, at,
+check, reason, intent_ref}`, newest-first. New `recent_gate_rejections_page`
+extracts fields as TEXT in SQL (`payload->>'check'` etc.) — runtime sqlx, the
+`audit_tail_page` precedent (off the sqlx-offline cache).
+
+**Why.** The first of the BUILDABLE-NOW T4.5 pieces (the audit pool it was deferred
+behind is live). Surfaces *why* orders were gate-rejected for the operator.
+
+**Honest/degraded.** The daemon-shaped "gates" base view is preserved (`views_from`
+untouched). No pool → explicit `available:false`, never fabricated; errors log
+neutral detail, never raw sqlx. The bus `gate_reject` event is a separate kind
+(live stream); the audit table carries `gate_decision`.
+
+**Tests (populated-path, T4.5 TEST RULE).** Seed real `gate_decision` rows (2
+Rejects + a Pass + the foreign `gate_reject` kind); assert only the 2 Rejects
+surface newest-first with the full §5 shape, Pass+foreign excluded; available-but-
+empty when no rejects; degraded-no-pool unavailable. code-reviewer ACCEPT.
+
+**Battery.** fmt --check; clippy --workspace --all-targets -D warnings; cargo test
+--workspace (1384 passed, 0 failed); run-dst.sh 200 (0 violations).
+
 ### 2026-06-13 — T4.5 ROTA deferred panels: validation + slice plan (no code)
 
 **What.** Validation-only iteration for T4.5 (deferred ROTA trading-side panels): a

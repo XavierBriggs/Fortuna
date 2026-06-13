@@ -672,6 +672,15 @@ recent_watchdog (after sink-path confirm) → (a) discovery joins → (b) verdic
 (c) + (d) stay blocked (operator/verifier asks ledgered in GAPS). No bloat: every piece
 is a §5-specified contract; nothing invented.
 
+T4.5 SLICE 1 BUILT (2026-06-13, `59fa594`): /gates `recent_rejections`. `view_gates` is
+now a custom handler merging the recent per-check gate REJECTIONS (audit `gate_decision`
+rows, `payload->>'verdict'='Reject'`, newest-first) → §5 `{audit_id,at,check,reason,
+intent_ref}`; `recent_gate_rejections_page` is runtime-sqlx text-extract (the
+`audit_tail_page` precedent). Daemon "gates" base view preserved; degraded/no-pool →
+explicit unavailable. 3 populated-path tests; battery green (test --workspace 1384/0 +
+run-dst 200 0-viol). NEXT: /settlement recent_watchdog (resolve the watchdog vs
+settlement_overdue audit-sink path).
+
 ## 11. Implementation sequence
 
 Phase 1 skeleton (tests first): ledger dep after V-5; rota module (sse,

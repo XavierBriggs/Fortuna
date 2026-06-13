@@ -545,10 +545,13 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       (rota-dashboard.md §10 "T4.5 validation"; the R5 audit pool these were
       deferred behind is now live). Build order: (e) /gates.recent_rejections
       [gate_reject audit] -> (e) /settlement.recent_watchdog -> (a) discovery
-      joins -> (b) verdict badge. BLOCKED (operator/verifier, GAPS): the WS
-      gap/resync counters (need the operator-run live dial wired into drive());
-      the full s5 money model (need an operator/design call surfacing the
-      mark-loop AccountView via a new SimRunner accessor).
+      joins -> (b) verdict badge. SLICE 1 DONE (59fa594): /gates.recent_rejections
+      — view_gates merges recent gate REJECTIONS from the audit gate_decision
+      trail (§5 shape, newest-first); 3 populated-path tests; battery green
+      (1384/0 + run-dst 200 0-viol). NEXT: /settlement.recent_watchdog. BLOCKED
+      (operator/verifier, GAPS): the WS gap/resync counters (need the operator-run
+      live dial wired into drive()); the full s5 money model (need an operator/
+      design call surfacing the mark-loop AccountView via a new SimRunner accessor).
 
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)
