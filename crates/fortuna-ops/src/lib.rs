@@ -31,6 +31,7 @@ pub mod export;
 pub mod metrics;
 pub mod rota;
 mod slack;
+pub mod socket;
 
 pub use config::{
     slack_channel_env_var, CognitionConfig, DeadmanConfig, FortunaConfig, Secrets, SizingConfig,
@@ -40,6 +41,10 @@ pub use deadman::{DeadmanPinger, PingTransport, ReqwestPing};
 pub use slack::{
     approval_message, MessageKind, ReqwestTransport, SentMessage, SlackRouter, SlackTransport,
     SLACK_POST_MESSAGE_URL,
+};
+pub use socket::{
+    dispatch_envelope, EnvelopeOutcome, EnvelopeType, EphemeralSender, HaltRequestSink,
+    KnownActionId, SlackEnvelope, SocketModeConfig, ACTION_REQUEST_HALT, ACTION_REQUEST_REARM,
 };
 
 use thiserror::Error;
