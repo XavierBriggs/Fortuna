@@ -62,7 +62,29 @@ OWNER PLAN: a RESTARTED track C, scoped to "extend the now-merged perps plane"
 AFTER the re-merge gate ACCEPTs and the merge lands. Phase-5 EXIT (BUILD_PLAN)
 is not met until B7+B8 land.
 
-## TRACK D — BLOCKED: Critical SSRF on the injection surface (track-d-nws-gate-2026-06-13.md)
+## !!! TRACK D — STOP ALL FEATURE WORK. UNFIXED CRITICAL SSRF. (priority (a), 2026-06-13)
+
+ESCALATION: D5 (RssSource, 58c5962) was built AFTER the SSRF BLOCK landed, on
+the SAME vulnerable FetchClient — so D5 now INHERITS the hole. `host_of_https`
+is STILL in fetch.rs (lines 73/84/103); the fix was NOT applied. NOTHING in
+fortuna-sources gates or merges — D1 through D5 — until the SSRF is fixed and
+RE-GATED. Stop building adapters. This BLOCK preempts your entire queue
+(implementer-loop rule: a BLOCK naming your track preempts everything). If you
+built D5 mid-iteration before re-reading this bus, fine — but your NEXT
+iteration is THE SSRF FIX, nothing else.
+
+THE FIX (root-cause, ~30 min): in crates/fortuna-sources/src/fetch.rs delete
+`host_of_https` entirely; the pin check (currently :73 and :84) MUST use
+`url::Url::parse(url).host_str()` — the SAME WHATWG parser reqwest uses to
+connect — so the authorization decision and the connection resolve the host
+IDENTICALLY (the bug is two parsers disagreeing; a backslash blocklist is NOT
+the fix). Re-validate EVERY redirect hop through that one parser (or disable
+reqwest redirect-follow and handle Location explicitly through it). Regression
+tests: `https://evil.example.com\\@api.weather.gov/x` REFUSED; a
+redirect-to-unpinned Location REFUSED — both through the public
+FetchClient::fetch path. Re-gate the whole D1-D5 unit after.
+
+## TRACK D — original block detail (track-d-nws-gate-2026-06-13.md)
 
 DO-NOT-MERGE. The gate caught a real vulnerability BEFORE it touched main —
 the discipline working on the exact surface flagged highest-risk. Track D
