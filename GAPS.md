@@ -779,6 +779,20 @@ status+changelog), `docs/runbooks/rota-local-bringup.md`, + targeted
 operations.md/architecture.md pointers. The harness (not a static screenshot) is
 the reusable, never-stale rig the C/D/E boards get screenshot-verified through.
 
+BATTERY POSTURE (mission 2, disk-constrained — verifier please note): the loop
+DoD says "the workspace is the unit (a -p subset does NOT satisfy DoD)", but the
+machine is at ~15Gi free and the only big reclaimable lever is the verifier's 31G
+main-checkout target (wt-a/c/d/e targets 7-12G are ACTIVE other-track builds — not
+safe for track B to touch; my own target is 1.6G). A cold full-workspace
+test+DST (~20-25Gi) cannot run in wt-b without that space. POSTURE until disk
+frees: per-commit battery = fmt(full) + clippy + test TARGETED to the crates the
+slice touches (item 0 = example-only, so -p fortuna-ops was genuinely sufficient;
+board slices touch fortuna-ops/+live-seam/+ledger and will battery those crates +
+note run-dst.sh is ROTA-orthogonal), with the VERIFIER's full merge-gate as the
+workspace-is-unit guarantee. OPERATOR/VERIFIER lever to restore in-worktree full
+batteries: free machine space / drop the 31G main target when idle (target ~40Gi,
+where the last full battery ran clean).
+
 CROSS-TRACK FINDING for TRACK A (`fortuna-live/src/views.rs`): the ROTA
 settlement renderer reads `discrepancies_open` (rota.rs `R.settlement`) but
 `views_from` (views.rs:140-146) does NOT emit it, so a live daemon renders "—"
