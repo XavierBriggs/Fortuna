@@ -290,3 +290,41 @@ fn recorded_fills_round_trip_maps_the_taker_fill() {
         "resolved via GET order"
     );
 }
+
+// ===========================================================================
+// authenticated GET over a recorded 401 — the venue's auth-error body routes
+// to Rejected with the code/detail surfaced (item 3; G1 on the auth path)
+// ===========================================================================
+
+#[test]
+fn recorded_auth_401_bodies_route_to_rejected_with_the_code_surfaced() {
+    // The recorded 401 auth-gateway bodies are all nested {"error":{...}}. An
+    // authenticated GET (balance) over each must map to VenueError::Rejected,
+    // and the venue's code/detail must reach diagnostics structured (G1) — not a
+    // raw-JSON dump. (header_timestamp_expired is the skew-rejection body, the
+    // adapter-mapping half of checklist #2's >5s/<30s window finding.)
+    for (file, needle) in [
+        ("auth__bad_signature.json", "INCORRECT_API_KEY_SIGNATURE"),
+        ("auth__unknown_key_id.json", "NOT_FOUND"),
+        (
+            "auth__missing_signature_header.json",
+            // `code=` prefix only appears under G1 STRUCTURED extraction, not a
+            // raw-JSON dump (which would carry `"code":` with a colon) — so this
+            // needle also proves G1 on the auth path, not just that the code leaks.
+            "code=signature_is_missing_from_headers",
+        ),
+        ("auth__skew_minus30s.json", "code=header_timestamp_expired"),
+    ] {
+        let mock = Arc::new(MockKalshiTransport::new());
+        mock.push_ok(401, recorded(file));
+        let venue = venue_with(&mock);
+        let err = block_on(venue.balance()).unwrap_err();
+        match err {
+            VenueError::Rejected { reason } => assert!(
+                reason.contains(needle),
+                "{file}: the auth error must surface in diagnostics: {reason}"
+            ),
+            other => panic!("{file}: a recorded 401 must route to Rejected, got {other:?}"),
+        }
+    }
+}
