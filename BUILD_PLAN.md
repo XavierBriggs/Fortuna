@@ -719,8 +719,17 @@ crates/fortuna-sources + fixtures/sources/ + one flagged drive() seam.
       release_printed → publish time. Fixtures REAL (2026-06-13). Dossier
       calendar_bls (tier 9). FRED deferred (needs API key → GAPS). 10 tests
       (68 crate total). (DONE 2026-06-13, full battery green; hash next iter.)
-- [ ] D7 GdeltSource (fixtures first: fixtures/sources/gdelt/; query design
-      needs a docs/research pass — open question in the design doc).
+- [~] D7 GdeltSource — DEFERRED (fixture-blocked, GAPS). The GDELT DOC API
+      (api.gdeltproject.org/api/v2/doc/doc, mode=artlist&format=json) put this
+      session's IP into a sustained 429 cooldown after a few probes (it allows
+      1 req / 5s); no real fixture could be captured, and the loop rule is
+      "missing fixture = stub + GAPS, never invent feed behavior." INTERIM
+      COVERAGE: GDELT also serves format=rss, parseable by the existing D5
+      RssSource with zero new code (config a GDELT feed). The dedicated
+      GdeltSource (richer JSON: domain/sourcecountry/language for Layer-2
+      corroboration) lands when a real artlist fixture can be captured (a
+      later session / different network, or contact GDELT for a key). Not a
+      blocker for Phase A. (Skipped 2026-06-13 per loop fixture rule.)
 - [ ] D8 Layer 2 corroboration: deterministic near-dup clustering +
       independent-origin counting + annotation fields (design §4.4 Layer 2).
 - [ ] D9 Ingestion scheduler: Clock+CancellationToken loop, per-source cadence

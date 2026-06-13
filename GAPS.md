@@ -2239,6 +2239,19 @@ rebased on main f4b4a54-era; all work committed, nothing pushed.
 
 ## Track D — news-aggregation Phase A
 
+- **D7 GdeltSource: DEFERRED — fixture-blocked (transient GDELT IP rate-limit).**
+  The GDELT DOC API (api.gdeltproject.org/api/v2/doc/doc, mode=artlist&
+  format=json) returns `{articles:[{url,title,seendate,domain,language,
+  sourcecountry,...}]}` but enforces 1 req / 5s and put this session's IP into a
+  sustained 429 cooldown after a handful of probes — no real fixture capturable.
+  Per the loop rule (missing fixture = stub + GAPS, never invent feed behavior)
+  the dedicated GdeltSource is NOT built on a fabricated response. INTERIM:
+  GDELT serves `format=rss`, parseable by the existing D5 RssSource with zero
+  new code (configure a GDELT RSS feed). Build the dedicated JSON adapter
+  (richer fields for Layer-2 corroboration) when a real artlist fixture is
+  capturable (later session / different network, or request a GDELT key). NOT a
+  Phase-A blocker; D8/D9 proceed.
+
 - **D6 FRED release-dates source: deferred (operator-blocked, needs API key).**
   `api.stlouisfed.org/fred/releases/dates` requires a free FRED API key
   (env `FRED_API_KEY`, via the F1 auth-header substrate). Stubbed; no fixture
