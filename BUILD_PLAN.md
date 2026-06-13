@@ -909,3 +909,49 @@ scheduler is shared with D9). The skill/persona layer is a separate session
 - [ ] OBS-3 domain_tags population: carry each source's domain (weather|macro|…)
       from the source_registry/config admission into `SourceTelemetry.domain_tags`
       (empty in slice 1). Needs a config/registry field — fold with F10.
+
+## Track E — Domain-analysis personas (operator-directed 2026-06-13; design committed + APPROVED)
+
+Authoritative design: docs/design/domain-analysis-personas-design.md (§18 six-slice plan).
+A versioned, auditable library of analyst personas + a persisted, append-only domain-analysis
+artifact the cognition layer consumes when forming beliefs; proven end-to-end on the
+meteorologist. Ownership (absolute): the persona LAYER in fortuna-cognition + new ledger
+tables/repos; never touches fortuna-sources (Track D); extends, never breaks, the Mind/belief
+interface Track A composes. ROTA views (§14/§20) are Track B's to build (Track E provides
+data); persona telemetry (§19) folds into slices E.3–E.5. fortuna-invariants is touched only
+at E.3 (the PersonaOutcome no-order/size field-surface pin) under operator waive.
+
+- [x] E.1 Ledger — `personas` + `domain_analyses` tables + migration + append-only repos
+      (content-immutable guard on domain_analyses freezing all 12 content columns, only
+      `status` flips; supersedes-chained `personas` with UNIQUE(persona_id,version)).
+      (DONE this commit: migration 20260613000001_personas.sql; PersonasRepo +
+      DomainAnalysesRepo in fortuna-ledger; 6 #[sqlx::test] guard/round-trip/supersession
+      tests, mutation-proven; per-crate .sqlx regenerated; full workspace battery green
+      [fmt/clippy --workspace --all-targets/cargo test --workspace 123 ok-suites/run-dst 2000];
+      adversarial spec+code review clean [no Critical/Major]; fortuna-invariants UNTOUCHED.)
+- [x] E.2 Persona definition + registry — skill-file loader (config/personas/<id>/), method_hash
+      validation against the registry head; refuse a config/registry hash mismatch.
+      (DONE this commit: fortuna_cognition::persona — PersonaDef::parse [TOML `+++` frontmatter +
+      trusted method body; method_hash = SHA-256 of the whole persona.md] + validate_against
+      [fail-closed; refuses NotRegistered/Inactive/VersionMismatch/HashMismatch — §4(d)/§6];
+      pure core, no fs IO; RegistryHead a pure cognition input. Shipped config/personas/
+      meteorologist/{persona.md v1, schema.json}. 14 tests; full workspace battery green;
+      feature-dev review applied [status fail-closed + split_frontmatter .get() hardening].)
+- [ ] E.3 Runner loop + triggers + budget + context + findings contract — scripted-StubMind
+      determinism, the trusted/untrusted separation tests (§4 a–d), DST runner-under-budget arm;
+      persona telemetry counters (§19); the PersonaOutcome no-order/size invariant pin (§15).
+      [E.3a DONE this commit: fortuna_cognition::persona_runner — run_persona_analysis
+      (budget-first, untrusted-signals-only context, Mind.decide, strict findings validation,
+      content_hash anchor); PersonaOutcome order-free + Serialize; the FIREWALL headline tests
+      (method never in context; planted injection renders as data) + determinism + degrade arms;
+      12 tests; full battery green. REMAINING: E.3b triggers §7 + DST-under-budget; E.3c
+      telemetry §19 + the §15 invariant pin (operator-waive, see GAPS).]
+- [ ] E.4 Belief consumption — DomainAnalysis section + evidence/provenance citation; the
+      μ/σ→p helper in code; `fortuna_persona_beliefs_total` metric.
+- [ ] E.5 Scoring scope extension — ScopeKey + weekly-review promote/retire proposal (baseline +
+      market comparison; recommendation-only); resolved_beliefs/clv_bp metrics.
+- [ ] E.6 End-to-end meteorologist proof over Aeolus (+ NWS/fixture) + the macro mechanism test;
+      the §11 evaluation gate wired; full battery green.
+
+ROTA views (§14/§20) + persona telemetry (§19) are operator-requested detailed contracts
+(2026-06-13) — Track B builds the four views; Track E provides the data across E.1–E.5.

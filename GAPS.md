@@ -78,6 +78,158 @@ neutralize the (Nws,"climate") arm => wires_the_climate_grader_and_aeolus reds
 (unwrap on the Err arm). Not operator-blocked; verifier-gated on merge.
 
 ## TRACK A — T4.2 item 2(i) WS dial COMPLETE: full KalshiWsTransport built (operator runs the first live exercise)
+## TRACK E — BUILD PHASE (operator-approved 2026-06-13); E.1 + E.2 + E.3a DONE
+
+STATUS 2026-06-13 (SUPERSEDES the design-phase RALPH STOP preserved below): the operator
+APPROVED the design ("looks good, rearm"; commit b4eaae3) and re-armed Track E in worktree
+fortuna-wt-e. BUILD PHASE active — building design §18's six slices, one gate-clean slice
+per iteration. E.3 is sub-sliced: E.3a (runner core + firewall) this commit; E.3b (triggers §7
++ DST-under-budget) and E.3c (telemetry §19 + the invariant pin) next.
+
+**OPERATOR-WAIVE PENDING — the E.3c `fortuna-invariants` touch (design §15).** The
+`PersonaOutcome` I6 field-surface pin (assert the type carries no order/size field, the same
+mechanism as the `ProposalDraft`/`MindOutput` pins) requires ADDING a test to
+crates/fortuna-invariants — which loop §5 treats as an automatic BLOCK pending operator waive.
+`PersonaOutcome` is already `#[derive(Serialize)]` and review-verified order-free TODAY (E.3a
+review, feature-dev:code-reviewer), so the property HOLDS; only the executable pin is deferred.
+UNBLOCK (operator, one action): waive the invariant-crate addition for Track E's §15 pin; then
+E.3c lands it (pure ADD, existing assertions untouched). Until then the order-free guarantee is
+documented (the struct doc + design §15 + this entry), not yet pinned.
+
+**E.3a (Persona runner core + the trusted/untrusted FIREWALL) DONE this commit.** New
+`fortuna_cognition::persona_runner` (design §8): `run_persona_analysis(persona, region_key,
+signals, mind, budget, now) -> PersonaOutcome`. Budget-first (DiscoveryBudget throttle), assembles
+ONLY untrusted signals into the context (the trusted method is the Mind's system charter, NEVER a
+`<context-item>` — THE HEADLINE firewall), one `Mind.decide`, findings from the journal body
+strictly validated against the persona schema.json (config-driven: required keys +
+additionalProperties:false), `content_hash` anchor over {findings, signal_manifest}. PersonaOutcome
+is order-free (mirrors ReconciliationOutcome, I6) — a draft the composition persists (no Postgres
+in cognition). Degrade arms (never crash): budget→throttle, no signals→skip, mind/JSON/schema
+failure→counted defect. Determinism: scripted StubMind→byte-identical artifact+content_hash. 12
+tests incl. the firewall (a planted injection renders AS DATA; the method marker never in context).
+FULL workspace battery green. feature-dev:code-reviewer: one Major (validate_findings skipped the
+unknown-key check when additionalProperties:false + no `properties` → FIXED + regression test) +
+the Critical invariant-pin (deferred to E.3c, operator-waive above). SHARED-DOC TOUCHES this slice:
+docs/architecture.md §3 (cognition crate-map gains the persona-layer paragraph), the NEW
+docs/design/track-e-changelog.md, and docs/design/implementer-loop-track-e.md §8 (the operator's
+documentation-discipline directive added as a standing rule).
+
+**E.2 (Persona skill-file loader) DONE (commit d6e8c23).** New `fortuna_cognition::persona` module
+(design §6): `PersonaDef::parse(persona_md, schema_json)` parses the TOML-frontmatter (`+++`
+fences) + trusted method body, computes `method_hash` = SHA-256 of the WHOLE persona.md
+(reusing `content_hash_of`), loads schema.json; `validate_against(Option<&RegistryHead>)`
+fails CLOSED (only `status=="active"` passes) and refuses NotRegistered / Inactive /
+VersionMismatch / HashMismatch — the §4(d)/§6 headline (an edited method whose hash diverges
+from the active registry row is refused; promotion must be deliberate). Loader core is PURE
+(no fs IO; cognition stays core — the composition reads the file at the edge, E.3).
+`RegistryHead` is a pure cognition input (cognition does not depend on the ledger; the
+composition maps `PersonasRepo::head` onto it). Shipped the meteorologist persona on disk:
+config/personas/meteorologist/{persona.md (v1, the trusted method w/ the §4 firewall + the
+deterministic-μ/σ→p-is-code split), schema.json (findings/v1)}. 14 tests (tests/persona.rs),
+incl. the trust-firewall + hash-mismatch refusal + fail-closed-on-unknown-status + the
+shipped-file parse. FULL workspace battery green (fmt / clippy --workspace --all-targets /
+cargo test --workspace / run-dst.sh 2000 zero invariant violations). Adversarial review
+(feature-dev:code-reviewer): two Important findings — (1) status fail-open → fixed to
+fail-closed; (2) a flagged split_frontmatter panic risk verified a FALSE POSITIVE (indices
+are ASCII-anchored) but hardened to `.get()` (structurally panic-free) anyway. fortuna-invariants
+UNTOUCHED. NOT-YET-WIRED (honest): the loader has no production call site — the runner (E.3)
+wires it + maps PersonasRepo::head→RegistryHead; and no `personas` registry row exists yet
+(seeding is an operator/E.6 action), so validate_against(None)→NotRegistered until then.
+
+**REBASE/INTEGRATION STATUS (2026-06-13): track-e is 38 commits behind main (73a2a1f);
+rebase DEFERRED, code is conflict-free.** `git merge-tree main track-e` shows the ONLY conflicts
+are ASSUMPTIONS.md / BUILD_PLAN.md / GAPS.md (content) + Cargo.lock (auto-merge) — append-only
+coordination docs, NOT code. Every Track-E code/file change (the new persona module, the
+migration, the additive repos.rs/lib.rs edits, config/personas/, docs/design/*) merges clean:
+main touched 0 of those since the 2dfca28 fork. A full `git rebase --reapply-cherry-picks main`
+(the perps revert 19b3888/re-merge IS in main's history, so plain rebase would drop commits —
+reapply-cherry-picks is mandatory) would require ~8 hand-resolved doc/lock conflicts unattended
+and would rewrite the E.1/E.2 SHAs (invalidating the commit refs above) — high ledger-corruption
+risk for ZERO integration-safety gain. DEFERRED to an attended pass / the verifier's merge-time
+three-way (which already "keeps main's newer X"). Re-evaluate when a code-level conflict appears
+or at merge request.
+
+**E.1 (Ledger) DONE (commit dfdf3e0).** Migration 20260613000001_personas.sql adds the append-only
+`personas` registry (supersedes-chained, UNIQUE(persona_id,version), fortuna_refuse_mutation)
++ the content-immutable `domain_analyses` artifact (dedicated guard freezing all 12 content
+columns; only `status` flips open->superseded; content_hash over findings+signal_manifest is
+the I5/5.7 replay anchor). PersonasRepo + DomainAnalysesRepo in fortuna-ledger (insert/head;
+insert-with-supersede / get / current_for_region); per-crate crates/fortuna-ledger/.sqlx cache
+regenerated (per-crate, matching the repo's layout — NOT the root cache). 6 #[sqlx::test]
+tests, all mutation-proven (append-only + content-immutable guards, version-reissue refusal,
+supersession). FULL workspace battery green, witnessed with correct exit-code gating
+(fmt / clippy --workspace --all-targets / cargo test --workspace = 123 ok-suites /
+run-dst.sh 2000 = "zero invariant violations"); fortuna-invariants UNTOUCHED. Adversarial
+spec+code review (opus subagent): no Critical/Major; one Minor (§10 retirement = a superseding
+insert, not in-place — reconciled in the design + ASSUMPTIONS) + two test-tightening nits, all
+applied + re-validated.
+
+**OPERATOR REQUEST (2026-06-13, mid-build): rich persona TELEMETRY + insightful ROTA views.**
+Designed (doc-only; emission/views land in later slices / Track B): design doc §19 (persona
+metrics slotting into fortuna-ops's integer-only MetricsRegistry via the existing
+metrics_export() seam — integer counts/cents/bp to Prometheus, float Brier/quality to ROTA
+JSON; persona-agnostic labels) folded into build slices 3-5; §20 (four buildable ROTA view
+contracts: personas registry+scorecard with vs-baseline verdict, analyses browser with the
+one-analysis->N-beliefs->outcomes fan-out, cognition provenance, and a NEW persona_pipeline
+funnel). rota-dashboard.md §4 DEFERRED updated to point Track B at them. Views are
+persona-agnostic/domain-generic + additive-only so a new persona adds zero endpoints/metric
+names. (Interpreted the operator's "perps vendor" as the persona system — this track's domain.)
+
+**INVARIANT-PIN DEFERRED to slice 3** (design §15): the field-surface pin asserting
+`PersonaOutcome` carries no order/size field belongs with that type (the runner outcome, slice 3),
+and any fortuna-invariants touch is an operator-waive item per the loop — so slice 1 (ledger)
+correctly does NOT touch the protected crate. The `domain_analyses`/`PersonaRow` row types are
+already structurally order-free (review-confirmed).
+
+NEXT: E.3b (triggers §7 — declarative + schedulable, decoupled from the persona; + the DST
+runner-under-budget arm). Then E.3c (persona telemetry §19 + the PersonaOutcome no-order/size
+invariant pin §15, gated on the operator-waive above). Then E.4 (belief consumption).
+
+--- HISTORICAL (design-phase RALPH STOP — SUPERSEDED by the operator approval above) ---
+
+DESIGN PHASE DONE. The persona/domain-analysis design was explored (Explore-agent
+map of fortuna-cognition + ledger, verified), brainstormed, and the §3 artifact-model
+decision SURFACED and RESOLVED with the operator in the 2026-06-13 session:
+**persisted artifact** (operator-endorsed; the deciding argument is that LLM persona
+output is non-deterministic, so 5.7/I5 replay forces persistence regardless — ephemeral
+is a false economy). Committed this iteration on branch track-e:
+- docs/design/domain-analysis-personas-design.md — the authoritative design (§2 decision
+  RESOLVED; §5 ledger tables personas + domain_analyses; §7 declarative+schedulable
+  triggers; §15 six-slice build plan; trusted/untrusted separation as the heart).
+- docs/design/track-m-model-providers-brief.md — the PARKED Track M brief (per-tier
+  pluggable models, e.g. Hermes/local; operator: "store as a design doc, do it later").
+- implementer-loop-track-e.md — aligned from design-first to BUILD phase.
+
+STOPPING THIS LOOP for TWO operator actions (RALPH STOP 2026-06-13):
+1. **The loop is mis-located.** It was started in the MAIN checkout
+   (/Users/xavierbriggs/fortuna), where Track A lives and holds uncommitted work
+   (dial.rs). Running an autonomous Track-E BUILD loop in the shared main tree is the
+   orchestration.md shared-tree hazard. Track E must run from worktree fortuna-wt-e
+   (branch track-e). I committed the design to track-e via the worktree (git -C; main's
+   tree untouched), but I will NOT build feature code from main.
+2. **Design-phase approval gate** (loop §1b, the version on main still reads
+   design-first): the operator endorsed "persisted" and said "tweak the prompt to
+   align / proceed," but gave no crisp go-for-build and was mid-architecture-dialogue.
+
+UNBLOCK (operator, one action): review docs/design/domain-analysis-personas-design.md,
+then RE-ARM Track E from the correct worktree to enter the BUILD phase:
+  cd /Users/xavierbriggs/fortuna-wt-e
+  /ralph-loop Read docs/design/implementer-loop-track-e.md at the start of every iteration and follow it exactly.
+The aligned (build-phase) loop doc lives on track-e and governs once re-armed there.
+
+BUILD QUEUE (design §15, when re-armed): (1) ledger personas+domain_analyses tables/repos
+→ (2) persona definition+registry → (3) runner loop+triggers+budget+context+findings
+contract (StubMind determinism + trusted/untrusted + DST-under-budget) → (4) belief
+consumption (DomainAnalysis section + provenance citation) → (5) scoring scope extension
++ weekly-review promote/retire → (6) end-to-end meteorologist proof + macro mechanism test.
+
+TRACK-D REQUESTS (signal kinds Track E consumes, NOT built here): nws.observed_high,
+nws.forecast_discussion (the meteorologist's grader + discussion text), plus later the
+macro/event calendar + consensus/news kinds for the macro-economist. Aeolus (aeolus.forecast)
+already has the v2 contract (docs/design/aeolus-source-contract.md). If an NWS kind is not
+yet ingested at build time, a recorded fixture signal stands in (re-noted at slice 6).
+
+## TRACK A — T4.2 item 2(i) WS dial: decision/session/loop + tungstenite error-classification done; only the operator-exercised socket round-trip remains
 
 Queue item 2(i) (Kalshi WS dial). Built the SURVIVAL DECISION core as a pure,
 deterministic state machine — crates/fortuna-venues/src/kalshi/dial.rs (new;
