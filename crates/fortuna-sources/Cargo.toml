@@ -1,0 +1,10 @@
+[package]
+name = "fortuna-sources"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+thiserror = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
+chrono = { workspace = true }

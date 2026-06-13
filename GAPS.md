@@ -2172,5 +2172,26 @@ Final battery at stop: fmt 0 diffs, clippy 0 errors, workspace 939/0,
 DST exit 0 (2000/stage; corpus 3 seeds). Branch track-c at 4fd16de,
 rebased on main f4b4a54-era; all work committed, nothing pushed.
 
+## Track D — news-aggregation Phase A
+
+- **Layer-4 consumption floors are only half-enforceable from this track.**
+  The trigger floor can be enforced at the drive() seam (filter which signals
+  are offered to TriggerEngine); the resolution-source floor is consumed
+  inside world-forward discovery (fortuna-cognition — not Track D ownership).
+  Phase A ships the config + registry data; the cognition-side check is
+  ledgered here for the owner of fortuna-cognition to wire (design §4.4
+  Layer 4).
+
+- **CROSS-TRACK fmt red on main (not Track D's, not fixable here).**
+  `cargo fmt --check` fails on
+  `crates/fortuna-venues/examples/record_kalshi_fixtures.rs:43` (a long
+  `.unwrap_or(90)` line), introduced by Track A/C commit c139386 ("WS
+  recapture attempt"). It is present on main as fast-forwarded into
+  track-d; my owned files are fmt-clean (`cargo fmt -p fortuna-sources`
+  applied). I cannot fix it without violating ownership (rule 5/7), and it
+  is not mine to stash (already committed on main). Flagged for the owning
+  track / the gate. The D1 commit ships because every owned file passes the
+  full battery and this red is inherited, pre-existing, and out of scope.
+
 ## Disputed invariant tests
 (none)

@@ -642,3 +642,44 @@ perp DST arms in every battery; zero changes to the invariant middle
 I7 ladder and the operator's Kinetics PROD parity sweep — out of scope for
 the EXIT.
 
+## Track D — News-aggregation Phase A (operator-approved 2026-06-12)
+
+Design authority: docs/superpowers/specs/2026-06-12-news-aggregation-design.md
+(four-layer trust framework §4.4; Layers 0–2 Phase-A-binding per
+docs/design/implementer-loop-track-d.md, which governs this track). Fixtures
+first under fixtures/sources/; NO model in the ingestion path; ownership =
+crates/fortuna-sources + fixtures/sources/ + one flagged drive() seam.
+
+- [x] D1 Crate scaffold + per-source config types: SourcesConfig/SourceConfig/
+      EventWindow/SourceKind parsed fail-closed from [sources.<id>] TOML
+      (design §4.3); Phase-A refusals encoded in validation (enabled
+      scrape/mcp/model-extraction rejected at parse, not by convention);
+      13 unit tests written from the design text, incl. the §4.3 example
+      verbatim. (DONE 2026-06-12, battery in-commit; hash recorded next
+      iteration.)
+- [ ] D2 FetchClient substrate: per-host politeness token bucket, conditional
+      GET cache, https-only + registry host pinning + redirect re-validation,
+      size/timeout caps, RateLimited/Timeout/Outage classification (design
+      §4.2; property test: bucket never exceeds budget).
+- [ ] D3 Layer 0+1 plumbing: vetting-dossier template + dossiers for the v1
+      source set (docs/research/sources/<id>/ — ownership assumption
+      ledgered in ASSUMPTIONS); pre-normalizer structural validation
+      (timestamp sanity: future-dated rejected, stale-republication flagged;
+      per-source volume envelopes) (design §4.4 Layers 0–1).
+- [ ] D4 NwsSource (fixtures first: fixtures/sources/nws/).
+- [ ] D5 RssSource via feed-rs (fixtures first: fixtures/sources/rss/,
+      including malformed documents).
+- [ ] D6 CalendarSource — BLS/Fed/FRED release calendars; emits
+      release_scheduled + release_printed signal types (fixtures first:
+      fixtures/sources/calendar/).
+- [ ] D7 GdeltSource (fixtures first: fixtures/sources/gdelt/; query design
+      needs a docs/research pass — open question in the design doc).
+- [ ] D8 Layer 2 corroboration: deterministic near-dup clustering +
+      independent-origin counting + annotation fields (design §4.4 Layer 2).
+- [ ] D9 Ingestion scheduler: Clock+CancellationToken loop, per-source cadence
+      + static event windows, health state machine healthy→degraded→
+      quarantined (loud), per-source isolation, trigger/resolution floors as
+      config rules; DST scenarios (timeout mid-window, 429 storm,
+      crash-in-window recovery, burst coalescing, quarantine escalation).
+- [ ] D10 drive() seam: ONE minimal flagged commit wiring the scheduler into
+      fortuna-live behind a config flag (default off).

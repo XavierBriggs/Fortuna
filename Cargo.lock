@@ -711,6 +711,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fortuna-sources"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "thiserror",
+ "toml",
+]
+
+[[package]]
 name = "fortuna-state"
 version = "0.1.0"
 dependencies = [

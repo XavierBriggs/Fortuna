@@ -1537,3 +1537,25 @@ crates/fortuna-venues/tests/kalshi_doc_samples/ are NOT recordings.
   with the GAPS note). The `deadman_tick` LOGIC takes `now` as a parameter
   (clock-injected, mock-tested); only main supplies it, from the wall via
   RealClock. Zero raw `SystemTime::now()` remain in fortuna-live/src.
+
+## Track D — news-aggregation Phase A
+
+- **Workspace registration**: adding `crates/fortuna-sources` to the root
+  Cargo.toml members list is treated as part of the "crates/fortuna-sources
+  (new)" ownership grant (one line; a new crate cannot exist without it).
+  Flagged for the gate rather than silently assumed.
+- **docs/research/sources/ ownership**: the loop file makes Layer-0 admission
+  dossiers Phase-A-binding but does not list their directory; assumed the new
+  docs/research/sources/<id>/ tree falls under Track D ownership (it is new
+  and unclaimed).
+- **One source id = one URL**: the design's "RssSource: one impl, N configured
+  feeds" is realized as N [sources.<id>] entries (each feed its own registry
+  row and trust tier), not a urls[] array — per-feed trust attribution needs
+  per-feed identity.
+- **Event windows are same-day UTC** (`from < to`, both HH:MMZ): windows that
+  cross midnight are split into two config entries. Conservative parse;
+  revisit only if a real source needs it.
+- **Phase-A refusals live in config validation**: an enabled scrape/mcp source
+  or enabled model extraction fails SourcesConfig validation outright (loop
+  file: "NO model in the ingestion path in Phase A"). Loosening this in
+  Phase C/D is a deliberate, reviewable diff in fortuna-sources/src/config.rs.
