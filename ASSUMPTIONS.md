@@ -1537,3 +1537,43 @@ crates/fortuna-venues/tests/kalshi_doc_samples/ are NOT recordings.
   with the GAPS note). The `deadman_tick` LOGIC takes `now` as a parameter
   (clock-injected, mock-tested); only main supplies it, from the wall via
   RealClock. Zero raw `SystemTime::now()` remain in fortuna-live/src.
+
+## Track E — domain-analysis personas, slice 1 (ledger; design §2/§5/§15)
+
+Spec-silence resolutions made building the persona registry + the persisted
+domain-analysis artifact (authoritative design: docs/design/domain-analysis-personas-design.md).
+
+- **The artifact is a PERSISTED, append-only record (not ephemeral).** Spec 5.7/I5
+  require every belief to replay byte-identically, and a persona is a
+  non-deterministic LLM call, so its reasoning MUST be persisted as an immutable,
+  content-hashed item the belief's manifest points at — persistence is mandatory
+  either way, so the shared artifact strictly dominates a per-belief private copy
+  (design §2; operator-endorsed 2026-06-13). Interprets spec 5.7 (replayability)
+  and I5 (append-only audit).
+- **`domain_analyses` is content-immutable; only `status` may change** (open ->
+  superseded). Conservative reading of I5/5.7: the artifact's `content_hash` over
+  findings + signal_manifest is the replay anchor, so findings/signal_manifest/
+  content_hash/manifest_hash/cost/supersedes are frozen at insert; the only
+  permitted mutation is the supersession marker. This mirrors the existing
+  `beliefs` content-guard (only scoring fields may change) — same mechanism, a
+  dedicated `fortuna_domain_analyses_guard` trigger. DELETE is refused outright.
+- **`personas` is append-only + supersedes-chained with UNIQUE(persona_id,
+  version)** refusing a version re-issue — a version is a stable, scoreable
+  identity (the I7 analog), exactly as `calibration_params` is versioned config.
+  A method change is a NEW row; the migration `fortuna_refuse_mutation` trigger
+  refuses UPDATE/DELETE.
+- **`PersonasRepo::head(persona_id)` returns the NEWEST version row regardless of
+  status** (status-agnostic). The active/retired interpretation (design §6 "the
+  active row") is deliberately the slice-2 loader's policy, not baked into the ledger
+  primitive — the loader sees the actual newest row and its status and decides. Honest
+  minimal primitive for slice 1.
+- **Retirement is a SUPERSEDING INSERT, not an in-place `status='retired'` UPDATE.**
+  `personas` carries the column-blind `fortuna_refuse_mutation` trigger (refuses ALL
+  UPDATE/DELETE, like `lessons`/`calibration_params`), so an operator retiring a persona
+  inserts a new superseding row with `status='retired'` — append-only. Design §10 was
+  reconciled to this (its earlier prose read as an in-place update, which the schema
+  refuses); the schema's append-only reading governs. Conservative I5 reading: no
+  in-place mutation of a versioned registry, ever.
+- **One migration carries BOTH tables** (`20260613000001_personas.sql`) — the
+  ledger slice is one schema-touching task (design §5; CLAUDE.md "one migration
+  per BUILD_PLAN task touching schema").

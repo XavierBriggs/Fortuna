@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO domain_analyses\n               (analysis_id, persona_id, persona_version, domain, region_key,\n                produced_at, signal_manifest, findings, content_hash,\n                manifest_hash, cost_cents, supersedes, created_at)\n               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int4",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Jsonb",
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9242f410797af6b8e6b1a621acdbf22aa54c7b3d5fb829c163c11e5c9c1045a8"
+}

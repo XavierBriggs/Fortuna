@@ -642,3 +642,37 @@ perp DST arms in every battery; zero changes to the invariant middle
 I7 ladder and the operator's Kinetics PROD parity sweep — out of scope for
 the EXIT.
 
+
+## Track E — Domain-analysis personas (operator-directed 2026-06-13; design committed + APPROVED)
+
+Authoritative design: docs/design/domain-analysis-personas-design.md (§18 six-slice plan).
+A versioned, auditable library of analyst personas + a persisted, append-only domain-analysis
+artifact the cognition layer consumes when forming beliefs; proven end-to-end on the
+meteorologist. Ownership (absolute): the persona LAYER in fortuna-cognition + new ledger
+tables/repos; never touches fortuna-sources (Track D); extends, never breaks, the Mind/belief
+interface Track A composes. ROTA views (§14/§20) are Track B's to build (Track E provides
+data); persona telemetry (§19) folds into slices E.3–E.5. fortuna-invariants is touched only
+at E.3 (the PersonaOutcome no-order/size field-surface pin) under operator waive.
+
+- [x] E.1 Ledger — `personas` + `domain_analyses` tables + migration + append-only repos
+      (content-immutable guard on domain_analyses freezing all 12 content columns, only
+      `status` flips; supersedes-chained `personas` with UNIQUE(persona_id,version)).
+      (DONE this commit: migration 20260613000001_personas.sql; PersonasRepo +
+      DomainAnalysesRepo in fortuna-ledger; 6 #[sqlx::test] guard/round-trip/supersession
+      tests, mutation-proven; per-crate .sqlx regenerated; full workspace battery green
+      [fmt/clippy --workspace --all-targets/cargo test --workspace 123 ok-suites/run-dst 2000];
+      adversarial spec+code review clean [no Critical/Major]; fortuna-invariants UNTOUCHED.)
+- [ ] E.2 Persona definition + registry — skill-file loader (config/personas/<id>/), method_hash
+      validation against the registry head; refuse a config/registry hash mismatch.
+- [ ] E.3 Runner loop + triggers + budget + context + findings contract — scripted-StubMind
+      determinism, the trusted/untrusted separation tests (§4 a–d), DST runner-under-budget arm;
+      persona telemetry counters (§19); the PersonaOutcome no-order/size invariant pin (§15).
+- [ ] E.4 Belief consumption — DomainAnalysis section + evidence/provenance citation; the
+      μ/σ→p helper in code; `fortuna_persona_beliefs_total` metric.
+- [ ] E.5 Scoring scope extension — ScopeKey + weekly-review promote/retire proposal (baseline +
+      market comparison; recommendation-only); resolved_beliefs/clv_bp metrics.
+- [ ] E.6 End-to-end meteorologist proof over Aeolus (+ NWS/fixture) + the macro mechanism test;
+      the §11 evaluation gate wired; full battery green.
+
+ROTA views (§14/§20) + persona telemetry (§19) are operator-requested detailed contracts
+(2026-06-13) — Track B builds the four views; Track E provides the data across E.1–E.5.

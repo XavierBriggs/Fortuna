@@ -257,8 +257,10 @@ Clock-injected; a scripted `StubMind` → byte-identical artifact + `content_has
   **no-persona baseline** (raw-source-direct beliefs) and the **market-implied baseline** (§11).
 - It **proposes** promote/retire to `#fortuna-review` — recommendation-only, like lessons and
   strategies (reuses the lesson-promotion machinery). The operator promotes (file edit +
-  superseding registry insert) or retires (`status='retired'`) out-of-band; the daemon never
-  self-promotes. A persona that can't beat the baseline is **retired on the record**.
+  superseding registry insert) or retires (**a superseding registry insert with
+  `status='retired'`** — append-only, because the `personas` trigger refuses any in-place UPDATE,
+  exactly like `lessons`/`calibration_params`) out-of-band; the daemon never self-promotes. A
+  persona that can't beat the baseline is **retired on the record**.
 
 ## 11. Viability & evaluation (honest success criteria)
 
@@ -335,7 +337,9 @@ CLI action, **never** a dashboard button (I2/I4/I7). Track B owns `fortuna-ops`/
 and implements the panels; **Track E provides the data** (the new repos + per-view JSON shaping,
 following ROTA §5's `views: serde_json::Value` + `generated_at` discipline; each degrades to
 "unavailable" — HTTP 200, never 500 — while the tables are empty pre-build). Registered in
-`rota-dashboard.md` §4 DEFERRED. Three additions:
+`rota-dashboard.md` §4 DEFERRED. **§20 gives the detailed, buildable JSON contracts** (the three
+below + a 4th pipeline-funnel view) and **§19 the telemetry**, both operator-requested
+2026-06-13. Three additions:
 
 1. **Personas view** (`/api/rota/v1/personas`). Per `(persona_id, version)`: domain, status
    (active/retired), tier, `method_hash`, `effective_at`; and the per-`(persona, version)`
@@ -406,6 +410,14 @@ the macro/event calendar, consensus/news kinds. The meteorologist proof uses liv
 `aeolus.forecast` + NWS signals; if an NWS kind isn't ingested yet, a recorded fixture signal
 stands in (GAPS-noted).
 
+- **Telemetry + detailed ROTA contracts (operator-requested 2026-06-13):** §19 specifies the
+  persona metrics (slotting into `fortuna-ops`'s integer-only `MetricsRegistry` via the existing
+  `metrics_export()` seam — no new infra; integer counts/cents/bp to Prometheus, float scorecard
+  to ROTA JSON) folded into build slices 3–5; §20 specifies the buildable ROTA view contracts
+  (registry+scorecard, artifacts browser with belief fan-out, cognition provenance, and a NEW
+  persona-pipeline funnel) for Track B. Good-principles invariant: views are persona-agnostic /
+  domain-generic and additive-only, so a new persona adds zero endpoints and zero metric names.
+
 **Deferrals:** macro-economist ships as the *generalization proof* (definition + fixture-driven
 mechanism test), live wiring deferred until Track D provides macro signals; political/
 entertainment personas are future. Per-tier model selection is Track M. ROTA panels (§14) are
@@ -429,3 +441,131 @@ Track B's to implement.
 ROTA views (§14) are a **coordination request to Track B** (data provided by slices 1–5); not a
 Track E build slice. Each slice: tests-first, full workspace battery as the commit gate,
 GAPS/ASSUMPTIONS updated, `fortuna-invariants` untouched, branch `track-e` in worktree `fortuna-wt-e`.
+
+**Telemetry folds into the build slices (§19):** slice 3 emits the runner counters
+(`runs/analyses/failures/budget_skips/no_signal_skips/coalesced/cost`); slice 4 emits
+`beliefs_total`; slice 5 emits `resolved_beliefs`/`clv_bp`. No standalone telemetry slice —
+the persona layer extends the existing `metrics_export()` seam, so each build slice ships its
+own metrics with its own tests (mirroring `tests/metrics.rs`).
+
+## 19. Telemetry & metrics (operator-requested 2026-06-13; slots into `fortuna-ops`, no new infra)
+
+The persona layer emits operational metrics through the **existing** telemetry path; it adds
+**zero** telemetry infrastructure. `fortuna-ops`'s `MetricsRegistry` (`metrics.rs`) is a
+hand-rolled, **integer-only** registry rendered as Prometheus text-exposition 0.0.4 at
+`/metrics` (`dashboard.rs:79`). Metrics are not globals: the runner folds counters in a struct
+(`StrategyCounters`, `runner.rs`) and `metrics_export() -> Vec<MetricSample>` is drained into a
+fresh registry each refresh (`daemon.rs:759`). Persona telemetry mirrors this exactly — a
+`PersonaCounters` fold keyed by `persona_id`, exported through the **same** `metrics_export()`
+seam. `fortuna-ops` is untouched.
+
+**Integer-only split (load-bearing principle).** The registry stores `i64` only (cents, counts,
+basis-points — no `f64`). So COUNTS, CENTS, and basis-points go to Prometheus (operational
+alerting); the **float** scorecard (Brier, calibration-quality ∈ [0,1]) lives in the ROTA JSON
+view (§20.1), **never** Prometheus. The two surfaces grow independently and neither violates the
+other's invariant (the registry's integer invariant is already test-pinned in `tests/metrics.rs`).
+
+**Persona-agnostic label set (the "one mechanism" principle extends to telemetry).** Every
+persona metric carries `{persona, persona_version?, domain}`. Adding a macro-economist emits the
+**same metric names** with different label values — ZERO new metric names per persona, exactly as
+the design adds zero per-domain code. Labels follow the in-use keys (`venue`/`strategy` style).
+
+| metric | kind | labels | meaning | slice |
+|---|---|---|---|---|
+| `fortuna_persona_runs_total` | counter | persona,domain | a trigger fired a run | 3 |
+| `fortuna_persona_analyses_total` | counter | persona,domain | an artifact was persisted | 3 |
+| `fortuna_persona_run_failures_total` | counter | persona,reason | run degraded (`reason`∈ schema_invalid\|provider\|context) | 3 |
+| `fortuna_persona_budget_skips_total` | counter | persona | budget-exhausted skip (degrade, no crash) | 3 |
+| `fortuna_persona_no_signal_skips_total` | counter | persona | no in-window signals → skip | 3 |
+| `fortuna_persona_triggers_coalesced_total` | counter | persona | duplicate/concurrent triggers debounced into one run | 3 |
+| `fortuna_persona_cost_cents_total` | counter | persona | persona-attributed spend (extends `fortuna_cognition_cost_cents_total`) | 3 |
+| `fortuna_persona_spend_today_cents` | gauge | persona | budget-true persona spend today (resets 00:00 UTC; mirrors `fortuna_mind_spend_today_cents`) | 3 |
+| `fortuna_persona_beliefs_total` | counter | persona,persona_version | beliefs drafted citing a persona artifact | 4 |
+| `fortuna_persona_resolved_beliefs` | gauge | persona,persona_version | resolved persona-attributed beliefs (the §11 gate's `n`) | 5 |
+| `fortuna_persona_clv_bp` | gauge | persona,persona_version | mean CLV in basis points (integer; +ve = edge) | 5 |
+
+These give the operator a Prometheus-native **funnel** — `runs_total → analyses_total →
+beliefs_total → resolved_beliefs` — with the four skip/failure counters explaining **every drop**
+(the same four degrade arms the runner already has, §8, each get a counter), so a budget squeeze
+or a poisoned-signal schema reject is visible without log-diving. Brier/quality (floats) are
+deliberately absent here → §20.1.
+
+**Tests (mirror `tests/metrics.rs`):** a counter increments monotonically; a byte-identical render
+is deterministic; and in the slice-3 runner tests a budget-skip increments `budget_skips_total`
+and NOT `analyses_total` (mutation-proven), so the funnel's drop-attribution is real.
+
+## 20. ROTA view contracts — detailed (operator-requested 2026-06-13; Track B builds, Track E provides data)
+
+Expands §14 into **buildable** contracts. ALL read-only, gold-on-black, **zero mutating
+endpoints** (promote/retire is the operator CLI, never a button — I2/I4/I7). Every view stamps
+`generated_at` and degrades to `available:false` + a neutral `detail` at **HTTP 200 (never 500)**
+while its tables are empty pre-build — the existing `read_view`/`ledger_unavailable` discipline
+(`rota.rs:82,124`). Data is sourced from the new repos (§5) + the §10 ScopeKey aggregation via
+ROTA's R5 read pool, exactly as `view_cognition` already issues `BeliefsRepo::recent` /
+`CalibrationParamsRepo::scopes`.
+
+**Good-principles framing (so future expansion is trivial):** the views are persona-**agnostic**
+and domain-**generic** — a new persona/domain appears with **no new endpoint**; the `/v1/`
+contracts are **additive-only** (append fields, never remove or repurpose); and each view degrades
+**independently**, so they can ship incrementally as slices 1–5 land their data.
+
+### 20.1 Personas registry + scorecard — `/api/rota/v1/personas` (the "outcomes" view)
+Per `(persona_id, version)`: identity + the calibration scorecard + the vs-baseline verdict —
+"which persona-version is winning, by how much, against what."
+```json
+{ "generated_at": "...", "available": true, "personas": [ {
+  "persona_id": "meteorologist", "version": 3, "domain": "weather",
+  "status": "active", "tier": "cheap", "method_hash": "a1b2c3…", "effective_at": "...",
+  "reads_signal_kinds": ["aeolus.forecast","nws.observed_high"],
+  "scorecard": { "n_resolved": 74,
+    "brier": 0.171, "brier_baseline_raw": 0.196, "brier_baseline_market": 0.168,
+    "clv_bp": 42, "calibration_quality": 0.88,
+    "verdict": "PROMOTABLE" },                        // EVALUATING(n/60) | PROMOTABLE | RETIRE-CANDIDATE — DISPLAY ONLY
+  "recommendation": "promote v3 over v2 (Δbrier −0.025, CLV +42bp)" } ] }   // latest weekly review, display only
+```
+`verdict` encodes the §11 gate **for display only**: `n_resolved<60` → `EVALUATING`; `≥60` AND
+beats BOTH baselines (`brier ≤ brier_baseline_market` AND `clv_bp>0`) → `PROMOTABLE`; `≥60` and
+beats neither → `RETIRE-CANDIDATE`. The operator promotes/retires by CLI; ROTA only shows the
+verdict. Source: `personas` + the ScopeKey aggregation (§10) + the no-persona & market baselines (§11).
+
+### 20.2 Domain-analysis artifacts browser — `/api/rota/v1/analyses` (the "whole process" view)
+Each artifact **and its downstream fan-out** — one analysis → N beliefs → resolved outcomes, the
+whole pipeline in one click-to-expand.
+```json
+{ "generated_at": "...", "available": true, "analyses": [ {
+  "analysis_id": "01J…", "persona": "meteorologist@3", "domain": "weather",
+  "region_key": "weather:KNYC:tmax:2026-06-12", "produced_at": "...",
+  "cost_cents": 1, "content_hash": "…", "status": "open",
+  "findings": { },                                       // expand: the structured analysis
+  "signal_manifest": [ {"signal_id":"…","content_hash":"…"} ],  // the UNTRUSTED inputs, point-in-time (5.7)
+  "beliefs": [ {"belief_id":"…","statement":"NYC high ≥ 65°F","p":0.41,
+               "status":"resolved","outcome":0,"brier":0.168} ] } ] }       // the fan-out + outcomes
+```
+THE insight: the operator opens one meteorologist artifact and sees the three bracket beliefs it
+drove and exactly how they resolved (Brier per bracket) — attribution end to end. Source:
+`domain_analyses` + the beliefs-provenance join (`beliefs.provenance ->> 'analysis_id'`).
+
+### 20.3 Cognition panel extension — `/api/rota/v1/cognition` (R7, EXISTING — extend, don't fork)
+The existing per-belief evidence+provenance `<details>` expander (`rota.rs:163`) gains the persona
+provenance block — **no new endpoint, no new mutating surface**:
+```json
+"provenance": { /* …existing model_id, context_manifest_hash, cost_cents… */
+  "persona_id":"meteorologist", "persona_version":3, "analysis_id":"01J…", "analysis_content_hash":"…" }
+```
+`analysis_id` links to §20.2. The panel header also surfaces the integer persona counters (§19)
+beside the existing `mind_spend_today_cents` block (`runs/analyses/cost/budget_skips/schema rejects`)
+so the cognition cost story includes persona spend. Raw LLM responses stay OUT (ROTA doctrine).
+
+### 20.4 Persona pipeline funnel — `/api/rota/v1/persona_pipeline` (NEW; the "show me the whole process" health view)
+The single screen that answers "what are the personas doing, and is it working" — a funnel from
+the §19 counters + ledger counts, so the operator sees volume AND where/why it drops.
+```json
+{ "generated_at": "...", "available": true,
+  "funnel": { "triggers": 120, "runs": 96, "analyses": 94, "beliefs": 281, "resolved": 74, "promotable_subsets": 1 },
+  "drops":  { "budget_skips": 18, "no_signal_skips": 6, "schema_rejections": 2, "coalesced": 12 },
+  "by_persona": [ {"persona":"meteorologist","runs":96,"analyses":94,"clv_bp":42,"verdict":"PROMOTABLE"} ] }
+```
+Funnel counters from `/metrics` (§19); funnel ledger counts from `domain_analyses` +
+persona-attributed `beliefs`. **Additive:** a new persona is one more `by_persona` row, no schema
+change. Registered in `rota-dashboard.md` §4 DEFERRED; Track B builds when its panel work resumes,
+and the data lands across slices 1–5.

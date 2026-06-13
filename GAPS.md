@@ -18,7 +18,48 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
-## TRACK E — design committed; RALPH STOP (loop mis-located + design-phase approval gate)
+## TRACK E — BUILD PHASE (operator-approved 2026-06-13); E.1 ledger DONE
+
+STATUS 2026-06-13 (SUPERSEDES the design-phase RALPH STOP preserved below): the operator
+APPROVED the design ("looks good, rearm"; commit b4eaae3) and re-armed Track E in worktree
+fortuna-wt-e. BUILD PHASE active — building design §18's six slices, one gate-clean slice
+per iteration.
+
+**E.1 (Ledger) DONE this commit.** Migration 20260613000001_personas.sql adds the append-only
+`personas` registry (supersedes-chained, UNIQUE(persona_id,version), fortuna_refuse_mutation)
++ the content-immutable `domain_analyses` artifact (dedicated guard freezing all 12 content
+columns; only `status` flips open->superseded; content_hash over findings+signal_manifest is
+the I5/5.7 replay anchor). PersonasRepo + DomainAnalysesRepo in fortuna-ledger (insert/head;
+insert-with-supersede / get / current_for_region); per-crate crates/fortuna-ledger/.sqlx cache
+regenerated (per-crate, matching the repo's layout — NOT the root cache). 6 #[sqlx::test]
+tests, all mutation-proven (append-only + content-immutable guards, version-reissue refusal,
+supersession). FULL workspace battery green, witnessed with correct exit-code gating
+(fmt / clippy --workspace --all-targets / cargo test --workspace = 123 ok-suites /
+run-dst.sh 2000 = "zero invariant violations"); fortuna-invariants UNTOUCHED. Adversarial
+spec+code review (opus subagent): no Critical/Major; one Minor (§10 retirement = a superseding
+insert, not in-place — reconciled in the design + ASSUMPTIONS) + two test-tightening nits, all
+applied + re-validated.
+
+**OPERATOR REQUEST (2026-06-13, mid-build): rich persona TELEMETRY + insightful ROTA views.**
+Designed (doc-only; emission/views land in later slices / Track B): design doc §19 (persona
+metrics slotting into fortuna-ops's integer-only MetricsRegistry via the existing
+metrics_export() seam — integer counts/cents/bp to Prometheus, float Brier/quality to ROTA
+JSON; persona-agnostic labels) folded into build slices 3-5; §20 (four buildable ROTA view
+contracts: personas registry+scorecard with vs-baseline verdict, analyses browser with the
+one-analysis->N-beliefs->outcomes fan-out, cognition provenance, and a NEW persona_pipeline
+funnel). rota-dashboard.md §4 DEFERRED updated to point Track B at them. Views are
+persona-agnostic/domain-generic + additive-only so a new persona adds zero endpoints/metric
+names. (Interpreted the operator's "perps vendor" as the persona system — this track's domain.)
+
+**INVARIANT-PIN DEFERRED to slice 3** (design §15): the field-surface pin asserting
+`PersonaOutcome` carries no order/size field belongs with that type (the runner outcome, slice 3),
+and any fortuna-invariants touch is an operator-waive item per the loop — so slice 1 (ledger)
+correctly does NOT touch the protected crate. The `domain_analyses`/`PersonaRow` row types are
+already structurally order-free (review-confirmed).
+
+NEXT: E.2 (persona skill-file loader + method_hash validation against the registry head).
+
+--- HISTORICAL (design-phase RALPH STOP — SUPERSEDED by the operator approval above) ---
 
 DESIGN PHASE DONE. The persona/domain-analysis design was explored (Explore-agent
 map of fortuna-cognition + ledger, verified), brainstormed, and the §3 artifact-model

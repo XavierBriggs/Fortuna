@@ -215,10 +215,19 @@ unwritten); perps/funding-regime panel (T5.B8 owns it); DST/gate-verdict badge
 (no review-file parser); domain-analysis / personas views (Track E owns —
 personas + domain_analyses tables + per-(persona,version) calibration unbuilt;
 read-only, gold-on-black, NO mutating endpoints; promote/retire is operator CLI,
-never a button; spec in docs/design/domain-analysis-personas-design.md §14:
-(1) /api/rota/v1/personas registry+scorecard, (2) /api/rota/v1/analyses artifact
-browser, (3) persona provenance in the existing cognition panel). WS gap/resync
-counters render stub 0 until T4.2 ships the dial.
+never a button. DETAILED BUILDABLE CONTRACTS now in
+docs/design/domain-analysis-personas-design.md §20 (operator-requested 2026-06-13):
+(1) /api/rota/v1/personas registry+scorecard with vs-baseline verdict, (2)
+/api/rota/v1/analyses artifact browser with the one-analysis→N-beliefs→outcomes
+fan-out, (3) persona provenance in the existing cognition panel, (4) NEW
+/api/rota/v1/persona_pipeline funnel (triggers→runs→analyses→beliefs→resolved with
+drop attribution). Persona TELEMETRY in §19: integer counters/cents/bp on /metrics
+via the existing metrics_export() seam — fortuna_persona_{runs,analyses,
+run_failures,budget_skips,no_signal_skips,triggers_coalesced,cost_cents,beliefs,
+resolved_beliefs,clv_bp}; float Brier/quality stay in the ROTA JSON, not Prometheus.
+Track E provides the data across slices 1–5; views are persona-agnostic/
+domain-generic + additive-only so a new persona adds zero endpoints/metric names.)
+WS gap/resync counters render stub 0 until T4.2 ships the dial.
 
 Telemetry additions (the ONLY runner changes, both read-path): the
 `fortuna_rate_bucket_fill{venue,market}` gauge in metrics_export(), and
