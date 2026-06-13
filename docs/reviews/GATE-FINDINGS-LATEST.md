@@ -13,6 +13,41 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-13, cont'd — verifier loop pass)
 
+- **TRACK E PERSONA RUNTIME (E.3c–E.6) MERGED → main @ 2668291 = GATE ACCEPT.** The
+  third producer family — domain-analyst personas (meteorologist + macro) that
+  reason over UNTRUSTED signals and emit calibration-scored BeliefDrafts with a
+  promote/retire PROPOSAL. I6: persona_beliefs → Vec<BeliefDraft>, no order/exec.
+  I7: propose_promotion is RECOMMENDATION-ONLY (daemon never self-promotes) —
+  MUTATION-PROVEN (drop the positive-CLV requirement → non_positive_clv_blocks_
+  promotion reds). Firewall: trusted method → system_charter, untrusted →
+  context-items only (E.3a-proven, reconfirmed). 197 cognition tests green.
+  ORCHESTRATION NOTE: track-e RALPH-STOPPED "complete" but was 91 commits BEHIND
+  main (branched at E.3a core 4e8b9e4, missing the scalar plane). The merge
+  reconciled cleanly — only 2 union conflicts (run-dst.sh + GAPS), no code
+  conflicts (scalar plane additive/A3; personas use the independent binary belief
+  path), and the 3-way merge VERIFIED-preserved all 91 intervening main commits
+  (slice-3 fixture, sources fixtures, scalar plane). LESSON: a track's "complete"
+  is relative to its base — always gate on the MERGED tree, never the branch tip.
+
+- **TRACK C PERP SLICE-3 (perp_event_basis basis kernel) MERGED → main @ 4db8764
+  = GATE ACCEPT.** fortuna-cognition::basis (bracket_implied_median + compute_basis,
+  the FEE-TRAP `is_tradeable` rule) + the paired_cycle_btc_perp_vs_kxbtc fixture.
+  PROVENANCE: real read-only recorder capture (data/perishable/2026-06-13/), cycle-
+  aligned, SECRETS-SCANNED zero hits. MONEY/CLOCK: f64 correctly in the cognition/
+  forecast domain (only PerpPrice boundary read; no money arithmetic; no clock; no
+  panic). VALIDATION genuine not asserted: two independent sources agree — perp mark
+  $63,906 vs ladder median $63,961.53 = −$55.53 (~0.09%). basis 10 tests; MUTATION-
+  PROVEN (drop fee-floor → fee_trap_below_floor reds). Full cognition suite green
+  (additive). Proposes nothing — the Cents bracket-leg trade is slice-3b (fixture-
+  gated). Self-correction VERIFIED: brief's KXBTCPERP1 → real key KXBTCPERP.
+  ⚠️ **CROSS-SLICE FINDING for TRACK C (needs confirm, not a slice-3 blocker):** TWO
+  BTC-perp representations are in play — **Kinetics `KXBTCPERP1`** (slice-2b
+  funding_forecast's fixture, `.meta.json`-provenanced, Kinetics venue session) vs
+  **Kalshi-recorder `KXBTCPERP`** (slice-3 basis; `KXBTCPERP1` = 0 rows, `KXBTCPERP`
+  = 7384 rows in the real capture). Confirm each strategy targets the intended
+  venue/instrument BEFORE the producers are relied on in production; if they are the
+  same underlying on two venues, document the mapping. Logged to GAPS for track-C.
+
 - **TRACK C SCALAR/PERP PLANE MERGED → main @ 2809aea = GATE ACCEPT.** Merged the
   fully-gated tip 7015dd5 (slices 1a prob_claims/v1 + 1b ledger storage + 2a
   perp-strategy seam + funding kernel). Conflict-free 3-way merge. Integration

@@ -71,13 +71,16 @@ the failure class it catches.
    ([CLAUDE.md](../CLAUDE.md) "Definition of done").
 2. **DST — deterministic simulation testing with seeded chaos.**
    [scripts/run-dst.sh](../scripts/run-dst.sh) replays the regression corpus,
-   then runs N randomized seeds through four harnesses: the core
+   then runs N randomized seeds through six harnesses: the core
    order/fill/settlement harness, the composed decision loop under cognition +
    venue chaos, the settlement/watchdog plane (eleven per-arm-accounted fault
-   arms), and the daemon-composition smoke. Faults injected include delayed
+   arms), the perp margin/funding/liquidation plane, the persona runner under
+   the cost budget (Track E — firewall/findings-schema/coalesce degrade arms),
+   and the daemon-composition smoke. Faults injected include delayed
    acks, dropped/duplicate fills, mid-cycle crashes, schema-invalid model
-   output, budget exhaustion, audit-sink death, voids, disputes, and reversals
-   (spec §5.1; [system-0-4-egate §E4](reviews/system-0-4-egate-2026-06-10.md)).
+   output, budget exhaustion, audit-sink death, voids, disputes, reversals, and
+   persona budget-throttle / signal-absence / schema-invalid / coalesced-trigger
+   degrade (spec §5.1; [system-0-4-egate §E4](reviews/system-0-4-egate-2026-06-10.md)).
    Every seed must replay byte-identically. New failure modes become scenarios
    (DoD item 3, [CLAUDE.md](../CLAUDE.md)).
 3. **Invariant tests** — I1–I7 as executable tests in the protected crate

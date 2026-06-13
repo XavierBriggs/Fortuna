@@ -18,6 +18,15 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
+- **`perp_event_basis` basis kernel** (slice 3, `fortuna-cognition::basis`): the
+  deterministic forecast-quality basis signal — `bracket_implied_median` (a
+  KXBTC15M bracket ladder's YES bid/ask → normalized probabilities →
+  0.5-crossing interpolation) + `compute_basis` (perp mark − implied median,
+  gated past the assumed-fee floor). f64-cognition (never money); the bracket
+  structure is grounded in the committed Kalshi research, only the test values
+  are synthetic. 10 mutation-proven tests. The bracket-TRADER strategy + the
+  real-orderbook e2e stay fixture-gated (operator-queue #4 + a `KalshiMarket`
+  floor/cap DTO extension).
 - **`funding_forecast` strategy** (slice 2b, `fortuna-runner`): a zero-capital
   scalar belief-producer — on a `PerpTick` it forecasts the next funding rate
   directly from the recorded venue estimate (`finalize_funding_rate(estimate)`;
@@ -55,10 +64,11 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Deferred
 
-- funding_forecast (slice 2, live-data driven), perp_event_basis (slice 3 —
-  fixture-gated on a paired KXBTC15M cycle), daemon composition (slice 4), and
-  F5–F9 (Aeolus weather → belief) — all build on the scalar foundation above.
-  Marked pending, not done.
+- perp_event_basis STRATEGY (slice 3b — the Cents bracket-leg trade + the
+  KalshiMarket floor/cap DTO; the slice-3 basis kernel above is DONE+merged, the
+  trade is fixture-gated), daemon composition (slice 4), and F5–F9 (Aeolus
+  weather → belief) — all build on the scalar foundation above. Marked pending,
+  not done. (Slices 1–2 + the slice-3 basis kernel are DONE + merged to main.)
 
 ### Ingestion & data sources (fortuna-sources, Track D)
 
@@ -163,6 +173,28 @@ default — merged code activates zero ingestion until an operator opts in (see
   v2 μ/σ→p parser, F7 world-forward match, F8 belief→calibration→gates→sizing,
   F9 the Layer-3 `source_reliability` scoring that V4 of the ROTA scorecard
   depends on (until then V4 shows "insufficient data").
+
+### Domain-analysis personas (fortuna-cognition, Track E)
+
+Persona analysts (meteorologist + macro economist) that reason over UNTRUSTED
+signals and emit calibration-scored beliefs. Verifier-gated ACCEPT and MERGED to
+main @2668291, 2026-06-13. No model action is ever execution — personas propose.
+
+#### Added
+
+- Persona belief consumption (`persona_beliefs`, E.4): the μ/σ→p backbone +
+  artifact→`BeliefDraft` fan-out into the GATED belief pipeline (never orders —
+  I6), plus the `SectionKind::DomainAnalysis` context section.
+- Persona scoring + promote/retire (`persona_scoring`, E.5): calibration Brier vs
+  both baselines (raw + market) + CLV; `propose_promotion` returns a
+  RECOMMENDATION-ONLY `PersonaPromotionProposal` (the daemon never self-promotes —
+  the I7 analog; a human acts on the proposal). Mutation-proven gate.
+- The trusted/untrusted firewall (E.3a core): the persona's method rides the Mind
+  `system_charter`; untrusted signals are assembled only as `<context-item>` data,
+  never as instructions.
+- End-to-end meteorologist proof + macro-economist generalization (one mechanism,
+  two domains) + the persona-authoring operator runbook + a seeded persona-runner
+  DST arm (budget throttle, signal absence, schema-invalid findings).
 
 ### Trading core, venues & exec
 

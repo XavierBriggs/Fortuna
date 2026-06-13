@@ -474,7 +474,7 @@ the design adds zero per-domain code. Labels follow the in-use keys (`venue`/`st
 |---|---|---|---|---|
 | `fortuna_persona_runs_total` | counter | persona,domain | a trigger fired a run | 3 |
 | `fortuna_persona_analyses_total` | counter | persona,domain | an artifact was persisted | 3 |
-| `fortuna_persona_run_failures_total` | counter | persona,reason | run degraded (`reason`∈ schema_invalid\|provider\|context) | 3 |
+| `fortuna_persona_run_failures_total` | counter | persona,reason | run reached the mind but degraded (`reason`∈ `provider`\|`schema_invalid`\|`other`-defensive; a **context-assembly** failure is the runner's ONE hard error per §8, surfaced as a `PersonaRunError`, NOT a counted run-failure) | 3 |
 | `fortuna_persona_budget_skips_total` | counter | persona | budget-exhausted skip (degrade, no crash) | 3 |
 | `fortuna_persona_no_signal_skips_total` | counter | persona | no in-window signals → skip | 3 |
 | `fortuna_persona_triggers_coalesced_total` | counter | persona | duplicate/concurrent triggers debounced into one run | 3 |
@@ -569,3 +569,24 @@ Funnel counters from `/metrics` (§19); funnel ledger counts from `domain_analys
 persona-attributed `beliefs`. **Additive:** a new persona is one more `by_persona` row, no schema
 change. Registered in `rota-dashboard.md` §4 DEFERRED; Track B builds when its panel work resumes,
 and the data lands across slices 1–5.
+
+## 21. Fit-validation notes (build-phase; codebase realities the build surfaced)
+
+Per the loop's design-validate-as-you-build rule: where the codebase constrains how
+§-intent is realized, it is recorded here (the doc adjusts deliberately; no silent drift).
+
+- **§10 ScopeKey extension → realized as an additive parallel `PersonaScope` (E.5a).**
+  §10/§17 say "extend the review `ScopeKey` by ADDING persona dims". The build found
+  `review::ScopeKey` is constructed via a **struct literal in Track A's
+  `crates/fortuna-live/src/daemon.rs:1024`** — adding fields to the shared struct would
+  break Track A's composition, which the loop forbids touching unilaterally. So E.5a
+  delivers the persona scoring as an **additive** `fortuna_cognition::persona_scoring`
+  layer (`PersonaScope{persona_id, persona_version}` + `score_persona` + the
+  beat-both-baselines `propose_promotion`), REUSING the same calibration primitives
+  (`calibration_curve`/`calibration_quality`/Brier/CLV) keyed by the persona scope — no
+  loss of arithmetic parity, I7 preserved (recommendation-only). FOLDING the persona dims
+  into the shared `ScopeKey` + wiring persona scopes into the daemon's weekly review is a
+  GATED Track-A coordination (the design-doc item is §10; the GAPS coordination note +
+  the daemon `ScopeKey` literal are the unblock), deferred so the boundary holds. The
+  §20.1 ROTA personas-view scorecard reads this persona scoring (same Brier/CLV/quality
+  per (persona, version)).

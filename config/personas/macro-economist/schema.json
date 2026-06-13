@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "macro-economist findings/v1",
+  "description": "Structured economic-release analysis emitted by the macro-economist persona. Pure judgment — outcomes[].p ARE the persona's stated probabilities (no statistical backbone). Each outcome fans out onto one binary belief (design §9/§13).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["outcomes", "regime", "confidence", "key_risk"],
+  "properties": {
+    "outcomes": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Per bracket the market trades, the judged probability the print lands in/above it.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["label", "p"],
+        "properties": {
+          "label": {
+            "type": "string",
+            "description": "The human bracket description, e.g. 'MoM >= 0.3%'."
+          },
+          "p": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "description": "The persona's judged probability for this outcome."
+          }
+        }
+      }
+    },
+    "regime": {
+      "type": "string",
+      "description": "Short phrase naming the macro regime."
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["low", "medium", "high"],
+      "description": "Overall confidence in this read."
+    },
+    "key_risk": {
+      "type": "string",
+      "description": "The single most important component or dynamic that could make the print surprise."
+    }
+  }
+}

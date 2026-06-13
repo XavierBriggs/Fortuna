@@ -971,18 +971,46 @@ at E.3 (the PersonaOutcome no-order/size field-surface pin) under operator waive
 - [ ] E.3 Runner loop + triggers + budget + context + findings contract — scripted-StubMind
       determinism, the trusted/untrusted separation tests (§4 a–d), DST runner-under-budget arm;
       persona telemetry counters (§19); the PersonaOutcome no-order/size invariant pin (§15).
-      [E.3a DONE this commit: fortuna_cognition::persona_runner — run_persona_analysis
+      [E.3a DONE (commit 4e8b9e4): fortuna_cognition::persona_runner — run_persona_analysis
       (budget-first, untrusted-signals-only context, Mind.decide, strict findings validation,
       content_hash anchor); PersonaOutcome order-free + Serialize; the FIREWALL headline tests
-      (method never in context; planted injection renders as data) + determinism + degrade arms;
-      12 tests; full battery green. REMAINING: E.3b triggers §7 + DST-under-budget; E.3c
-      telemetry §19 + the §15 invariant pin (operator-waive, see GAPS).]
-- [ ] E.4 Belief consumption — DomainAnalysis section + evidence/provenance citation; the
+      (method never in context; planted injection renders as data) + determinism + degrade arms.
+      E.3b DONE (commit 96cdb79): fortuna_cognition::persona_trigger — Cadence (fire-once-per-period,
+      generalizing DailyScheduler) + validate(); PersonaTriggerSpec::fires_on_signal; and the
+      PersonaTriggerGate reusing signals::TriggerEngine for per-(persona,region) coalescing.
+      E.3c DONE (commit 510ee8e): the seeded persona-runner DST arm (tests/persona_dst.rs).
+      E.3 telemetry DONE this commit: fortuna_cognition::persona_metrics — PersonaCounters folds
+      PersonaOutcomes → the §19 funnel counters + cost counter + spend_today gauge; samples()
+      shape-compatible with MetricSample; accounting identity test-pinned; 10 tests; full battery
+      green. REMAINING E.3: ONLY the §15 PersonaOutcome invariant pin (operator-waive, see GAPS).]
+- [x] E.4 Belief consumption — DomainAnalysis section + evidence/provenance citation; the
       μ/σ→p helper in code; `fortuna_persona_beliefs_total` metric.
+      [E.4a (commit c1c1b55): fortuna_cognition::persona_beliefs — normal_cdf/prob_at_least (the
+      μ/σ→p backbone, clamped) + map_persona_analysis (artifact findings → one binary BeliefDraft
+      per threshold/outcome, evidence + provenance replay anchor, dedup'd event_ids).
+      E.4b DONE this commit: SectionKind::DomainAnalysis (shared enum, additive, high priority) +
+      domain_analysis_context_item (the artifact as a high-priority DATA context item for the
+      synthesis Mind); shared-enum safety verified; 3 tests; full battery green. The
+      fortuna_persona_beliefs_total metric folds into the §19 PersonaCounters at the live wiring.]
 - [ ] E.5 Scoring scope extension — ScopeKey + weekly-review promote/retire proposal (baseline +
       market comparison; recommendation-only); resolved_beliefs/clv_bp metrics.
-- [ ] E.6 End-to-end meteorologist proof over Aeolus (+ NWS/fixture) + the macro mechanism test;
+      [E.5a DONE this commit: fortuna_cognition::persona_scoring — PersonaScope + score_persona
+      (Brier/quality/CLV via the existing calibration primitives) + propose_promotion (the §11
+      beat-both-baselines gate: Evaluating/Promotable/RetireCandidate; recommendation-only, I7);
+      9 tests; full battery green. BOUNDARY (Fit-validation §21): additive parallel PersonaScope —
+      folding persona dims into the shared review::ScopeKey + the daemon weekly-review wiring is a
+      GATED Track-A coordination (GAPS). REMAINING E.5: the ScopeKey/daemon wiring (Track-A coord)
+      + the resolved_beliefs/clv_bp metric labels (fold into §19 at wiring).]
+- [x] E.6 End-to-end meteorologist proof over Aeolus (+ NWS/fixture) + the macro mechanism test;
       the §11 evaluation gate wired; full battery green.
+      (DONE this commit: crates/fortuna-ledger/tests/persona_e2e.rs — one #[sqlx::test] wires the
+      WHOLE pipeline on the real DB [register→hash-bound load→run (scripted StubMind)→persist
+      domain_analyses→fan-out 3 binary beliefs→persist→resolve→score_persona+propose_promotion],
+      asserting belief-replays-to-artifact [analysis_id + content_hash anchor], the §11 zero-capital
+      gate, and persist-path firewall. Boundary-clean [Track-E repos + cognition only, no daemon].
+      Macro mechanism covered by E.4a's macro fan-out test; the live daemon wiring + the §11 gate
+      WIRED INTO drive() is a Track-A coordination [GAPS]. The §12 spike de-risked the live-model
+      shape. Full battery green; feature-dev review applied. CORE PIPELINE PROVEN END-TO-END.]
 
 ROTA views (§14/§20) + persona telemetry (§19) are operator-requested detailed contracts
 (2026-06-13) — Track B builds the four views; Track E provides the data across E.1–E.5.

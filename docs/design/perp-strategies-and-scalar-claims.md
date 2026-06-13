@@ -229,9 +229,14 @@ reference, ZERO cross-venue settlement/latency risk:
   defensible single number, already embodying the venue's premium handling). The funding-
   adjusted refinement (project the premium decay over the bracket horizon using
   funding_forecast's output) is a clean LATER synergy — rung-0 uses the mark directly.
-- **Bracket side — the implied distribution**: the KXBTC15M event-contract ladder. Its
-  central estimate is the implied median (the strike where cumulative implied probability
-  crosses 0.5), computed from bracket prices (the existing bracket machinery's grain).
+- **Bracket side — the implied distribution**: the **KXBTC** event-contract ladder (CORRECTED
+  2026-06-13 against the live capture — see GAPS "LIVE BRACKET-FORMAT INVESTIGATION"). KXBTC is the
+  price-LEVEL ladder: `strike_type=between` range bins (e.g. "$74,500 to 74,999.99") plus open
+  `greater`/`less` tails, YES quoted in dollar-strings on a $1 payout. Its central estimate is the
+  implied median (the strike where cumulative implied probability crosses 0.5). NOTE: KXBTC15M
+  (this section's original guess) is NOT this — it is a single DIRECTIONAL "BTC up in 15 min?"
+  binary (`greater_or_equal`, floor=reference price), a P(up) not a price distribution; KXBTCD is a
+  cumulative-threshold (CDF) ladder.
 
 ### 3.1 Signal + trade (deterministic, mechanical, rung-0)
 
@@ -243,22 +248,24 @@ reference, ZERO cross-venue settlement/latency risk:
   brackets the perp says are underpriced. Worst-case loss = premium (event contracts), so
   the existing gate caps apply; NO perp/margin leg in rung-0.
 - Stage = Sim; the harness sizes (I6). The basis math is a deterministic kernel in
-  `fortuna-core` perp, unit-tested with synthetic ladders + perp forecasts.
+  `fortuna-cognition` (`basis.rs` — f64-forecast, NOT core, per the money-discipline), unit-tested
+  with synthetic ladders + perp forecasts. The kernel (landed 70f333a) handles closed `between`
+  bins; the open `greater`/`less` tails + the dollar-string→probability parse are a flagged
+  refinement (slice 3b) before the real-KXBTC e2e.
 
 ### 3.2 The live-data drive (the fixture unblock)
 
-The recorder on the main checkout pairs perp books with KXBTC15M bracket quotes by
-`cycle_id` in `data/perishable/`. The perp side is fixture-gated; the **KXBTC bracket side
-is NOT a committed fixture** (it lives only in the live perishable stream). To make
-perp_event_basis fixtures-gated end-to-end:
+The recorder on the main checkout pairs perp books with **KXBTC** bracket quotes by `cycle_id` in
+`data/perishable/<day>/{perp_orderbook,bracket_quotes}.jsonl` — CONFIRMED LIVE 2026-06-13 (the
+recorder runs `--bracket-series KXBTC15M,KXBTC,KXBTCD`; the KXBTC `between` ladder IS being
+captured). The perp side is fixture-gated; the KXBTC bracket side is not yet a committed fixture.
+To make perp_event_basis fixtures-gated end-to-end (now drivable by me, operator-directed):
 
-- I sample ONE paired cycle (matching `cycle_id`: a perp book + marks + the KXBTC15M
-  bracket quotes) into a committed fixture `fixtures/perishable/btc-perp-vs-kxbtc15m-
-  <cycle>.json`, **reading the existing perishable stream, WITHOUT touching the running
-  recorder** (loop rule).
-- If the perishable stream is not yet carrying KXBTC15M brackets, that is the precise
-  operator/recorder item I ledger (and the basis strategy ships unit-tested-only until it
-  lands). The basis KERNEL (deterministic) does not block on it.
+- Sample ONE paired cycle (matching `cycle_id`: a perp book + marks + the KXBTC `between`-ladder
+  bracket quotes) into a committed `fixtures/kinetics-perps/` file (market data ONLY, no keys),
+  **reading the existing perishable stream, WITHOUT touching the running recorder** (loop rule).
+- The basis KERNEL (deterministic) does not block on it; the STRATEGY ships unit-tested-only until
+  the fixture + the kernel KXBTC-tail refinement (slice 3b) land.
 
 ## 4. Fixture grounding (confirmed 2026-06-13 against `fixtures/kinetics-perps/` + the recorder)
 

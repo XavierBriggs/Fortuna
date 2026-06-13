@@ -1,0 +1,664 @@
+{
+  "cycle_id": 1781160753775,
+  "captured_at_ms": 1781369448020,
+  "perp": {
+    "ticker": "KXBTCPERP",
+    "contract_size_btc": "0.0001",
+    "orderbook": {
+      "asks": [
+        [
+          "6.3908",
+          "62902"
+        ],
+        [
+          "6.3909",
+          "795"
+        ],
+        [
+          "6.3911",
+          "64"
+        ],
+        [
+          "6.3914",
+          "100"
+        ],
+        [
+          "6.3915",
+          "8811"
+        ]
+      ],
+      "bids": [
+        [
+          "6.3904",
+          "12"
+        ],
+        [
+          "6.3903",
+          "16"
+        ],
+        [
+          "6.3902",
+          "10218"
+        ],
+        [
+          "6.3901",
+          "783"
+        ],
+        [
+          "6.39",
+          "16"
+        ]
+      ]
+    },
+    "settlement_mark_per_contract_dollars": "6.3906",
+    "settlement_mark_dollars": "63906",
+    "reference_price_per_contract_dollars": "6.391",
+    "reference_price_dollars": "63910",
+    "funding_rate": 0,
+    "funding_mark_per_contract_dollars": "6.3906",
+    "next_funding_time": "2026-06-13T20:00:00Z",
+    "perp_orderbook_captured_at_ms": 1781369443170
+  },
+  "kxbtc_ladder": [
+    {
+      "ticker": "KXBTC-26JUN1917-T51000",
+      "strike_type": "less",
+      "floor_strike": null,
+      "cap_strike": 51000,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0200",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$50,999.99 or below"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B51250",
+      "strike_type": "between",
+      "floor_strike": 51000,
+      "cap_strike": 51499.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0200",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$51,000 to 51,499.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B51750",
+      "strike_type": "between",
+      "floor_strike": 51500,
+      "cap_strike": 51999.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0200",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$51,500 to 51,999.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B52250",
+      "strike_type": "between",
+      "floor_strike": 52000,
+      "cap_strike": 52499.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0200",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$52,000 to 52,499.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B52750",
+      "strike_type": "between",
+      "floor_strike": 52500,
+      "cap_strike": 52999.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0200",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$52,500 to 52,999.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B53250",
+      "strike_type": "between",
+      "floor_strike": 53000,
+      "cap_strike": 53499.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0200",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$53,000 to 53,499.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B53750",
+      "strike_type": "between",
+      "floor_strike": 53500,
+      "cap_strike": 53999.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0200",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$53,500 to 53,999.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B54250",
+      "strike_type": "between",
+      "floor_strike": 54000,
+      "cap_strike": 54499.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0200",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$54,000 to 54,499.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B54750",
+      "strike_type": "between",
+      "floor_strike": 54500,
+      "cap_strike": 54999.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0200",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$54,500 to 54,999.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B55250",
+      "strike_type": "between",
+      "floor_strike": 55000,
+      "cap_strike": 55499.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0300",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$55,000 to 55,499.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B55750",
+      "strike_type": "between",
+      "floor_strike": 55500,
+      "cap_strike": 55999.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0200",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$55,500 to 55,999.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B56250",
+      "strike_type": "between",
+      "floor_strike": 56000,
+      "cap_strike": 56499.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0300",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$56,000 to 56,499.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B56750",
+      "strike_type": "between",
+      "floor_strike": 56500,
+      "cap_strike": 56999.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0300",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$56,500 to 56,999.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B57250",
+      "strike_type": "between",
+      "floor_strike": 57000,
+      "cap_strike": 57499.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0300",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$57,000 to 57,499.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B57750",
+      "strike_type": "between",
+      "floor_strike": 57500,
+      "cap_strike": 57999.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0300",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$57,500 to 57,999.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B58250",
+      "strike_type": "between",
+      "floor_strike": 58000,
+      "cap_strike": 58499.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0300",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$58,000 to 58,499.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B58750",
+      "strike_type": "between",
+      "floor_strike": 58500,
+      "cap_strike": 58999.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0300",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "231.00",
+      "status": "active",
+      "yes_sub_title": "$58,500 to 58,999.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B59250",
+      "strike_type": "between",
+      "floor_strike": 59000,
+      "cap_strike": 59499.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0300",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "276.00",
+      "status": "active",
+      "yes_sub_title": "$59,000 to 59,499.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B59750",
+      "strike_type": "between",
+      "floor_strike": 59500,
+      "cap_strike": 59999.99,
+      "yes_bid_dollars": "0.0100",
+      "yes_ask_dollars": "0.0400",
+      "yes_bid_size_fp": "5000.00",
+      "yes_ask_size_fp": "256.00",
+      "status": "active",
+      "yes_sub_title": "$59,500 to 59,999.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B60250",
+      "strike_type": "between",
+      "floor_strike": 60000,
+      "cap_strike": 60499.99,
+      "yes_bid_dollars": "0.0100",
+      "yes_ask_dollars": "0.0500",
+      "yes_bid_size_fp": "5240.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$60,000 to 60,499.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B60750",
+      "strike_type": "between",
+      "floor_strike": 60500,
+      "cap_strike": 60999.99,
+      "yes_bid_dollars": "0.0100",
+      "yes_ask_dollars": "0.0500",
+      "yes_bid_size_fp": "5000.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$60,500 to 60,999.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B61250",
+      "strike_type": "between",
+      "floor_strike": 61000,
+      "cap_strike": 61499.99,
+      "yes_bid_dollars": "0.0200",
+      "yes_ask_dollars": "0.0600",
+      "yes_bid_size_fp": "5000.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$61,000 to 61,499.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B61750",
+      "strike_type": "between",
+      "floor_strike": 61500,
+      "cap_strike": 61999.99,
+      "yes_bid_dollars": "0.0300",
+      "yes_ask_dollars": "0.0800",
+      "yes_bid_size_fp": "5262.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$61,500 to 61,999.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B62250",
+      "strike_type": "between",
+      "floor_strike": 62000,
+      "cap_strike": 62499.99,
+      "yes_bid_dollars": "0.0400",
+      "yes_ask_dollars": "0.0600",
+      "yes_bid_size_fp": "5000.00",
+      "yes_ask_size_fp": "87.00",
+      "status": "active",
+      "yes_sub_title": "$62,000 to 62,499.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B62750",
+      "strike_type": "between",
+      "floor_strike": 62500,
+      "cap_strike": 62999.99,
+      "yes_bid_dollars": "0.0300",
+      "yes_ask_dollars": "0.0800",
+      "yes_bid_size_fp": "5245.00",
+      "yes_ask_size_fp": "5339.44",
+      "status": "active",
+      "yes_sub_title": "$62,500 to 62,999.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B63250",
+      "strike_type": "between",
+      "floor_strike": 63000,
+      "cap_strike": 63499.99,
+      "yes_bid_dollars": "0.0500",
+      "yes_ask_dollars": "0.0700",
+      "yes_bid_size_fp": "458.47",
+      "yes_ask_size_fp": "240.66",
+      "status": "active",
+      "yes_sub_title": "$63,000 to 63,499.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B63750",
+      "strike_type": "between",
+      "floor_strike": 63500,
+      "cap_strike": 63999.99,
+      "yes_bid_dollars": "0.0600",
+      "yes_ask_dollars": "0.0700",
+      "yes_bid_size_fp": "257.65",
+      "yes_ask_size_fp": "1.14",
+      "status": "active",
+      "yes_sub_title": "$63,500 to 63,999.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B64250",
+      "strike_type": "between",
+      "floor_strike": 64000,
+      "cap_strike": 64499.99,
+      "yes_bid_dollars": "0.0600",
+      "yes_ask_dollars": "0.0900",
+      "yes_bid_size_fp": "232.10",
+      "yes_ask_size_fp": "4900.00",
+      "status": "active",
+      "yes_sub_title": "$64,000 to 64,499.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B64750",
+      "strike_type": "between",
+      "floor_strike": 64500,
+      "cap_strike": 64999.99,
+      "yes_bid_dollars": "0.0500",
+      "yes_ask_dollars": "0.0700",
+      "yes_bid_size_fp": "278.00",
+      "yes_ask_size_fp": "320.00",
+      "status": "active",
+      "yes_sub_title": "$64,500 to 64,999.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B65250",
+      "strike_type": "between",
+      "floor_strike": 65000,
+      "cap_strike": 65499.99,
+      "yes_bid_dollars": "0.0400",
+      "yes_ask_dollars": "0.0900",
+      "yes_bid_size_fp": "5281.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$65,000 to 65,499.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B65750",
+      "strike_type": "between",
+      "floor_strike": 65500,
+      "cap_strike": 65999.99,
+      "yes_bid_dollars": "0.0400",
+      "yes_ask_dollars": "0.0900",
+      "yes_bid_size_fp": "5255.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$65,500 to 65,999.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B66250",
+      "strike_type": "between",
+      "floor_strike": 66000,
+      "cap_strike": 66499.99,
+      "yes_bid_dollars": "0.0300",
+      "yes_ask_dollars": "0.0800",
+      "yes_bid_size_fp": "5000.00",
+      "yes_ask_size_fp": "5000.40",
+      "status": "active",
+      "yes_sub_title": "$66,000 to 66,499.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B66750",
+      "strike_type": "between",
+      "floor_strike": 66500,
+      "cap_strike": 66999.99,
+      "yes_bid_dollars": "0.0200",
+      "yes_ask_dollars": "0.0600",
+      "yes_bid_size_fp": "5000.00",
+      "yes_ask_size_fp": "223.00",
+      "status": "active",
+      "yes_sub_title": "$66,500 to 66,999.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B67250",
+      "strike_type": "between",
+      "floor_strike": 67000,
+      "cap_strike": 67499.99,
+      "yes_bid_dollars": "0.0200",
+      "yes_ask_dollars": "0.0500",
+      "yes_bid_size_fp": "5174.00",
+      "yes_ask_size_fp": "257.00",
+      "status": "active",
+      "yes_sub_title": "$67,000 to 67,499.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B67750",
+      "strike_type": "between",
+      "floor_strike": 67500,
+      "cap_strike": 67999.99,
+      "yes_bid_dollars": "0.0100",
+      "yes_ask_dollars": "0.0500",
+      "yes_bid_size_fp": "5000.00",
+      "yes_ask_size_fp": "107.00",
+      "status": "active",
+      "yes_sub_title": "$67,500 to 67,999.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B68250",
+      "strike_type": "between",
+      "floor_strike": 68000,
+      "cap_strike": 68499.99,
+      "yes_bid_dollars": "0.0100",
+      "yes_ask_dollars": "0.0400",
+      "yes_bid_size_fp": "5000.00",
+      "yes_ask_size_fp": "401.00",
+      "status": "active",
+      "yes_sub_title": "$68,000 to 68,499.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B68750",
+      "strike_type": "between",
+      "floor_strike": 68500,
+      "cap_strike": 68999.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0400",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5294.00",
+      "status": "active",
+      "yes_sub_title": "$68,500 to 68,999.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B69250",
+      "strike_type": "between",
+      "floor_strike": 69000,
+      "cap_strike": 69499.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0300",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5381.00",
+      "status": "active",
+      "yes_sub_title": "$69,000 to 69,499.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B69750",
+      "strike_type": "between",
+      "floor_strike": 69500,
+      "cap_strike": 69999.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0200",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "207.00",
+      "status": "active",
+      "yes_sub_title": "$69,500 to 69,999.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B70250",
+      "strike_type": "between",
+      "floor_strike": 70000,
+      "cap_strike": 70499.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0300",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "4718.14",
+      "status": "active",
+      "yes_sub_title": "$70,000 to 70,499.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B70750",
+      "strike_type": "between",
+      "floor_strike": 70500,
+      "cap_strike": 70999.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0300",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$70,500 to 70,999.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B71250",
+      "strike_type": "between",
+      "floor_strike": 71000,
+      "cap_strike": 71499.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0300",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$71,000 to 71,499.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B71750",
+      "strike_type": "between",
+      "floor_strike": 71500,
+      "cap_strike": 71999.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0200",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$71,500 to 71,999.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B72250",
+      "strike_type": "between",
+      "floor_strike": 72000,
+      "cap_strike": 72499.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0200",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$72,000 to 72,499.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B72750",
+      "strike_type": "between",
+      "floor_strike": 72500,
+      "cap_strike": 72999.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0200",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$72,500 to 72,999.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B73250",
+      "strike_type": "between",
+      "floor_strike": 73000,
+      "cap_strike": 73499.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0200",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$73,000 to 73,499.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B73750",
+      "strike_type": "between",
+      "floor_strike": 73500,
+      "cap_strike": 73999.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0200",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$73,500 to 73,999.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B74250",
+      "strike_type": "between",
+      "floor_strike": 74000,
+      "cap_strike": 74499.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0200",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$74,000 to 74,499.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-B74750",
+      "strike_type": "between",
+      "floor_strike": 74500,
+      "cap_strike": 74999.99,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0200",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "5000.00",
+      "status": "active",
+      "yes_sub_title": "$74,500 to 74,999.99"
+    },
+    {
+      "ticker": "KXBTC-26JUN1917-T74999.99",
+      "strike_type": "greater",
+      "floor_strike": 74999.99,
+      "cap_strike": null,
+      "yes_bid_dollars": "0.0000",
+      "yes_ask_dollars": "0.0200",
+      "yes_bid_size_fp": "0.00",
+      "yes_ask_size_fp": "141.00",
+      "status": "active",
+      "yes_sub_title": "$75,000 or above"
+    }
+  ]
+}
