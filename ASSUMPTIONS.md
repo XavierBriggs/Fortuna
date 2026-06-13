@@ -1577,3 +1577,31 @@ domain-analysis artifact (authoritative design: docs/design/domain-analysis-pers
 - **One migration carries BOTH tables** (`20260613000001_personas.sql`) — the
   ledger slice is one schema-touching task (design §5; CLAUDE.md "one migration
   per BUILD_PLAN task touching schema").
+
+## Track E — E.2 (persona skill-file loader; design §4/§6)
+
+- **persona.md uses TOML frontmatter (`+++` fences) + a markdown method body**, not
+  YAML. Design §6 models personas on Claude skills (which use YAML frontmatter) but
+  specifies the FIELDS, not the encoding. The workspace has no YAML dependency and
+  CLAUDE.md mandates "Config is TOML", so the frontmatter is TOML between `+++` fences
+  (the established TOML-frontmatter convention) parsed with the existing `toml` dep —
+  the conservative, house-consistent choice. The method body (after the closing fence)
+  is the trusted procedure injected as the Mind system message (§4).
+- **`method_hash` is the SHA-256 of the ENTIRE `persona.md`** (frontmatter + body),
+  reusing `context::content_hash_of`. Hashing the whole file means any edit — metadata
+  or method — forces a new hash and a deliberate registry bump (§5/§6).
+- **The loader core (`PersonaDef::parse` + `validate_against`) is PURE — no filesystem
+  IO.** Cognition stays deterministic/core (it has zero `std::fs` today); the
+  composition does the trivial `std::fs::read_to_string` at the edge and calls `parse`.
+  This also makes the loader fully unit-testable from strings.
+- **`validate_against` fails CLOSED: only `status == "active"` passes.** A `retired`
+  head — or any unrecognized/corrupt status — refuses (`PersonaError::Inactive`),
+  defense-in-depth beyond the ledger's `active|retired` CHECK constraint. Conservative
+  reading of the trust boundary: an ambiguous registry state never silently activates a
+  persona. (Hardened from a `== "retired"` check after the E.2 code review.)
+- **`RegistryHead` is a pure cognition input**, not the ledger's `PersonaRow` — cognition
+  does not depend on `fortuna-ledger`. The composition maps `PersonasRepo::head(id)` onto
+  `RegistryHead { version, method_hash, status }`.
+- **The shipped meteorologist ships at `version = 1`.** The registry starts empty; the
+  first operator promotion is v1. The design's `meteorologist@v3` examples are
+  illustrative of a mature persona, not the initial shipped version.

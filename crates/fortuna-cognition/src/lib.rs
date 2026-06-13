@@ -33,6 +33,7 @@ pub mod cycle;
 pub mod discovery;
 pub mod events;
 pub mod mind;
+pub mod persona;
 pub mod reconciliation;
 pub mod review;
 pub mod shadow;

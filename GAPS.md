@@ -18,14 +18,36 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
-## TRACK E — BUILD PHASE (operator-approved 2026-06-13); E.1 ledger DONE
+## TRACK E — BUILD PHASE (operator-approved 2026-06-13); E.1 ledger + E.2 loader DONE
 
 STATUS 2026-06-13 (SUPERSEDES the design-phase RALPH STOP preserved below): the operator
 APPROVED the design ("looks good, rearm"; commit b4eaae3) and re-armed Track E in worktree
 fortuna-wt-e. BUILD PHASE active — building design §18's six slices, one gate-clean slice
 per iteration.
 
-**E.1 (Ledger) DONE this commit.** Migration 20260613000001_personas.sql adds the append-only
+**E.2 (Persona skill-file loader) DONE this commit.** New `fortuna_cognition::persona` module
+(design §6): `PersonaDef::parse(persona_md, schema_json)` parses the TOML-frontmatter (`+++`
+fences) + trusted method body, computes `method_hash` = SHA-256 of the WHOLE persona.md
+(reusing `content_hash_of`), loads schema.json; `validate_against(Option<&RegistryHead>)`
+fails CLOSED (only `status=="active"` passes) and refuses NotRegistered / Inactive /
+VersionMismatch / HashMismatch — the §4(d)/§6 headline (an edited method whose hash diverges
+from the active registry row is refused; promotion must be deliberate). Loader core is PURE
+(no fs IO; cognition stays core — the composition reads the file at the edge, E.3).
+`RegistryHead` is a pure cognition input (cognition does not depend on the ledger; the
+composition maps `PersonasRepo::head` onto it). Shipped the meteorologist persona on disk:
+config/personas/meteorologist/{persona.md (v1, the trusted method w/ the §4 firewall + the
+deterministic-μ/σ→p-is-code split), schema.json (findings/v1)}. 14 tests (tests/persona.rs),
+incl. the trust-firewall + hash-mismatch refusal + fail-closed-on-unknown-status + the
+shipped-file parse. FULL workspace battery green (fmt / clippy --workspace --all-targets /
+cargo test --workspace / run-dst.sh 2000 zero invariant violations). Adversarial review
+(feature-dev:code-reviewer): two Important findings — (1) status fail-open → fixed to
+fail-closed; (2) a flagged split_frontmatter panic risk verified a FALSE POSITIVE (indices
+are ASCII-anchored) but hardened to `.get()` (structurally panic-free) anyway. fortuna-invariants
+UNTOUCHED. NOT-YET-WIRED (honest): the loader has no production call site — the runner (E.3)
+wires it + maps PersonasRepo::head→RegistryHead; and no `personas` registry row exists yet
+(seeding is an operator/E.6 action), so validate_against(None)→NotRegistered until then.
+
+**E.1 (Ledger) DONE (commit dfdf3e0).** Migration 20260613000001_personas.sql adds the append-only
 `personas` registry (supersedes-chained, UNIQUE(persona_id,version), fortuna_refuse_mutation)
 + the content-immutable `domain_analyses` artifact (dedicated guard freezing all 12 content
 columns; only `status` flips open->superseded; content_hash over findings+signal_manifest is
@@ -57,7 +79,9 @@ and any fortuna-invariants touch is an operator-waive item per the loop — so s
 correctly does NOT touch the protected crate. The `domain_analyses`/`PersonaRow` row types are
 already structurally order-free (review-confirmed).
 
-NEXT: E.2 (persona skill-file loader + method_hash validation against the registry head).
+NEXT: E.3 (runner loop + triggers + budget + context + findings contract; the trusted/untrusted
+separation tests §4 a–c; DST runner-under-budget; persona telemetry §19; the PersonaOutcome
+no-order/size invariant pin §15 — the first fortuna-invariants touch, operator-waive-flagged).
 
 --- HISTORICAL (design-phase RALPH STOP — SUPERSEDED by the operator approval above) ---
 

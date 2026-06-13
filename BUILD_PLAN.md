@@ -662,8 +662,14 @@ at E.3 (the PersonaOutcome no-order/size field-surface pin) under operator waive
       tests, mutation-proven; per-crate .sqlx regenerated; full workspace battery green
       [fmt/clippy --workspace --all-targets/cargo test --workspace 123 ok-suites/run-dst 2000];
       adversarial spec+code review clean [no Critical/Major]; fortuna-invariants UNTOUCHED.)
-- [ ] E.2 Persona definition + registry — skill-file loader (config/personas/<id>/), method_hash
+- [x] E.2 Persona definition + registry — skill-file loader (config/personas/<id>/), method_hash
       validation against the registry head; refuse a config/registry hash mismatch.
+      (DONE this commit: fortuna_cognition::persona — PersonaDef::parse [TOML `+++` frontmatter +
+      trusted method body; method_hash = SHA-256 of the whole persona.md] + validate_against
+      [fail-closed; refuses NotRegistered/Inactive/VersionMismatch/HashMismatch — §4(d)/§6];
+      pure core, no fs IO; RegistryHead a pure cognition input. Shipped config/personas/
+      meteorologist/{persona.md v1, schema.json}. 14 tests; full workspace battery green;
+      feature-dev review applied [status fail-closed + split_frontmatter .get() hardening].)
 - [ ] E.3 Runner loop + triggers + budget + context + findings contract — scripted-StubMind
       determinism, the trusted/untrusted separation tests (§4 a–d), DST runner-under-budget arm;
       persona telemetry counters (§19); the PersonaOutcome no-order/size invariant pin (§15).
