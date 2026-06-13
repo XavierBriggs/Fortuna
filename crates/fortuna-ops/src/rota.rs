@@ -65,6 +65,7 @@ pub fn rota_router(state: RotaState) -> Router {
         .route("/api/rota/v1/cognition", get(view_cognition))
         .route("/api/rota/v1/settlement", get(view_settlement))
         .route("/api/rota/v1/streams", get(view_streams))
+        .route("/api/rota/v1/ingest_sources", get(view_ingest_sources))
         .route("/api/rota/v1/audit", get(audit_tail))
         .with_state(state)
 }
@@ -98,6 +99,18 @@ async fn view_gates(State(s): State<RotaState>) -> impl IntoResponse {
 }
 async fn view_settlement(State(s): State<RotaState>) -> impl IntoResponse {
     Json(read_view(&s, "settlement").await)
+}
+
+/// D-contract V2 Sources Health (ingestion-observability §4). A pure read of the
+/// daemon-shaped `ingest_sources` board envelope — the generic
+/// `{title, columns, rows, summary}` shape every ingestion board (V1-V6) shares
+/// (§4 "one envelope, rendered generically"). Absent => unavailable: the
+/// daemon's OBS-2 publish shapes this from the live `IngestionTelemetry`
+/// (fortuna-sources, on main); until that publish is wired (track-A drive seam),
+/// the board renders honest-degraded, never a fabricated zero. ROTA stays a pure
+/// projection — zero ingestion-crate dependency, exactly like `view_health`.
+async fn view_ingest_sources(State(s): State<RotaState>) -> impl IntoResponse {
+    Json(read_view(&s, "ingest_sources").await)
 }
 
 /// Evidence payloads are operator-readable JSONB of unbounded size; the
@@ -478,6 +491,16 @@ const ROTA_SHELL: &str = r#"<!doctype html><html lang="en"><head>
   .pill.dim{border:1px solid #555;color:#999}
   .warn{color:var(--amber);font-size:12px;padding:2px 0}
   .asof{color:#6e6e6a;font-size:10px;margin-top:8px}
+  .panel.wide{grid-column:1/-1}
+  table.board{width:100%;border-collapse:collapse;font-size:11px;
+      font-variant-numeric:tabular-nums lining-nums}
+  table.board th{text-align:right;color:var(--gold);font-weight:600;
+      padding:3px 8px;border-bottom:1px solid #2a2a2d;white-space:nowrap}
+  table.board th:first-child{text-align:left}
+  table.board td{text-align:right;padding:3px 8px;border-bottom:1px dotted #222;white-space:nowrap}
+  table.board td:first-child{text-align:left;color:var(--text)}
+  .bsum{font-size:12px;color:#9a9a96;margin-bottom:8px}
+  .bsum b{color:var(--text)}
   details.raw summary,details.belief summary{cursor:pointer;font-size:11px;color:#8a8a86}
   details.raw{margin-top:6px}
   details.belief{padding:2px 0;border-bottom:1px dotted #222}
@@ -499,6 +522,7 @@ const ROTA_SHELL: &str = r#"<!doctype html><html lang="en"><head>
   <div class="panel"><h2>Cognition</h2><div id="cognition">…</div></div>
   <div class="panel"><h2>Settlement</h2><div id="settlement">…</div></div>
   <div class="panel"><h2>Streams</h2><div id="streams">…</div></div>
+  <div class="panel wide"><h2>Sources Health</h2><div id="ingest_sources">…</div></div>
   <div class="panel"><h2>Audit tail</h2><div id="audit">…</div></div>
 </div>
 <script>
@@ -507,10 +531,26 @@ const esc=s=>String(s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",
 function fmtCents(c){if(c===null||c===undefined)return "—";
   return (c/100).toLocaleString("en-US",{style:"currency",currency:"USD"});}
 const kv=(k,v,gold)=>`<div class="kv"><span>${esc(k)}</span><b${gold?' class="gold"':''}>${v}</b></div>`;
-const pill=(t,c)=>`<span class="pill ${c}">${esc(t)}</span>`;
+const pill=(t,c)=>`<span class="pill ${esc(c)}">${esc(t)}</span>`;
 const raw=j=>`<details class="raw"><summary>raw</summary><pre>${esc(JSON.stringify(j,null,2))}</pre></details>`;
 const asof=j=>j.generated_at?`<div class="asof">as of ${esc(j.generated_at)} UTC</div>`:"";
 function gate(j){if(j&&j.status==="unavailable")return `<div class="warn">${esc(j.detail||"unavailable")}</div>`;return null;}
+const healthPill=h=>{const c=h==="healthy"?"ok":h==="quarantined"?"bad":"dim";return pill(h||"?",c);};
+// Generic D-contract board: {title,columns,rows,summary} rendered as a table —
+// every ingestion board (V1-V6) reuses this with only a new view key (§4 "render
+// any board generically"). A `health` column renders a pill; nulls render "—".
+function boardTable(j){
+  const cols=(j&&j.columns)||[],rows=(j&&j.rows)||[];
+  if(!cols.length)return `<div class="warn">no columns</div>`;
+  let h="";
+  if(j.summary)h+=`<div class="bsum">`+Object.entries(j.summary).map(([k,v])=>`${esc(k)} <b>${esc(v)}</b>`).join(" · ")+`</div>`;
+  if(!rows.length)return h+`<div class="row">no rows yet</div>`;
+  h+=`<table class="board"><thead><tr>`+cols.map(c=>`<th>${esc(c.label||c.key)}</th>`).join("")+`</tr></thead><tbody>`;
+  rows.forEach(r=>{h+=`<tr>`+cols.map(c=>{const v=r[c.key];
+    return c.key==="health"?`<td>${healthPill(v)}</td>`:`<td>${v==null?"—":esc(v)}</td>`;}).join("")+`</tr>`;});
+  h+=`</tbody></table>`;
+  return h;
+}
 const R={
  health(j){let h=kv("halt",j.halt_active?pill("HALTED","bad"):pill("clear","ok"));
   if(j.halt_reason)h+=kv("reason",esc(j.halt_reason));
@@ -551,6 +591,7 @@ const R={
   (j.recorder||[]).forEach(r=>h+=kv("rec "+esc(r.stream),
     (r.healthy?pill("live","ok"):pill("stale","bad"))+" "+(r.last_capture_age_secs??"—")+"s"));
   return h;},
+ ingest_sources(j){return boardTable(j);},
  audit(j){if(!j.available)return `<div class="warn">${esc(j.detail||"unavailable")}</div>`;
   let h="";j.rows.slice(-12).forEach(r=>h+=`<div class="row">${esc(r.at)} UTC ${esc(r.kind)}${r.actor?" · "+esc(r.actor):""}</div>`);
   return h||`<div class="row">no audit rows yet</div>`;}
@@ -561,6 +602,6 @@ async function poll(name){const el=document.getElementById(name);
   el.innerHTML=(gate(j)??R[name](j))+raw(j)+asof(j);
  }catch(e){el.innerHTML=`<div class="warn">unreachable: ${esc(e)}</div>`;}}
 function every(ms,names){names.forEach(poll);setInterval(()=>names.forEach(poll),ms);}
-every(2000,["health","audit"]);every(5000,["money","gates"]);
+every(2000,["health","audit"]);every(5000,["money","gates","ingest_sources"]);
 every(10000,["cognition","settlement"]);every(15000,["streams"]);
 </script></body></html>"#;

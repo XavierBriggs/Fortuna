@@ -29,9 +29,9 @@ telemetry on every layer — consuming the C/D/E observability contracts.
 | Settlement | `/settlement` | snapshot | live (A) | DONE + verified |
 | Streams | `/streams` | snapshot + recorder fs | B | DONE + verified |
 | Audit | `/audit` | ledger | B | DONE + verified |
-| Ingest — Live Feed (D V1) | `/ingest/feed` | `IngestionTelemetry` | D | frontend buildable; live data BLOCKED on D struct + A shaping |
-| Ingest — Sources (D V2) | `/ingest/sources` | `IngestionTelemetry` | D | "" |
-| Ingest — Funnel (D V3) | `/ingest/funnel` | `IngestionTelemetry` | D | "" |
+| Ingest — Sources (D V2) | `/ingest_sources` | `IngestionTelemetry` (on main) | D publish | **DONE** — handler + generic `boardTable` renderer + populated test + screenshot (harness seed); prod data pending track-A OBS-2 publish |
+| Ingest — Live Feed (D V1) | `/ingest_feed` | `IngestionTelemetry` (on main) | D publish | frontend-buildable now (generic `boardTable` landed); prod data = track-A OBS-2 |
+| Ingest — Funnel (D V3) | `/ingest_funnel` | `IngestionTelemetry` (on main) | D publish | "" |
 | Vendor Scorecard (D V4) | `/ingest/scorecard` | `source_reliability` | D (Layer-3 job) | BLOCKED on the Layer-3 trust-attribution job |
 | Forecast→Outcome (D V5) | `/forecast_outcome` | beliefs+events+settlements+signals | mixed | BLOCKED on the data flow |
 | Hypothesis Lifecycle (D V6) | `/hypotheses` | beliefs+intents+settlements | mixed | BLOCKED on the data flow |
@@ -43,11 +43,14 @@ telemetry on every layer — consuming the C/D/E observability contracts.
 
 Legend — "BLOCKED on X tables" = ROTA's read-only query needs a table not yet on
 main; the panel ships frontend + honest-degraded (`available:false`) and lights
-up when the owning track merges. "A shaping" = a live in-memory board must be
-shaped daemon-side in `fortuna-live::views_from` (R2 — fortuna-ops cannot depend
-on the runner), a cross-track seam tracked in GAPS. Telemetry families (D §3, C
-§8, E §19) wire into `fortuna-ops` `MetricsRegistry` (integer-only) after the
-seams.
+up when the owning track merges. "D publish (OBS-2)" = the `IngestionTelemetry`
+STRUCT is on main (track-D OBS-1, `fortuna-sources/scheduler.rs`), but the live
+PUBLISH into `snapshot.views["ingest_*"]` is the daemon drive-seam slice
+sequenced vs track A (track-D GAPS OBS-2). ROTA serves the board envelope from
+`snapshot.views` (R2 — pure projection, zero ingestion-crate dependency); the
+generic `boardTable` renderer + harness seed let it screenshot-verify now, and it
+lights up live when the publish lands. Telemetry families (D §3, C §8, E §19)
+wire into `fortuna-ops` `MetricsRegistry` (integer-only) after the seams.
 
 ## Local bringup harness (the screenshot rig)
 
@@ -68,22 +71,16 @@ lands — no staleness, no speculation. Touched so far:
 - `architecture.md` — fortuna-ops crate-map line: ROTA = the single read-only
   observability pane fed by the cross-track contracts.
 - `runbooks/rota-local-bringup.md` — new.
-- `architecture.md` gets a FURTHER targeted pass WHEN the first new board lands
-  (not before — naming unbuilt boards would itself be staleness).
+- `architecture.md` stays accurate at the PANE level (ROTA = the observability
+  pane); per-board status lives in the matrix above + the root CHANGELOG, not in
+  architecture.md (board-granularity there would be churn). Revisit only if a
+  board changes a SUBSYSTEM boundary.
+- Changelog migrated to the root `CHANGELOG.md` (track-B subsection) per the bus
+  doc-ownership directive (2026-06-13: one root changelog, no per-track files).
 
 ## Changelog
 
-- **2026-06-13** — Mission 2 kickoff.
-  1. Validation + sequenced build queue + cross-track data-seam requests recorded
-     (commit `29d4a93`; GAPS + rota-dashboard.md §4 pointer).
-  2. Local bringup harness `examples/rota_local` landed; the 7 existing boards
-     screenshot-verified with real rows off a seeded local DB (Health / Money /
-     Gates / Cognition incl. a persona-provenance belief + a resolved belief with
-     Brier+CLV / Settlement / Streams recorder-live / Audit). Hardened by a
-     feature-dev code-reviewer pass (real `GateCheck` names, `discrepancies_open`,
-     null `book_age_ms`, propagated clock errors). This doc + the runbook + the
-     operations/architecture pointers added.
-  3. Operator doc-discipline directive codified as loop-file rule 6 (binding,
-     part of DoD) so every iteration maintains own + shared docs with targeted,
-     non-stale edits. Item-0 screenshot archived at
-     `docs/reviews/rota-visual/rota-local-seeded-2026-06-13.png`.
+Track B's change history lives in the root [CHANGELOG.md](../../CHANGELOG.md)
+("Track B — ROTA observability") per the doc-ownership model (one root changelog,
+per-track subsections — GATE-FINDINGS-LATEST 2026-06-13). The board-status matrix
+above is the at-a-glance current state.

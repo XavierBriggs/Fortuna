@@ -368,6 +368,44 @@ fn representative_views(generated_at: &str) -> Value {
             // deferred field) — never a fabricated age.
             "venues": [ { "id": "sim", "book_age_ms": Value::Null, "ws_gap_count": 0, "resync_count": 0 } ],
         },
+        // D-contract V2 Sources Health board envelope ({title,columns,rows,
+        // summary}). In prod the daemon's OBS-2 publish shapes this from the live
+        // IngestionTelemetry (fortuna-sources SourceTelemetry); here it is the
+        // representative seed. last_ok_age_s + empty_rate_pct are the daemon-side
+        // derivations (now - last_success_at; empty_polls*100/polls). The nws_afd
+        // row is the AFD-firehose (huge dropped_over_volume) the board surfaces.
+        "ingest_sources": {
+            "title": "Sources Health",
+            "generated_at": generated_at,
+            "columns": [
+                { "key": "source_id", "label": "Source" },
+                { "key": "health", "label": "Health" },
+                { "key": "last_ok_age_s", "label": "Last OK" },
+                { "key": "polls", "label": "Polls" },
+                { "key": "accepted", "label": "Acc" },
+                { "key": "dropped_future", "label": "D:fut" },
+                { "key": "dropped_republished", "label": "D:rep" },
+                { "key": "dropped_over_volume", "label": "D:vol" },
+                { "key": "empty_rate_pct", "label": "304%" },
+                { "key": "quarantines", "label": "Quar" },
+                { "key": "next_due_at", "label": "Next due" },
+            ],
+            "rows": [
+                { "source_id": "nws_alerts", "health": "healthy", "last_ok_age_s": 12,
+                  "polls": 420, "accepted": 58, "dropped_future": 3, "dropped_republished": 11,
+                  "dropped_over_volume": 0, "empty_rate_pct": 86, "quarantines": 0,
+                  "next_due_at": "2026-06-13T12:35:30Z" },
+                { "source_id": "nws_afd", "health": "degraded", "last_ok_age_s": 340,
+                  "polls": 140, "accepted": 12, "dropped_future": 0, "dropped_republished": 2,
+                  "dropped_over_volume": 171, "empty_rate_pct": 52, "quarantines": 1,
+                  "next_due_at": "2026-06-13T12:36:00Z" },
+                { "source_id": "aeolus_forecast", "health": "healthy", "last_ok_age_s": 48,
+                  "polls": 96, "accepted": 96, "dropped_future": 0, "dropped_republished": 0,
+                  "dropped_over_volume": 0, "empty_rate_pct": 0, "quarantines": 0,
+                  "next_due_at": "2026-06-13T12:40:00Z" },
+            ],
+            "summary": { "healthy": 2, "degraded": 1, "quarantined": 0, "accepted": 166, "dropped": 188 },
+        },
     })
 }
 

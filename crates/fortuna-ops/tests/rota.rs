@@ -66,7 +66,7 @@ async fn serve() -> (String, tokio::task::JoinHandle<()>) {
     (format!("http://{addr}"), handle)
 }
 
-const PATHS: [&str; 9] = [
+const PATHS: [&str; 10] = [
     "/rota",
     "/assets/rota/logo.svg",
     "/api/rota/v1/health",
@@ -75,6 +75,7 @@ const PATHS: [&str; 9] = [
     "/api/rota/v1/cognition",
     "/api/rota/v1/settlement",
     "/api/rota/v1/streams",
+    "/api/rota/v1/ingest_sources",
     "/api/rota/v1/audit",
 ];
 
@@ -116,7 +117,14 @@ async fn degraded_surfaces_are_200_with_explicit_unavailable() {
     let client = reqwest::Client::new();
 
     // Empty views => each metric surface reports unavailable, not 500.
-    for name in ["health", "money", "gates", "settlement", "streams"] {
+    for name in [
+        "health",
+        "money",
+        "gates",
+        "settlement",
+        "streams",
+        "ingest_sources",
+    ] {
         let j: serde_json::Value = client
             .get(format!("{base}/api/rota/v1/{name}"))
             .send()
@@ -168,6 +176,54 @@ async fn populated_view_is_served_verbatim() {
         .unwrap();
     assert_eq!(j["ticks_total"], 42);
     assert_eq!(j["fill_latency_p90_ms"], 14);
+}
+
+// D-contract V2 Sources Health: the handler serves the daemon-shaped board
+// envelope verbatim. POPULATED-path (real rows seeded) — a vacuous "renders
+// empty" test would not satisfy the DoD. Asserts the generic {columns,rows,
+// summary} envelope round-trips so the frontend boardTable renderer has real
+// data to render.
+#[tokio::test]
+async fn ingest_sources_board_serves_seeded_rows() {
+    let snap = empty_snapshot();
+    {
+        let mut s = snap.write().await;
+        s.views = serde_json::json!({
+            "ingest_sources": {
+                "title": "Sources Health",
+                "columns": [
+                    {"key":"source_id","label":"Source"},
+                    {"key":"health","label":"Health"},
+                    {"key":"accepted","label":"Acc"},
+                    {"key":"dropped_over_volume","label":"D:vol"}
+                ],
+                "rows": [
+                    {"source_id":"nws_alerts","health":"healthy","accepted":58,"dropped_over_volume":0},
+                    {"source_id":"nws_afd","health":"degraded","accepted":12,"dropped_over_volume":171}
+                ],
+                "summary": {"healthy":1,"degraded":1,"quarantined":0}
+            }
+        });
+    }
+    let app = rota_router(RotaState::standalone(snap));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/ingest_sources"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "both seeded sources served");
+    assert_eq!(j["rows"][0]["source_id"], "nws_alerts");
+    assert_eq!(j["rows"][1]["health"], "degraded");
+    // The AFD-firehose (huge over-volume drop) the V2 board exists to surface.
+    assert_eq!(j["rows"][1]["dropped_over_volume"], 171);
+    assert_eq!(j["summary"]["degraded"], 1);
 }
 
 #[tokio::test]

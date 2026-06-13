@@ -529,7 +529,11 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       real rows before its sub-box ticks. Verifier-gated.
   - [x] item 0 — local bringup harness (crates/fortuna-ops/examples/rota_local.rs)
         + the 7 existing boards screenshot-verified with real rows off a seeded
-        local DB (this commit). The reusable screenshot rig for later boards.
+        local DB (d8bae95). The reusable screenshot rig for later boards.
+  - [x] V2 Sources Health (D ingestion contract) — generic {title,columns,rows,
+        summary} boardTable renderer (reused by V1/V3-V6) + /api/rota/v1/ingest_sources
+        handler + populated-path test; screenshot-verified with real rows (this
+        commit). Prod data pending track-A OBS-2 publish (IngestionTelemetry on main).
 
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)

@@ -763,6 +763,38 @@ Until those land, the new boards ship as read-only frontend + honest-degraded
 (`available:false`) handlers — the discipline all three contracts specify
 ("build the panels now; they light up when the data lands").
 
+### V2 SOURCES HEALTH DONE (2026-06-13) — first ingestion board + the generic renderer + the OBS-2 envelope contract for track A
+Built the D-contract V2 Sources Health board: handler `view_ingest_sources` reads
+`snapshot.views["ingest_sources"]`; a GENERIC `boardTable` JS renderer for the
+`{title,columns,rows,summary}` envelope (reused by V1/V3-V6 with only a new view
+key); new full-width panel + poll; PATHS + degraded-loop extended + a POPULATED-path
+test `ingest_sources_board_serves_seeded_rows`. ROTA stays a pure projection (ZERO
+fortuna-sources dependency). Screenshot-verified with real rows via the harness seed
+(the nws_afd AFD-firehose row surfaced); archived
+docs/reviews/rota-visual/rota-v2-sources-health-2026-06-13.png. feature-dev
+code-reviewer pass (esc()'d the shared `pill()` class slot; clean empty-board state).
+
+OBS-2 ENVELOPE CONTRACT for TRACK A (the daemon publish/shaping that lights this
+board LIVE): each ROTA tick, shape the live `IngestionTelemetry` (now on main,
+fortuna-sources/scheduler.rs:208) into `snapshot.views["ingest_sources"]` as this
+EXACT envelope (R2 — done daemon-side; ROTA does not depend on fortuna-sources):
+  { title:"Sources Health", generated_at:<clock>,
+    columns:[{key,label} for source_id, health, last_ok_age_s, polls, accepted,
+      dropped_future, dropped_republished, dropped_over_volume, empty_rate_pct,
+      quarantines, next_due_at],
+    rows:[ one per SourceTelemetry: source_id, health (healthy|degraded|quarantined),
+      last_ok_age_s=(now-last_success_at)secs, polls, accepted, dropped_future,
+      dropped_republished, dropped_over_volume, empty_rate_pct=empty_polls*100/polls,
+      quarantines, next_due_at ],
+    summary:{ healthy, degraded, quarantined (counts), accepted, dropped (totals) } }
+`last_ok_age_s` + `empty_rate_pct` are the ONLY derived fields (compute daemon-side);
+everything else is a direct SourceTelemetry field copy. Until this lands the board
+renders honest-degraded (available:false), never a fabricated zero.
+
+CHANGELOG: migrated track-B's changelog to the root CHANGELOG.md (track-B
+subsection) per the bus doc-ownership directive (one root changelog, no per-track
+files); rota-observability.md keeps the board-status matrix + points to it.
+
 ### ITEM 0 DONE (2026-06-13) — local bringup harness + existing boards screenshot-verified
 `crates/fortuna-ops/examples/rota_local.rs` (new): seeds a throwaway local
 Postgres (guard: reads only `ROTA_LOCAL_DATABASE_URL`, refuses any DB name
