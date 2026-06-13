@@ -37,9 +37,11 @@
 //!   - `health.last_tick_age_ms`: no last-tick wall stamp is tracked — null,
 //!     never a fabricated age.
 
+use fortuna_core::clock::UtcTimestamp;
 use fortuna_exec::IntentJournal;
 use fortuna_gates::GateCheck;
 use fortuna_runner::SimRunner;
+use fortuna_sources::{FunnelCounts, IngestionTelemetry, SignalRecord, SourceTelemetry};
 use serde_json::{json, Value};
 
 /// Shape the counter/board-derived ROTA views from the runner's existing
@@ -175,5 +177,176 @@ pub fn views_from<J: IntentJournal + Send>(runner: &SimRunner<J>, generated_at: 
                 "resync_count": 0,
             } ],
         },
+    })
+}
+
+/// OBS-2c: merge the LIVE ingestion boards — D-contract V1 Live Feed, V2 Sources
+/// Health, V3 Ingest Funnel — into the snapshot's `views`, shaped from the
+/// daemon-published `IngestionTelemetry` (track-D OBS-2b handle) into the exact
+/// `{title, columns, rows, summary}` board envelopes the ROTA handlers serve
+/// verbatim. Pure + clock-free: the caller passes `generated_at` (the daemon's
+/// clock read), used for the last-success age. HONEST GATE: a never-published
+/// telemetry (empty `generated_at` — ingestion off or pre-first-tick) merges
+/// NOTHING, so the boards stay honest-degraded ("unavailable") rather than showing
+/// fabricated zeros — which also keeps the daemon's snapshot byte-unchanged when
+/// ingestion is off (daemon_smoke). Untrusted signal `summary`/source text is
+/// carried as DATA; the ROTA renderer esc()'s it (spec 5.11), never interpreted.
+pub fn merge_ingest_views(views: &mut Value, tel: &IngestionTelemetry, generated_at: &str) {
+    if tel.generated_at.is_empty() {
+        return; // never ticked (ingestion off / pre-first-tick) => leave degraded
+    }
+    let Some(obj) = views.as_object_mut() else {
+        return;
+    };
+    obj.insert(
+        "ingest_sources".to_string(),
+        sources_board(&tel.sources, generated_at),
+    );
+    obj.insert(
+        "ingest_feed".to_string(),
+        feed_board(&tel.recent, generated_at),
+    );
+    obj.insert(
+        "ingest_funnel".to_string(),
+        funnel_board(&tel.funnel, generated_at),
+    );
+}
+
+/// V2 Sources Health board envelope from the per-source telemetry. `last_ok_age_s`
+/// and `empty_rate_pct` are the only derived columns (now − last_success_at;
+/// empty_polls·100/polls), null when not computable — never a fabricated 0.
+fn sources_board(sources: &[SourceTelemetry], generated_at: &str) -> Value {
+    let now_ms = UtcTimestamp::parse_iso8601(generated_at)
+        .map(|t| t.epoch_millis())
+        .ok();
+    let mut rows = Vec::with_capacity(sources.len());
+    let (mut healthy, mut degraded, mut quarantined, mut acc_total, mut drop_total) =
+        (0u64, 0u64, 0u64, 0u64, 0u64);
+    for s in sources {
+        match s.health {
+            "healthy" => healthy += 1,
+            "quarantined" => quarantined += 1,
+            _ => degraded += 1,
+        }
+        acc_total += s.accepted;
+        drop_total += s.dropped_future + s.dropped_republished + s.dropped_over_volume;
+        let last_ok_age_s = match (&s.last_success_at, now_ms) {
+            (Some(ts), Some(now)) => UtcTimestamp::parse_iso8601(ts)
+                .ok()
+                .map(|t| ((now - t.epoch_millis()).max(0)) / 1000),
+            _ => None,
+        };
+        let empty_rate_pct = if s.polls > 0 {
+            Some(s.empty_polls * 100 / s.polls)
+        } else {
+            None
+        };
+        rows.push(json!({
+            "source_id": s.source_id,
+            "health": s.health,
+            "last_ok_age_s": last_ok_age_s,
+            "polls": s.polls,
+            "accepted": s.accepted,
+            "dropped_future": s.dropped_future,
+            "dropped_republished": s.dropped_republished,
+            "dropped_over_volume": s.dropped_over_volume,
+            "empty_rate_pct": empty_rate_pct,
+            "quarantines": s.quarantines,
+            "next_due_at": s.next_due_at,
+        }));
+    }
+    json!({
+        "title": "Sources Health",
+        "generated_at": generated_at,
+        "columns": [
+            {"key":"source_id","label":"Source"},
+            {"key":"health","label":"Health","pill":true},
+            {"key":"last_ok_age_s","label":"Last OK"},
+            {"key":"polls","label":"Polls"},
+            {"key":"accepted","label":"Acc"},
+            {"key":"dropped_future","label":"D:fut"},
+            {"key":"dropped_republished","label":"D:rep"},
+            {"key":"dropped_over_volume","label":"D:vol"},
+            {"key":"empty_rate_pct","label":"304%"},
+            {"key":"quarantines","label":"Quar"},
+            {"key":"next_due_at","label":"Next due"},
+        ],
+        "rows": rows,
+        "summary": {"healthy": healthy, "degraded": degraded, "quarantined": quarantined,
+                    "accepted": acc_total, "dropped": drop_total},
+    })
+}
+
+/// V1 Live Signal Feed board envelope from the recent-signals ring (newest-first,
+/// the published ring is already newest-first; show up to FEED_SHOWN).
+fn feed_board(recent: &[SignalRecord], generated_at: &str) -> Value {
+    const FEED_SHOWN: usize = 50;
+    let mut rows = Vec::new();
+    let (mut accepted, mut dropped) = (0u64, 0u64);
+    for r in recent.iter().take(FEED_SHOWN) {
+        if r.status == "accepted" {
+            accepted += 1;
+        } else {
+            dropped += 1;
+        }
+        rows.push(json!({
+            "at": r.at,
+            "source_id": r.source_id,
+            "kind": r.kind,
+            "claimed_time": r.claimed_time,
+            "status": r.status,
+            "summary": r.summary,
+        }));
+    }
+    let shown = rows.len();
+    json!({
+        "title": "Live Signal Feed",
+        "generated_at": generated_at,
+        "columns": [
+            {"key":"at","label":"Time (UTC)"},
+            {"key":"source_id","label":"Source"},
+            {"key":"kind","label":"Kind"},
+            {"key":"claimed_time","label":"Claimed"},
+            {"key":"status","label":"Status","pill":true},
+            {"key":"summary","label":"Data"},
+        ],
+        "rows": rows,
+        "summary": {"window": shown, "accepted": accepted, "dropped": dropped},
+    })
+}
+
+/// V3 Ingest Funnel board envelope (stage table) from the process-wide counts. The
+/// loop-side stages (normalized/persisted) are real once the loop ticks (OBS-2a);
+/// the empty-`generated_at` gate above means an unticked funnel is never shown.
+fn funnel_board(f: &FunnelCounts, generated_at: &str) -> Value {
+    let pct = |n: u64| {
+        if f.fetched > 0 {
+            n * 100 / f.fetched
+        } else {
+            0
+        }
+    };
+    json!({
+        "title": "Ingest Funnel",
+        "generated_at": generated_at,
+        "columns": [
+            {"key":"stage","label":"Stage"},
+            {"key":"count","label":"Count"},
+            {"key":"retain_pct","label":"Retain %"},
+            {"key":"dropped","label":"Dropped"},
+            {"key":"detail","label":"Detail"},
+        ],
+        "rows": [
+            {"stage":"Fetched","count":f.fetched,"retain_pct":100,"dropped":0,
+             "detail":"raw items returned by the adapters"},
+            {"stage":"Validated","count":f.validated_accepted,"retain_pct":pct(f.validated_accepted),
+             "dropped":f.validated_dropped,"detail":"refused by Layer-1 (future / republished / over_volume)"},
+            {"stage":"Normalized","count":f.normalized,"retain_pct":pct(f.normalized),"dropped":0,
+             "detail":"became SignalEnvelopes"},
+            {"stage":"Persisted","count":f.persisted,"retain_pct":pct(f.persisted),"dropped":f.deduped,
+             "detail":format!("deduped {} · persist_failures {}", f.deduped, f.persist_failures)},
+        ],
+        "summary": {"fetched": f.fetched, "persisted": f.persisted,
+                    "retain_pct": pct(f.persisted), "persist_failures": f.persist_failures},
     })
 }

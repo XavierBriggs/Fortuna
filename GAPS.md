@@ -763,6 +763,29 @@ Until those land, the new boards ship as read-only frontend + honest-degraded
 (`available:false`) handlers — the discipline all three contracts specify
 ("build the panels now; they light up when the data lands").
 
+### OBS-2c DONE (2026-06-13) — the live ingestion boards (V1/V2/V3) now render LIVE daemon data
+Track-D's OBS-2b landed the `IngestionTelemetryHandle` (`Arc<RwLock<IngestionTelemetry>>`,
+fortuna-live/ingestion.rs) on main; OBS-2c (the ROTA read, explicitly track-B's) is
+now done. Added `merge_ingest_views(views, &tel, generated_at)` in
+fortuna-live/src/views.rs (the ROTA-serving seam I own per loop rule 4) — shapes the
+live telemetry into the EXACT V2/V1/V3 board envelopes (sources/feed/funnel) my ROTA
+handlers serve + the boardTable renderer renders. Wired at the snapshot-composition
+closure (main.rs): clone the handle, non-blocking `try_read`, merge into `views`
+before the `try_write` (the closure is sync; contention/pre-tick just skips a
+segment, same contract as the snapshot try_write). HONEST GATE: empty `tel.generated_at`
+(ingestion off / pre-first-tick) merges NOTHING → boards stay honest-degraded, and the
+daemon snapshot is byte-unchanged when ingestion is off (daemon_smoke 15/15 green).
+ROTA stays a pure snapshot reader — fortuna-ops gains NO fortuna-sources dep (R2);
+fortuna-live already deps fortuna-sources (no Cargo change). VERIFICATION: 2 unit
+tests (the shaping produces the exact envelopes incl. derived last_ok_age_s /
+empty_rate_pct / retain_pct; the empty-gate is inert) + the existing V1/V2/V3
+screenshots render that envelope shape — the live path is verified by construction
+(envelope = the contract bridge, tested both sides). A live-daemon screenshot
+(daemon + ingestion on) is a soak-time verification. Battery: fmt + clippy
+-p fortuna-live --all-targets -D warnings clean; cargo test -p fortuna-live all green
+(views 11/11 incl. the 2 new; daemon_smoke 15/15; boot/compose/run_loop/… all pass).
+NET: the live ingestion triad is no longer pending a cross-track seam — it is LIVE.
+
 ### COGNITION BELIEF LIFECYCLE DONE (2026-06-13) — the belief-formation board deepened; D V6 full lifecycle is SCHEMA-BLOCKED
 Deepened the existing Cognition board (mission item 1, "how beliefs are created
 made legible") with the belief LIFECYCLE: status distribution (open/resolved/

@@ -224,6 +224,14 @@ with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
   newest-first with their (redacted, esc()'d) data + accept/drop status pills.
 - **V3 Ingest Funnel** (`GET /api/rota/v1/ingest_funnel`) — the pipeline as a stage
   table (fetched → validated → normalized → persisted) with retention % + drop-offs.
+- **OBS-2c — V1/V2/V3 now render LIVE daemon data.** `merge_ingest_views`
+  (fortuna-live `views.rs`) shapes the daemon-published `IngestionTelemetryHandle`
+  (track-D OBS-2b) into the three board envelopes each ROTA segment, merged at the
+  snapshot-composition site (`main.rs`, non-blocking `try_read`). Honest gate: an
+  unticked / ingestion-off telemetry merges nothing, so the boards stay degraded and
+  the daemon snapshot is byte-unchanged (daemon_smoke 15/15). Unit-tested to produce
+  the exact screenshot-verified envelopes; ROTA stays a pure snapshot reader
+  (fortuna-ops gains no fortuna-sources dependency).
 - Cognition board **belief lifecycle** — status distribution (open/resolved/
   superseded/abandoned) + the resolved beliefs' calibration outcome (mean Brier/CLV)
   via a real `GROUP BY`/`AVG` (runtime sqlx).
@@ -232,10 +240,6 @@ with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
 
 #### Deferred / blocked (ledgered in GAPS)
 
-- **OBS-2c (next):** track-D's OBS-2b now publishes the `IngestionTelemetryHandle`
-  (`Arc<RwLock<IngestionTelemetry>>`) on main; wiring it into the ROTA read path so
-  V1/V2/V3 render LIVE daemon data is track B's remaining step. Until then the
-  ingestion boards render honest-degraded.
 - **D V6** full belief→strategy→PnL — schema-blocked (no belief→trade link); ROTA
   surfaces the calibration edge proxy (CLV), never a fabricated dollar PnL.
 - **C** `/forecasts`,`/perps` and **E** `/personas`,`/analyses`,`/persona_pipeline`

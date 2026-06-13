@@ -15,8 +15,11 @@
 //! fakes a field it cannot yet source honestly. Each view was written
 //! red-first against a `views_from` that did not yet emit it.
 
-use fortuna_live::views::views_from;
+use fortuna_live::views::{merge_ingest_views, views_from};
 use fortuna_runner::{AuditSink, RunnerError, SimRunner};
+use fortuna_sources::{
+    FunnelCounts, IngestionTelemetry, SignalRecord, SourceTelemetry, TickTelemetry,
+};
 use fortuna_venues::sim::FaultConfig;
 
 mod common;
@@ -402,4 +405,119 @@ async fn money_view_committed_is_non_zero_when_capital_is_reserved() {
             .is_empty(),
         "orders are reserved but unfilled — no position booked yet: {m}"
     );
+}
+
+/// OBS-2c: a representative live ingestion snapshot (one source, one signal, a
+/// funnel) for the merge tests.
+fn sample_telemetry() -> IngestionTelemetry {
+    IngestionTelemetry {
+        generated_at: "2026-06-13T13:00:00.000Z".to_string(),
+        sources: vec![SourceTelemetry {
+            source_id: "nws_alerts".to_string(),
+            kind: "nws.alert".to_string(),
+            domain_tags: vec!["weather".to_string()],
+            trust_tier: 1,
+            health: "healthy",
+            last_poll_at: Some("2026-06-13T12:59:50.000Z".to_string()),
+            last_success_at: Some("2026-06-13T12:59:48.000Z".to_string()),
+            next_due_at: Some("2026-06-13T13:00:30.000Z".to_string()),
+            polls: 420,
+            empty_polls: 360,
+            fetch_errors: 0,
+            accepted: 58,
+            dropped_future: 3,
+            dropped_republished: 11,
+            dropped_over_volume: 0,
+            quarantines: 0,
+            rearms: 0,
+            last_error: None,
+        }],
+        funnel: FunnelCounts {
+            fetched: 1240,
+            validated_accepted: 1052,
+            validated_dropped: 188,
+            normalized: 1052,
+            deduped: 4,
+            persisted: 1048,
+            persist_failures: 0,
+        },
+        recent: vec![SignalRecord {
+            at: "2026-06-13T12:59:48.000Z".to_string(),
+            source_id: "nws_alerts".to_string(),
+            kind: "nws.alert".to_string(),
+            claimed_time: Some("2026-06-13T12:59:40.000Z".to_string()),
+            status: "accepted".to_string(),
+            summary: "Severe Thunderstorm Warning — Kings County NY".to_string(),
+        }],
+        last_tick: TickTelemetry::default(),
+    }
+}
+
+// OBS-2c: the live-ingestion shaping produces the EXACT board envelopes the ROTA
+// handlers serve + the renderer renders (so live daemon data renders identically
+// to the screenshot-verified harness seeds). POPULATED-path — real rows + the
+// daemon-side derivations (last-OK age, 304-rate, retention %).
+#[test]
+fn merge_ingest_views_shapes_the_three_live_boards_to_the_handler_envelopes() {
+    let tel = sample_telemetry();
+    let mut views = serde_json::json!({ "health": { "x": 1 } });
+    merge_ingest_views(&mut views, &tel, "2026-06-13T13:00:00.000Z");
+    // Existing views are preserved.
+    assert_eq!(views["health"]["x"], 1, "{views}");
+
+    // V2 Sources Health.
+    let src = &views["ingest_sources"];
+    assert_eq!(src["title"], "Sources Health");
+    assert_eq!(src["rows"][0]["source_id"], "nws_alerts");
+    assert_eq!(src["rows"][0]["health"], "healthy");
+    assert_eq!(src["rows"][0]["dropped_over_volume"], 0);
+    // Derived daemon-side: last_ok_age_s = 12s (13:00:00 − 12:59:48);
+    // empty_rate_pct = 360·100/420 = 85 (integer).
+    assert_eq!(src["rows"][0]["last_ok_age_s"], 12, "{src}");
+    assert_eq!(src["rows"][0]["empty_rate_pct"], 85, "{src}");
+    assert_eq!(src["summary"]["healthy"], 1);
+    let cols = src["columns"].as_array().unwrap();
+    assert!(
+        cols.iter()
+            .any(|c| c["key"] == "health" && c["pill"] == true),
+        "health column is a pill so the renderer colors it: {src}"
+    );
+
+    // V1 Live Signal Feed (untrusted summary carried verbatim as DATA).
+    let feed = &views["ingest_feed"];
+    assert_eq!(feed["rows"][0]["status"], "accepted");
+    assert_eq!(
+        feed["rows"][0]["summary"],
+        "Severe Thunderstorm Warning — Kings County NY"
+    );
+    assert_eq!(feed["summary"]["accepted"], 1);
+
+    // V3 Ingest Funnel — retention from the real counts (1048·100/1240 = 84).
+    let funnel = &views["ingest_funnel"];
+    assert_eq!(funnel["rows"][0]["stage"], "Fetched");
+    assert_eq!(
+        funnel["rows"][1]["dropped"], 188,
+        "validate-stage drop: {funnel}"
+    );
+    assert_eq!(funnel["summary"]["persisted"], 1048);
+    assert_eq!(funnel["summary"]["retain_pct"], 84, "{funnel}");
+}
+
+// OBS-2c honesty gate: an empty (Default) telemetry — ingestion off or
+// pre-first-tick — merges NOTHING, so the boards stay honest-degraded
+// ("unavailable"), never fabricated zeros. This is also why the daemon snapshot
+// is byte-unchanged when ingestion is off (daemon_smoke).
+#[test]
+fn merge_ingest_views_is_inert_when_ingestion_never_ticked() {
+    let tel = IngestionTelemetry::default();
+    assert_eq!(tel.generated_at, "", "default telemetry carries no stamp");
+    let mut views = serde_json::json!({ "health": { "x": 1 } });
+    merge_ingest_views(&mut views, &tel, "2026-06-13T13:00:00.000Z");
+    assert!(
+        views.get("ingest_sources").is_none(),
+        "no fabricated board when ingestion is off: {views}"
+    );
+    assert!(views.get("ingest_feed").is_none(), "{views}");
+    assert!(views.get("ingest_funnel").is_none(), "{views}");
+    assert_eq!(views["health"]["x"], 1, "existing views untouched: {views}");
 }

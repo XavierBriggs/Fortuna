@@ -29,9 +29,9 @@ telemetry on every layer — consuming the C/D/E observability contracts.
 | Settlement | `/settlement` | snapshot | live (A) | DONE + verified |
 | Streams | `/streams` | snapshot + recorder fs | B | DONE + verified |
 | Audit | `/audit` | ledger | B | DONE + verified |
-| Ingest — Sources (D V2) | `/ingest_sources` | `IngestionTelemetry` (on main) | D publish | **DONE** — handler + generic `boardTable` renderer + populated test + screenshot (harness seed); prod data pending track-A OBS-2 publish |
-| Ingest — Live Feed (D V1) | `/ingest_feed` | `IngestionTelemetry.recent` (on main) | D publish | **DONE** — marquee feed board (reuses `boardTable` + a data-driven `pill` status flag) + populated test + screenshot; prod data pending OBS-2 publish |
-| Ingest — Funnel (D V3) | `/ingest_funnel` | `IngestionTelemetry.funnel` (on main) | D publish | **DONE** — funnel-as-stage-table (reuses `boardTable`): fetched→validated→normalized→persisted with retention % + drop-offs + populated test + screenshot; prod data pending OBS-2 (loop-stages null-until-wired, never a fabricated 0) |
+| Ingest — Sources (D V2) | `/ingest_sources` | `IngestionTelemetry.sources` | B (OBS-2c) | **LIVE** — handler + `boardTable` + screenshot; daemon shapes it via `merge_ingest_views` (OBS-2c) from the published telemetry handle |
+| Ingest — Live Feed (D V1) | `/ingest_feed` | `IngestionTelemetry.recent` | B (OBS-2c) | **LIVE** — marquee feed board (`boardTable` + `pill` status); daemon shapes via `merge_ingest_views` from the recent-signals ring |
+| Ingest — Funnel (D V3) | `/ingest_funnel` | `IngestionTelemetry.funnel` | B (OBS-2c) | **LIVE** — funnel-as-stage-table; daemon shapes via `merge_ingest_views`; loop-stages real (OBS-2a); honest gate skips an unticked funnel |
 | Vendor Scorecard (D V4) | `/ingest/scorecard` | `source_reliability` | D (Layer-3 job) | BLOCKED on the Layer-3 trust-attribution job |
 | Forecast→Outcome (D V5) | `/forecast_outcome` | beliefs+events+settlements+signals | mixed | BLOCKED on the data flow |
 | Hypothesis Lifecycle (D V6) | (on Cognition) | beliefs (+ intents/settlements) | mixed | PARTIAL — status + calibration live on Cognition; the full belief→strategy→PnL is DATA-BLOCKED (no belief→trade link / `strategy` column / per-belief PnL on the schema — explorer-confirmed; needs a schema change, ledgered) |

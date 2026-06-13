@@ -546,8 +546,14 @@ Polymarket research+fixtures, spec v0.9 touch-up).
   - [x] Cognition belief LIFECYCLE (mission item 1 / D V6 partial) — the cognition
         board deepened with the belief status distribution + resolved calibration
         (Brier/CLV) via a real GROUP BY/AVG (runtime sqlx); DB-backed populated test
-        (this commit). D V6 full belief→strategy→PnL is SCHEMA-BLOCKED (no
+        (2b76e67). D V6 full belief→strategy→PnL is SCHEMA-BLOCKED (no
         belief→trade link; GAPS) — calibration edge proxy surfaced, never a fake PnL.
+  - [x] OBS-2c — the live ingestion boards (V1/V2/V3) now render LIVE daemon data:
+        merge_ingest_views (fortuna-live views.rs, the ROTA seam) shapes the
+        published IngestionTelemetryHandle (track-D OBS-2b) into the board envelopes
+        at the snapshot-composition site (this commit). Honest gate keeps the daemon
+        byte-unchanged when ingestion is off (daemon_smoke 15/15); ROTA stays a pure
+        snapshot reader (no fortuna-sources dep). The live ingestion triad is LIVE.
 
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)
