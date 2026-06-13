@@ -18,13 +18,27 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
-## TRACK E — BUILD PHASE (operator-approved 2026-06-13); E.1 + E.2 + E.3a DONE
+## TRACK E — BUILD PHASE (operator-approved 2026-06-13); E.1 + E.2 + E.3a + E.3b DONE
 
 STATUS 2026-06-13 (SUPERSEDES the design-phase RALPH STOP preserved below): the operator
 APPROVED the design ("looks good, rearm"; commit b4eaae3) and re-armed Track E in worktree
 fortuna-wt-e. BUILD PHASE active — building design §18's six slices, one gate-clean slice
-per iteration. E.3 is sub-sliced: E.3a (runner core + firewall) this commit; E.3b (triggers §7
-+ DST-under-budget) and E.3c (telemetry §19 + the invariant pin) next.
+per iteration. E.3 is sub-sliced: E.3a (runner core + firewall, commit 4e8b9e4) + E.3b (trigger
+layer §7) DONE; E.3c (the DST runner-under-budget arm + telemetry §19 + the invariant pin) next.
+
+**E.3b (Persona trigger layer §7) DONE this commit.** New `fortuna_cognition::persona_trigger`:
+`Cadence` (EveryHours/DailyAtHourUtc) + `CadenceScheduler::due` (fire-once-per-period, generalizing
+the daemon's DailyScheduler) + `Cadence::validate()` (rejects hour≥24 silent-never-fire);
+`PersonaTriggerSpec::fires_on_signal` (signal-driven from the persona's reads_signal_kinds);
+`PersonaTriggerGate` REUSES the existing signals::TriggerEngine (unmodified) keyed by
+persona_region_key (0x1F separator, collision-safe) for per-(persona,region) serialization +
+debounce — duplicate/concurrent triggers coalesce into ONE in-flight run (the §8 coalesce). 9
+tests; full battery green. feature-dev review: 2 Major (hour≥24 validate; in-process contract) +
+Minor (separator) + Nit, all applied. DEFERRED (Major-2, ledgered): cadence fire-once is
+IN-PROCESS only (resets on restart, like the daemon schedulers) — cross-restart persistence is
+not built; a restart may re-fire the current period once (acceptable, matches the daemon). The
+DST runner-under-budget arm moved to E.3c (the trigger layer's coalescing is unit-tested here;
+the seeded DST arm exercises the runner+budget+coalesce together). fortuna-invariants UNTOUCHED.
 
 **OPERATOR-WAIVE PENDING — the E.3c `fortuna-invariants` touch (design §15).** The
 `PersonaOutcome` I6 field-surface pin (assert the type carries no order/size field, the same
@@ -36,7 +50,7 @@ UNBLOCK (operator, one action): waive the invariant-crate addition for Track E's
 E.3c lands it (pure ADD, existing assertions untouched). Until then the order-free guarantee is
 documented (the struct doc + design §15 + this entry), not yet pinned.
 
-**E.3a (Persona runner core + the trusted/untrusted FIREWALL) DONE this commit.** New
+**E.3a (Persona runner core + the trusted/untrusted FIREWALL) DONE (commit 4e8b9e4).** New
 `fortuna_cognition::persona_runner` (design §8): `run_persona_analysis(persona, region_key,
 signals, mind, budget, now) -> PersonaOutcome`. Budget-first (DiscoveryBudget throttle), assembles
 ONLY untrusted signals into the context (the trusted method is the Mind's system charter, NEVER a
@@ -121,9 +135,10 @@ and any fortuna-invariants touch is an operator-waive item per the loop — so s
 correctly does NOT touch the protected crate. The `domain_analyses`/`PersonaRow` row types are
 already structurally order-free (review-confirmed).
 
-NEXT: E.3b (triggers §7 — declarative + schedulable, decoupled from the persona; + the DST
-runner-under-budget arm). Then E.3c (persona telemetry §19 + the PersonaOutcome no-order/size
-invariant pin §15, gated on the operator-waive above). Then E.4 (belief consumption).
+NEXT: E.3c (the DST runner-under-budget arm — seeded budget-exhaustion / signal-absence /
+schema-invalid / coalesced-re-triggers, wired into run-dst.sh; + persona telemetry §19; + the
+PersonaOutcome no-order/size invariant pin §15, gated on the operator-waive above). Then E.4
+(belief consumption).
 
 --- HISTORICAL (design-phase RALPH STOP — SUPERSEDED by the operator approval above) ---
 

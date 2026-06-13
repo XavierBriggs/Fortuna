@@ -673,12 +673,15 @@ at E.3 (the PersonaOutcome no-order/size field-surface pin) under operator waive
 - [ ] E.3 Runner loop + triggers + budget + context + findings contract — scripted-StubMind
       determinism, the trusted/untrusted separation tests (§4 a–d), DST runner-under-budget arm;
       persona telemetry counters (§19); the PersonaOutcome no-order/size invariant pin (§15).
-      [E.3a DONE this commit: fortuna_cognition::persona_runner — run_persona_analysis
+      [E.3a DONE (commit 4e8b9e4): fortuna_cognition::persona_runner — run_persona_analysis
       (budget-first, untrusted-signals-only context, Mind.decide, strict findings validation,
       content_hash anchor); PersonaOutcome order-free + Serialize; the FIREWALL headline tests
-      (method never in context; planted injection renders as data) + determinism + degrade arms;
-      12 tests; full battery green. REMAINING: E.3b triggers §7 + DST-under-budget; E.3c
-      telemetry §19 + the §15 invariant pin (operator-waive, see GAPS).]
+      (method never in context; planted injection renders as data) + determinism + degrade arms.
+      E.3b DONE this commit: fortuna_cognition::persona_trigger — Cadence (fire-once-per-period,
+      generalizing DailyScheduler) + validate(); PersonaTriggerSpec::fires_on_signal; and the
+      PersonaTriggerGate reusing signals::TriggerEngine for per-(persona,region) coalescing
+      (concurrent triggers → one in-flight run); 9 tests; full battery green. REMAINING: E.3c
+      = the DST runner-under-budget arm + telemetry §19 + the §15 invariant pin (operator-waive).]
 - [ ] E.4 Belief consumption — DomainAnalysis section + evidence/provenance citation; the
       μ/σ→p helper in code; `fortuna_persona_beliefs_total` metric.
 - [ ] E.5 Scoring scope extension — ScopeKey + weekly-review promote/retire proposal (baseline +

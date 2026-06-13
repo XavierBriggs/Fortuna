@@ -10,7 +10,27 @@ commit gate, `fortuna-invariants` untouched except at E.3 (operator-waive-flagge
 
 ---
 
-## E.3a — persona runner core + the trusted/untrusted firewall (this commit)
+## E.3b — persona trigger layer (declarative + schedulable) (this commit)
+
+`fortuna_cognition::persona_trigger` (design §7): the layer that decides WHEN a
+`(persona, region)` run fires, decoupled from the persona's method.
+- `Cadence` (EveryHours / DailyAtHourUtc) + `CadenceScheduler::due` — fire-once-per-period,
+  generalizing the daemon's `DailyScheduler` (in-process state; not persisted across
+  restarts — documented, GAPS-noted). `Cadence::validate()` rejects a never-fires config
+  (DailyAtHourUtc hour ≥ 24) at config-load.
+- `PersonaTriggerSpec::fires_on_signal` — signal-driven matching straight from the persona's
+  `reads_signal_kinds` (config, not per-domain code).
+- `PersonaTriggerGate` — REUSES the existing `signals::TriggerEngine` (unmodified) keyed by
+  `persona_region_key` for per-`(persona, region)` serialization + debounce: duplicate/concurrent
+  triggers coalesce into ONE in-flight run (the §8 "coalesced re-triggers → one run"), with the
+  coalesced count reported. Key uses the 0x1F unit separator (collision-safe).
+
+9 tests (tests/persona_trigger.rs). FULL workspace battery green. feature-dev:code-reviewer:
+two Major (hour ≥ 24 silent-never-fire → `validate()` + test; in-process fire-once contract →
+documented + GAPS) + a Minor (key-separator collision → 0x1F + test) + a Nit (fire-on-trigger
+doc) — all applied. fortuna-invariants UNTOUCHED. No shared-doc edit needed (nothing made stale).
+
+## E.3a — persona runner core + the trusted/untrusted firewall (commit 4e8b9e4)
 
 `fortuna_cognition::persona_runner` (design §8a): `run_persona_analysis(persona,
 region_key, signals, mind, budget, now) -> PersonaOutcome`. Budget-first

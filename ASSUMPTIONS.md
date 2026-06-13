@@ -1635,3 +1635,25 @@ domain-analysis artifact (authoritative design: docs/design/domain-analysis-pers
 - **Signals are point-in-time STRICTLY before the trigger** — the assembler excludes
   any item at-or-after the trigger time as "future" (`context.rs:154`); the runner
   inherits this. The composition passes already-ingested (earlier) signals.
+
+## Track E — E.3b (persona trigger layer; design §7)
+
+- **Cadences are fire-once-per-period, IN-PROCESS** (a `CadenceScheduler` instance's
+  lifetime), generalizing the daemon's `DailyScheduler` — which is also in-process.
+  Cross-restart persistence is NOT built; a restart may re-fire the current period
+  once (acceptable, and consistent with the daemon's existing schedulers). Conservative
+  reading of §7 ("schedulable"): match the existing scheduler semantics, defer durable
+  scheduling.
+- **`Cadence::validate()` rejects a never-fires config** (DailyAtHourUtc hour ≥ 24) at
+  config-load — a silent dead trigger is worse than a startup rejection. EveryHours{0}
+  is clamped to 1 at use.
+- **The trigger layer REUSES the existing `signals::TriggerEngine`** (unmodified) for
+  per-(persona, region) serialization + debounce, keyed by `persona_region_key`. Chosen
+  over a parallel debounce impl to honor "funnel through the existing serialization"
+  (§7) and "extend, don't break" — the engine is self-contained per instance (no shared
+  state), so reuse with empty `rules` is safe.
+- **`persona_region_key` joins with the ASCII Unit Separator (0x1F)**, not `::` — it
+  cannot appear in a persona id or expanded region key, so distinct (persona, region)
+  pairs never collide on one serialization slot.
+- **Signal-driven triggering reads the persona's own `reads_signal_kinds`** (from the
+  definition), not a separate rule list — "config, not per-domain code" (§7).
