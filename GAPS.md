@@ -18,6 +18,99 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK C — slice 3b: PAIRED-CYCLE FIXTURE sampled + the basis VALIDATED on real co-recorded data (2026-06-13)
+
+Drove the operator's fixture unblock (operator-queue #4) MYSELF off the live recorder capture (READ-only;
+recorder untouched, PID 79813 still up). Committed fixture
+fixtures/kinetics-perps/paired_cycle_btc_perp_vs_kxbtc.json (+ .meta.md): ONE cycle_id-keyed pair
+(cycle 1781160753775, 2026-06-13T16:50:48Z) = the KXBTCPERP perp (orderbook + settlement_mark) + the
+KXBTC price-LEVEL ladder (50 active markets: 48 `between` $500 bins $51k→$75k + 1 `greater` tail + 1
+`less` tail; YES dollar-strings). Market data ONLY — secrets-scanned CLEAN (no keys/sig/token).
+**BASIS VALIDATED ON REAL DATA**: perp settlement_mark → BTC $63,906 vs the KXBTC-ladder implied median
+$63,961 → signed basis −$55 (~0.09%). Two INDEPENDENT price sources (perp book + bracket ladder) agree
+to <0.1% — the YES-mid→pmf→median→basis pipeline works end-to-end on real co-recorded data (the e2e
+the verifier required, now satisfiable once the kernel parses this format).
+
+TWO MORE LIVE-DATA FINDINGS (never-invent, grounded):
+1. The BTC perp ticker is now **KXBTCPERP** (no `1`), NOT KXBTCPERP1 — the committed funding fixtures
+   (3714 refs) use the OLD KXBTCPERP1; the venue/recorder ticker changed. The kernel/strategy + any new
+   fixture must use the LIVE KXBTCPERP; the old funding fixtures stay as the historical recording.
+2. The KXBTCPERP contract is BTC/10000 (settlement_mark $6.3906/contract × 10000 = BTC $63,906). The
+   basis comparison is in BTC dollars, so the perp mark needs the ×10000 scale — the fixture carries
+   BOTH `settlement_mark_per_contract_dollars` and `settlement_mark_dollars` (the BTC price) so the
+   kernel reads the right one. (basis.rs's current `perp_dollars_f64 = raw/10000` yields the CONTRACT
+   price, not BTC — part of the slice-3b refinement.)
+
+SLICE 3b-CODE (the remaining build, now fully specified by the real fixture): refine the basis kernel to
+(a) the 3 strike_types incl. the open `greater`/`less` tails, (b) the dollar-string→probability parse,
+(c) the perp→BTC-dollars ×10000 scale; then the perp_event_basis STRATEGY drives it against this fixture
+e2e (the verifier's RED e2e gate flips green on real co-recorded data, not synthetic).
+
+NOTE: main now carries slices 2a (2809aea) + 2b (f949554) GATE-ACCEPTED + MERGED; operator signed off
+the 27-item Kalshi clearance (demo rung unblocked, 77bbca5). track-c is ahead with the slice-3 kernel +
+this fixture; the verifier merge-gates as I land.
+
+## TRACK C — LIVE BRACKET-FORMAT INVESTIGATION (operator-directed: "drive it yourself, demo keys"): the design's bracket series was WRONG (2026-06-13)
+
+The operator directed me to drive the KXBTC bracket-structure investigation myself off the live
+demo capture. The running recorder (PID 79813, CWD /Users/xavierbriggs/fortuna, flags
+`--bracket-series KXBTC15M,KXBTC,KXBTCD`) is ALREADY capturing all three series to
+/Users/xavierbriggs/fortuna/data/perishable/<day>/bracket_quotes.jsonl (paired by cycle_id with
+perp_orderbook.jsonl) — so the live format is in hand WITHOUT a fresh API call. The decisive finding
+(market data only, no keys):
+- **KXBTC15M is NOT a price-bracket ladder** — it is a SINGLE DIRECTIONAL "BTC price up in next 15
+  mins?" binary per 15-min window: `strike_type=greater_or_equal`, `floor_strike`=the reference price
+  (e.g. 63532.24), no cap, ONE active market (yes_bid $0.58 / ask $0.60). The other 15 markets in the
+  GET /markets response are future windows (status `initialized`, no quotes). It gives a P(up), NOT a
+  price distribution.
+- **KXBTC IS the price-level ladder** (the median source the basis needs): 200 markets / ~50 active,
+  `strike_type=between` range bins (e.g. floor=74500 cap=74999.99 "$74,500 to 74,999.99") PLUS open
+  tails `greater` (floor only, "$75,000 or above") and `less` (cap only, "$50,999.99 or below"). YES
+  quotes are DOLLAR-STRINGS (`yes_bid_dollars:"0.0100"` = 1¢ on a $1 payout), `response_price_units:
+  usd_cent`, `price_level_structure: tapered_deci_cent`.
+- **KXBTCD** = cumulative `greater` thresholds (P(BTC ≥ X)) — a CDF ladder, a different shape again.
+
+CONSEQUENCE — design + kernel were grounded on the WRONG series:
+1. DESIGN §3 (line 232 "the KXBTC15M event-contract ladder") is corrected: the bracket-implied-median
+   source is **KXBTC** (the `between` ladder), NOT KXBTC15M (which is directional). (Corrected in the
+   design doc this commit.)
+2. KERNEL (basis.rs, 70f333a): the ALGORITHM (implied median from closed [floor,cap] bins via
+   cumulative-prob interpolation) is SOUND and maps to KXBTC's `between` bins — but (a) its grounding
+   comments cite KXBTC15M (false → corrected to KXBTC this commit) and (b) it does NOT handle the open
+   `greater`/`less` TAILS, and the YES input is i64 cents (caller converts the dollar-strings). The
+   tail-handling + a real-KXBTC parse are a FLAGGED REFINEMENT (slice-3b), not a silent gap.
+
+NEXT (operator-directed, now UNBLOCKED — the live data is captured):
+- Sample ONE paired cycle (matching cycle_id: perp_orderbook + the KXBTC `between`-ladder bracket_quotes)
+  from data/perishable/ into a committed fixtures/kinetics-perps/ file (market data only, no keys) —
+  this is operator-queue #4, now drivable by me. Recipe recorded in ASSUMPTIONS.
+- Refine the basis kernel to the real KXBTC structure (the 3 strike_types incl. the open tails; the
+  dollar-string→probability parse) — slice 3b, then the perp_event_basis STRATEGY can drive it e2e.
+
+## TRACK C — slice 3 (perp_event_basis) GROUNDED: kernel buildable-now-synthetic, e2e fixture-gated (2026-06-13)
+
+Design-validation (explorer, grounded vs current code + Kalshi research):
+- VERDICT: the basis KERNEL (basis = perp_mark − bracket_implied_median; the implied-median algorithm;
+  the fee-trap comparison) is BUILDABLE NOW with adversarial MUTATION-PROVEN synthetic tests. The
+  bracket STRUCTURE (KXBTC15M floor_strike/cap_strike → YES-price→probability → median) is GROUNDED IN
+  RESEARCH (docs/research/venue/kalshi-api-2026-06-10/raw/asyncapi.yaml:1688 has the KXBTC15M ticker;
+  :3174-3176 + research.md:251-253 document floor_strike/cap_strike/strike_type), so synthetic test
+  VALUES use the REAL structure (NOT invented). The existing event-contract code has NO strike
+  representation (Market/KalshiMarket DTO don't parse floor/cap; mech_structural sums YES asks, ignores
+  strikes) → the kernel's types (BracketBin) are NEW.
+- PLACEMENT CORRECTION (money-discipline): the kernel uses f64 (bracket probabilities + the
+  forecast-quality basis signal). CLAUDE.md forbids f64 for PRICES in fortuna-CORE. So the kernel lives
+  in fortuna-COGNITION (f64 forecast quantities, consistent with §1.1 + scoring.rs), NOT fortuna-core/
+  perp as the explorer first suggested. It imports PerpPrice from fortuna-core + converts to f64 at the
+  cognition boundary. The actual TRADE (bracket Cents legs) is the strategy/exec money op (the
+  perp_event_basis strategy, fortuna-runner — deferred).
+- FIXTURE-GATED (e2e stays RED, NOT counted toward Phase-5 EXIT on synthetic alone): the
+  perp_event_basis STRATEGY (reads real KXBTC15M orderbooks) needs (a) operator-queue #4 (the paired
+  KXBTCPERP1 + KXBTC15M cycle fixture) AND (b) a DTO extension (floor_strike/cap_strike on KalshiMarket/
+  Market — track-A's Kalshi venue surface). Slice 4 (daemon wiring of funding_forecast) is
+  track-A-coordination-risky (daemon.rs is hot: track-D OBS + track-A drive/kill-switch) — defer to a
+  coordinated window.
+
 ## TRACK C — slice 2b (funding_forecast strategy) DONE → SLICE 2 COMPLETE (2026-06-13)
 
 SLICE 2b LANDED: the funding_forecast belief-producer (crates/fortuna-runner/src/funding_forecast.rs)
