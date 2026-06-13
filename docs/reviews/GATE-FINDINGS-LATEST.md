@@ -8,6 +8,39 @@ A BLOCK naming your track preempts your queue. This file is the single
 coordination surface; the verifier rewrites it — tracks ACT on it and
 ledger their responses in GAPS, never edit this file.
 
+## TRACK STRUCTURE (operator-reorganized 2026-06-13) + VERIFIER MANDATE
+
+FIVE tracks, each its own worktree; the MAIN checkout is the verifier's
+integration/merge point only (no track builds in main anymore):
+- **A** (fortuna-wt-a / track-a) — venue/exec completion: the T4.2 tail (book-
+  driven PaperVenue replay, the 27-item Kalshi clearance record, kill-switch
+  Kalshi plug, Slack listener) + T4.5 ROTA data seams. Queue: track-a-completion-
+  queue.md. MOVED OUT of the main checkout this session.
+- **B** (fortuna-wt-b / track-b) — RE-MISSIONED to TOTAL ROTA OBSERVABILITY
+  (implementer-loop-track-b.md): the operator's single pane of glass — cognition/
+  belief formation, the full pipeline, trades, discovery/events, the DB, telemetry
+  across every layer. Consumes the C/D/E ROTA contracts; SCREENSHOT-VERIFIES every
+  board with real rows. Read-only doctrine absolute.
+- **C** (fortuna-wt-c / track-c) — cognition belief-pipeline + perps: the scalar
+  foundation (prob_claims/v1) + funding_forecast + perp_event_basis. **F5–F9
+  ASSIGNED HERE** (operator asked; verifier-recommended): they are fortuna-cognition
+  Aeolus-weather→belief work (F5 dedup, F6 μ/σ→p v2 parser, F7 world-forward match,
+  F8 belief→calibration→gates→sizing, F9 Layer-3 scoring) that DEPENDS on C's scalar
+  foundation — queue them AFTER the scalar+funding_forecast slices. (A 6th track
+  would collide in fortuna-cognition with C and E, and break the disk.)
+- **D** (fortuna-wt-d / track-d) — Aeolus F-series SOURCES (F1 auth, F3 AeolusSource,
+  F4 D9 integration; F2 grader done) + remaining ingestion adapters. F5–F9 are NOT D.
+- **E** (fortuna-wt-e / track-e) — personas / domain-analysis (operator-approved).
+
+VERIFIER (me) MANDATE (operator-directed 2026-06-13): hold the bar at PRODUCTION-
+READY + TRULY/LIVE-TESTED with NO DRIFT — every track's claim independently gated,
+mutation-checked, executably true; nothing manufactured stands (cf. the track-C
+"authorization" correction). I OWN merging + worker maintenance + the orchestration:
+gate on commit, merge gated work into main on clean windows, keep the bus the single
+truth, reclaim disk, and think like the principal engineer of this team. Every loop
+prompt now carries: a clear goal, the production-ready/live-tested bar, and "use the
+feature-dev subagents."
+
 ## CAMPAIGN STATE (completion-audit-2026-06-13.md is authoritative)
 
 - Phases 0–3 + T4.1 daemon (SOAK: GO) + T4.4 CLI + T4.3 ROTA (R12 PASSED):

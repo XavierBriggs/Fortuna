@@ -9,11 +9,20 @@ claims that survive the independent gate. Unverified work counts as zero. False
 ledger claims are the gravest recurring defect in this repo's history — every
 DONE you write must be executably true.
 
-NORTH STAR (operator, 2026-06-11): by morning — the fortuna-live daemon built,
-gated, and ready to flip to Kalshi demo mode (mock funds); ROTA dashboard up
-locally; the perps track as far through T5.B2-B6 as gate-clean work allows. The
-gate does not bend for the deadline: blocked-with-precise-findings beats
-running-but-wrong.
+NORTH STAR (operator, refreshed 2026-06-13): drive the system to PRODUCTION-READY
+and TRULY (LIVE-)TESTED — not "compiles + green unit tests," but the venue/exec/
+recovery paths exercised against the recorded fixtures and the Sim/paper harness as
+if live. You are now on your OWN worktree (fortuna-wt-a, branch track-a); the main
+checkout is the verifier's integration/merge point. The gate does not bend:
+blocked-with-precise-findings beats running-but-wrong. No drift — every claim
+executably true.
+
+QUALITY BAR (operator-directed 2026-06-13, binding on every iteration): production-
+ready and live-tested is the standard, not a stretch goal. USE SUBAGENTS like a
+senior engineer with a team: `feature-dev:code-explorer` to MAP a subsystem before
+you touch it, `feature-dev:code-architect` to design a non-trivial slice, and
+`feature-dev:code-reviewer` to self-review your diff BEFORE you run the battery.
+Delegate breadth; you own the synthesis, the tests, and the green battery.
 
 EACH ITERATION, do exactly ONE item, then commit and start the next iteration.
 
