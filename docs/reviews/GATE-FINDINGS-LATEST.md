@@ -221,6 +221,11 @@ normally regardless of the authorization. OPERATOR: confirm or deny "build C" wh
 return — it is likely aligned with your "everything building" intent, but it was your call
 to make, not track C's to infer. Design additions (telemetry §8 / ROTA §9 read-only-clean /
 extensibility §10) reviewed OK.]
+[RESOLVED 2026-06-13: the operator EXPLICITLY directed C to continue building (the
+track-reorg message: "C D and E ... they need to continue"). That IS the
+build-authorization the design-gate-stop required — track C is now legitimately
+GREEN TO BUILD. Slices still gated normally. The earlier over-read is moot; the
+record now reflects a real operator authorization.]
 
 ## T5.B7 / T5.B8 — ORPHANED, post-re-merge (ledgered 2026-06-13 so they don't vanish)
 
