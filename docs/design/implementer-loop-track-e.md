@@ -22,13 +22,15 @@ running-but-wrong.
 EACH ITERATION, do exactly ONE item, then commit and start the next iteration.
 
 1. PRIORITY ORDER: (a) BLOCK on the bus naming track E preempts everything.
-   (b) YOUR FEATURE: the DESIGN PHASE IS DONE. Explore + brainstorming +
+   (b) YOUR FEATURE: the DESIGN PHASE IS DONE and OPERATOR-APPROVED
+   (2026-06-13 — design doc reviewed, "looks good, rearm"; build authorized).
+   Explore + brainstorming +
    the §3 artifact-model decision were completed in the 2026-06-13 operator
    session; the decision is RESOLVED = persisted artifact (operator-endorsed),
    and the authoritative design is committed at
    docs/design/domain-analysis-personas-design.md (brief:
    docs/design/track-e-persona-brief.md). RE-READ both at the start of every
-   iteration. BUILD to the design doc's §15 slice plan: do exactly ONE slice
+   iteration. BUILD to the design doc's §18 build-slice plan: do exactly ONE slice
    per iteration, tests-first, full-workspace battery as the commit gate.
    The §3 RALPH-STOP-for-approval gate is SATISFIED — do not re-surface it.
 
