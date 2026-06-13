@@ -249,7 +249,10 @@ Postgres, the ledger, cognition, the event loop, or Slack.
 **[fortuna-ops](../crates/fortuna-ops/src/lib.rs)** — the operations layer
 (spec §8): whole-shape config loader with env-only secrets, the Slack client
 with channel routing, dead-man pinger, metrics registry, the read-only
-dashboard server, daily digest, accounting export, and the ROTA views. Must
+dashboard server, daily digest, accounting export, and the ROTA views — the
+operator's single read-only observability pane, fed by the cross-track
+observability contracts (ingestion/D, perps-and-scalar/C, personas/E; see
+[design/rota-observability.md](design/rota-observability.md)). Must
 never: expose re-arm or kill-reversal over Slack (CLI-only by design), or
 accept inbound Slack interactivity — this crate only sends.
 

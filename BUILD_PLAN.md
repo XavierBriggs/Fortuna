@@ -559,6 +559,138 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       money model (need an operator/design call surfacing the mark-loop AccountView
       via a new SimRunner accessor).
 
+- [ ] T4.6 ROTA TOTAL OBSERVABILITY (mission 2; track B re-missioned 2026-06-13)
+      — the operator single pane of glass consuming the C/D/E observability
+      contracts. Authoritative tracker (board matrix + changelog):
+      docs/design/rota-observability.md; sequenced queue + cross-track data-seam
+      requests: GAPS.md "TRACK B — RE-MISSIONED ... TOTAL ROTA OBSERVABILITY".
+      Read-only + honest-nulls absolute; every board screenshot-verified with
+      real rows before its sub-box ticks. Verifier-gated.
+  - [x] item 0 — local bringup harness (crates/fortuna-ops/examples/rota_local.rs)
+        + the 7 existing boards screenshot-verified with real rows off a seeded
+        local DB (d8bae95). The reusable screenshot rig for later boards.
+  - [x] V2 Sources Health (D ingestion contract) — generic {title,columns,rows,
+        summary} boardTable renderer (reused by V1/V3-V6) + /api/rota/v1/ingest_sources
+        handler + populated-path test; screenshot-verified with real rows (c521ae1).
+        Prod data pending track-A OBS-2 publish (IngestionTelemetry on main).
+  - [x] V1 Live Signal Feed (D ingestion contract, the marquee) — reuses boardTable
+        via a data-driven `pill` column flag + /api/rota/v1/ingest_feed handler +
+        populated-path test; screenshot-verified with real rows (cc463bb).
+        Prod data pending track-A OBS-2 feed publish.
+  - [x] V3 Ingest Funnel (D ingestion contract) — funnel-as-stage-table (reuses
+        boardTable): fetched→validated→normalized→persisted with retention % +
+        drop-offs + /api/rota/v1/ingest_funnel + populated-path test;
+        screenshot-verified (d650710). Completes the live ingestion triad
+        (V1/V2/V3, 10 boards). Prod data pending OBS-2 (loop-stages null-until-wired).
+  - [x] Cognition belief LIFECYCLE (mission item 1 / D V6 partial) — the cognition
+        board deepened with the belief status distribution + resolved calibration
+        (Brier/CLV) via a real GROUP BY/AVG (runtime sqlx); DB-backed populated test
+        (2b76e67). D V6 full belief→strategy→PnL is SCHEMA-BLOCKED (no
+        belief→trade link; GAPS) — calibration edge proxy surfaced, never a fake PnL.
+  - [x] OBS-2c — the live ingestion boards (V1/V2/V3) now render LIVE daemon data:
+        merge_ingest_views (fortuna-live views.rs, the ROTA seam) shapes the
+        published IngestionTelemetryHandle (track-D OBS-2b) into the board envelopes
+        at the snapshot-composition site (this commit). Honest gate keeps the daemon
+        byte-unchanged when ingestion is off (daemon_smoke 15/15); ROTA stays a pure
+        snapshot reader (no fortuna-sources dep). The live ingestion triad is LIVE.
+  - [x] Recent Fills board (mission item 3, "trades being executed") — recent_fills
+        runtime-sqlx query over the durable fills ledger + view_fills handler + a new
+        data-driven `cents` column flag (price/fee as dollars); fortuna-ops only, the
+        audit-tail pattern; DB-backed populated test; screenshot-verified (this commit,
+        11 boards). Follow-ons (GAPS): per-strategy P&L + working orders (views_from
+        from runner accessors), unrealized PnL gapped (no mark loop).
+  - [x] Strategy P&L board (mission item 3, "realized PnL per strategy") — views_from
+        (the ROTA seam) shapes runner.digest_snapshot().strategies into
+        snapshot.views["strategies"] + view_strategies handler + the cents flag
+        (realized/fees/open as dollars, negatives honest); fortuna-live + fortuna-ops;
+        views.rs + handler tests + daemon_smoke 15/15; screenshot-verified (4c2fcd6,
+        12 boards). Working orders + unrealized PnL remain (GAPS).
+  - [x] Discovery — Events board (mission item 4, "canonical events + markets") —
+        recent_discovery_events runtime-sqlx query (events LEFT JOIN
+        market_event_edges, COUNT DISTINCT market_id supersession-safe) +
+        view_discovery handler; fortuna-ops only; DB-backed populated test;
+        screenshot-verified (this commit, 13 boards). Benchmark detail + per-event
+        drill-in + sources inventory are follow-ons (GAPS).
+  - [x] Database board (mission item 5, "honest visibility into the actual tables —
+        counts") — db_table_counts runtime-sqlx (exact COUNT(*) over all 24 ledger
+        tables incl. the scalar_beliefs/belief_scores plane, literal names/no
+        injection, ORDER BY busiest-first) + view_db handler + {tables,total_rows}
+        summary via boardTable; fortuna-ops only; DB-backed populated test (24-table
+        inventory + real counts + ordering + honest 0 + scalar-plane sweep guard);
+        reviewer-clean; FULL-WORKSPACE battery green (fmt+clippy+test 1263/0+run-dst
+        exit 0); screenshot-verified (this commit, 14 boards). reltuples-at-scale +
+        per-table drill-in are follow-ons (GAPS).
+  - [x] Personas board (mission item 1, "how beliefs are formed — the roster of
+        analysts"; track-E §20.1 registry half) — persona_registry runtime-sqlx over
+        the personas table (every (persona_id, version) grouped, newest version first;
+        status pill, 8-char method hash, reads_signal_kinds flattened) + view_personas
+        handler + {personas,versions,active} summary via boardTable; valuePill extended
+        for active; fortuna-ops only; DB-backed populated test (grouped ordering +
+        active/retired status + joined reads + method prefix + summary); reviewer-clean;
+        FULL-WORKSPACE battery green (fmt+clippy+test 1264/0+run-dst exit 0);
+        screenshot-verified (this commit, 15 boards). §20.1 scorecard half
+        (Brier/CLV/verdict) data-blocked on track-E persona scoring; §20.2 analyses
+        browser + §20.3 cognition persona-provenance are the remaining E slices (GAPS).
+  - [x] Domain Analyses board (mission item 1 / track-E §20.2, "the whole process —
+        the analyses beliefs are built from") — recent_analyses runtime-sqlx over
+        domain_analyses (artifact ledger newest-first: persona id@version, region_key,
+        produced_at, cost as dollars, content_hash prefix, supersession status) +
+        view_analyses handler + {analyses,open,cost_cents} summary via boardTable;
+        UNTRUSTED findings/signal_manifest NOT exposed (metadata only — reviewer-
+        confirmed); fortuna-ops only; DB-backed populated test (produced_at-DESC +
+        persona render + cost + hash + open-vs-superseded supersession); reviewer-clean;
+        FULL-WORKSPACE battery green (fmt+clippy+test 1265/0+run-dst exit 0);
+        screenshot-verified (this commit, 16 boards). The per-artifact expander
+        (findings/manifest/beliefs-fanout, esc'd) + §20.3 cognition persona-provenance
+        + §20.1 scorecard are the remaining E slices (GAPS).
+  - [x] Forecasts scorecard (track-C §9.1, "the outcomes of the whole process") —
+        forecast_scorecard runtime-sqlx (scalar_beliefs ⋈ belief_scores, resolved
+        only, GROUP BY producer,rule_id → mean CRPS lower=better + resolved_n + unit)
+        + view_forecasts handler + {producers,rules,scored} summary via boardTable;
+        untrusted quantiles/provenance NOT exposed (reviewer-confirmed); fortuna-ops
+        only; DB-backed populated test (producer ordering + mean CRPS + resolved
+        counts + unit, f64-tolerance); reviewer-clean; FULL-WORKSPACE battery green
+        (fmt+clippy+test 1266/0+run-dst exit 0); screenshot-verified (this commit, 17
+        boards). Degrades honest-unavailable until track-C daemon persist (slice 4)
+        writes the tables. Recent-feed + coverage_bps + sparkline + §9.2 /perps are
+        follow-ons (GAPS).
+  - [x] Working Orders board (mission item 3, "trades being executed" — live side) —
+        a views_from board (the ROTA seam, fortuna-live): views_from folds
+        runner.manager().intents() filtered by IntentStatus::is_working() (submitted/
+        acked/partially-filled) into snapshot.views["working_orders"] (market, side,
+        action, limit as dollars, qty, filled, status pill, submitted-at) +
+        view_working_orders read_view handler; pure panic-free read (daemon_smoke 15/15
+        unchanged); fortuna-live populated-path test (ack_delay → 3 resting legs) +
+        fortuna-ops handler test; reviewer-clean; screenshot-verified (this commit, 18
+        boards). BATTERY: green for ALL track-B work + the whole workspace EXCEPT one
+        PRE-EXISTING main red (kinetics_dto paired_cycle fixture unclassified, track-C
+        @2c17295 — NOT track-B, fortuna-venues out of ownership; ledgered for verifier).
+        Mission item 3 substantially complete (fills + working orders + strategy P&L);
+        unrealized PnL remains the mark-loop gap.
+  - [x] Persona Scorecard board (track-E §20.1 outcomes half — UNBLOCKED by the merged
+        persona runtime) — persona_scorecard runtime-sqlx (AVG over resolved beliefs
+        grouped by provenance->>'persona_id': n_resolved + mean Brier + mean CLV) +
+        view_persona_scores handler + honest evaluating(n/60) verdict (PROMOTABLE/RETIRE
+        + baselines + calibration_quality OMITTED — unpersisted/cognition logic, R2);
+        fortuna-ops only; DB-backed populated test (per-persona MEAN brier/clv + verdict);
+        reviewer-clean; battery green EXCEPT the same pre-existing main kinetics_dto red
+        (track-C/A, not track-B); screenshot-verified (this commit, 19 boards). Completes
+        the Personas board's two halves (registry + scorecard). The §20.1 baselines/
+        verdict + §20.3 provenance-linking + §20.4 pipeline funnel remain (GAPS).
+  - [x] Telemetry board (mission item 6, "the Prometheus stack on the console" — the
+        LAST untouched pillar) — MetricsRegistry::telemetry_board (NEW fortuna-ops
+        method) folds the registry's structured series into a board (one row per
+        series: subsystem-from-name-prefix + metric + type + value, grouped by
+        subsystem); daemon composition adds one additive views["telemetry"] key (the
+        ROTA seam, daemon_smoke 15/15); view_telemetry is a read_view passthrough (R2 —
+        no Prometheus-text parsing). metrics.rs unit test (the shaping) + fortuna-ops
+        handler test + harness exercises the real telemetry_board; reviewer-clean;
+        battery green EXCEPT the same pre-existing main kinetics_dto red (track-C/A);
+        screenshot-verified (this commit, 20 boards). >>> THE SINGLE PANE OF GLASS NOW
+        SPANS ALL 6 MISSION ITEMS (cognition, pipeline, trades, discovery, DB,
+        telemetry). Live prod metrics populate when the daemon runs; help-text + metric
+        search are later polish (GAPS).
+
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)
 with the Anthropic mind active under budgets, ROTA up locally, and the perps

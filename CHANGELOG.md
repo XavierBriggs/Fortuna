@@ -198,7 +198,7 @@ main @2668291, 2026-06-13. No model action is ever execution — personas propos
 
 ### Trading core, venues & exec
 
-_Owned by Tracks A / C / E — see their entries (Track A's section is below)._
+_Owned by Tracks A / B / C / E — see their entries below._
 
 ## Track A — venue / exec / recovery
 
@@ -571,3 +571,131 @@ ingest_dst 5/5). code-reviewer pass folded in. Protected crate untouched.
 **Shared docs.** No architecture/runbook change warranted (test-only; the replay
 seam and strategies are unchanged production code). BUILD_PLAN T4.2 progress
 noted (box stays unticked — slices iii–v remain); queue item 2(ii) marked done.
+
+### ROTA observability console (fortuna-ops, Track B)
+
+The read-only operator single pane of glass (`crates/fortuna-ops/src/rota.rs`,
+`assets/rota/`). Mission 2: total observability. Read-only doctrine absolute (zero
+mutating endpoints), gold-on-black, honest nulls; every board screenshot-verified
+with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
+`docs/design/rota-observability.md`.
+
+#### Added
+
+- Local bringup harness (`crates/fortuna-ops/examples/rota_local.rs`): seeds a
+  GUARDED throwaway Postgres (`ROTA_LOCAL_DATABASE_URL` only, never the operator's
+  DB) + a representative snapshot, serves the console — the reusable screenshot
+  rig. The 7 original boards (health/money/gates/cognition/settlement/streams/audit)
+  screenshot-verified with real rows.
+- Generic `boardTable` renderer for the D-contract `{title, columns, rows, summary}`
+  envelope, with a data-driven `pill` column flag — reused by every ingestion board.
+- **V2 Sources Health** (`GET /api/rota/v1/ingest_sources`) — per-source health /
+  polls / accepted / drop-by-reason / 304-rate / quarantines; surfaces the
+  AFD-firehose.
+- **V1 Live Signal Feed** (`GET /api/rota/v1/ingest_feed`) — recent signals
+  newest-first with their (redacted, esc()'d) data + accept/drop status pills.
+- **V3 Ingest Funnel** (`GET /api/rota/v1/ingest_funnel`) — the pipeline as a stage
+  table (fetched → validated → normalized → persisted) with retention % + drop-offs.
+- **Discovery — Events board** (`GET /api/rota/v1/discovery`, mission item 4 "the
+  canonical events we have, the markets under them") — the events ledger with each
+  event's status + DISTINCT mapped-market count (a LEFT JOIN to
+  `market_event_edges`, supersession-safe). A fortuna-ops runtime-sqlx query (the
+  audit-tail pattern). Benchmark snapshots + per-event drill-in are follow-ons.
+- **Database board** (`GET /api/rota/v1/db`, mission item 5 "honest visibility into
+  the actual tables — counts") — an exact `COUNT(*)` sweep over every one of the 24
+  ledger tables (incl. the `scalar_beliefs`/`belief_scores` scalar plane), busiest-
+  first, with a `{tables, total_rows}` summary. The table
+  names are query literals (UNION ALL, no interpolation — zero injection surface);
+  a genuinely-empty table shows a real `0`, never an omitted row. A fortuna-ops
+  runtime-sqlx query (the audit-tail pattern). NOTE (GAPS): exact COUNT is accurate
+  at Sim scale — swap to `pg_class.reltuples` when `audit`/`signals` grow; per-table
+  drill-in (recents / columns) is a follow-on.
+- **Personas board** (`GET /api/rota/v1/personas`, mission item 1 "how beliefs are
+  formed — the roster of analysts"; track-E §20.1 registry half) — every
+  (persona_id, version) grouped by persona, newest version first, with domain, tier,
+  lifecycle status (a `pill`: active→green, retired→dim), the method-file integrity
+  hash (8-char prefix), the signal kinds it reads (`reads_signal_kinds` flattened),
+  and effective date, plus a `{personas, versions, active}` summary. A fortuna-ops
+  runtime-sqlx query (the audit-tail pattern); all columns are operator-authored
+  config (not untrusted data). The §20.1 SCORECARD half (per-persona Brier/CLV/
+  verdict) is data-blocked on track-E persona scoring — ROTA surfaces it when the
+  data lands, never a fabricated score (GAPS).
+- **Domain Analyses board** (`GET /api/rota/v1/analyses`, mission item 1 / track-E
+  §20.2 "the whole process") — the analysis-artifact ledger newest-first: which
+  persona (`id@version`) analysed which `region_key`, when, at what cost (dollars
+  via the `cents` flag), the `content_hash` replay anchor (8-char prefix), and the
+  supersession status, with an `{analyses, open, cost_cents}` summary. A fortuna-ops
+  runtime-sqlx query (audit-tail pattern). UNTRUSTED-DATA BOUNDARY: this view renders
+  STRUCTURAL METADATA ONLY — the `findings` / `signal_manifest` JSONB (untrusted
+  model/signal output) are not selected or exposed; the per-artifact expander (where
+  the esc/JSON-encode discipline applies) is a §20.2 follow-on (GAPS).
+- **Forecasts scorecard** (`GET /api/rota/v1/forecasts`, track-C §9.1 "the outcomes
+  of the whole process") — the scalar-forecast calibration headline: per (producer,
+  scoring rule) the mean score (CRPS, lower=better) over RESOLVED forecasts, the
+  resolved count, and the unit, with a `{producers, rules, scored}` summary. A
+  `scalar_beliefs ⋈ belief_scores` runtime-sqlx aggregate (audit-tail pattern).
+  SCORE METADATA ONLY — the untrusted `quantiles`/`provenance` JSONB are not selected
+  or exposed; the recent-forecast feed + `coverage_bps` + sparkline are §9.1 follow-
+  ons (GAPS). Degrades honest-`unavailable` until track-C's daemon persist (slice 4)
+  writes the tables — never a fabricated score.
+- **Working Orders board** (`GET /api/rota/v1/working_orders`, mission item 3 "trades
+  being executed" — the live side) — the intents currently resting at the venue
+  (submitted / acked / partially-filled, not yet terminal): market, side, action,
+  limit (dollars), qty, filled, status, submitted-at, with a `{working}` summary. A
+  `views_from` board shaped daemon-side from `runner.manager().intents()` filtered by
+  `IntentStatus::is_working()` (the same ROTA seam as Strategy P&L; a pure panic-free
+  read — daemon snapshot byte-unchanged, daemon_smoke 15/15). Empty when nothing rests
+  (honest). With Recent Fills + Strategy P&L, mission item 3 (trades) is substantially
+  covered; unrealized PnL remains the mark-loop gap.
+- **Persona Scorecard board** (`GET /api/rota/v1/persona_scores`, track-E §20.1
+  outcomes half — now unblocked by the merged persona runtime) — per persona, the
+  calibration of its resolved beliefs: n_resolved, mean Brier (lower=better), mean
+  CLV bps (higher=better), aggregated from the `beliefs` table grouped by
+  `provenance->>'persona_id'`, with an honest `evaluating (n/60)` verdict. A pure
+  AVG/COUNT projection — the §11 PROMOTABLE/RETIRE verdict + the raw/market baselines
+  + calibration_quality are NOT computed in ROTA (unpersisted / cognition logic;
+  omitted, never faked). Completes the Personas board's two halves (registry +
+  scorecard). Honest-`unavailable` until the persona runner is daemon-wired.
+- **Telemetry board** (`GET /api/rota/v1/telemetry`, mission item 6 "the Prometheus
+  stack on the console") — the metric series the daemon exports (the same
+  `MetricsRegistry` the `/metrics` exposition is rendered from), grouped by subsystem
+  (ingest/gate/exec/state/venue/killswitch/cognition/…), one row per series with its
+  type + integer value. R2-clean: the daemon shapes it via the new
+  `MetricsRegistry::telemetry_board` (an additive `views["telemetry"]` key, daemon
+  snapshot byte-stable) and ROTA serves it via `read_view` — the handler never parses
+  Prometheus text. Completes the operator's single-pane-of-glass across all six
+  mission areas (cognition, pipeline, trades, discovery, DB, telemetry).
+- **Strategy P&L board** (`GET /api/rota/v1/strategies`, mission item 3 "realized
+  PnL per strategy") — per-strategy realized PnL / fees / fills / open exposure,
+  shaped daemon-side from `runner.digest_snapshot()` (the same attribution the
+  daily digest uses, no runner change) in the `views_from` ROTA seam, served via
+  `boardTable` with money columns as dollars. A losing strategy renders honestly
+  (negative). Unrealized PnL stays the mark-loop gap; working orders
+  (`runner.manager().intents()`) is the remaining trades follow-on.
+- **Recent Fills board** (`GET /api/rota/v1/fills`, mission item 3 "trades being
+  executed") — the executed trades from the durable `fills` ledger, newest-first
+  (time/market/side/action/qty/price/fee/maker-taker). A runtime-sqlx query (the
+  audit-tail pattern, no fortuna-live touch) + a new data-driven `cents` column
+  flag on `boardTable` so money columns render as dollars. A fill carries no
+  strategy/PnL (ledgered): per-strategy P&L (a views_from board) + working orders
+  + the honest unrealized-PnL gap (no mark loop) are follow-ons.
+- **OBS-2c — V1/V2/V3 now render LIVE daemon data.** `merge_ingest_views`
+  (fortuna-live `views.rs`) shapes the daemon-published `IngestionTelemetryHandle`
+  (track-D OBS-2b) into the three board envelopes each ROTA segment, merged at the
+  snapshot-composition site (`main.rs`, non-blocking `try_read`). Honest gate: an
+  unticked / ingestion-off telemetry merges nothing, so the boards stay degraded and
+  the daemon snapshot is byte-unchanged (daemon_smoke 15/15). Unit-tested to produce
+  the exact screenshot-verified envelopes; ROTA stays a pure snapshot reader
+  (fortuna-ops gains no fortuna-sources dependency).
+- Cognition board **belief lifecycle** — status distribution (open/resolved/
+  superseded/abandoned) + the resolved beliefs' calibration outcome (mean Brier/CLV)
+  via a real `GROUP BY`/`AVG` (runtime sqlx).
+- Loop-file rule 6 — the operator doc-discipline directive (own docs + targeted
+  shared-doc edits + this changelog; no staleness), part of DoD.
+
+#### Deferred / blocked (ledgered in GAPS)
+
+- **D V6** full belief→strategy→PnL — schema-blocked (no belief→trade link); ROTA
+  surfaces the calibration edge proxy (CLV), never a fabricated dollar PnL.
+- **C** `/forecasts`,`/perps` and **E** `/personas`,`/analyses`,`/persona_pipeline`
+  — built as their tables/data land.

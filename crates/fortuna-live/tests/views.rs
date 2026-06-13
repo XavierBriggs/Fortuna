@@ -15,8 +15,11 @@
 //! fakes a field it cannot yet source honestly. Each view was written
 //! red-first against a `views_from` that did not yet emit it.
 
-use fortuna_live::views::views_from;
+use fortuna_live::views::{merge_ingest_views, views_from};
 use fortuna_runner::{AuditSink, RunnerError, SimRunner};
+use fortuna_sources::{
+    FunnelCounts, IngestionTelemetry, SignalRecord, SourceTelemetry, TickTelemetry,
+};
 use fortuna_venues::sim::FaultConfig;
 
 mod common;
@@ -402,4 +405,206 @@ async fn money_view_committed_is_non_zero_when_capital_is_reserved() {
             .is_empty(),
         "orders are reserved but unfilled — no position booked yet: {m}"
     );
+}
+
+// Mission item 3: the Strategy P&L view is shaped from the runner's own digest
+// (per-strategy realized PnL / fees / fills / open exposure). POPULATED-path —
+// the 11/3 arb seed fills three legs under `mech_structural`, so that strategy
+// must appear with its real attribution, money columns flagged `cents`.
+#[tokio::test]
+async fn strategies_view_carries_per_strategy_pnl_from_the_digest() {
+    let r = ticked_runner(11, 3).await;
+    let v = views_from(&r, GEN);
+    let st = &v["strategies"];
+    assert_eq!(st["title"], "Strategy P&L");
+    let rows = st["rows"].as_array().expect("strategies rows array");
+    assert!(
+        rows.iter().any(|row| row["strategy"] == "mech_structural"),
+        "the arb strategy that traded must appear: {st}"
+    );
+    // Every row carries the real attribution fields (not a stubbed shape).
+    for row in rows {
+        assert!(
+            row["realized_pnl_cents"].is_i64(),
+            "realized is an int: {row}"
+        );
+        assert!(row["fills"].is_u64(), "fill count present: {row}");
+        assert!(row["open_exposure_cents"].is_i64(), "{row}");
+    }
+    // Realized/fees/open-exposure are cents columns (rendered as dollars).
+    let cols = st["columns"].as_array().unwrap();
+    assert!(
+        cols.iter()
+            .any(|c| c["key"] == "realized_pnl_cents" && c["cents"] == true),
+        "realized PnL is a cents column: {st}"
+    );
+}
+
+// Mission item 3 (the LIVE side): the Working Orders view lists the intents resting
+// at the venue. POPULATED-path — under an ack-delay fault the three arb legs are
+// PLACED (submitted) and reserve cash but never fill this tick, so they rest as
+// working orders the view must surface with their real order shape.
+#[tokio::test]
+async fn working_orders_view_lists_the_resting_intents() {
+    let mut cfg = runner_config(11);
+    cfg.faults = FaultConfig {
+        ack_delay_pm: 1000,
+        ..FaultConfig::none(11)
+    };
+    let mut r = SimRunner::new(cfg, vec![strategy()], Box::new(NullSink), t0()).unwrap();
+    set_arb_books(&r);
+    r.tick().await.unwrap();
+
+    let v = views_from(&r, GEN);
+    let wo = &v["working_orders"];
+    assert_eq!(wo["title"], "Working Orders");
+    let rows = wo["rows"].as_array().expect("working_orders rows array");
+    assert_eq!(rows.len(), 3, "three arb legs rest as working orders: {wo}");
+    assert_eq!(wo["summary"]["working"], 3, "{wo}");
+    // Every row carries the real order shape (not a stubbed envelope).
+    for row in rows {
+        assert!(row["market"].as_str().is_some(), "market ticker: {row}");
+        assert!(
+            ["submitted", "acked", "partially_filled"].contains(&row["status"].as_str().unwrap()),
+            "a working sub-state (ack-delayed → submitted): {row}"
+        );
+        assert!(row["limit_cents"].is_i64(), "limit in cents: {row}");
+        assert!(row["qty"].as_i64().is_some_and(|q| q > 0), "qty > 0: {row}");
+        assert!(row["filled"].is_i64(), "filled count present: {row}");
+        assert!(
+            ["yes", "no"].contains(&row["side"].as_str().unwrap()),
+            "side token: {row}"
+        );
+        assert!(
+            ["buy", "sell"].contains(&row["action"].as_str().unwrap()),
+            "action token: {row}"
+        );
+    }
+    // The limit is a cents column (rendered as dollars), status a pill.
+    let cols = wo["columns"].as_array().unwrap();
+    assert!(
+        cols.iter()
+            .any(|c| c["key"] == "limit_cents" && c["cents"] == true),
+        "limit is a cents column: {wo}"
+    );
+    assert!(
+        cols.iter()
+            .any(|c| c["key"] == "status" && c["pill"] == true),
+        "status is a pill column: {wo}"
+    );
+}
+
+/// OBS-2c: a representative live ingestion snapshot (one source, one signal, a
+/// funnel) for the merge tests.
+fn sample_telemetry() -> IngestionTelemetry {
+    IngestionTelemetry {
+        generated_at: "2026-06-13T13:00:00.000Z".to_string(),
+        sources: vec![SourceTelemetry {
+            source_id: "nws_alerts".to_string(),
+            kind: "nws.alert".to_string(),
+            domain_tags: vec!["weather".to_string()],
+            trust_tier: 1,
+            health: "healthy",
+            last_poll_at: Some("2026-06-13T12:59:50.000Z".to_string()),
+            last_success_at: Some("2026-06-13T12:59:48.000Z".to_string()),
+            next_due_at: Some("2026-06-13T13:00:30.000Z".to_string()),
+            polls: 420,
+            empty_polls: 360,
+            fetch_errors: 0,
+            accepted: 58,
+            dropped_future: 3,
+            dropped_republished: 11,
+            dropped_over_volume: 0,
+            quarantines: 0,
+            rearms: 0,
+            last_error: None,
+        }],
+        funnel: FunnelCounts {
+            fetched: 1240,
+            validated_accepted: 1052,
+            validated_dropped: 188,
+            normalized: 1052,
+            deduped: 4,
+            persisted: 1048,
+            persist_failures: 0,
+        },
+        recent: vec![SignalRecord {
+            at: "2026-06-13T12:59:48.000Z".to_string(),
+            source_id: "nws_alerts".to_string(),
+            kind: "nws.alert".to_string(),
+            claimed_time: Some("2026-06-13T12:59:40.000Z".to_string()),
+            status: "accepted".to_string(),
+            summary: "Severe Thunderstorm Warning — Kings County NY".to_string(),
+        }],
+        last_tick: TickTelemetry::default(),
+    }
+}
+
+// OBS-2c: the live-ingestion shaping produces the EXACT board envelopes the ROTA
+// handlers serve + the renderer renders (so live daemon data renders identically
+// to the screenshot-verified harness seeds). POPULATED-path — real rows + the
+// daemon-side derivations (last-OK age, 304-rate, retention %).
+#[test]
+fn merge_ingest_views_shapes_the_three_live_boards_to_the_handler_envelopes() {
+    let tel = sample_telemetry();
+    let mut views = serde_json::json!({ "health": { "x": 1 } });
+    merge_ingest_views(&mut views, &tel, "2026-06-13T13:00:00.000Z");
+    // Existing views are preserved.
+    assert_eq!(views["health"]["x"], 1, "{views}");
+
+    // V2 Sources Health.
+    let src = &views["ingest_sources"];
+    assert_eq!(src["title"], "Sources Health");
+    assert_eq!(src["rows"][0]["source_id"], "nws_alerts");
+    assert_eq!(src["rows"][0]["health"], "healthy");
+    assert_eq!(src["rows"][0]["dropped_over_volume"], 0);
+    // Derived daemon-side: last_ok_age_s = 12s (13:00:00 − 12:59:48);
+    // empty_rate_pct = 360·100/420 = 85 (integer).
+    assert_eq!(src["rows"][0]["last_ok_age_s"], 12, "{src}");
+    assert_eq!(src["rows"][0]["empty_rate_pct"], 85, "{src}");
+    assert_eq!(src["summary"]["healthy"], 1);
+    let cols = src["columns"].as_array().unwrap();
+    assert!(
+        cols.iter()
+            .any(|c| c["key"] == "health" && c["pill"] == true),
+        "health column is a pill so the renderer colors it: {src}"
+    );
+
+    // V1 Live Signal Feed (untrusted summary carried verbatim as DATA).
+    let feed = &views["ingest_feed"];
+    assert_eq!(feed["rows"][0]["status"], "accepted");
+    assert_eq!(
+        feed["rows"][0]["summary"],
+        "Severe Thunderstorm Warning — Kings County NY"
+    );
+    assert_eq!(feed["summary"]["accepted"], 1);
+
+    // V3 Ingest Funnel — retention from the real counts (1048·100/1240 = 84).
+    let funnel = &views["ingest_funnel"];
+    assert_eq!(funnel["rows"][0]["stage"], "Fetched");
+    assert_eq!(
+        funnel["rows"][1]["dropped"], 188,
+        "validate-stage drop: {funnel}"
+    );
+    assert_eq!(funnel["summary"]["persisted"], 1048);
+    assert_eq!(funnel["summary"]["retain_pct"], 84, "{funnel}");
+}
+
+// OBS-2c honesty gate: an empty (Default) telemetry — ingestion off or
+// pre-first-tick — merges NOTHING, so the boards stay honest-degraded
+// ("unavailable"), never fabricated zeros. This is also why the daemon snapshot
+// is byte-unchanged when ingestion is off (daemon_smoke).
+#[test]
+fn merge_ingest_views_is_inert_when_ingestion_never_ticked() {
+    let tel = IngestionTelemetry::default();
+    assert_eq!(tel.generated_at, "", "default telemetry carries no stamp");
+    let mut views = serde_json::json!({ "health": { "x": 1 } });
+    merge_ingest_views(&mut views, &tel, "2026-06-13T13:00:00.000Z");
+    assert!(
+        views.get("ingest_sources").is_none(),
+        "no fabricated board when ingestion is off: {views}"
+    );
+    assert!(views.get("ingest_feed").is_none(), "{views}");
+    assert!(views.get("ingest_funnel").is_none(), "{views}");
+    assert_eq!(views["health"]["x"], 1, "existing views untouched: {views}");
 }
