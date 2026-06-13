@@ -43,7 +43,10 @@ const ORDER_PACE: Duration = Duration::from_millis(1000);
 // `trade` frame in its window — the trade-through replay (T4.2) needs one.
 // A longer window on a busy market raises the odds; set KALSHI_WS_SECS.
 fn ws_capture_secs() -> u64 {
-    std::env::var("KALSHI_WS_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(90)
+    std::env::var("KALSHI_WS_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(90)
 }
 const WS_MAX_FRAMES: usize = 5000;
 
