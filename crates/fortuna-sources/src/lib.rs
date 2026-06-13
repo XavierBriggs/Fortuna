@@ -7,6 +7,7 @@
 //! Phase A invariant: NO model anywhere in the ingestion path — enforced
 //! at config validation (see `config`), not by convention.
 
+pub mod calendar;
 pub mod config;
 pub mod error;
 pub mod fetch;
@@ -14,6 +15,10 @@ pub mod nws;
 pub mod rss;
 pub mod validate;
 
+pub use calendar::{
+    calendar_claimed_time, CalendarFeed, CalendarSource, RELEASE_PRINTED_KIND,
+    RELEASE_SCHEDULED_KIND,
+};
 pub use config::{EventWindow, ExtractionMode, SourceConfig, SourceKind, SourcesConfig};
 pub use error::SourcesError;
 pub use fetch::{

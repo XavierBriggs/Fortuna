@@ -2239,6 +2239,28 @@ rebased on main f4b4a54-era; all work committed, nothing pushed.
 
 ## Track D — news-aggregation Phase A
 
+- **D6 FRED release-dates source: deferred (operator-blocked, needs API key).**
+  `api.stlouisfed.org/fred/releases/dates` requires a free FRED API key
+  (env `FRED_API_KEY`, via the F1 auth-header substrate). Stubbed; no fixture
+  until a key is provisioned. BLS (bls.ics + bls_latest.rss) covers the macro
+  release calendar meanwhile. CalendarSource is FRED-ready (add a feed mode +
+  the auth header once the key exists).
+
+- **D6 `release_scheduled` carries an intentionally-FUTURE time — Layer-1
+  handling.** `calendar_claimed_time` returns None for `release_scheduled` so
+  its `scheduled_at` (a future release time, in the payload) does NOT trip the
+  StructuralValidator future-dated reject (D9). The scheduler reads
+  `payload.scheduled_at` directly for event-window cadence (design §3.4); the
+  future-check input is deliberately decoupled. Wiring note for D9: do not feed
+  `scheduled_at` into the future-dated check.
+
+- **D6 iCalendar TZID mapping assumption.** BLS uses the non-standard
+  `US-Eastern` TZID; the adapter maps it to `America/New_York` (chrono-tz),
+  validated against the ICS's own VTIMEZONE block (standard US Eastern DST
+  rules). Unknown TZIDs are refused, not guessed. DST correctness is pinned by
+  two real fixtures (EST Jan, EDT Jul). chrono-tz version is pinned via
+  Cargo.lock for deterministic replay.
+
 - **Aeolus contract reconciled to producer reality (rev 3, 2026-06-13).** The
   Aeolus team's handoff (olympus/aeolus/docs/fortuna-integration-handoff.md)
   corrected rev-2 assumptions; contract updated + operator-approved: auth is

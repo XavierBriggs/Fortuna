@@ -704,9 +704,21 @@ crates/fortuna-sources + fixtures/sources/ + one flagged drive() seam.
       has provenance. Research-grounded dossiers: rss_fed_press (tier 9) +
       rss_sec_edgar (tier 9). 8 tests (55 crate total). (DONE 2026-06-13,
       full battery green; hash next iteration.)
-- [ ] D6 CalendarSource — BLS/Fed/FRED release calendars; emits
-      release_scheduled + release_printed signal types (fixtures first:
-      fixtures/sources/calendar/).
+- [x] D6 CalendarSource (impl cognition Source trait): BLS macro release
+      calendar, two feed modes. Schedule (bls.ics iCalendar) → release_scheduled
+      signals {uid, release, scheduled_at (UTC), categories}; the iCalendar
+      DTSTART;TZID=US-Eastern naive-local → UTC via chrono-tz America/New_York
+      (deterministic, pinned tz db; VTIMEZONE confirms the mapping) — tested
+      against a real EST (Jan→15:00Z) AND a real EDT (Jul→14:00Z) event.
+      LatestReleases (bls_latest.rss) → release_printed (reuses the feed-rs
+      parser via a shared kind-param helper). Fail-closed: unknown TZID /
+      floating time / unparseable DTSTART refuse; incomplete VEVENT skipped.
+      LOAD-BEARING NUANCE: calendar_claimed_time returns None for
+      release_scheduled (its scheduled_at is intentionally FUTURE data, not an
+      occurred-at claim — must not trip the Layer-1 future-dated reject);
+      release_printed → publish time. Fixtures REAL (2026-06-13). Dossier
+      calendar_bls (tier 9). FRED deferred (needs API key → GAPS). 10 tests
+      (68 crate total). (DONE 2026-06-13, full battery green; hash next iter.)
 - [ ] D7 GdeltSource (fixtures first: fixtures/sources/gdelt/; query design
       needs a docs/research pass — open question in the design doc).
 - [ ] D8 Layer 2 corroboration: deterministic near-dup clustering +
