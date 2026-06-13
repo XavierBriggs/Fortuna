@@ -18,17 +18,22 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
-## TRACK A — T4.5 ROTA deferred panels: VALIDATED + slice plan; two pieces operator/design-BLOCKED
+## TRACK A — T4.5 ROTA: buildable surface COMPLETE (audit-recents + gate-verdict badge); 2 pieces operator-BLOCKED
 
-T4.5 (the deferred ROTA trading-side panels) validated against current code (fit-notes in
-rota-dashboard.md §10, "T4.5 validation"). BUILDABLE-NOW (next iterations, in order): (e)
-`/gates.recent_rejections` (kind `gate_reject`, payload {intent,check,reason} → §5 shape;
-R5 pool now live) → (e) `/settlement.recent_watchdog_events` (resolve the watchdog vs
-settlement_overdue audit-sink path first) → (a) discovery joins (shadow-triage recall/
-precision + tradability/edges; new repo query) → (b) gate-verdict badge (low value). Each
-gets a POPULATED-PATH #[sqlx::test] (the T4.5 TEST RULE: stub-empty green does not count).
-Ownership: trading-side surfaces are track A; the cognition panel + §9 presentation are
-track B (no overlap).
+T4.5 (deferred ROTA trading-side panels) — the BUILDABLE-WITHOUT-OPERATOR surface is DONE:
+- (e) `/gates.recent_rejections` — DONE 59fa594 (audit `gate_decision` verdict=Reject → §5).
+- (e) `/settlement.recent_watchdog_events` — DONE 9558d56 (audit `watchdog` rows → §5).
+- (b) gate-verdict badge `/api/rota/v1/build` — DONE 7ed3138 (docs/reviews verdict parse,
+  local-console build-health). Each has a populated-path test (the T4.5 TEST RULE).
+Ownership: trading-side surfaces are track A; the cognition panel + §9 presentation are track B.
+
+CORRECTION (the iter-14 validation over-claimed (a) as BUILDABLE-NOW — it is NOT): the
+discovery joins (triage recall/precision shadow cross-join + Tradability/Edges) are deferred
++ track-B, not a track-A slice — design §4 DEFERS them ("queries/prereqs don't exist yet";
+the shadow-scoring cross-join + the Tradability/Edges JOIN are UNWRITTEN), §12 puts the
+triage-recall panel explicitly NOT-in-v1, and GATE-FINDINGS "discovery" observability is
+TRACK-B's. NET: track-A's T4.5 buildable-without-operator work is COMPLETE; the only
+remaining T4.5 pieces are the two operator/verifier-BLOCKED ones below (c, d).
 
 OPERATOR / VERIFIER ASKS (two T4.5 pieces are BLOCKED — not track-A-buildable now):
 1. WS gap/resync counters "flip live" (design §4; BUILD_PLAN T4.5) — BLOCKED on the

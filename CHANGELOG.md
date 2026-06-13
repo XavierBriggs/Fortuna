@@ -206,6 +206,34 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-13 — T4.5 slice: gate-verdict badge (/api/rota/v1/build) — `7ed3138`
+
+**What.** New `/api/rota/v1/build` endpoint exposing the LATEST gate verdict
+parsed from the verifier's `docs/reviews/*.md` — the local operator console's
+build-health badge (design §7 cut it from v1 for "no parser"; T4.5 re-includes
+it). New `RotaState.reviews_dir` capability (mirrors `perishable_dir`; main.rs
+wires `docs/reviews`; a deployed daemon lacks `docs/` → "unknown"). `parse_verdict_token`
+finds `verdict:` anywhere in a line (line-start AND mid-line `Base: … Verdict: X`
+headers) and validates the ACCEPT*/BLOCK vocabulary (no prose false-positives);
+`latest_gate_verdict` picks the newest-by-mtime `.md` carrying a verdict (the
+rolling GATE-FINDINGS bus + verdict-less files skipped); bounded 8KB read; no-panic.
+
+**Tests.** Parser units over every real format (+ mid-line, ACCEPT-WITH-CONDITIONS,
+a prose-guard) + a deterministic populated-path scanner test (`File::set_modified`)
++ endpoint + degraded. code-reviewer ACCEPT (1 should-fix folded: the mid-line miss).
+
+**Correction.** The iteration-14 validation note over-claimed the *discovery joins*
+(a) as BUILDABLE-NOW; per design §4/§12 they are deferred (queries unwritten,
+triage-recall not-in-v1) and discovery observability is track-B's — corrected in
+GAPS/queue/§10. So the buildable track-A T4.5 surface is now COMPLETE: audit-recents
+(gates+settlement) + this badge. Remaining: (c) WS counters, (d) money model — both
+operator/verifier-blocked (GAPS).
+
+**Battery.** fmt --check; clippy --workspace --all-targets -D warnings; cargo test
+--workspace (1391 passed, 0 failed); run-dst.sh 200 (0 violations). (One run hit a
+transient sqlx-test temp-DB-name collision in the pre-existing cognition test — a
+known parallel-`#[sqlx::test]` flake, not this slice; green on re-run.)
+
 ### 2026-06-13 — T4.5 slice: /settlement.recent_watchdog_events — `9558d56`
 
 **What.** Second T4.5 build slice (design §5), mirroring the gates slice.

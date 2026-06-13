@@ -109,8 +109,18 @@ verifier amends as gates land. All standard loop rules apply unchanged.
          merges the audit `watchdog` rows (sub-kinds settlement_overdue/dispute_freeze/
          orphaned_position; ref_id=market), §5 {audit_id,at,kind,market_ref}, newest-first;
          runtime-sqlx text-extract; 3 populated-path tests; battery green (1387/0 + run-dst
-         200 0-viol). NEXT: (a) discovery joins (shadow-triage recall/precision + tradability/
-         edges) — a NEW repo query; then (b) verdict badge (low value).
+         200 0-viol).
+      >> SLICE 3 DONE 7ed3138 (2026-06-13): the gate-verdict BADGE — new /api/rota/v1/build
+         parses the latest docs/reviews/*.md verdict (RotaState.reviews_dir capability;
+         parse_verdict_token anywhere-in-line + ACCEPT*/BLOCK-validated; newest-by-mtime,
+         no-panic). Parser units + populated-path scanner + endpoint + degraded; battery
+         green (1391/0 + run-dst 200 0-viol).
+      >> CORRECTION: (a) discovery joins are NOT track-A-buildable — design §4 DEFERS them
+         (queries/prereqs unwritten), §12 puts triage-recall NOT-in-v1, and GATE-FINDINGS
+         scopes "discovery" observability to TRACK B. (The build-order line above mis-listed
+         (a) as a track-A step; superseded.)
+      NET: track-A's T4.5 buildable-WITHOUT-OPERATOR surface is COMPLETE (e gates + e
+      settlement + b badge). Remaining T4.5 is operator/verifier-BLOCKED:
       BLOCKED (operator/verifier, see GAPS): (c) WS counters need the operator-run live
       dial wired into drive(); (d) full money model needs an operator/design call to
       surface the mark-loop AccountView via a SimRunner accessor.

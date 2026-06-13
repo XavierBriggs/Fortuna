@@ -645,10 +645,13 @@ layer are track-B's (slices 8/9). Buildability:
   persists (and the kind to query) before seeding. SLICE-1 TARGET (next iteration):
   `/gates.recent_rejections` (unambiguous), then settlement once the sink path is
   confirmed.
-- **(a) discovery joins** — BUILDABLE-NOW. `TradabilityRepo` (repos.rs:1543) +
-  `EdgesRepo::confirmed_edges` (repos.rs:663) exist; the shadow-triage recall/precision
-  cross-join needs a NEW repo query. Each follows the `view_cognition` own-query handler
-  template + a populated-path `#[sqlx::test]`. Larger; sequence after (e).
+- **(a) discovery joins** — CORRECTED to DEFERRED / track-B (this entry first mis-marked it
+  BUILDABLE-NOW from the repos existing). Although `TradabilityRepo` (repos.rs:1543) +
+  `EdgesRepo::confirmed_edges` (repos.rs:663) exist, this section's own §4 DEFERRED list
+  states the triage recall/precision shadow cross-join + the Tradability/Edges JOIN are
+  UNWRITTEN ("queries/prereqs don't exist yet"), §12 puts the triage-recall panel explicitly
+  NOT-in-v1, and GATE-FINDINGS scopes "discovery" observability to track B. So (a) is NOT a
+  track-A slice — deferred + track-B-owned.
 - **(b) gate-verdict badge** — BUILDABLE-NOW but LOW operator value (it surfaces the
   VERIFIER's `docs/reviews/*.md` verdicts, a build-status meta-indicator, not trading
   data). Capability pattern (a reviews-dir path on RotaState, like `perishable_dir`) +
@@ -688,8 +691,21 @@ the `settlement_overdue` BUS event is separate, not the table. `view_settlement`
 the recent `watchdog` rows (NO verdict filter — every row is an event) → §5 `{audit_id,
 at, kind (the sub-kind), market_ref (ref_id)}`; `recent_watchdog_events_page` runtime-sqlx
 text-extract. Daemon "settlement" base view preserved; degraded/no-pool → explicit
-unavailable. 3 populated-path tests; battery green (1387/0 + run-dst 200 0-viol). NEXT:
-(a) the discovery joins (shadow-triage + tradability/edges — a new repo query).
+unavailable. 3 populated-path tests; battery green (1387/0 + run-dst 200 0-viol).
+
+T4.5 SLICE 3 BUILT (2026-06-13, `7ed3138`): the gate-verdict BADGE (§7 cut it from v1 for
+"no parser"; re-included by T4.5). New `/api/rota/v1/build` exposes the latest gate verdict
+parsed from `docs/reviews/*.md` (the local operator console's build-health badge — a
+deployed daemon lacks `docs/` → "unknown"). New `RotaState.reviews_dir` capability (mirrors
+`perishable_dir`); `parse_verdict_token` finds `verdict:` anywhere + validates ACCEPT*/BLOCK;
+`latest_gate_verdict` = newest-by-mtime `.md` with a verdict (bus + verdict-less skipped),
+bounded read, no-panic. Parser units + populated-path scanner test + endpoint + degraded;
+battery green (1391/0 + run-dst 200 0-viol).
+
+>> T4.5 buildable-without-operator surface COMPLETE: (e) gates + (e) settlement audit-recents
+   + (b) the gate-verdict badge. (a) discovery joins are deferred/track-B (corrected above).
+   Remaining T4.5 = (c) WS counters + (d) full money model — both operator/verifier-BLOCKED
+   (GAPS). Track-A's queue is now operator-gated/blocked; high-value build work is done.
 
 ## 11. Implementation sequence
 

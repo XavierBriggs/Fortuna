@@ -549,11 +549,15 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       (recent gate REJECTIONS from the audit gate_decision trail). SLICE 2 DONE
       (9558d56): /settlement.recent_watchdog_events (the audit watchdog rows —
       settlement_overdue/dispute_freeze/orphaned_position); both §5-shaped,
-      newest-first, 3 populated-path tests each, battery green (1387/0 + run-dst
-      200 0-viol). NEXT: (a) the discovery joins. BLOCKED
-      (operator/verifier, GAPS): the WS gap/resync counters (need the operator-run
-      live dial wired into drive()); the full s5 money model (need an operator/
-      design call surfacing the mark-loop AccountView via a new SimRunner accessor).
+      newest-first, 3 populated-path tests each. SLICE 3 DONE (7ed3138): the
+      gate-verdict badge /api/rota/v1/build (docs/reviews verdict parse, local
+      console; RotaState.reviews_dir). Battery green (1391/0 + run-dst 200 0-viol).
+      (a) the discovery joins are NOT track-A — design §4/§12 defer them + "discovery"
+      observability is track-B. So the buildable-WITHOUT-OPERATOR T4.5 surface is
+      COMPLETE; the rest is BLOCKED (operator/verifier, GAPS): the WS gap/resync
+      counters (need the operator-run live dial wired into drive()); the full s5
+      money model (need an operator/design call surfacing the mark-loop AccountView
+      via a new SimRunner accessor).
 
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)
