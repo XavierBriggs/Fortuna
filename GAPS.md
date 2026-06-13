@@ -2239,6 +2239,25 @@ rebased on main f4b4a54-era; all work committed, nothing pushed.
 
 ## Track D — news-aggregation Phase A
 
+- **LIVE FINDING (2026-06-13, examples/live_smoke): NWS AFD is a firehose.**
+  `GET /products?type=AFD` returns the FULL set of every office's discussions —
+  4,705 signals in one fetch. As one source that floods the signals table every
+  poll. MITIGATION (config, D9): give the AFD source a tight `volume_envelope`
+  (the Layer-1 per-tick cap), and/or query per-office / with a recency filter
+  rather than the whole catalog. This is the concrete case for D9's
+  refuse-and-quarantine + per-source telemetry (drops-by-reason). Other live
+  sources are well-bounded (alerts 5, Fed 20, SEC 10, BLS schedule 313, BLS
+  latest 1). Live smoke proved the claimed-time semantics in the wild
+  (release_scheduled -> None; alerts/filings/press -> real past times) and the
+  iCalendar US-Eastern->UTC conversion against live data.
+
+- **D9 telemetry (operator request 2026-06-13): make it first-class.** D9's
+  TickOutcome carries accepted/dropped(by reason)/alerts; ADD a per-source
+  SourceMetrics (polls, accepts, drops-by-reason, 304-hit-rate, politeness
+  throttles, fetch latency, health transitions) so the D10 drive seam exports
+  it to metrics/ROTA. Observability of what got dropped and why is required,
+  not optional.
+
 - **D7 GdeltSource: DEFERRED — fixture-blocked (transient GDELT IP rate-limit).**
   The GDELT DOC API (api.gdeltproject.org/api/v2/doc/doc, mode=artlist&
   format=json) returns `{articles:[{url,title,seendate,domain,language,
