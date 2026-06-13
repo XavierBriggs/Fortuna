@@ -20,8 +20,7 @@ EACH ITERATION, do exactly ONE item, then commit and start the next iteration.
 1. PRIORITY ORDER: (a) new gate findings — read the bus at the MAIN
    checkout: /Users/xavierbriggs/fortuna/docs/reviews/GATE-FINDINGS-LATEST.md
    (your worktree copy may be stale); a BLOCK naming track C preempts
-   everything; (a2) REBASE onto main before starting (git fetch . main &&
-   git rebase main); resolve conflicts only in files you own, else STOP+ledger; (b) YOUR QUEUE, in order (re-armed 2026-06-12 after queue-exhausted stop):
+   everything; (a2) REBASE onto main before starting (git fetch . main && git rebase --reapply-cherry-picks main — NEVER a plain rebase while main carries the perps revert 19b3888: plain rebase drops your already-merged-then-reverted commits as duplicates); resolve conflicts only in files you own, else STOP+ledger; (b) YOUR QUEUE, in order (re-armed 2026-06-12 after queue-exhausted stop):
    FIRST the red-seed harness fix per the bus fix-spec (track-c-final-gate
    BLOCK: extend curve coverage past the last tier OR designed-refusal arm;
    COMMIT seed 11819682492387934495 to dst-corpus/ with its failure-mode

@@ -1,5 +1,33 @@
 # GATE FINDINGS — latest (verifier-owned)
 
+## TRACK C — URGENT BRANCH REPAIR (priority (a); 2026-06-13)
+
+Your rebase onto main SILENTLY DROPPED the entire perps tranche: the
+content was merged (a586b4a) then REVERTED (19b3888) on main, so rebase
+treated every patch as already-applied and finished at main's head with
+zero commits. Nothing is lost — your true tip is in the reflog.
+
+REPAIR (run in YOUR worktree, verify clean tree first):
+  git status --short        # must show no tracked changes
+  git reset --hard 3c8b126  # your true tip (incl. the red-seed BLOCK fix)
+  KEEP the untracked corpus seed file and commit it with your next item.
+
+RULE CHANGE (your loop file is amended): do NOT plain-rebase onto main
+while the revert (19b3888) is in main's history — use
+`git rebase --reapply-cherry-picks main` or skip rebasing entirely until
+the re-merge. THE RE-MERGE MECHANICS (verifier-owned, when your package
+is ready): main reverts the revert, THEN merges your tip, THEN the
+post-merge battery incl. the kinetics client-id test.
+
+YOUR PACKAGE (unchanged): 1) kinetics client-id test derives its
+expectation through the derivation path (exec adjudication c25b368 on
+main has the pinned mechanism — read it); 2) the 2x leverage cap
+(operator-decisions-2026-06-12.md item 4: config + min(config, venue
+curve) + boundary pin 2.01x-refused/1.99x-passes); 3) full re-gate at
+10000 -> re-merge request.
+
+# GATE FINDINGS — latest (verifier-owned)
+
 ## SOAK: GO (soak-go-gate-2026-06-12.md — ACCEPT, the first unconditional)
 
 Daemon at 8ea8a4d is FIT TO START the 7-day Phase-4 EXIT soak. Battery
