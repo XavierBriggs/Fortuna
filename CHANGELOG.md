@@ -791,6 +791,12 @@ with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
   scorecard. A fortuna-ops runtime-sqlx query. UNTRUSTED-DATA BOUNDARY: only the median
   number is extracted — the raw `quantiles` fan + `provenance` are not exposed. Completes
   §9.1's two halves (scorecard + feed).
+- **Forecasts scorecard — band coverage** (§9.1 calibration metric): the Forecasts
+  scorecard gains a quantile-band coverage column — per (producer, rule), the fraction
+  of resolved forecasts whose realized outcome fell inside the 0.1–0.9 band (a
+  well-calibrated producer ≈ 80%). Reads only the q0.1/q0.9 boundary numbers from the
+  fan for the band check (the raw fan stays unexposed); a missing quantile degrades
+  honestly to not-covered. Mean CRPS + coverage are now the two calibration measures.
 - **Strategy P&L board** (`GET /api/rota/v1/strategies`, mission item 3 "realized
   PnL per strategy") — per-strategy realized PnL / fees / fills / open exposure,
   shaped daemon-side from `runner.digest_snapshot()` (the same attribution the

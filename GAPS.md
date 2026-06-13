@@ -1311,6 +1311,25 @@ Track-B impact: my full-workspace battery is green on EVERYTHING ELSE (1216 pass
 this 1 pre-existing main red / DST exit 0 / daemon_smoke 15/15 / clippy + fmt clean);
 this red is inherited from main, independent of the ROTA work.
 
+### BAND COVERAGE DONE (2026-06-13) — track-C §9.1 calibration metric (post-merge follow-on)
+Extended the (now-merged) Forecasts scorecard with the §9.1 quantile-band COVERAGE metric:
+per (producer, rule), the fraction of resolved forecasts whose realized outcome fell inside
+the 0.1–0.9 band (a well-calibrated producer ≈ 80%; rendered as a percentage column, "Band
+cover % (~80 ideal)"). `forecast_scorecard` gains an `AVG(CASE WHEN realized BETWEEN q0.1 AND
+q0.9 THEN 1 ELSE 0 END)::float8` — the q0.1/q0.9 VALUES (numbers) are read from the `quantiles`
+fan for the band check; the raw fan + provenance are STILL never rendered (untrusted-data
+boundary holds). A NULL quantile degrades honestly to not-covered (0), never a crash. fortuna-
+ops ONLY. The existing forecasts test was extended (funding belief-2 realized nudged out of
+band → asserts aeolus 0% / funding 50% coverage — a real partial-coverage case, not faked).
+GOTCHA fixed: `AVG(CASE ... 1.0 ELSE 0.0 ...)` returns NUMERIC (the literals are numeric), not
+FLOAT8 — the f64-tuple decode reds until `::float8`-cast; the TEST caught it (static review
+missed it — the battery is the gate). Reviewer RAN (clean on the SQL/boundary/no-panic).
+BATTERY: green for all track-B work + the workspace EXCEPT the SAME ONE pre-existing main
+`kinetics_dto` red: fmt + clippy --workspace clean, `cargo test --workspace` 1266 passed / 1
+pre-existing-main-failed, run-dst.sh exit 0. Screenshot-verified (Forecasts board now shows the
+coverage column; both seeded producers in-band → 100%). §9.1 now has scorecard (CRPS +
+coverage) + feed; the sparkline + §9.2 /perps remain.
+
 ### FORECAST FEED DONE (2026-06-13) — track-C §9.1 RECENT half (did the vendor call it?)
 Built the Forecast Feed board (`/api/rota/v1/forecast_feed`) — the §9.1 RECENT half (the
 companion to the /forecasts SCORECARD): the recent individual scalar forecasts with their
@@ -1338,7 +1357,7 @@ sessions ([[fortuna-battery-ops]]); proven transient by rota 34/34 in isolation 
 with 0 contention failures. My code is green.] Screenshot-verified (21 boards; Forecast Feed shows
 forecasts 4 / pending 1 — aeolus median 86→pending, aeolus median 29→realized 30, funding
 ~0.0001 rate). The §9.1 contract's two halves (scorecard + feed) are NOW BOTH LIVE. FOLLOW-ONS:
-coverage_bps + sparkline (§9.1); §9.2 /perps.
+the sparkline (§9.1; coverage now DONE — see BAND COVERAGE DONE above); §9.2 /perps.
 
 ### TELEMETRY DONE (2026-06-13) — mission item 6 (the Prometheus stack on the console)
 Built the Telemetry board (`/api/rota/v1/telemetry`) — mission item 6, the LAST untouched

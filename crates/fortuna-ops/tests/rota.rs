@@ -1721,10 +1721,12 @@ async fn forecasts_scorecard_aggregates_resolved_scores_per_producer(pool: sqlx:
             0.00003,
         ),
         (
+            // realized 0.0005 falls OUTSIDE the [0, 0.0003] band → 50% coverage for
+            // funding_forecast (belief 1 in-band, belief 2 out).
             "01SBROTA000000000000FF2",
             "funding_forecast",
             "rate",
-            0.00015,
+            0.0005,
             0.00005,
         ),
         (
@@ -1795,6 +1797,17 @@ async fn forecasts_scorecard_aggregates_resolved_scores_per_producer(pool: sqlx:
     assert!(
         (ff_mean - 0.00004).abs() < 1e-9,
         "funding_forecast mean CRPS = (0.00003+0.00005)/2: {j}"
+    );
+    // §9.1 band coverage (the fraction of resolved forecasts whose realized outcome
+    // fell inside the 0.1–0.9 quantile band): aeolus's single forecast missed the band
+    // (0%); funding had 1 of 2 in-band (50%). A real calibration metric, not faked.
+    assert_eq!(
+        j["rows"][0]["coverage_pct"], 0.0,
+        "aeolus realized fell outside its band: {j}"
+    );
+    assert_eq!(
+        j["rows"][1]["coverage_pct"], 50.0,
+        "funding had 1 of 2 forecasts in-band: {j}"
     );
     assert_eq!(j["summary"]["producers"], 2);
     assert_eq!(j["summary"]["rules"], 1);

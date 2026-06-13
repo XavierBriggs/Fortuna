@@ -799,13 +799,16 @@ async fn view_forecasts(State(s): State<RotaState>) -> impl IntoResponse {
             let n_rules = rules.len();
             let json_rows: Vec<Value> = rows
                 .into_iter()
-                .map(|(producer, unit, rule_id, mean, resolved_n)| {
+                .map(|(producer, unit, rule_id, mean, resolved_n, coverage)| {
                     // CRPS rounded to 6dp for display (lower is better); the raw f64
                     // stays the honest source — this only trims display noise.
                     let mean_crps = (mean * 1_000_000.0).round() / 1_000_000.0;
+                    // Band coverage as a percentage (1dp); a calibrated producer ≈ 80.
+                    let coverage_pct = (coverage * 1000.0).round() / 10.0;
                     json!({
                         "producer": producer, "unit": unit, "rule_id": rule_id,
                         "mean_crps": mean_crps, "resolved_n": resolved_n,
+                        "coverage_pct": coverage_pct,
                     })
                 })
                 .collect();
@@ -817,6 +820,7 @@ async fn view_forecasts(State(s): State<RotaState>) -> impl IntoResponse {
                     {"key":"unit","label":"Unit"},
                     {"key":"rule_id","label":"Scorer"},
                     {"key":"mean_crps","label":"Mean CRPS (lower=better)"},
+                    {"key":"coverage_pct","label":"Band cover % (~80 ideal)"},
                     {"key":"resolved_n","label":"Resolved"},
                 ],
                 "rows": json_rows,
@@ -833,18 +837,29 @@ async fn view_forecasts(State(s): State<RotaState>) -> impl IntoResponse {
     }
 }
 
-/// One forecast-scorecard row: (producer, unit, rule_id, mean_score CRPS, resolved_n).
-type ForecastRowTuple = (String, String, String, f64, i64);
+/// One forecast-scorecard row: (producer, unit, rule_id, mean_score CRPS, resolved_n,
+/// band_coverage ∈ [0,1]).
+type ForecastRowTuple = (String, String, String, f64, i64, f64);
 
 /// Per-(producer, scoring rule) calibration over RESOLVED scalar forecasts: mean
-/// score (CRPS, lower-better) and the resolved count, plus the unit (a producer's
-/// forecasts share one). `scalar_beliefs ⋈ belief_scores`, realized only, grouped +
-/// ordered by producer then rule. The untrusted JSONB columns (quantiles/provenance)
-/// are NOT selected. Runtime sqlx (audit-tail precedent).
+/// score (CRPS, lower-better), the resolved count, the unit (a producer's forecasts
+/// share one), and the 0.1–0.9 BAND COVERAGE (the fraction of resolved forecasts whose
+/// realized outcome fell inside the central 80% interval — a well-calibrated producer
+/// is ~0.8). `scalar_beliefs ⋈ belief_scores`, realized only. The coverage reads the
+/// q=0.1 / q=0.9 VALUES out of the `quantiles` fan (numbers, for the band check) — the
+/// raw fan + `provenance` are still never rendered (the untrusted-data boundary holds).
+/// Runtime sqlx (audit-tail precedent).
 pub async fn forecast_scorecard(pool: &PgPool) -> Result<Vec<ForecastRowTuple>, sqlx::Error> {
     sqlx::query_as::<_, ForecastRowTuple>(
         "SELECT sb.producer, MIN(sb.unit) AS unit, bs.rule_id, \
-                AVG(bs.score) AS mean_score, COUNT(*) AS resolved_n \
+                AVG(bs.score) AS mean_score, COUNT(*) AS resolved_n, \
+                AVG(CASE WHEN sb.realized_value >= \
+                          (SELECT (e->>'v')::float8 FROM jsonb_array_elements(sb.quantiles) e \
+                             WHERE (e->>'q')::float8 = 0.1) \
+                      AND sb.realized_value <= \
+                          (SELECT (e->>'v')::float8 FROM jsonb_array_elements(sb.quantiles) e \
+                             WHERE (e->>'q')::float8 = 0.9) \
+                     THEN 1.0 ELSE 0.0 END)::float8 AS band_coverage \
          FROM scalar_beliefs sb \
          JOIN belief_scores bs ON bs.belief_id = sb.belief_id \
          WHERE sb.realized_value IS NOT NULL \
