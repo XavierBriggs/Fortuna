@@ -13,6 +13,17 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-13, cont'd — verifier loop pass)
 
+- **TRACK B ROTA DASHBOARD (TOTAL OBSERVABILITY) MERGED → main @ 04d2f5d = GATE
+  ACCEPT.** The operator's single pane of glass — all 6 mission areas + producer
+  scorecards (forecasts CLV/CRPS + persona) + ingestion triad. Clean merge.
+  READ-ONLY honored (zero mutating endpoints/SQL; promote/rearm/kill stay CLI).
+  HONEST-NULLS (71 guards; read_view → "unavailable", never fabricated). POPULATED-
+  PATH tests (rota 33 + views 13, seed PG + assert boards serve the rows) —
+  MUTATION-PROVEN (break read_view → serves-seeded tests red). SCREENSHOT-VERIFIED
+  (docs/reviews/rota-visual/ — real rows on every board). Operator: boot daemon →
+  http://127.0.0.1:9187/rota. >> ALL FOUR ACTIVE TRACKS' current tranches now on
+  main; the producer side + the observability instrument are complete.
+
 - **TRACK E PERSONA RUNTIME (E.3c–E.6) MERGED → main @ 2668291 = GATE ACCEPT.** The
   third producer family — domain-analyst personas (meteorologist + macro) that
   reason over UNTRUSTED signals and emit calibration-scored BeliefDrafts with a
