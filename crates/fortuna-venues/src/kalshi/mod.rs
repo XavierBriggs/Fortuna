@@ -50,6 +50,7 @@ pub mod client;
 pub mod dial;
 pub mod dto;
 pub mod ws;
+pub mod ws_transport;
 
 pub use adapter::{FeeReconciliation, KalshiVenue};
 pub use auth::{KalshiSigner, SignedHeaders};

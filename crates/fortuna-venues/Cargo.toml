@@ -21,10 +21,15 @@ rand = { workspace = true }
 # edge. `sync` (watch cancel) + `time` (backoff sleep) are the lib's needs; the
 # rt/macros features serve the `#[tokio::test]`s.
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync"] }
+# tokio-tungstenite is the live WS client for the concrete KalshiWsTransport (the
+# IO edge). The testable core landing now is kalshi::ws_transport::classify_ws_error
+# — the tungstenite-error -> DisconnectCause map that routes the recorded
+# reset/502 evidence into the redial loop; its `Error` type is in a lib pub fn, so
+# this is a normal dep. The socket round-trip itself is operator-exercised.
+tokio-tungstenite = { version = "0.29.0", features = ["rustls-tls-webpki-roots"] }
 
 [dev-dependencies]
 proptest = { workspace = true }
 toml = { workspace = true }
 futures = { workspace = true }
 anyhow = { workspace = true }
-tokio-tungstenite = { version = "0.29.0", features = ["rustls-tls-webpki-roots"] }

@@ -18,7 +18,7 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
-## TRACK A — T4.2 item 2(i) WS dial: decision core + session pump + redial LOOP done (dial.rs); only the concrete live transport remains
+## TRACK A — T4.2 item 2(i) WS dial: decision/session/loop + tungstenite error-classification done; only the operator-exercised socket round-trip remains
 
 Queue item 2(i) (Kalshi WS dial). Built the SURVIVAL DECISION core as a pure,
 deterministic state machine — crates/fortuna-venues/src/kalshi/dial.rs (new;
@@ -92,13 +92,28 @@ tokio-tungstenite as normal deps regardless. If the verifier prefers the loop at
 the daemon edge, run_dial relocates to fortuna-live (cheap — it is generic over
 WsTransport).
 
-STILL DEFERRED to the NEXT 2(i) slice: the CONCRETE live KalshiWsTransport — a
-tokio-tungstenite WsTransport impl doing (b) the signed-handshake connect
-(auth.rs recipe; classify a 502 / a reset-without-close into the matching
-DisconnectCause) and (c) a ping/pong keep-alive timer (the KeepAliveTimeout cause
-is modelled and already redials in run_dial). Its first LIVE exercise is
-operator-run. REFINEMENT still open: backoff resets on TCP-connect; a
-flap-resistant version resets only after the first healthy frame / Subscribed ack.
+SLICE 4 (this commit) — the tungstenite-error CLASSIFICATION (the testable core of
+the concrete transport). New module kalshi/ws_transport.rs:
+classify_ws_error(&tungstenite::Error) -> DisconnectCause maps the RECORDED venue
+evidence into the dial's causes: Protocol(ResetWithoutClosingHandshake) ->
+ResetWithoutClose; Http(resp) -> ConnectHttpError{resp.status()} (the 502);
+everything else (IO / close / TLS / capacity / other-protocol) -> Transport. TDD
+RED-first via a stubbed classifier, then 3 #[test]s constructing REAL tungstenite
+errors (the reset variant; an http::Response status 502; an io error +
+ConnectionClosed). NO socket. tokio-tungstenite moved dev-dep -> NORMAL dep (its
+Error type is in a lib pub fn; the socket transport needs it regardless). Battery:
+122 ok-result lines, DST 4 corpus + 10000 seeds zero violations (a cold-compile
+OOM under load recovered on the warm cache — no pkill).
+
+STILL DEFERRED (operator-exercised — "no live socket in tests"): the rest of the
+KalshiWsTransport assembly — connect_async with the signed handshake (reuse
+KalshiSigner over GET /trade-api/ws/v2, timestamp from an injected Clock) + a
+WsConn adapter over the WebSocketStream whose send/recv error arms CALL
+classify_ws_error + the ping/pong keep-alive timer (KeepAliveTimeout is modelled
+and already redials in run_dial). The signing itself is already auth.rs-tested;
+the socket round-trip is the operator's live recording session. REFINEMENT still
+open: backoff resets on TCP-connect; a flap-resistant version resets only after
+the first healthy frame / Subscribed ack.
 
 ## TRACK A RE-ACTIVATED (operator 2026-06-13): completion-campaign queue — M3 DONE (queue item 1)
 
