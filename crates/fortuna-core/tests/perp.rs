@@ -21,8 +21,8 @@
 use fortuna_core::market::{Contracts, MarketId};
 use fortuna_core::money::Cents;
 use fortuna_core::perp::{
-    FundingAccrual, InstrumentKind, MarginAccountView, PerpError, PerpMarks, PerpPosition,
-    PerpPrice, PerpValue,
+    FundingAccrual, FundingObservation, InstrumentKind, MarginAccountView, PerpError, PerpMarks,
+    PerpPosition, PerpPrice, PerpValue,
 };
 use proptest::prelude::*;
 use rust_decimal::Decimal;
@@ -668,5 +668,73 @@ proptest! {
         prop_assert_eq!(i128::from(notional.raw()), ceil_cents);
         // Exposure in cents always covers the exact ten-thousandths value.
         prop_assert!(i128::from(notional.raw()) * 100 >= exact_tt);
+    }
+}
+
+// ---- FundingObservation (perp-strategies design §2.1, §4) ----
+
+fn funding_obs() -> FundingObservation {
+    FundingObservation {
+        // A small NEGATIVE decimal fraction with trailing precision — the
+        // venue's recorded estimate (running TWAP), not a price.
+        estimate: dec("-0.00012500"),
+        next_funding_time: ts(1_718_294_400_000),
+        reference_price: PerpPrice::new(626_000_000),
+        obs_at: ts(1_718_290_800_000),
+    }
+}
+
+#[test]
+fn funding_observation_serde_round_trips() {
+    let obs = funding_obs();
+    let json = serde_json::to_string(&obs).unwrap();
+    let back: FundingObservation = serde_json::from_str(&json).unwrap();
+    assert_eq!(obs, back);
+}
+
+#[test]
+fn funding_observation_serde_is_byte_stable() {
+    // CRITICAL (design §2.5 / bus replay byte-compare): `Decimal` serializes
+    // as a STRING; confirm to_string -> from_str -> to_string is byte-identical
+    // for the funding estimate so a PerpTick replays byte-for-byte. The
+    // fallback (i64 fixed-point rate) would only be needed if this fails.
+    let obs = funding_obs();
+    let once = serde_json::to_string(&obs).unwrap();
+    let back: FundingObservation = serde_json::from_str(&once).unwrap();
+    let twice = serde_json::to_string(&back).unwrap();
+    assert_eq!(once, twice, "FundingObservation JSON is not byte-stable");
+    // The Decimal preserves its scale/precision verbatim across the round trip
+    // (the reconciliation-grade discipline FundingAccrual.rate also carries).
+    assert_eq!(back.estimate, dec("-0.00012500"));
+    assert_eq!(back.estimate.to_string(), "-0.00012500");
+}
+
+#[test]
+fn funding_observation_decimal_scale_survives_round_trip() {
+    // A spread of estimate magnitudes/scales (zero, tiny, capped, high
+    // precision): each must round-trip byte-stable through serde_json. This is
+    // the load-bearing property the whole PerpTick replay rests on.
+    for s in [
+        "0",
+        "0.0001",
+        "-0.0001",
+        "0.02",
+        "-0.02",
+        "0.000123456789",
+        "-0.000000000001",
+        "0.00012500",
+        "-0.00012500",
+    ] {
+        let obs = FundingObservation {
+            estimate: dec(s),
+            next_funding_time: ts(1_718_294_400_000),
+            reference_price: PerpPrice::new(626_000_000),
+            obs_at: ts(1_718_290_800_000),
+        };
+        let once = serde_json::to_string(&obs).unwrap();
+        let back: FundingObservation = serde_json::from_str(&once).unwrap();
+        let twice = serde_json::to_string(&back).unwrap();
+        assert_eq!(once, twice, "estimate {s} not byte-stable");
+        assert_eq!(back.estimate, dec(s), "estimate {s} value drifted");
     }
 }

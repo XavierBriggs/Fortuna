@@ -647,6 +647,15 @@ code.
       evidence (amendment B). FEE-TRAP RULE (amendment C): edge floors at assumed
       post-promo fees (5-12 bps until fee_tiers is real); Sim gates re-run when
       fees activate; promo-$0 never justifies GO. I7 unchanged.
+      SLICE 1 (track C, 2026-06-13, restarted/expanded scope): deterministic
+      funding-forecast KERNEL — fortuna_core::perp FundingWindow (TWAP of
+      1-minute premiums) + finalize_funding_rate (venue clamp +/-2% + 0.01%
+      zero threshold), 13 spec-first tests. The in-ownership deterministic
+      core funding_forecast wraps as its scalar claim and perp_event_basis
+      uses for the perp point forecast. Fit-validation findings (the
+      Strategy/Proposal/runner impedance, the missing perp execution path,
+      the prob_claims/v1 scalar dependency, funding_carry data-only) +
+      remaining slices ledgered in GAPS "T5.B7 fit-validation".
 - [ ] T5.B8 Ops: kill-switch perps flatten (reduce_only IOC + cancel-all),
       margin/funding telemetry, funding-regime dashboard panel.
 

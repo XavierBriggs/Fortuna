@@ -3,6 +3,90 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T5.B7 slice 2b — funding_forecast strategy (track C, 2026-06-13; interprets design §2.2/§2.3 + GAPS R1)
+
+- **The recorded funding ESTIMATE is the point forecast, used DIRECTLY (GAPS
+  R1, BINDING).** funding_forecast's primary input is the venue's recorded
+  estimate; the point forecast is `finalize_funding_rate(estimate)`. The
+  estimate already IS the venue's running time-weighted average of the premium
+  index over `[last_funding_time, now)` (the running TWAP). It is therefore NOT
+  fed into `FundingWindow` (a per-candle premium mean) — doing so would compute
+  a "mean of means". `FundingWindow` stays the SECONDARY path (the labeled-
+  approximate `mark − reference` premium proxy, design §2.3), unused in the
+  primary forecast. Loosening to a premium-derived path (when premium-resolution
+  data improves) is a FUTURE modelling change, not a current one. The
+  unpublished premium-index formula is never re-derived (research §11; the same
+  not-re-deriving discipline as `FundingAccrual`/`FundingWindow`).
+- **The rung-0 dispersion model** (shape + scale, documented in the module +
+  unit-tested + CRPS-measured): the quantile fan is the point forecast `p` plus
+  a band that narrows as the window elapses —
+  `band = DISPERSION_SCALE · sqrt(remaining / FUNDING_CANDLES_PER_WINDOW)` with
+  `DISPERSION_SCALE = 0.002` (±0.2% maximum half-band scale at window open — a
+  conservative width an order of magnitude inside the venue's ±2%
+  `FUNDING_RATE_CLAMP`). Quantiles
+  `q ∈ {0.1, 0.5, 0.9}`: median `v = p`; `v = clamp(p ± 1.282·band,
+  ±FUNDING_RATE_CLAMP)` for the tails (1.282 = the standard-normal 0.9-quantile,
+  reading the band as a ~80% central interval under a normal prior). `remaining`
+  is derived from `obs_at → next_funding_time` (the injected times; NEVER
+  `SystemTime`), clamped to `[0, FUNDING_CANDLES_PER_WINDOW]`. This is the rung-0
+  modelling CHOICE the design (§2.3) says CRPS then MEASURES and calibration
+  later REFINES — it is not a venue fact. The symmetric clamp can collapse the
+  band when `p` is at the ±2% cap; the construction keeps the values
+  non-decreasing (proof: `|p| ≤ CLAMP` after finalize + a defensive re-clamp, so
+  `v_low ≤ p ≤ v_high` always), so the fan always passes `validate_scalar`.
+- **`remaining` clamps to `[0, window]` on a past-due / far-future
+  `next_funding_time`.** A stale frame or clock skew (obs_at past the
+  finalization, or a finalization implausibly far out) degrades to the nearest
+  in-range band (at `remaining == 0` the band collapses to the point) rather
+  than producing a nonsense width or erroring — conservative, total `on_event`.
+- **ZERO-CAPITAL: `on_event` ALWAYS returns `Ok(vec![])`** (no `Proposal`, no
+  `ProposedLeg`, no `Cents`, no sizing). I6 holds vacuously — there is no order
+  to size. The forecast quantile values are cognition-`f64` (the scalar-belief
+  domain), never money; the Decimal→f64 conversion is the forecast boundary, not
+  a money boundary (a tiny rate fraction is exactly representable in range).
+- **The live-data CRPS test scores against the CLOSEST-AVAILABLE realized rate
+  when no exact window match exists.** The committed estimate fixture (captured
+  2026-06-12T12:40Z, targeting next_funding_time 2026-06-12T20:00:00Z) and the
+  committed historical archive (latest KXBTCPERP1 row 2026-06-11T20:00:00Z) were
+  recorded ~24 h apart, so the archive carries NO realized row at the estimate's
+  target window. The test scores the emitted fan against the most-recent
+  historical KXBTCPERP1 rate (the closest available) and prints the gap; a
+  companion test (`the_exact_window_is_absent_in_the_committed_archive`) pins
+  this data reality executably so a future re-capture that lands the exact window
+  flips it red and prompts switching to the exact-match path. This is a fixture-
+  capture reality, not a strategy or test defect.
+
+## T5.B7 funding-forecast kernel (track C, 2026-06-13; interprets research §4)
+
+- **Premium per candle is taken as INPUT, never re-derived.** Research §4
+  says the exact premium-index formula (which mark vs which index) is
+  venue-UNPUBLISHED (§11 gap). `FundingWindow` averages observed premiums;
+  it never computes them from prices — the same not-re-deriving discipline
+  as `FundingAccrual.rate` (which records the venue's reported rate).
+- **Equal-weight mean = the time-weighted average for equal 1-minute
+  candles.** Research §4: "time-weighted average ... over the 480 candles".
+  With equal-duration candles the time weights are equal, so the TWAP is
+  the arithmetic mean. Gap/uneven-candle weighting (missing candles) is a
+  STRATEGY refinement deferred to a later slice (ledgered in GAPS) — the
+  kernel models the equal-candle case the venue describes.
+- **`finalize_funding_rate` CLAMPS (not refuses) beyond +/-2%, distinct
+  from `MarginSim::apply_funding` which REFUSES.** Different contexts, both
+  correct: here we COMPUTE a forecast from premiums and the venue would
+  clamp it at finalization, so we clamp; in margin_sim we RECEIVE an
+  already-clamped reported rate, so one beyond the cap is corrupt input and
+  is refused. The zero threshold is STRICTLY-below (exactly 0.01% is kept)
+  per the research wording "below 0.01%".
+- **`forecast_final` is the stationary-mean forecast** (remaining candles
+  carry the running average => final == running estimate, finalized) — the
+  reconcilable baseline matching the venue's own in-progress estimate.
+  Better extrapolation (premium persistence, trend) is a STRATEGY choice
+  layered on the kernel, not baked in; the kernel stays the honest,
+  venue-reconcilable core.
+- **The 481st candle is REJECTED** (`FundingWindowOverfull`) rather than
+  blended: an over-full window means the caller did not roll at
+  `next_funding_time`; failing loud forces correct window boundaries over
+  silently averaging two payment periods.
+
 ## T4.1 — daemon halt re-arm is RESTART-GATED (I2; R12 halt-rearm finding)
 
 - **The running daemon NEVER auto-clears a gate halt; a re-arm takes effect on

@@ -37,6 +37,8 @@ pub mod persona;
 pub mod persona_runner;
 pub mod reconciliation;
 pub mod review;
+pub mod scalar_beliefs;
+pub mod scoring;
 pub mod shadow;
 pub mod signals;
 pub mod veto;

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE scalar_beliefs\n               SET realized_value = $2, resolved_at = $3\n               WHERE belief_id = $1 AND realized_value IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Float8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "92a3bcfba2e9c9ed5a8e4b4aa51f379b5e4bb69eefc99f8a6cc29f2a8b211163"
+}

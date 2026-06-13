@@ -8,6 +8,58 @@ concise bullet per logical change; newest-relevant first.
 
 ## [Unreleased]
 
+### Cognition belief-pipeline & perps (fortuna-cognition / fortuna-ledger / fortuna-core, Track C)
+
+The `prob_claims/v1` scalar-belief foundation + perp strategies (design
+`docs/design/perp-strategies-and-scalar-claims.md`). Verifier-gated ACCEPT
+(slices 1a + 1b + 2a + funding kernel) and MERGED to main @2809aea, 2026-06-13.
+Slice 2b (`funding_forecast` producer) gated ACCEPT (dispersion-widening
+mutation-proven) and MERGED to main @f949554, 2026-06-13.
+
+#### Added
+
+- **`funding_forecast` strategy** (slice 2b, `fortuna-runner`): a zero-capital
+  scalar belief-producer — on a `PerpTick` it forecasts the next funding rate
+  directly from the recorded venue estimate (`finalize_funding_rate(estimate)`;
+  the estimate IS the running TWAP, never re-derived) and emits a
+  `PredictiveDistribution::Scalar` quantile fan whose dispersion widens with
+  time-remaining-in-window (a documented rung-0 model, CRPS-measured). Proposes
+  NOTHING (I6). A live-data CRPS test scores a recorded estimate → forecast
+  against a recorded realized rate; exact-window calibration is deferred to the
+  operator-queued paired fixture (the test pins the gap executably, never
+  fabricates). DST arm over tick/gap/window-roll/clamp chaos.
+- **Perp-strategy seam** (slice 2a, additive): `EventPayload::PerpTick` + the
+  `FundingObservation` type (`fortuna-core`), `ScalarBeliefDraft`
+  (`fortuna-cognition::scalar_beliefs`), the `drain_scalar_beliefs()` default
+  Strategy-trait method + the runner's `pending_scalar_beliefs` buffer
+  (`fortuna-runner`) — the plumbing the `funding_forecast` strategy (2b) rides.
+  Bus events replay byte-stable (the `Decimal` rate preserves scale). The binary
+  `BeliefDraft` / `drain_beliefs` path is byte-unchanged.
+- **Scalar belief type + swappable scoring** (`fortuna-cognition::scoring`,
+  slice 1a): `PredictiveDistribution {Binary, Categorical, Scalar{quantiles,
+  unit}}` + `RealizedOutcome` + the swappable `ScoringRule` trait; `BrierRule`
+  + `CrpsPinballRule` (native CRPS = mean pinball / quantile loss); `ScoreError`;
+  full `validate()` (strict-(0,1) binary p, categorical sum≈1, ≥2
+  strictly-increasing non-crossing quantiles). Additive — the binary
+  `BeliefDraft` path is byte-unchanged. 54 tests incl. a proper-scoring proptest.
+- **Scalar-belief storage** (`fortuna-ledger`, slice 1b): append-only
+  `scalar_beliefs` (immutable claim + one-time resolution; `producer`
+  first-class for the ROTA scorecard) and `belief_scores` (rule-tagged
+  `(belief_id, rule_id)` score, FK → `scalar_beliefs`, unique per rule);
+  `ScalarBeliefsRepo` (exactly-once `resolve`, mirroring `resolve_and_score`) +
+  `BeliefScoresRepo`. Migration `20260613000002_scalar_beliefs.sql` with
+  append-only DB triggers. 7 live-PG tests.
+- Deterministic funding-forecast kernel (`fortuna-core::perp`): `FundingWindow`
+  (running TWAP of recorded premiums; premium-as-input never re-derived) +
+  `finalize_funding_rate` (±2 % clamp, 0.01 % zero threshold). 13 tests.
+
+#### Deferred
+
+- funding_forecast (slice 2, live-data driven), perp_event_basis (slice 3 —
+  fixture-gated on a paired KXBTC15M cycle), daemon composition (slice 4), and
+  F5–F9 (Aeolus weather → belief) — all build on the scalar foundation above.
+  Marked pending, not done.
+
 ### Ingestion & data sources (fortuna-sources, Track D)
 
 The news-aggregation / weather-signal ingestion subsystem (`crates/fortuna-sources`)
