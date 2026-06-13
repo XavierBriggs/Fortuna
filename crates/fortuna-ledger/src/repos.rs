@@ -1857,3 +1857,268 @@ impl DomainAnalysesRepo {
         }))
     }
 }
+
+/// One persisted scalar-belief row (design §1.4). The durable, immutable
+/// scalar forecast claim; `realized_value`/`resolved_at` are NULL until the
+/// belief resolves (set exactly once). `quantiles`/`provenance` ride as
+/// `serde_json::Value` — the caller serializes the cognition
+/// `PredictiveDistribution::Scalar` before insert, so this crate never imports
+/// it in production code (cognition is dev-only here).
+#[derive(Debug, Clone)]
+pub struct ScalarBeliefRow {
+    pub belief_id: String,
+    pub producer: String,
+    pub event_key: String,
+    pub quantiles: serde_json::Value,
+    pub unit: String,
+    pub horizon: String,
+    pub provenance: serde_json::Value,
+    pub created_at: String,
+    pub realized_value: Option<f64>,
+    pub resolved_at: Option<String>,
+}
+
+/// Scalar-belief ledger ops (design §1.4): rows are immutable (the
+/// `scalar_beliefs_guard` DB trigger blocks content mutation + DELETE, allows
+/// the resolution columns to be set once from NULL). `producer` is first-class
+/// so the ROTA §9.1 scorecard groups by it. INSERT-only at the app layer.
+pub struct ScalarBeliefsRepo {
+    pool: PgPool,
+}
+
+impl ScalarBeliefsRepo {
+    pub fn new(pool: PgPool) -> ScalarBeliefsRepo {
+        ScalarBeliefsRepo { pool }
+    }
+
+    /// Insert one scalar belief. The belief is unresolved on insert
+    /// (`realized_value`/`resolved_at` NULL). Append-only: the trigger refuses
+    /// any later content mutation.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn insert(
+        &self,
+        belief_id: &str,
+        producer: &str,
+        event_key: &str,
+        quantiles: &serde_json::Value,
+        unit: &str,
+        horizon: &str,
+        provenance: &serde_json::Value,
+        created_at: &str,
+    ) -> Result<(), LedgerError> {
+        sqlx::query!(
+            r#"INSERT INTO scalar_beliefs
+               (belief_id, producer, event_key, quantiles, unit, horizon,
+                provenance, created_at)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8)"#,
+            belief_id,
+            producer,
+            event_key,
+            quantiles,
+            unit,
+            horizon,
+            provenance,
+            created_at
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get(&self, belief_id: &str) -> Result<ScalarBeliefRow, LedgerError> {
+        let r = sqlx::query!(
+            r#"SELECT belief_id, producer, event_key, quantiles, unit, horizon,
+                      provenance, created_at, realized_value, resolved_at
+               FROM scalar_beliefs WHERE belief_id = $1"#,
+            belief_id
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(ScalarBeliefRow {
+            belief_id: r.belief_id,
+            producer: r.producer,
+            event_key: r.event_key,
+            quantiles: r.quantiles,
+            unit: r.unit,
+            horizon: r.horizon,
+            provenance: r.provenance,
+            created_at: r.created_at,
+            realized_value: r.realized_value,
+            resolved_at: r.resolved_at,
+        })
+    }
+
+    /// Resolve EXACTLY ONCE (mirrors `BeliefsRepo::resolve_and_score`): the
+    /// realized value + resolved_at are written iff the belief is still
+    /// unresolved (`realized_value IS NULL`). A second resolution — or a
+    /// missing belief — affects zero rows and is refused as `CorruptRow`, so a
+    /// scalar belief is scored once. The DB trigger ALSO enforces the
+    /// set-once transition; this repo guard makes the refusal a typed error.
+    pub async fn resolve(
+        &self,
+        belief_id: &str,
+        realized_value: f64,
+        resolved_at: &str,
+    ) -> Result<(), LedgerError> {
+        let res = sqlx::query!(
+            r#"UPDATE scalar_beliefs
+               SET realized_value = $2, resolved_at = $3
+               WHERE belief_id = $1 AND realized_value IS NULL"#,
+            belief_id,
+            realized_value,
+            resolved_at
+        )
+        .execute(&self.pool)
+        .await?;
+        if res.rows_affected() != 1 {
+            return Err(LedgerError::CorruptRow {
+                table: "scalar_beliefs",
+                reason: format!(
+                    "scalar belief {belief_id} not resolvable (already resolved or missing)"
+                ),
+            });
+        }
+        Ok(())
+    }
+
+    /// The newest `limit` scalar beliefs (the ROTA §9.1 scorecard feed). ULIDs
+    /// order lexically == chronologically, so `belief_id DESC` is newest-first
+    /// without a timestamp parse. `limit` clamps to [1, 500] — a read-only
+    /// panel query never errors on a bad limit and never fetches unboundedly.
+    pub async fn recent(&self, limit: i64) -> Result<Vec<ScalarBeliefRow>, LedgerError> {
+        let limit = limit.clamp(1, 500);
+        let rows = sqlx::query!(
+            r#"SELECT belief_id, producer, event_key, quantiles, unit, horizon,
+                      provenance, created_at, realized_value, resolved_at
+               FROM scalar_beliefs ORDER BY belief_id DESC LIMIT $1"#,
+            limit
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| ScalarBeliefRow {
+                belief_id: r.belief_id,
+                producer: r.producer,
+                event_key: r.event_key,
+                quantiles: r.quantiles,
+                unit: r.unit,
+                horizon: r.horizon,
+                provenance: r.provenance,
+                created_at: r.created_at,
+                realized_value: r.realized_value,
+                resolved_at: r.resolved_at,
+            })
+            .collect())
+    }
+}
+
+/// One derived, rule-tagged score over an immutable scalar belief (design
+/// §1.3). `score` is lower-is-better; `rule_id` is the
+/// `ScoringRule::id()` string (e.g. "crps_pinball").
+#[derive(Debug, Clone)]
+pub struct BeliefScoreRow {
+    pub score_id: String,
+    pub belief_id: String,
+    pub rule_id: String,
+    pub score: f64,
+    pub scored_at: String,
+}
+
+/// Score ledger ops (design §1.3): one row per `(belief_id, rule_id)` — the
+/// unique constraint enforces exactly-once per rule, and several scorers run
+/// side by side over the same immutable facts. Fully immutable (the blunt
+/// `belief_scores_append_only` trigger refuses UPDATE/DELETE). INSERT-only.
+pub struct BeliefScoresRepo {
+    pool: PgPool,
+}
+
+impl BeliefScoresRepo {
+    pub fn new(pool: PgPool) -> BeliefScoresRepo {
+        BeliefScoresRepo { pool }
+    }
+
+    /// Insert one `(belief_id, rule_id)` score. STRICT: a duplicate
+    /// `(belief_id, rule_id)` bubbles the unique-violation as a `LedgerError`
+    /// (never `ON CONFLICT DO NOTHING` — a re-score is a NEW rule id, not a
+    /// silent no-op).
+    pub async fn insert(
+        &self,
+        score_id: &str,
+        belief_id: &str,
+        rule_id: &str,
+        score: f64,
+        scored_at: &str,
+    ) -> Result<(), LedgerError> {
+        sqlx::query!(
+            r#"INSERT INTO belief_scores
+               (score_id, belief_id, rule_id, score, scored_at)
+               VALUES ($1,$2,$3,$4,$5)"#,
+            score_id,
+            belief_id,
+            rule_id,
+            score,
+            scored_at
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Every score for one belief (the per-belief scorecard column — multiple
+    /// scorers side by side). Ordered by rule for a stable read.
+    pub async fn scores_for_belief(
+        &self,
+        belief_id: &str,
+    ) -> Result<Vec<BeliefScoreRow>, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT score_id, belief_id, rule_id, score, scored_at
+               FROM belief_scores WHERE belief_id = $1
+               ORDER BY rule_id"#,
+            belief_id
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| BeliefScoreRow {
+                score_id: r.score_id,
+                belief_id: r.belief_id,
+                rule_id: r.rule_id,
+                score: r.score,
+                scored_at: r.scored_at,
+            })
+            .collect())
+    }
+
+    /// The newest `limit` scores for one rule across beliefs (the §9.1 rolling
+    /// calibration feed per `rule_id`). `scored_at` is ULID-free wall time, so
+    /// order by it then `score_id` for determinism. `limit` clamps to
+    /// [1, 500] like the other read-only feeds.
+    pub async fn scores_for_rule(
+        &self,
+        rule_id: &str,
+        limit: i64,
+    ) -> Result<Vec<BeliefScoreRow>, LedgerError> {
+        let limit = limit.clamp(1, 500);
+        let rows = sqlx::query!(
+            r#"SELECT score_id, belief_id, rule_id, score, scored_at
+               FROM belief_scores WHERE rule_id = $1
+               ORDER BY scored_at DESC, score_id DESC LIMIT $2"#,
+            rule_id,
+            limit
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| BeliefScoreRow {
+                score_id: r.score_id,
+                belief_id: r.belief_id,
+                rule_id: r.rule_id,
+                score: r.score,
+                scored_at: r.scored_at,
+            })
+            .collect())
+    }
+}

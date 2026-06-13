@@ -89,3 +89,21 @@ EACH ITERATION, do exactly ONE item, then commit and start the next iteration.
 7. OWNERSHIP (absolute): you may modify ONLY: perp modules in fortuna-core, fortuna-gates perp extensions, fortuna-state margin pieces, crates/fortuna-venues/src/kinetics*, perp DST arms. Plus your own
    sections of BUILD_PLAN/GAPS/ASSUMPTIONS and your own boxes. Any other
    file => ledger + skip. No .env, no venue credentials, ever.
+
+8. DOCUMENTATION (operator directive, 2026-06-13): keep the docs current as you
+   build — stale docs are a defect.
+   - MAINTAIN track C's OWN docs: docs/design/perp-strategies-and-scalar-claims.md
+     is the authoritative design artifact (amend it as the design evolves). Per
+     the doc-hygiene directive (bus 2026-06-13: NO per-track changelog FILES),
+     log changes in the ROOT CHANGELOG.md — APPEND to track C's own
+     `### Cognition belief-pipeline & perps (Track C)` subsection under
+     `## [Unreleased]` (one concise bullet per landed slice; the verifier
+     reconciles subsections on merge).
+   - AMEND the SHARED docs when a slice changes their truth: docs/architecture.md
+     (new crates/tables/seams/telemetry/ROTA contracts), docs/operations.md +
+     docs/runbooks/ (new operational steps, e.g. the sqlx migrate/prepare flow,
+     the new DB tables, perps telemetry/kill-switch). TARGETED edits ONLY —
+     carefully thought out, never bloat, never duplicate the design doc into them
+     (LINK to it instead), never let them drift.
+   - Doc updates ride the SAME commit as the slice they describe (or a dedicated
+     docs commit in the same iteration); the battery still gates the code.

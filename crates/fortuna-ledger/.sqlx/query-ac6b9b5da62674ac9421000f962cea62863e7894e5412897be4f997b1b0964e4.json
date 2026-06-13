@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO belief_scores\n               (score_id, belief_id, rule_id, score, scored_at)\n               VALUES ($1,$2,$3,$4,$5)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Float8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ac6b9b5da62674ac9421000f962cea62863e7894e5412897be4f997b1b0964e4"
+}

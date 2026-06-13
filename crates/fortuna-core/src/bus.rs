@@ -14,6 +14,7 @@
 use crate::book::{Fill, OrderBook};
 use crate::clock::{Clock, UtcTimestamp};
 use crate::market::{MarketId, VenueId};
+use crate::perp::{FundingObservation, PerpMarks};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -81,6 +82,20 @@ pub enum EventPayload {
         venue: VenueId,
         market: MarketId,
         payout_cents: i64,
+    },
+    /// Perp market data (spec 5.15; perp-strategies design §2.1): the marks
+    /// (settlement + conservative) and a funding observation (the venue
+    /// estimate + next_funding_time + reference price), every field grounded
+    /// in the WS `ticker` frame + `/funding_rates/estimate` fixtures (§4).
+    /// The live recorder publishes these; the Sim/DST/paper harness injects
+    /// them. A perp strategy reads them in `on_event` — no `CoreHandle`
+    /// surgery. The premium proxy is `marks.venue_settlement −
+    /// funding.reference_price`.
+    PerpTick {
+        venue: VenueId,
+        market: MarketId,
+        marks: PerpMarks,
+        funding: FundingObservation,
     },
 }
 

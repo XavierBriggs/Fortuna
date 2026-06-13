@@ -3,6 +3,37 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## T5.B7 funding-forecast kernel (track C, 2026-06-13; interprets research §4)
+
+- **Premium per candle is taken as INPUT, never re-derived.** Research §4
+  says the exact premium-index formula (which mark vs which index) is
+  venue-UNPUBLISHED (§11 gap). `FundingWindow` averages observed premiums;
+  it never computes them from prices — the same not-re-deriving discipline
+  as `FundingAccrual.rate` (which records the venue's reported rate).
+- **Equal-weight mean = the time-weighted average for equal 1-minute
+  candles.** Research §4: "time-weighted average ... over the 480 candles".
+  With equal-duration candles the time weights are equal, so the TWAP is
+  the arithmetic mean. Gap/uneven-candle weighting (missing candles) is a
+  STRATEGY refinement deferred to a later slice (ledgered in GAPS) — the
+  kernel models the equal-candle case the venue describes.
+- **`finalize_funding_rate` CLAMPS (not refuses) beyond +/-2%, distinct
+  from `MarginSim::apply_funding` which REFUSES.** Different contexts, both
+  correct: here we COMPUTE a forecast from premiums and the venue would
+  clamp it at finalization, so we clamp; in margin_sim we RECEIVE an
+  already-clamped reported rate, so one beyond the cap is corrupt input and
+  is refused. The zero threshold is STRICTLY-below (exactly 0.01% is kept)
+  per the research wording "below 0.01%".
+- **`forecast_final` is the stationary-mean forecast** (remaining candles
+  carry the running average => final == running estimate, finalized) — the
+  reconcilable baseline matching the venue's own in-progress estimate.
+  Better extrapolation (premium persistence, trend) is a STRATEGY choice
+  layered on the kernel, not baked in; the kernel stays the honest,
+  venue-reconcilable core.
+- **The 481st candle is REJECTED** (`FundingWindowOverfull`) rather than
+  blended: an over-full window means the caller did not roll at
+  `next_funding_time`; failing loud forces correct window boundaries over
+  silently averaging two payment periods.
+
 ## T4.1 — daemon halt re-arm is RESTART-GATED (I2; R12 halt-rearm finding)
 
 - **The running daemon NEVER auto-clears a gate halt; a re-arm takes effect on
