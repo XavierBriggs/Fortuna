@@ -18,6 +18,61 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK C — T5.B7 fit-validation + funding kernel (restarted/expanded scope, 2026-06-13)
+
+Track C re-armed by the operator for T5.B7 -> T5.B8 (perps plane MERGED;
+re-merge gate ACCEPT, perps-remerge-gate-2026-06-13.md). Restarted clean
+on merged main (track-c rebased == main); scope expanded by the operator
++ the bus OWNER PLAN to "extend the now-merged perps plane".
+
+DESIGN-VALIDATE (T5.B7 fit against the codebase, done BEFORE building):
+- IMPEDANCE: the Strategy/Proposal/ProposedLeg/CoreHandle framework
+  (fortuna-runner) is entirely EVENT-CONTRACT-shaped — limit_price and
+  fair_value are `Cents`, `Side` is YES/NO, `CoreHandle.books` are
+  binary `OrderBook`. The perp domain is deliberately type-separated
+  (`PerpPrice`, perp gate arm `evaluate_perp` with `PerpCandidateOrder`/
+  `GatedPerpOrder`). A perp TRADING strategy therefore needs EITHER (a)
+  the runner's Proposal + execution path extended to perp legs (PerpPrice,
+  evaluate_perp, a perp paper/sim venue), or (b) to trade only the
+  event-contract bracket legs using perp data as a price INPUT. This is
+  the cross-cutting runner work the bus flagged; it is the next slice.
+- CoreHandle exposes NO perp data (books/marks/funding); the runner does
+  not feed perp state to strategies — a CoreHandle extension (or a perp
+  side-channel) is required before a strategy can read the perp surface.
+- funding_forecast's "scalar claims scored as beliefs" depends on the
+  prob_claims/v1 SCALAR type + mapper, which is UNBUILT ("scalar with the
+  first scalar consumer", signal-contract.md:130) and lives in the
+  signal/cognition subsystem (fortuna-cognition/fortuna-ledger) — large
+  cross-cutting surface across non-owned crates; the belief-scoring wiring
+  is a later slice and may need an owner with those crates.
+- funding_carry is DATA-COLLECTION-ONLY (amendment B; no Sim until >=60d
+  of funding history): NO trading-strategy code this phase — the B0
+  recorder already collects the data. The "implementation" is to ensure
+  it is never given a tradeable Stage and to keep the 60-day gate.
+
+SLICE 1 LANDED (this iteration): the deterministic funding-forecast
+KERNEL — fortuna_core::perp::FundingWindow (in-progress TWAP of 1-minute
+premiums; equal-weight mean, premium-as-input never re-derived) +
+finalize_funding_rate (venue clamp +/-2% + 0.01% zero-threshold) + the
+FUNDING_* constants. 13 spec-first tests (crates/fortuna-core/tests/
+funding_window.rs). This is the in-OWNERSHIP (fortuna-core perp module)
+deterministic core that funding_forecast wraps as its scalar-claim value
+and perp_event_basis uses as the perp point forecast — built first,
+deterministic-core-before-plumbing, like the whole perps tranche.
+
+REMAINING T5.B7 SLICES (ordered; each its own gate-clean iteration):
+  (2) perp_event_basis (mech, Sim) — the flagship; the most tractable
+      trading strategy. Decide trade-surface: bracket legs priced off the
+      perp point forecast (fits the Cents Proposal path, perp-as-input) vs
+      perp legs (needs the runner perp execution path). Recommend
+      bracket-leg-first (no runner surgery; perp+funding only an input).
+  (3) the runner perp-data seam (CoreHandle perp marks/funding) feeding
+      (2) and a funding_forecast Sim.
+  (4) funding_forecast scalar-claim emission — blocked on prob_claims/v1
+      scalar type + belief scoring (cross-crate; may reassign).
+  (5) funding_carry guard: data-only, no tradeable Stage, 60-day gate.
+Phase-5 EXIT is not met until T5.B7 + T5.B8 land.
+
 ## TRACK A — T4.2 item 2(i) WS dial COMPLETE: full KalshiWsTransport built (operator runs the first live exercise)
 
 Queue item 2(i) (Kalshi WS dial). Built the SURVIVAL DECISION core as a pure,

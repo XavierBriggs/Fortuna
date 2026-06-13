@@ -51,6 +51,10 @@ pub enum PerpError {
     /// The amount does not fit in i64 ten-thousandths.
     #[error("dollar amount {amount} is outside the representable i64 ten-thousandths range")]
     OutOfRange { amount: String },
+    /// A funding window received more than its 480 one-minute candles: the
+    /// caller did not roll the window at `next_funding_time`.
+    #[error("funding window received more than 480 candles (roll at next_funding_time)")]
+    FundingWindowOverfull,
     /// A cent-side operation failed.
     #[error(transparent)]
     Money(#[from] MoneyError),
@@ -268,6 +272,108 @@ impl FundingAccrual {
             position_qty,
             amount,
         })
+    }
+}
+
+/// One-minute candles in an 8h funding window (research §4: 480 candles).
+pub const FUNDING_CANDLES_PER_WINDOW: usize = 480;
+
+/// The venue clamps the finalized funding rate to +/-2% per 8h window
+/// (research §4 "Cap"). `Decimal::from_parts(2, 0, 0, false, 2)` = 0.02.
+pub const FUNDING_RATE_CLAMP: Decimal = Decimal::from_parts(2, 0, 0, false, 2);
+
+/// Below this absolute value the venue zeroes the rate and pays nothing
+/// (research §4 "Zero threshold": |rate| < 0.01%). 0.0001 = 0.01%.
+pub const FUNDING_ZERO_THRESHOLD: Decimal = Decimal::from_parts(1, 0, 0, false, 4);
+
+/// The venue's funding finalization (research §4): clamp the raw rate to
+/// +/-`FUNDING_RATE_CLAMP`, then zero it if its absolute value is STRICTLY
+/// below `FUNDING_ZERO_THRESHOLD` (exactly at the threshold is kept). This
+/// is the deterministic kernel a `funding_forecast` strategy (T5.B7)
+/// applies to its forecast and `perp_event_basis` applies to the perp
+/// point forecast; it matches the rate the venue actually pays.
+pub fn finalize_funding_rate(raw: Decimal) -> Decimal {
+    let clamped = raw.clamp(-FUNDING_RATE_CLAMP, FUNDING_RATE_CLAMP);
+    if clamped.abs() < FUNDING_ZERO_THRESHOLD {
+        Decimal::ZERO
+    } else {
+        clamped
+    }
+}
+
+/// The in-progress estimator for one 8h funding window (research §4;
+/// T5.B7 foundation). The venue computes funding as the time-weighted
+/// average of 1-minute candlestick premiums over the window's 480 candles,
+/// continuously estimated over `[last_funding_time, now)` and finalized at
+/// `next_funding_time`. This reproduces that estimate deterministically
+/// from observed premiums — the reconcilable baseline a `funding_forecast`
+/// strategy emits as its scalar claim and `perp_event_basis` uses as the
+/// perp point forecast.
+///
+/// The premium PER CANDLE is taken as INPUT, never re-derived: the exact
+/// premium-index formula (which mark vs which index) is venue-unpublished
+/// (research §11), the same not-re-deriving discipline as `FundingAccrual`.
+/// Premiums are `Decimal` (the venue-payload rate domain). Equal 1-minute
+/// candles make the time-weighted average the arithmetic mean; gap/uneven-
+/// candle weighting is a strategy refinement (deferred, see GAPS).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FundingWindow {
+    sum: Decimal,
+    count: usize,
+}
+
+impl FundingWindow {
+    pub fn new() -> FundingWindow {
+        FundingWindow::default()
+    }
+
+    /// Observe one 1-minute candle's premium. The 481st candle belongs to
+    /// the next window: it is rejected so the caller rolls at
+    /// `next_funding_time` rather than silently blending two windows.
+    pub fn observe(&mut self, premium: Decimal) -> Result<(), PerpError> {
+        if self.count >= FUNDING_CANDLES_PER_WINDOW {
+            return Err(PerpError::FundingWindowOverfull);
+        }
+        self.sum = self
+            .sum
+            .checked_add(premium)
+            .ok_or(PerpError::Overflow { op: "funding sum" })?;
+        self.count += 1;
+        Ok(())
+    }
+
+    /// Candles observed so far in this window.
+    pub fn observed(&self) -> usize {
+        self.count
+    }
+
+    /// Candles left before the window is full (forecast confidence scales
+    /// with the elapsed fraction).
+    pub fn remaining(&self) -> usize {
+        FUNDING_CANDLES_PER_WINDOW - self.count
+    }
+
+    /// The venue's in-progress estimate: the equal-weight mean of observed
+    /// premiums (reconcilable against the estimate endpoint). `None` until
+    /// the first candle.
+    pub fn running_estimate(&self) -> Result<Option<Decimal>, PerpError> {
+        if self.count == 0 {
+            return Ok(None);
+        }
+        let mean = self
+            .sum
+            .checked_div(Decimal::from(self.count as u64))
+            .ok_or(PerpError::Overflow { op: "funding twap" })?;
+        Ok(Some(mean))
+    }
+
+    /// The deterministic final-rate forecast under the stationary-mean
+    /// assumption (the remaining candles carry the running average): the
+    /// running estimate, finalized (clamp + zero threshold). This is the
+    /// rate the venue would pay if the window closed now; strategy-level
+    /// extrapolation (premium persistence, trend) layers on top.
+    pub fn forecast_final(&self) -> Result<Option<Decimal>, PerpError> {
+        Ok(self.running_estimate()?.map(finalize_funding_rate))
     }
 }
 
