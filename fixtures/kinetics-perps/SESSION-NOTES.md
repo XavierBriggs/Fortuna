@@ -190,3 +190,33 @@ hypothesis: demo's funding engine is pegged at zero. Disposition: checks
 downgrade to ~daily opportunistic; the funding_history ENTRY SHAPE comes
 from the PROD read-only parity sweep (operator item 17, post-fee
 activation). Position stays open (zero carry at rate 0).
+## Committed-capture annotation (2026-06-12, track-c final gate Minor 2)
+
+The COMMITTED `ws__private_lifecycle.jsonl` is from the ~04:08Z capture
+(see its .meta.json timestamp), which OVERWROTE the ~02:50Z run described
+in the re-run note above. The committed stream contains 12 `user_order`
+frames, 5 `order_group_updates` frames, 3 `subscribed` acks, and ZERO
+`fill` frames — the INVERSE of the ~02:50Z narrative ("fill=true,
+user_orders=false"). Both behaviors were observed live at different
+times; the corpus carries only the later one. Consequence for adapters:
+neither private channel's emission is guaranteed per lifecycle; the
+`fill` channel's frame SHAPE remains UNCAPTURED in this corpus (the
+typed WS layer degrades unknown/uncaptured frames to Ignored, and REST
+fills remain the reconciliation source of truth — ledgered in GAPS).
+
+## Committed-capture annotation 2 (2026-06-12, post-re-recording)
+
+The corpus was RE-RECORDED for the re-gate (commit 8b8b222): fresh venue
+uuids throughout; the get-after probes captured 404s (their orders aged
+out between runs); groups__list captured `{}` (empty account state);
+transfer__intra_exchange captured a 503 (the rail flaked this run);
+cleanup__leftover_1 added. The private WS stream NOW CARRIES ONE `fill`
+frame — its shape is CAPTURED (trade/order/client ids, market_ticker,
+is_taker, side, price/count, fee_cost, post_position, subaccount,
+order_source) and the typed WS layer consumes it (annotation 1's "shape
+remains UNCAPTURED" is superseded for the frame SHAPE; channel emission
+per lifecycle remains non-guaranteed). WIRE FINDING from the wide
+funding-history capture: deep history carries hourly/half-hourly rate
+OBSERVATIONS (e.g. 17:30:00Z, 18:00:00Z) — the 8h 04/12/20 UTC grid
+holds for the CURRENT payment era + next_funding_time, NOT for the
+historical bulk; ingestion must take recorded times verbatim.

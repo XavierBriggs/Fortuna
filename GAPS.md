@@ -1843,6 +1843,134 @@ observed so far: `INVALID_PARAMETER` (malformed key id) and
 
 ## Kinetics perps module (operator-directed 2026-06-10)
 
+- **TRACK C FINDING — RESOLVED upstream (2026-06-12): the pre-existing
+  `cargo fmt --check` violation** at
+  crates/fortuna-venues/examples/record_kinetics_fixtures.rs:801 was
+  fixed on main and reached track C via rebase onto f4b4a54;
+  `cargo fmt --check` is now FULLY clean workspace-wide (verified at the
+  T5.B5 battery). Original finding kept for the trail: the file was
+  outside track C ownership (examples/, not src/kinetics*), so track C
+  ledgered + skipped per loop rule 7 while its own diffs stayed
+  fmt-clean.
+- **T5.B4 kinetics adapter: ALL 4 SLICES LANDED, BOX TICKED** [heading
+  updated per final-gate Info; the slice trail below is preserved]
+  (track C, 2026-06-12, commits dd82ca1 + c4f6248): slice 1 = the DTO
+  layer, fixtures-gated with FULL coverage (all 76 bodies classified +
+  parsed vs recorded statuses, both WS streams zero-unknown); slice 2 =
+  KineticsClient over the shared signed transport (own credential PAIR
+  at composition; same RSA-PSS recipe — fixture item 1), request-shaping
+  fixtures-gated against every .meta.json (method/path/query/body
+  equality; the meta-equality test caught a real divergence: group
+  trigger/reset send {}). SLICE 3 LANDED (commit e3d0dde): the adapter
+  proper — place accepts ONLY GatedPerpOrder (I1 structural in the test
+  suite: orders are gated through the real pipeline), reduce_only+GTC
+  refused BEFORE the wire, 409 duplicate resolves to
+  AlreadyExists{existing} via first-page client-id scan (PAGINATION GAP:
+  a duplicate beyond the first 100 listed orders stays Rejected —
+  acceptable for crash resubmission which retries promptly, ledgered),
+  system fills classify as the distinct Liquidation arm (never silently
+  absorbed), per-fill fee reconciliation vs posted tiers (the RECORDED
+  promo-\$0 fill correctly yields a discrepancy vs the 0.0012 taker
+  tier — fee-trap surfacing as designed). The RiskCurve converter
+  (bus fix 4) landed with the gate-fix batch (3b21b7e).
+  SLICE 4 LANDED (commit bbadfc0): WS session layer — recorder-accepted
+  subscribe commands byte-pinned, handshake constants (finding 2), seq/
+  torn discipline with no-advance-until-fresh-snapshot, both recorded
+  streams replay gapless and fully typed. **T5.B4 BOX TICKED.**
+  OPEN venue-state/composition items (not code gaps): funding_history
+  ENTRY shape uncaptured (item 10 partial — demo rate was 0; raw JSON
+  until a populated capture or the PROD parity sweep); notional risk
+  limit per-market values uncaptured (empty map on demo);
+  duplicate-resolution list scan is first-page-only (pagination);
+  the WS `fill` channel's frame SHAPE is UNCAPTURED in the corpus (the
+  committed private stream carries zero fill frames — see the
+  SESSION-NOTES committed-capture annotation): real-time fill/
+  liquidation notification rests on REST fills polling until a
+  fill-frame capture or the PROD parity sweep lands;
+  the LIVE dial (TLS + signed WS handshake + redial policy, reqwest
+  transport wiring with the kinetics credential pair from env) is
+  composition work that lands with the daemon integration — no live
+  traffic from track C, ever (demo flips are operator actions).
+- **TRACK C GATE FIX LIST: ALL 4 CLOSED (commit 3b21b7e)** — verdict
+  was ACCEPT-WITH-GAPS, zero Critical
+  (track-c-perp-gates-gate-2026-06-12.md). (1) CLOSED: at-boundary
+  equality pinned for the liquidation floor AND the leverage cap
+  (pass-at-exact + reject-one-past pairs; mutations M1/M3 now die).
+  (2) CLOSED as ENFORCE: MarginSim refuses |rate| > 2% — the venue
+  clamps before reporting, so an over-cap rate is corrupt input; we
+  error rather than silently clamp data entering an append-only record.
+  (3) CLOSED: leverage cap renders as '{n}.{d}x'. (4) CLOSED:
+  RiskCurve::from_leverage_estimates (numeric tier sort, ceil'd
+  conservative bps, fail-closed on leverage<1/non-finite/bad keys),
+  shape-tested vs fixtures/kinetics-perps/markets__single.json; T5.B5
+  tick wording corrected VISIBLY in BUILD_PLAN. Operator decisions
+  parked on the bus (waive batch 5, F1 disposition, leverage-cap
+  number) remain operator actions, not track-C work.
+- **T5.B6 perp DST: DONE, box ticked** (track C, 2026-06-12, commit
+  335e5e6): run-dst.sh gains the perp_dst stage (fortuna-state, same
+  seed count as the other stages) — 6 accounted arms with a coverage
+  floor, 7 per-seed invariants, all green at 2000 scenarios. NOTE FOR
+  BATTERY OPERATORS (2nd occurrence today): a `cargo test --workspace`
+  FIRST run under parallel-battery load was killed/contended (495/4,
+  binaries vanishing mid-run); the immediate clean isolated re-run was
+  853/0. If a track's battery reds with vanishing binaries, isolate and
+  re-run before judging — and prefer one battery at a time per box.
+  Operator config guidance discovered by invariant 3 is in ASSUMPTIONS
+  ("T5.B6 perp DST"): set min_liquidation_distance_bps >= price_band_bps.
+- **T5.B5 paper margin: DONE, box ticked** (track C, 2026-06-12, commit
+  e8fe069): MarginSim in fortuna-state (track-C margin ownership) —
+  mark-based PnL with VWAP-against-us entries, 04/12/20-UTC funding
+  schedule (funding_times_between) + append-only accrual log,
+  whole-account liquidation sim from recorded risk curves at worse-mark
+  [ANNOTATION 2026-06-12 per final-gate Minor 4, never erased: at e8fe069
+  "recorded risk curves" overstated the data source (config curves only);
+  the recorded-curve path landed later via
+  RiskCurve::from_leverage_estimates in the gate-fix batch 3b21b7e —
+  same correction BUILD_PLAN carries visibly]
+  + penalty, negative balances modeled. DEFERRED with owner: driving
+  MarginSim from recorded streams inside fortuna-paper belongs to that
+  crate's owner (track A); the engine + tests are the track-C
+  deliverable. NOTE for all tracks: a disk-full (3 parallel batteries +
+  36G main target) interrupted one DST stage mid-battery; track C freed
+  15.4GiB by cleaning ITS OWN worktree target and re-ran the battery in
+  full. Main's 36G target may want a quiet-moment `cargo clean` by its
+  owner.
+- **T5.B3 gate extensions: DONE, box ticked** (track C, 2026-06-12,
+  commits 7782f5c slice 1 + b4561ca slice 2): the perp gate arm in
+  fortuna-gates (MarginHeadroom/LiquidationDistance/LeverageCap/
+  PerpNotionalCap, spec numbering 11-14, + perp arms of PriceSanity/
+  SizeSanity/EdgeFloor with funding drag + fee-trap assumed fees, shared
+  rate/idempotency/netting/halts, GatedPerpOrder sealed type, PerpConfig
+  validation, 36 spec-first tests) + fortuna-state equity_with_margin
+  (I2 composition: balance + worse-for-us uPnL + pending funding, 8
+  tests) + fortuna-invariants ADDITIONS (perp I1 seal compile-fails,
+  I2-extension breach lifecycle, I3 cross-domain halt; 3 new files).
+  Two design readings FLAGGED for the verifier in ASSUMPTIONS ("T5.B3
+  perp gate arm, slice 1"): GatedPerpOrder as a second sealed type, and
+  the reduce-only risk-gate/edge-floor skip.
+  DEFERRED with owner: wiring equity_with_margin into the daemon's live
+  drawdown feed is fortuna-live (track A) and only becomes meaningful
+  when perp runtime state exists (B4/B5); until then the composition +
+  invariant pins are the deliverable.
+- **OPERATOR WAIVE QUEUED (protected-crate touch, expected per
+  orchestration.md): commit b4561ca touches crates/fortuna-invariants/ —
+  PURE ADDITIONS: 3 brand-new test files (perp_i1_sealed_order,
+  perp_i2_drawdown_extension, perp_i3_cross_domain_halt) + append-only
+  doc-test additions to src/lib.rs (verified 25 insertions / 0
+  deletions). No existing assertion, tolerance, or test name was
+  touched. Waive request: confirm the additions stand.**
+- **T5.B2 core perps types: DONE** (track C, 2026-06-12):
+  fortuna-core/src/perp.rs — InstrumentKind, PerpPrice (i64
+  ten-thousandths, checked ops, Decimal only at payload boundaries),
+  PerpValue with explicit floor/ceil conversion to Cents, FundingAccrual
+  (append-only record; positive rate = longs pay; amount floored against
+  us), signed PerpPosition (floored uPnL, ceiled notional),
+  MarginAccountView (worse-of-venue-vs-conservative mark governs, per the
+  5.15 halt-math rule). 38 tests incl. 7 property suites written from
+  spec text BEFORE implementation. Deferred-with-rationale items in
+  ASSUMPTIONS ("T5.B2 perps core types"); InstrumentKind threading
+  through shared Market structs deliberately deferred to B3/B4 (ownership
+  boundary).
 - **Phase A research: DONE** (2026-06-10/11):
   docs/research/venue/kinetics-perps-2026-06-10/research.md — 844 lines,
   ~50 sources, 110 raw archives including perps_openapi.yaml /
@@ -1885,6 +2013,130 @@ observed so far: `INVALID_PARAMETER` (malformed key id) and
   perps fee model (notional-fraction maker/taker via fee_tiers) entered
   5.2 alongside the corrections; the Kalshi event quadratic x0.07 is now
   marked fixture-confirmed (real demo fill, 2026-06-11).
+
+## RALPH STOP 2026-06-13T02:34:09Z (track C — queue exhausted/out-of-ownership)
+
+Stopping per loop rule 6 ("every priority item is blocked/exhausted — do
+NOT invent unrequested work to stay busy; idle-and-stopped beats bloat").
+Verified against the 2026-06-13 bus (main @ caefc14) this iteration:
+
+PRIORITY (a) — bus track-C work = the perps RE-MERGE PACKAGE. COMPLETE
+from my side at commit e027250 (this branch, tip = reapply d81ab6c + my
+fixes):
+  1. kinetics test re-recording-proof rework (all 4 suites derive
+     through the path; the revert root-cause UUID pin is gone) — DONE.
+  2. operator 2x leverage ceiling (min(config, asset cap), boundary-
+     pinned) — DONE.
+  3. full re-gate at 10000 -> re-merge — the BATTERY is green at 10000
+     (fmt/clippy/workspace 966/0/DST exit 0, corpus 4 seeds); the
+     re-gate + re-merge itself is VERIFIER-OWNED. I am blocked on the
+     verifier for the perps plane to land on main. No track-c re-gate
+     verdict exists past e027250 yet (latest reviews are 2026-06-12,
+     pre-dating this commit).
+
+PRIORITY (b) — loop queue after the red-seed fix = T5.B7 -> T5.B8. BOTH
+are OUTSIDE track-C ownership (rule 7: I own perp modules in
+fortuna-core, fortuna-gates perp extensions, fortuna-state margin pieces,
+fortuna-venues/src/kinetics*, perp DST arms — and nothing else):
+  - T5.B7 perp strategies (perp_event_basis / funding_forecast /
+    funding_carry) would live in crates/fortuna-runner/ alongside
+    mech_structural/mech_extremes/synthesis — NOT an owned crate.
+  - T5.B8 kill-switch perps flatten lives in crates/fortuna-killswitch/
+    (a SEPARATE I4 binary the loop forbids coupling to my crates);
+    margin/funding telemetry + the funding-regime ROTA panel live in
+    fortuna-ops / fortuna-runner / assets — none owned.
+  Per rule 7 these are LEDGER + SKIP, not buildable by track C. They
+  need either a track that owns those crates, or an explicit ownership
+  expansion + the perps plane RE-MERGED first (B7 strategies consume the
+  perp gate arm + types + sim; B8 flatten consumes the kinetics adapter
+  — both should build on a MERGED base, not stack more on the unmerged
+  re-merge branch and compound re-gate risk).
+
+NET: the entire in-ownership perps tranche (B2, B3, B4, B5, B6 + the
+gate-fix batch + the re-merge package) is DONE and gate-clean; the
+north-star "B2-B6 as gate-clean work allows" is fully met. Nothing
+in-ownership remains. The branch awaits the verifier's re-gate + the
+operator's standing signatures (waive batch 5 + F1, already approved) to
+re-merge. REBASE HAZARD (bus): do NOT plain-rebase this branch onto main
+while revert 19b3888 is in history — it drops these commits as
+duplicate-applied; the verifier re-merges, or use
+`git rebase --reapply-cherry-picks`.
+
+Battery at stop (this iteration, current HEAD e027250): fmt 0, clippy 0,
+workspace 966/0, run-dst.sh 10000 exit 0 (4 corpus seeds incl. the
+committed red seed; all 7 perp DST arms fire). Branch clean, nothing
+pushed.
+
+## PERPS RE-MERGE PACKAGE: COMPLETE (track C, 2026-06-12, re-armed loop)
+
+Per the bus ("FOR THE POOL / restarted TRACK C") + the amended loop
+queue, all three parts landed on the reinstated plane (revert-of-revert
+d81ab6c):
+
+1. CLIENT-ID FINDING (the revert root cause, exec-adjudicated option 2):
+   the kinetics suites were value-pinning capture uuids; the corpus was
+   RE-RECORDED for the re-gate and every pinned value broke. ALL FOUR
+   suites now derive expectations through the path (params parsed out of
+   meta.json; responses vs the recorded body's own fields; structure
+   over capture state) — re-recording-proof, doctrine in ASSUMPTIONS.
+   Bonus from the new capture: the WS fill frame shape is NOW CAPTURED
+   and typed (closes the ledgered fill-frame gap); deep funding history
+   REFUTES the universal 8h grid (wire finding, ASSUMPTIONS; research
+   §4's "empirically confirmed" claim holds for the current era only —
+   erratum candidate for the verification session's research doc).
+2. OPERATOR 2x LEVERAGE CEILING (decision item 4): [perp.venues]
+   max_leverage_x10 (Option; absent = interim per-asset ceiling stands),
+   enforced as min(ceiling, asset cap), boundary-pinned (1.99x/2.00x
+   pass, 2.01x refused). Production config entry = operator/composition
+   step.
+3. RED-SEED CORPUS COMMITMENT (amended queue): seed 11819682492387934495
+   now lives in crates/fortuna-core/dst-corpus/ (perp-curve-exceeded-*.
+   seed, failure-mode comment, never-delete) and the perp harness loads
+   perp-dst-tagged corpus seeds with expect-arm + determinism assertions
+   (replacing the in-file regression list; the designed-refusal arm +
+   spec-5.15 halt landed pre-revert at e0d4ae2 and is reinstated).
+
+## RALPH STOP 2026-06-12T10:22:01Z (track C — queue exhausted, protocol stop)
+
+[POST-STOP ADDENDUM ~10:50Z, operator-resumed: the final gate
+(track-c-final-gate-2026-06-12.md) BLOCKED on one red B6 seed — the
+harness miscounted MarginSim's DESIGNED over-tier refusal as a failure
+(nothing failed open). Fixed at e0d4ae2: designed curve_exceeded arm +
+spec-5.15 halt, the production fail-closed path now ASSERTED rather
+than dodged, seed 11819682492387934495 in the in-harness regression set
+(deterministic every battery run), the gate's exact master green at
+10000, full run-dst.sh 10000 exit 0. All three gate Minors + both
+actionable Infos closed in the same commit (SESSION-NOTES
+committed-capture annotation, fill-frame gap named here, B5 wording
+annotated, B4 heading unstale'd, error-string whitespace). The merge
+conditions in the verdict are met; re-gate when convenient.]
+
+Track C's directive queue is COMPLETE; per the loop's rule 6, stopping
+beats inventing unrequested work. Final state:
+
+- T5.B2 core perps types: DONE (0fb2fa6-era; gate-verified).
+- T5.B3 gate extensions + I2 composition + invariant ADDITIONS: DONE
+  (gate-verified; operator waive batch 5 pending on the bus).
+- T5.B5 paper margin (MarginSim): DONE (tick wording corrected per gate
+  fix; recorded-curve converter landed).
+- T5.B6 perp DST battery stage: DONE (6 arms, 7 invariants, in
+  run-dst.sh permanently).
+- T5.B4 kinetics adapter: DONE this session (DTOs -> client -> adapter
+  -> WS session, every layer fixtures-gated against the operator
+  recordings; box ticked at 4fd16de).
+- Cumulative gate verdict: ACCEPT-WITH-GAPS, zero Critical; all 4
+  fix-list Minors CLOSED (3b21b7e).
+
+NOT track-C work (stays with owners): T5.B7 strategies + T5.B8 ops
+panel (unassigned in orchestration.md; B8 mounts in ROTA per the bus);
+operator queue (waive batch 5, F1 disposition, leverage-cap number,
+key rotation, purge, disk); live/demo flips and credentials (operator
+only); fortuna-paper MarginSim wiring + daemon equity feed (track A);
+the live kinetics dial composition (daemon integration).
+
+Final battery at stop: fmt 0 diffs, clippy 0 errors, workspace 939/0,
+DST exit 0 (2000/stage; corpus 3 seeds). Branch track-c at 4fd16de,
+rebased on main f4b4a54-era; all work committed, nothing pushed.
 
 ## Disputed invariant tests
 (none)

@@ -1,0 +1,23 @@
+# harness: perp-dst
+# expect-arm: curve_exceeded
+#
+# FIRST TRUE RED SEED of the doctrine (track-c-final-gate-2026-06-12,
+# BLOCK). Wild-regime mark drift pushed a HELD perp position's notional
+# past the harness risk-curve's last tier ($100,068.43 > $100k) with NO
+# new order; MarginSim fail-closed CORRECTLY ("under-modeled = failure,
+# not surprise") but the B6 harness counted the designed refusal as a
+# scenario failure. Fixed e0d4ae2: the refusal is a designed
+# curve_exceeded arm with the spec-5.15 halt, and the fail-closed error
+# is ASSERTED to fire. NEVER DELETE.
+#
+# BINDING replay: crates/fortuna-state/tests/perp_dst.rs loads
+# perp-dst-tagged corpus seeds, replays each with its expect-arm
+# assertion and a determinism re-run. The core dst harness ALSO replays
+# this u64 (its loader takes every .seed file) as an incidental
+# random-world anchor — green there is expected and carries no pin; the
+# failure this seed exposed lives in the PERP world only.
+#
+# Reproduce the original red (pre-fix) / the green (post-fix):
+#   DST_MASTER_SEED=1781262032255 PERP_DST_SCENARIOS=10000 \
+#     cargo test -p fortuna-state --test perp_dst -- --nocapture
+11819682492387934495

@@ -715,11 +715,14 @@ name = "fortuna-state"
 version = "0.1.0"
 dependencies = [
  "fortuna-core",
+ "fortuna-gates",
  "fortuna-venues",
  "proptest",
+ "rust_decimal",
  "serde",
  "serde_json",
  "thiserror",
+ "toml",
 ]
 
 [[package]]
