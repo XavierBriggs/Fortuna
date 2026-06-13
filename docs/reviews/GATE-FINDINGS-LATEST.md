@@ -96,9 +96,14 @@ feature-dev subagents."
   (prob_claims/v1 scalar foundation) GATED ACCEPT (2026-06-13-T5.B7-slice-1a.md): math
   mutation-proven, strict validate, I5-clean, binary path untouched, 54+14 green — the
   FOUNDATIONAL scalar type. CADENCE: gate foundational/security commits immediately + the
-  rest as consolidated TRANCHE gates at merge; nothing reaches main ungated. QUEUE: A
-  PaperVenue replay (paper-realism), E.3a trusted/untrusted firewall (security), B ROTA
-  harness, D OBS-2.
+  rest as consolidated TRANCHE gates at merge; nothing reaches main ungated. E.3a PERSONA FIREWALL GATED = ACCEPT-SLICE
+  (the security headline): trusted method -> Mind system_charter, untrusted signals ->
+  context-items; MUTATION-PROVEN (push method into a ContextItem -> the "method never in
+  context" test reds); I6 propose-only (PersonaOutcome order-free), budget degrades no-crash,
+  Clock-injected + deterministic StubMind, 12 tests green, binary path + protected crate
+  untouched. QUEUE: A PaperVenue replay (paper-realism), B ROTA harness, D OBS-2/3, E.3b
+  triggers. DOC-NIT (flag to E): E made a SEPARATE docs/design/track-e-changelog.md — should
+  fold into the root CHANGELOG per the ownership model (track-A/D already did).
 - D6-D10 NEWS-INGESTION PHASE A COMPLETE + MERGED @ f31aaa8 (this session):
   calendar source + Layer-2 corroboration + validator-wired scheduler + factory +
   the daemon `[ingestion]` seam — all gated ACCEPT (D9 hard gate, D10/2 live-
