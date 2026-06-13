@@ -18,6 +18,65 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK D — OBS-1 telemetry data surface (slice 1): deferred follow-ups + scoped-battery note
+
+OBS-1 (2026-06-13) added the live `IngestionTelemetry` snapshot to the scheduler
+(crates/fortuna-sources only: scheduler.rs + lib.rs). Subagent-built, main-loop
+verified (full-diff review + independent scoped battery + by-inspection mutation
+audit of all 6 tests — each asserts an exact value a logic-mutation breaks).
+
+DEFERRED (honest carve-outs, NOT operator-blocked — they are the next OBS slices):
+- OBS-2: the funnel's loop-side stages (`normalized`/`deduped`/`persisted`/
+  `persist_failures`) stay 0 — they are produced AFTER the scheduler, in the
+  fortuna-live ingestion loop (normalize_and_dedup -> persist). Wiring them + the
+  `Arc<RwLock<IngestionTelemetry>>` publish for the metrics renderer + ROTA
+  handlers touches fortuna-live (the drive() seam slice / track A's crate) — a
+  separate slice to sequence vs track A. Track B builds V1-V3 against the §2
+  struct now (field names stable, per the contract).
+- OBS-3: `SourceTelemetry.domain_tags` is EMPTY this slice — the domain
+  (weather|macro|…) comes from the source_registry/config admission, which has no
+  such field yet; fold with F10. The struct shape is stable so the column renders.
+- `kind` is the LAST-SEEN signal kind ("" until the first signal) — a live proxy,
+  not a static declaration; acceptable for the feed/health views.
+
+BATTERY: scoped green (fmt --check; clippy -p fortuna-sources --all-targets
+-D warnings; test -p fortuna-sources = 118 lib + 5 ingest_dst). Full-workspace
+battery deferred to the verifier's merge gate (same rationale as F4 below:
+concurrent cross-track full-workspace batteries + ~27Gi disk; a single-crate
+additive change cannot affect other crates). Predicted gate mutations: drop
+`.take(120)` in summarize -> telemetry_summary_truncates_untrusted_payload reds;
+drop the `pop_front` bound -> telemetry_recent_is_bounded_to_cap reds; drop
+`last_error = None` on success -> telemetry_last_error_…_cleared reds.
+
+## TRACK D — F4 factory wiring: SCOPED-battery deferral (verifier owns the full-workspace merge gate)
+
+F4 (2026-06-13) wired the F2 grader into the source factory ((Nws,"climate") ->
+NwsClimateSource) so it is reachable + scheduler-validated; Aeolus was already
+wired (F3). The change is SINGLE-CRATE-ADDITIVE to crates/fortuna-sources (one
+match arm + one test), no public-API change.
+
+BATTERY RUN (this iteration, all real exit codes): `cargo fmt --check` clean;
+`cargo clippy -p fortuna-sources --all-targets -- -D warnings` clean (2s
+incremental — only fortuna-sources rechecked, proving containment);
+`cargo test -p fortuna-sources` 112 lib + 5 ingest_dst DST, 0 failed (incl. the
+new wires_the_climate_grader_and_aeolus); `cargo check -p fortuna-live` clean
+(the consumer + full transitive chain: exec/state/ledger/runner/ops).
+
+DEFERRED (not run this iteration): the FULL-workspace `clippy --workspace` /
+`cargo test --workspace` / `scripts/run-dst.sh`. WHY: at run time the machine had
+MULTIPLE concurrent full-workspace batteries from other tracks (observed: a
+`cargo test --workspace`, a `clippy --workspace`, a `check --workspace`) with
+~30Gi free — launching a 4th competing cold workspace compile risks ENOSPC and
+violates the one-battery-at-a-time rule. A single-arm fortuna-sources change
+cannot affect other crates' compilation/tests (no public-API change; consumer
+chain independently confirmed to compile). This mirrors the verifier's own
+documented warm-target-incremental posture (GATE-FINDINGS DISK note).
+UNBLOCK: the verifier owns the clean-window full-workspace battery + the merge
+gate (the established D9/D10 pattern: implementer commits scoped-validated, the
+gate runs the full battery + the executed mutation check). Predicted mutation:
+neutralize the (Nws,"climate") arm => wires_the_climate_grader_and_aeolus reds
+(unwrap on the Err arm). Not operator-blocked; verifier-gated on merge.
+
 ## TRACK A — T4.2 item 2(i) WS dial COMPLETE: full KalshiWsTransport built (operator runs the first live exercise)
 
 Queue item 2(i) (Kalshi WS dial). Built the SURVIVAL DECISION core as a pure,
@@ -2238,6 +2297,37 @@ DST exit 0 (2000/stage; corpus 3 seeds). Branch track-c at 4fd16de,
 rebased on main f4b4a54-era; all work committed, nothing pushed.
 
 ## Track D — news-aggregation Phase A
+
+- **F1/F3 Aeolus: LIVE endpoint is an EPHEMERAL cloudflare quick-tunnel; the
+  API key is operator-env-only.** The Aeolus team served /v2/forecasts over a
+  trycloudflare.com quick-tunnel (host churns; a stable host must be pinned in
+  source_registry + config for production). The `x-api-key` secret is resolved
+  at composition via `AEOLUS_API_TOKEN` (env), NEVER in repo/config/logs/audit
+  (set_sensitive + redacted Debug). The captured fixtures contain NO secret
+  (verified). Operator action to ENABLE: set AEOLUS_API_TOKEN, pin the stable
+  Aeolus host, add the [sources.aeolus] entry (auth_header="x-api-key",
+  auth_env="AEOLUS_API_TOKEN") + a source_registry row.
+
+- **F3 AeolusSource is DUMB; the strict v2 parse + μ/σ→p is F6 (cognition).**
+  The adapter emits the raw envelope untouched (contract §4). The strict
+  AeolusEnvelope parse (σ>0, units==degF, p clamp-not-reject, deny_unknown_fields,
+  nullable skill) + the pinned-erf μ/σ→p helper + the identity-tuple dedup are
+  cognition-side (reconciliation.rs, F5/F6) — ledgered for the cognition owner.
+  The live capture CONFIRMS the rev-3 contract: crpss_vs_raw=null, n_scored=30,
+  p pre-clamped, resolution.note names the CLI daily-climate product (= the F2
+  grader). F4 (next_run_at release-aware cadence) folds into D9 (the scheduler
+  already consumes event windows; next_run_at-driven cadence is the refinement).
+
+- **F2 NWS climate grader: max/min EXTRACTION + station mapping are GRADER-side
+  (cognition), by design.** NwsClimateSource ingests CLI products as the
+  authoritative raw resolution source (`nws.cli`, full productText). It does NOT
+  parse the daily max/min — the CLI text is fragile (`MINIMUM 7676` = observed
+  76 + record 76 jammed) and a mis-read high would mis-grade a belief. At
+  SETTLEMENT, the cognition grader (F9) extracts the official high for the
+  target date from the raw text (where ambiguity can be flagged). Also
+  grader-side: mapping a market station (e.g. KNYC) to the right CLI product
+  (CLI is issued per WFO/office). Ledgered for the cognition/grader owner.
+  F2 (Track D) delivers the authoritative source + report_date indexing.
 
 - **D10 OPERATOR PREREQ to ENABLE ingestion (default off).** Turning on the
   ingestion loop needs THREE things together: (1) `[ingestion] enabled = true`

@@ -342,9 +342,37 @@ impl<T: FetchTransport> FetchClient<T> {
 /// timeout so the `Timeout` classification can fire. Thin by design — it
 /// signs nothing and decides nothing; it is exercised through fixtures and
 /// integration, not unit tests (mirrors `ReqwestKalshiTransport`).
+///
+/// Per-source auth headers (design §3.1) are attached to every request after
+/// the `User-Agent`. The header VALUES are marked sensitive
+/// ([`HeaderValue::set_sensitive`]), so the `http` crate prints `Sensitive` in
+/// Debug and never logs them — the redaction guarantee for a secret like
+/// Aeolus's `x-api-key`. We do NOT derive `Debug` on this struct (it holds the
+/// secret header values); the manual impl below omits them.
 pub struct ReqwestFetchTransport {
     http: reqwest::Client,
     user_agent: String,
+    /// Auth headers attached to every request (name + sensitive value). Empty
+    /// for keyless sources (NWS, RSS); one entry for Aeolus (`x-api-key`).
+    auth_headers: Vec<(reqwest::header::HeaderName, reqwest::header::HeaderValue)>,
+}
+
+/// Manual `Debug` (NOT derived): the auth header VALUES are secrets and must
+/// never surface in a debug print or log (house rule + design §3.1/§5.11). The
+/// header NAMES are not secret, so they are listed; the values are elided.
+impl std::fmt::Debug for ReqwestFetchTransport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let header_names: Vec<&str> = self
+            .auth_headers
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
+        f.debug_struct("ReqwestFetchTransport")
+            .field("user_agent", &self.user_agent)
+            .field("auth_header_names", &header_names)
+            .field("auth_header_values", &"<redacted>")
+            .finish()
+    }
 }
 
 impl ReqwestFetchTransport {
@@ -360,7 +388,33 @@ impl ReqwestFetchTransport {
         Ok(ReqwestFetchTransport {
             http,
             user_agent: user_agent.to_string(),
+            auth_headers: Vec::new(),
         })
+    }
+
+    /// Register a per-source auth header (design §3.1). Generic by name — for
+    /// Aeolus that is `x-api-key`, but Bearer or any scheme drops in unchanged.
+    /// The value is marked sensitive so it is redacted in every `http`/`reqwest`
+    /// Debug path and never logged. The `secret` itself is never copied into an
+    /// error string: a malformed name/value reports only the (non-secret) name.
+    pub fn with_auth_header(mut self, name: &str, secret: &str) -> Result<Self, SourcesError> {
+        let header_name =
+            reqwest::header::HeaderName::from_bytes(name.as_bytes()).map_err(|_| {
+                SourcesError::ConfigInvalid {
+                    source_id: "<fetch-transport>".into(),
+                    reason: format!("invalid auth header name `{name}`"),
+                }
+            })?;
+        let mut header_value = reqwest::header::HeaderValue::from_str(secret).map_err(|_| {
+            // NEVER echo the secret: report only the (non-secret) header name.
+            SourcesError::ConfigInvalid {
+                source_id: "<fetch-transport>".into(),
+                reason: format!("auth header `{name}` has a value not valid as an HTTP header"),
+            }
+        })?;
+        header_value.set_sensitive(true);
+        self.auth_headers.push((header_name, header_value));
+        Ok(self)
     }
 
     fn header(resp: &reqwest::Response, name: reqwest::header::HeaderName) -> Option<String> {
@@ -383,6 +437,11 @@ impl FetchTransport for ReqwestFetchTransport {
             .http
             .get(url)
             .header(header::USER_AGENT, &self.user_agent);
+        // Per-source auth headers (design §3.1), after the User-Agent. The
+        // values are already marked sensitive, so they stay redacted.
+        for (name, value) in &self.auth_headers {
+            req = req.header(name, value);
+        }
         if let Some(etag) = &conditional.etag {
             req = req.header(header::IF_NONE_MATCH, etag);
         }
@@ -575,6 +634,51 @@ mod tests {
         assert!(!lim.try_acquire(ts(100_000)));
         // A backwards clock must not refill.
         assert!(!lim.try_acquire(ts(0)));
+    }
+
+    // --- per-source auth header (design §3.1, redaction guarantee) -------
+
+    #[test]
+    fn auth_header_value_is_marked_sensitive() {
+        // The redaction mechanism: a sensitive HeaderValue prints "Sensitive"
+        // in Debug and is never logged by the http/reqwest stack. Build the
+        // header exactly as the transport does and assert the flag holds — the
+        // single guarantee that the secret cannot leak via Debug.
+        let mut value = reqwest::header::HeaderValue::from_str("super-secret-token").unwrap();
+        value.set_sensitive(true);
+        assert!(value.is_sensitive());
+        // And the redaction is visible in Debug — no secret bytes.
+        let debug = format!("{value:?}");
+        assert_eq!(debug, "Sensitive");
+        assert!(!debug.contains("super-secret-token"));
+    }
+
+    #[test]
+    fn transport_redacts_auth_header_value_in_debug() {
+        let tx = ReqwestFetchTransport::new(std::time::Duration::from_secs(5), "(test)")
+            .unwrap()
+            .with_auth_header("x-api-key", "super-secret-token")
+            .unwrap();
+        let debug = format!("{tx:?}");
+        // The (non-secret) header NAME may appear; the secret VALUE never does.
+        assert!(debug.contains("x-api-key"));
+        assert!(
+            !debug.contains("super-secret-token"),
+            "the secret must never appear in Debug: {debug}"
+        );
+    }
+
+    #[test]
+    fn auth_header_with_invalid_value_never_echoes_the_secret() {
+        // A control character cannot be an HTTP header value; the error must
+        // name only the (non-secret) header, never the secret bytes.
+        let err = ReqwestFetchTransport::new(std::time::Duration::from_secs(5), "(test)")
+            .unwrap()
+            .with_auth_header("x-api-key", "bad\nvalue")
+            .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("x-api-key"));
+        assert!(!msg.contains("bad"), "the secret must not leak: {msg}");
     }
 
     // --- FetchClient orchestration --------------------------------------

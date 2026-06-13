@@ -228,6 +228,9 @@ pub async fn build_ingestion_wiring(
         &sources_cfg,
         &factory_cfg,
         |id| tiers.get(id).copied(),
+        // The binary owns env access (the lib never reads env): resolve a
+        // source's `auth_env` name (e.g. AEOLUS_API_TOKEN) to its secret here.
+        |name| std::env::var(name).ok(),
         clock,
     )
     .map_err(|e| IngestionBuildError::Factory(e.to_string()))?;

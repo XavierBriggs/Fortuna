@@ -7,6 +7,7 @@
 //! Phase A invariant: NO model anywhere in the ingestion path — enforced
 //! at config validation (see `config`), not by convention.
 
+pub mod aeolus;
 pub mod calendar;
 pub mod config;
 pub mod corroborate;
@@ -14,10 +15,12 @@ pub mod error;
 pub mod factory;
 pub mod fetch;
 pub mod nws;
+pub mod nws_climate;
 pub mod rss;
 pub mod scheduler;
 pub mod validate;
 
+pub use aeolus::{aeolus_claimed_time, AeolusSource, AEOLUS_FORECAST_KIND};
 pub use calendar::{
     calendar_claimed_time, CalendarFeed, CalendarSource, RELEASE_PRINTED_KIND,
     RELEASE_SCHEDULED_KIND,
@@ -31,9 +34,11 @@ pub use fetch::{
     PoliteLimiter, RawHttpResponse, ReqwestFetchTransport,
 };
 pub use nws::{nws_claimed_time, NwsFeed, NwsSource};
+pub use nws_climate::{nws_climate_claimed_time, NwsClimateSource, NWS_CLI_KIND};
 pub use rss::{rss_claimed_time, RssSource, RSS_ITEM_KIND};
 pub use scheduler::{
-    AcceptedSignal, Alert, ClaimedTimeFn, DropReason, Dropped, Health, IngestionScheduler,
-    SourceMetrics, SourceSchedule, TickOutcome,
+    AcceptedSignal, Alert, ClaimedTimeFn, DropReason, Dropped, FunnelCounts, Health,
+    IngestionScheduler, IngestionTelemetry, SignalRecord, SourceMetrics, SourceSchedule,
+    SourceTelemetry, TickOutcome, TickTelemetry,
 };
 pub use validate::{Candidate, StructuralConfig, StructuralValidator, Verdict};

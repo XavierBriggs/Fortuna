@@ -14,8 +14,9 @@ use std::time::Duration;
 use fortuna_cognition::signals::{RawSignal, Source};
 use fortuna_core::clock::RealClock;
 use fortuna_sources::{
-    calendar_claimed_time, nws_claimed_time, rss_claimed_time, CalendarFeed, CalendarSource,
-    FetchCaps, FetchClient, HostPin, NwsFeed, NwsSource, ReqwestFetchTransport, RssSource,
+    aeolus_claimed_time, calendar_claimed_time, nws_claimed_time, rss_claimed_time, AeolusSource,
+    CalendarFeed, CalendarSource, FetchCaps, FetchClient, HostPin, NwsFeed, NwsSource,
+    ReqwestFetchTransport, RssSource,
 };
 
 const UA: &str = "(fortuna-live-smoke, xbriggs03@gmail.com)";
@@ -150,6 +151,30 @@ async fn main() {
         "title",
     )
     .await;
+
+    // --- Aeolus (proprietary forecast vendor) — env-gated so no key/host lands
+    // in the file. Set AEOLUS_URL + AEOLUS_API_TOKEN to exercise the F1 auth +
+    // F3 adapter end-to-end against the live endpoint. ---
+    if let (Ok(url), Ok(token)) = (
+        std::env::var("AEOLUS_URL"),
+        std::env::var("AEOLUS_API_TOKEN"),
+    ) {
+        let pin = HostPin::from_url(&url).expect("valid AEOLUS_URL");
+        let transport = ReqwestFetchTransport::new(Duration::from_secs(20), UA)
+            .expect("build transport")
+            .with_auth_header("x-api-key", &token)
+            .expect("auth header");
+        let aclient = FetchClient::new(transport, pin, 60, FetchCaps::default());
+        show(
+            "Aeolus forecast (x-api-key auth)",
+            AeolusSource::new("aeolus", url, aclient, clock.clone()),
+            aeolus_claimed_time,
+            "variable",
+        )
+        .await;
+    } else {
+        println!("\n── Aeolus  (skipped — set AEOLUS_URL + AEOLUS_API_TOKEN to exercise)");
+    }
 
     println!("\nDone.");
 }
