@@ -66,7 +66,7 @@ async fn serve() -> (String, tokio::task::JoinHandle<()>) {
     (format!("http://{addr}"), handle)
 }
 
-const PATHS: [&str; 11] = [
+const PATHS: [&str; 12] = [
     "/rota",
     "/assets/rota/logo.svg",
     "/api/rota/v1/health",
@@ -77,6 +77,7 @@ const PATHS: [&str; 11] = [
     "/api/rota/v1/streams",
     "/api/rota/v1/ingest_sources",
     "/api/rota/v1/ingest_feed",
+    "/api/rota/v1/ingest_funnel",
     "/api/rota/v1/audit",
 ];
 
@@ -126,6 +127,7 @@ async fn degraded_surfaces_are_200_with_explicit_unavailable() {
         "streams",
         "ingest_sources",
         "ingest_feed",
+        "ingest_funnel",
     ] {
         let j: serde_json::Value = client
             .get(format!("{base}/api/rota/v1/{name}"))
@@ -275,6 +277,52 @@ async fn ingest_feed_board_serves_seeded_signals() {
     // The untrusted summary is carried verbatim as DATA (the renderer esc()s it).
     assert_eq!(j["rows"][1]["status"], "dropped:over_volume");
     assert_eq!(j["summary"]["dropped"], 1);
+}
+
+// D-contract V3 Ingest Funnel: the stage table serves the pipeline funnel with
+// retention + drop-offs. POPULATED-path — asserts real stage rows (where signal
+// is lost), not a vacuous empty funnel.
+#[tokio::test]
+async fn ingest_funnel_board_serves_seeded_stages() {
+    let snap = empty_snapshot();
+    {
+        let mut s = snap.write().await;
+        s.views = serde_json::json!({
+            "ingest_funnel": {
+                "title": "Ingest Funnel",
+                "columns": [
+                    {"key":"stage","label":"Stage"},
+                    {"key":"count","label":"Count"},
+                    {"key":"retain_pct","label":"Retain %"},
+                    {"key":"dropped","label":"Dropped"}
+                ],
+                "rows": [
+                    {"stage":"Fetched","count":1240,"retain_pct":100,"dropped":0},
+                    {"stage":"Validated","count":1052,"retain_pct":85,"dropped":188},
+                    {"stage":"Persisted","count":1048,"retain_pct":85,"dropped":4}
+                ],
+                "summary": {"fetched":1240,"persisted":1048,"retain_pct":85}
+            }
+        });
+    }
+    let app = rota_router(RotaState::standalone(snap));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/ingest_funnel"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 3, "all funnel stages served");
+    assert_eq!(j["rows"][0]["stage"], "Fetched");
+    // The validate stage is where 188 items were refused by Layer-1.
+    assert_eq!(j["rows"][1]["dropped"], 188);
+    assert_eq!(j["summary"]["persisted"], 1048);
 }
 
 #[tokio::test]

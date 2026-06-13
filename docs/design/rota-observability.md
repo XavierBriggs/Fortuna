@@ -31,7 +31,7 @@ telemetry on every layer — consuming the C/D/E observability contracts.
 | Audit | `/audit` | ledger | B | DONE + verified |
 | Ingest — Sources (D V2) | `/ingest_sources` | `IngestionTelemetry` (on main) | D publish | **DONE** — handler + generic `boardTable` renderer + populated test + screenshot (harness seed); prod data pending track-A OBS-2 publish |
 | Ingest — Live Feed (D V1) | `/ingest_feed` | `IngestionTelemetry.recent` (on main) | D publish | **DONE** — marquee feed board (reuses `boardTable` + a data-driven `pill` status flag) + populated test + screenshot; prod data pending OBS-2 publish |
-| Ingest — Funnel (D V3) | `/ingest_funnel` | `IngestionTelemetry` (on main) | D publish | "" |
+| Ingest — Funnel (D V3) | `/ingest_funnel` | `IngestionTelemetry.funnel` (on main) | D publish | **DONE** — funnel-as-stage-table (reuses `boardTable`): fetched→validated→normalized→persisted with retention % + drop-offs + populated test + screenshot; prod data pending OBS-2 (loop-stages null-until-wired, never a fabricated 0) |
 | Vendor Scorecard (D V4) | `/ingest/scorecard` | `source_reliability` | D (Layer-3 job) | BLOCKED on the Layer-3 trust-attribution job |
 | Forecast→Outcome (D V5) | `/forecast_outcome` | beliefs+events+settlements+signals | mixed | BLOCKED on the data flow |
 | Hypothesis Lifecycle (D V6) | `/hypotheses` | beliefs+intents+settlements | mixed | BLOCKED on the data flow |

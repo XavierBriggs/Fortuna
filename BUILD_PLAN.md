@@ -536,8 +536,13 @@ Polymarket research+fixtures, spec v0.9 touch-up).
         Prod data pending track-A OBS-2 publish (IngestionTelemetry on main).
   - [x] V1 Live Signal Feed (D ingestion contract, the marquee) — reuses boardTable
         via a data-driven `pill` column flag + /api/rota/v1/ingest_feed handler +
-        populated-path test; screenshot-verified with real rows (this commit).
+        populated-path test; screenshot-verified with real rows (cc463bb).
         Prod data pending track-A OBS-2 feed publish.
+  - [x] V3 Ingest Funnel (D ingestion contract) — funnel-as-stage-table (reuses
+        boardTable): fetched→validated→normalized→persisted with retention % +
+        drop-offs + /api/rota/v1/ingest_funnel + populated-path test;
+        screenshot-verified (this commit). Completes the live ingestion triad
+        (V1/V2/V3, 10 boards). Prod data pending OBS-2 (loop-stages null-until-wired).
 
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)

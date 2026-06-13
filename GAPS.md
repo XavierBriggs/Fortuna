@@ -763,6 +763,34 @@ Until those land, the new boards ship as read-only frontend + honest-degraded
 (`available:false`) handlers — the discipline all three contracts specify
 ("build the panels now; they light up when the data lands").
 
+### V3 INGEST FUNNEL DONE (2026-06-13) — completes the live ingestion triad (V1/V2/V3); the OBS-2 funnel envelope contract
+Built the D-contract V3 Ingest Funnel as a stage table (reuses `boardTable`):
+`view_ingest_funnel` reads `snapshot.views["ingest_funnel"]`; new panel + poll;
+PATHS/degraded extended; POPULATED-path test `ingest_funnel_board_serves_seeded_stages`.
+Shows fetched→validated→normalized→persisted with retention % + per-stage drop-offs
+(where signal is lost). Screenshot-verified (10 boards total); archived
+docs/reviews/rota-visual/rota-v3-funnel-2026-06-13.png. Purely additive (reuses the
+twice-reviewed boardTable, zero new render logic) — leaned on battery + screenshot
+rather than a 3rd reviewer pass on unchanged primitives.
+
+OBS-2 FUNNEL ENVELOPE for TRACK A (shape `IngestionTelemetry.funnel` (FunnelCounts)
+into `snapshot.views["ingest_funnel"]` as a stage table):
+  { title:"Ingest Funnel", generated_at:<clock>,
+    columns:[{key,label} for stage, count, retain_pct, dropped, detail],
+    rows:[ one per stage:
+      Fetched   = {count:fetched, retain_pct:100, dropped:0},
+      Validated = {count:validated_accepted, retain_pct:validated_accepted*100/fetched,
+                   dropped:validated_dropped},
+      Normalized= {count:normalized, retain_pct:normalized*100/fetched, dropped:0},
+      Persisted = {count:persisted, retain_pct:persisted*100/fetched,
+                   dropped:deduped, detail:"deduped D · persist_failures F"} ],
+    summary:{ fetched, persisted, retain_pct, persist_failures } }
+HONESTY (load-bearing): the LOOP-SIDE stages (normalized/deduped/persisted/
+persist_failures) are 0 in the scheduler-only FunnelCounts until the ingestion loop
+feeds them (track-D OBS-2 note). EMIT THEM AS null (→ renders "—"), NOT 0, until the
+loop is wired — a 0 there reads as "everything dropped after validation", a
+fabricated-zero. Only emit real counts once the loop publishes them.
+
 ### V1 LIVE SIGNAL FEED DONE (2026-06-13) — the marquee feed board + boardTable pill-flag refactor + the OBS-2 feed envelope contract
 Built the D-contract V1 Live Signal Feed (`view_ingest_feed` reads
 `snapshot.views["ingest_feed"]`; reuses the generic `boardTable`; new full-width

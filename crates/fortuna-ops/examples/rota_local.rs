@@ -441,6 +441,34 @@ fn representative_views(generated_at: &str) -> Value {
             ],
             "summary": { "window": 5, "accepted": 2, "dropped": 3 },
         },
+        // D-contract V3 Ingest Funnel — the process at a glance: the pipeline
+        // stages with retention % + drop-offs (where signal is lost). In prod the
+        // daemon shapes this from IngestionTelemetry.funnel (FunnelCounts);
+        // CONTRACT: loop-side stages (normalized/persisted) are emitted null until
+        // the ingestion loop feeds them, never a fabricated 0. Here the seed shows
+        // the fully-wired funnel.
+        "ingest_funnel": {
+            "title": "Ingest Funnel",
+            "generated_at": generated_at,
+            "columns": [
+                { "key": "stage", "label": "Stage" },
+                { "key": "count", "label": "Count" },
+                { "key": "retain_pct", "label": "Retain %" },
+                { "key": "dropped", "label": "Dropped" },
+                { "key": "detail", "label": "Detail" },
+            ],
+            "rows": [
+                { "stage": "Fetched", "count": 1240, "retain_pct": 100, "dropped": 0,
+                  "detail": "raw items returned by the adapters" },
+                { "stage": "Validated", "count": 1052, "retain_pct": 85, "dropped": 188,
+                  "detail": "refused by Layer-1 (future / republished / over_volume)" },
+                { "stage": "Normalized", "count": 1052, "retain_pct": 85, "dropped": 0,
+                  "detail": "became SignalEnvelopes" },
+                { "stage": "Persisted", "count": 1048, "retain_pct": 85, "dropped": 4,
+                  "detail": "deduped 4 · persist_failures 0" },
+            ],
+            "summary": { "fetched": 1240, "persisted": 1048, "retain_pct": 85, "persist_failures": 0 },
+        },
     })
 }
 
