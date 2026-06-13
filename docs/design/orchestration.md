@@ -106,3 +106,22 @@ Track C session (cd /Users/xavierbriggs/fortuna-wt-c first):
 
 Track A continues unchanged (its loop file now carries the track-A
 ownership note and the edge-source decision pointer).
+
+## SHARED-TREE MERGE HAZARD (added 2026-06-13 after a live near-miss)
+
+Track A's Ralph runs IN the main checkout (/Users/xavierbriggs/fortuna); the
+verifier/orchestrator ALSO runs there. A `git merge` into main while track A
+has uncommitted work is a hazard: it SUCCEEDED safely only because the merge
+and track A's edit were on disjoint files (git refuses a merge that would
+overwrite uncommitted tracked changes — so a collision fails loud, not
+silent, but still interrupts the merge). RULES:
+1. Before any orchestrator merge into main, `git status --short` — if a
+   track-owned source file is modified (uncommitted), the merge MAY proceed
+   ONLY if disjoint from the merge's file set; otherwise WAIT for the track's
+   next commit (clean tree) or coordinate.
+2. NEVER `git reset/checkout/stash` in the shared tree to clear a track's
+   uncommitted work — that is the irreversible-destruction the classifier
+   correctly blocks.
+3. Post-merge integration checks run in a DETACHED worktree at the merge
+   commit, never the shared tree — track A's own next commit-gate battery is
+   the second integration layer.
