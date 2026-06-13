@@ -423,10 +423,12 @@ record; verified end-to-end at the
   filter edges, never define them, because a config-defined edge would bypass
   the confirmation machinery
   ([synthesis-edge-source-decision](design/synthesis-edge-source-decision.md));
-  the `[mech_extremes]` arm opt-in, enrolled in the reduce-only model veto. The
-  mind is injected: `mind_from_env` builds the Claude-backed `AnthropicMind`
-  when `ANTHROPIC_API_KEY` is present, else the stub (which is itself opt-in
-  via config).
+  the `[mech_extremes]` arm opt-in, enrolled in the reduce-only model veto; the
+  `[funding_forecast]` and `[perp_event_basis]` perp arms opt-in (Sim-stage,
+  neither veto-enrolled — `funding_forecast` is a zero-capital scalar producer
+  that proposes nothing). The mind is injected: `mind_from_env` builds the
+  Claude-backed `AnthropicMind` when `ANTHROPIC_API_KEY` is present, else the
+  stub (which is itself opt-in via config).
 - **The run loop and segments.** The loop wakes on the halt-poll cadence
   (≤500ms — an external halt applies within half a second), and ticks the
   runner on the runner's own injected clock
@@ -435,8 +437,14 @@ record; verified end-to-end at the
   scrapes degrade signals into routed Slack alerts (every message also an
   audit row), re-loads the confirmed edge set (a refresh failure keeps the
   last-known set and alerts — never trades on a guessed set), and drains and
-  persists the synthesis arm's belief drafts
-  ([daemon.rs](../crates/fortuna-live/src/daemon.rs)).
+  persists belief drafts each segment — the synthesis arm's binary beliefs and,
+  when a perp producer is composed, the scalar beliefs (`scalar_beliefs`, the
+  table ROTA §9.1 groups by `producer`; the scalar drain runs independently of
+  the synthesis arm) ([daemon.rs](../crates/fortuna-live/src/daemon.rs)). A Sim
+  soak feeds the otherwise-inert perp producers via
+  `[funding_forecast].ticker_feed_jsonl`: RECORDED kinetics `ticker` frames
+  replayed one PerpTick per segment through `inject_perp_tick` (the run loop
+  sources only `BookSnapshot`s, so without a feed the producers never fire).
 - **Schedulers.** Daily at the 00:00 UTC boundary: digest plus the model's
   daily reconciliation (journal write is Postgres-idempotent — one row per UTC
   day); weekly review on Monday-aligned weeks; monthly review per calendar

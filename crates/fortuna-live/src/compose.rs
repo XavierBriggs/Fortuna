@@ -138,7 +138,15 @@ pub struct MechExtremesSection {
 /// deliverable here.
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct FundingForecastSection {}
+pub struct FundingForecastSection {
+    /// Slice 4e (Sim soak): a path to a `.jsonl` of RECORDED kinetics WS frames.
+    /// When set, the daemon feeds the recorded `ticker` frames as `PerpTick`s
+    /// one-per-segment (looping) so the perp producers FIRE in pure-sim — the
+    /// composition is otherwise inert (no live perp feed). `None` => no feed
+    /// (the producers compose but stay idle until a real PerpTick source).
+    /// Recorded data ONLY; never fabricated.
+    pub ticker_feed_jsonl: Option<String>,
+}
 
 /// `[perp_event_basis]` opt-in (slice 4c): its PRESENCE composes the
 /// propose-only mechanical perp/bracket basis strategy (`PerpEventBasis`). The

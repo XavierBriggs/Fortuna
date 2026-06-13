@@ -18,6 +18,26 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
+- **Scalar-belief EGRESS persisted + Sim-soak PerpTick FEED** (slices 4d + 4e,
+  `fortuna-live` daemon/main + new `perp_feed`, additive): closes the slice-4
+  finding — the producers composed in 4c now actually PRODUCE and PERSIST. Each
+  segment `drive()` drains `drain_pending_scalar_beliefs()` and writes them to
+  the `scalar_beliefs` ledger via `persist_scalar_beliefs` (the table ROTA §9.1
+  groups by `producer`), gated on a composed scalar producer (`[funding_forecast]`
+  / `[perp_event_basis]`) and fail-closed to no-persist otherwise; the scalar
+  drain runs OUTSIDE the synthesis-refresh block (funding_forecast is independent
+  of the synth arm), and the scalar id space (`01SCB…`) advances independently of
+  the binary (`01BLF…`). The new `PerpTickFeed` (4e) replays RECORDED kinetics
+  `ticker` frames (`[funding_forecast].ticker_feed_jsonl`) one PerpTick per
+  segment through the 4b `inject_perp_tick` seam, so `funding_forecast` fires in a
+  Sim soak (the Sim loop sources only `BookSnapshot`s — the producers are
+  otherwise inert). The binary `BeliefDraft` path and `tick()` are byte-unchanged
+  (A3). PROOF: a DB integration test drives a recorded PerpTick end-to-end and
+  asserts the persisted `scalar_beliefs` row (unit `"rate"`, the {0.1,0.5,0.9}
+  quantile fan) — MUTATION-PROVEN (break the egress → 0 rows → RED, executed). 5
+  new tests (4 `perp_feed` parser tests against the real 489-frame capture: 74
+  tickers → 74 PerpTicks, venue-stamped, loops, zero-ticker/missing-file fail
+  closed; + the e2e); all 8 `drive()` smokes updated to the 15-arg signature.
 - **Daemon registration of the perp strategies** (slice 4c, `fortuna-live`
   compose/boot/daemon, additive — 489 insertions / 0 deletions): opt-in
   `[funding_forecast]` and `[perp_event_basis]` config sections compose the two
