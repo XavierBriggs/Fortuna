@@ -52,14 +52,37 @@ self-sequencing — the verifier's queue governs; #2 stays a valid backlog item 
    branch; the two should be reconciled (likely §5 → a pointer to the canonical
    docs/runbooks/soak-start.md once that lands). I did NOT touch the concurrent
    files (loop-doc boundary + never git add -A).
-2. **M3 rearm notices (CLI "pending restart" + ROTA health surface) — OPEN, next.**
-   RE-POINTED to TRACK A by this directive (my prior notes logged it track-B; the
-   gate finding overrides that boundary). Must land BEFORE the operator's first
-   soak halt drill.
-3. **Annotate the two stale M2-disclosure sites (`grep -n "Major M2" GAPS.md`;
-   BUILD_PLAN T4.1 "HONESTLY DEFERRED") as RESOLVED-visibly — OPEN, trivially small.**
+2. **M3 rearm notices (CLI "pending restart" + ROTA health surface) — BOUNDARY-
+   BLOCKED for Track A; needs a track-B owner OR an operator boundary-waiver.**
+   The directive RE-POINTED M3 to Track A, but its two surfaces are BOTH track-B
+   files and the loop-doc boundary "holds even over GATE-FINDINGS pool offers":
+   the CLI "pending restart" line is fortuna-cli (T4.4), and the ROTA health
+   render is fortuna-ops/src/rota.rs:513-514 — which is FIELD-SPECIFIC (renders
+   `j.halt_active`/`j.halt_reason` explicitly), so a views.rs-only data field
+   (the only in-boundary slice I own) would be INVISIBLE to the operator =
+   dead bloat, not a deliverable. ADJUDICATION: I do NOT cross into track-B to
+   satisfy a re-pointing the loop-doc boundary explicitly overrides; M3 awaits
+   either track-B picking it up or an operator waiver of the T4.3/T4.4 boundary.
+   Compounding signal: a CONCURRENT session is actively editing this exact space
+   (uncommitted docs/design/fortuna-cli.md + docs/runbooks/halt-and-rearm.md) —
+   building M3 now would also risk a cross-session collision. Must land before
+   the operator's first soak halt drill (still true; just not by THIS track
+   unilaterally). The behavior itself is already I2-compliant (gate C4 PASS);
+   M3 is the operator-VISIBILITY layer only.
+3. **Annotate the two stale M2-disclosure sites — CLOSED (this commit).** GAPS
+   site (the "[Major M2] ... unbuilt" bullet below) and BUILD_PLAN T4.1
+   "HONESTLY DEFERRED" both annotated RESOLVED-visibly (struck/bracketed, never
+   erased), citing the M2 slices + the SOAK: GO gate (B1-B4) + the "M2 IS FULLY
+   RESOLVED" anchor. Doc-only; full battery still run green.
 4. **T4.2 post-fixture tranche — OPEN, still operator-blocked** on the Kalshi
    fixture-recording session.
+
+NEXT-ITERATION POSTURE: items 1 + 3 done; item 2 (M3) boundary-blocked (above);
+item 4 operator-blocked. No in-boundary Track-A build item remains on the
+re-pointed queue. The backlog #2 (distinct reader/writer-pool boot assertion,
+fortuna-live — fully in-boundary) is the remaining buildable Track-A item if the
+loop continues past the re-pointed queue; M3 stays blocked pending a track-B
+owner or operator waiver.
 
 ## TRACK A — T4.1/M2 COMPLETE; "EXHAUSTED" was PREMATURE — two missed ROTA-slice follow-ups taken back (#3 CLOSED, #2 next)
 
@@ -182,10 +205,15 @@ RE-GATE BATTERY (this commit, full + real exit codes): fmt --check 0; clippy
 --workspace --all-targets -D warnings 0; cargo test --workspace 0; run-dst.sh
 10000 0 (corpus replay + 10000 seeds; synthesis/settlement/daemon_smoke green).
 REMAINING gate findings (NOT this commit; queued):
-- [Major M2] daily reconciliation + weekly/monthly reviews unbuilt (ticked box,
-  named contract items deferred). Operator waive-or-subtask decision; the
-  Track-A wiring is scoped below ("NEXT ITEM"). Verifier recommends explicit
-  BUILD_PLAN sub-checkboxes so the items cannot evaporate post-tick.
+- [Major M2 — RESOLVED 2026-06-12] ~~daily reconciliation + weekly/monthly
+  reviews unbuilt~~ (ticked box, named contract items deferred). NOW BUILT:
+  daily reconciliation (slices 1-2), weekly review (A/B1/B2), monthly review
+  (C1/C2) — all wired into drive(), tested + mutation-proven; the SOAK: GO gate
+  (docs/reviews/soak-go-gate-2026-06-12.md, criteria B1-B4) graded each on
+  executed evidence. See "===> M2 IS FULLY RESOLVED" below. The original
+  "Operator waive-or-subtask decision" is moot — resolved by building, not
+  waiving; the verifier's sub-checkbox recommendation is superseded by the
+  executed-evidence gate. (Annotated per the SOAK: GO re-pointed queue item 3.)
 - [Major M3] rearm docs 1/3 — ASSUMPTIONS done; CLI + ROTA notices are track-B
   (GAPS:148-163); behavior itself I2-compliant (gate C4 PASS). Should land
   before the soak's first halt drill. NOTE: 7cc510f (post-gate, unseen by this

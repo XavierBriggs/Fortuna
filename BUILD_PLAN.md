@@ -375,6 +375,12 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       HONESTLY DEFERRED post-tick (ledgered, NOT part of the soak's mechanical
       run): daily reconciliation re-run + weekly/monthly cognition reviews; live
       synthesis also needs AnthropicVetoMind (fortuna-cognition, out of bounds).
+      [RESOLVED 2026-06-12 — the reviews are no longer deferred: daily
+      reconciliation + weekly + monthly reviews are BUILT, wired into drive(),
+      tested + mutation-proven, and gate-graded on executed evidence (M2 slices;
+      docs/reviews/soak-go-gate-2026-06-12.md B1-B4; GAPS "M2 IS FULLY
+      RESOLVED"). The AnthropicVetoMind stays a LIVE-only future item — never a
+      Sim-soak blocker. Annotated per the SOAK: GO re-pointed queue item 3.]
       COMPLETION GATE 2026-06-12 (docs/reviews/t41-completion-gate-2026-06-12.md):
       BLOCK with ONE mechanical driver M1 (example-config pin out of sync after
       304f746 added synthesis_cents). FIXED + FULL re-gate battery green
