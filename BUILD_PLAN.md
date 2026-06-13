@@ -408,7 +408,9 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       kalshi_recorded_roundtrip.rs: place/place-400/cancel-race/fills) — remaining
       C2 (409-resolve/unauth/legacy) pending; Cluster 3 auth-401 routing DONE
       (fe86cb5), WS live handshake op-run. Remaining:
-      (iv) kill-switch Kalshi plug, (v) Slack listener.
+      (iv) kill-switch Kalshi freeze MACHINERY proven (4e3a484, mock; i4
+      invariant green) — live `freeze --venue kalshi` wiring next (GAPS); (v)
+      Slack listener.
 - [ ] T4.3 ROTA — the operator dashboard (operator-directed 2026-06-11; design
       AUTHORITATIVE at docs/design/rota-dashboard.md INCLUDING its amendments
       section): read-only gold/black operator console — server-rendered Rust

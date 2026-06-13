@@ -57,6 +57,12 @@ verifier amends as gates land. All standard loop rules apply unchanged.
        pair, freeze --venue kalshi wiring + tests (mock transport); I4
        dependency rules absolute (no new killswitch deps); live exercise
        operator-run after clearance.
+       >> MACHINERY DONE 4e3a484 (2026-06-13): kalshi_freeze.rs proves
+          freeze_and_cancel cancels every open order over the REAL KalshiVenue
+          (mock transport, no live socket); i4_killswitch_independence stays
+          green (zero new dep). REMAINING: the live `freeze --venue kalshi`
+          wiring in main.rs (env creds + tokio-runtime drive; I4 analysis in
+          GAPS, verifier-flagged); live exercise op-run after clearance.
    (v) Slack Socket Mode listener: build to the research contract
        (docs/research/ops/) with mock transport tests — kill REQUESTS
        only, re-arms stay CLI-only; live exercise needs the operator's

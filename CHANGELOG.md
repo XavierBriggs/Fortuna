@@ -122,6 +122,26 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-13 — T4.2 (iv) kill-switch Kalshi freeze machinery — `4e3a484`
+
+**What.** `crates/fortuna-killswitch/tests/kalshi_freeze.rs` (1 test; test-only) —
+proves the I4 freeze-and-cancel works over the REAL `KalshiVenue` adapter via a
+mock transport (no live socket): open_orders → cancel each (DELETE + reconcile
+GET → canceled) → KillReport(2 cancelled, 0 failed); 5 transport calls; the
+flat-file journal records the freeze.
+
+**I4.** Mock + `block_on` (no tokio runtime); `fortuna-venues` already a killswitch
+dep → ZERO new crate → `i4_killswitch_independence` invariant test verified GREEN.
+
+**Remaining (next slice, ledgered GAPS).** The live `freeze --venue kalshi` wiring
+(FORTUNA_KILLSWITCH_* creds + ReqwestKalshiTransport on a current-thread tokio
+runtime — I4 analysis flagged for verifier); live exercise operator-run after
+clearance.
+
+**Battery.** fmt; clippy --workspace --all-targets; cargo test --workspace (132
+targets, 0 failed, incl. i4_killswitch_independence); run-dst.sh 200 (0 violations;
+daemon_smoke 15/15). code-reviewer ACCEPT. Protected crate untouched.
+
 ### 2026-06-13 — T4.2 (iii) Cluster 2/3: Kalshi auth-401 routing — `fe86cb5`
 
 **What.** +1 parametric test in `kalshi_recorded_roundtrip.rs`: each recorded 401

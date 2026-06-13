@@ -18,6 +18,42 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK A — T4.2 item 2(iv) kill-switch Kalshi plug: MACHINERY proven (4e3a484); LIVE wiring ledgered
+
+The I4 freeze-and-cancel MACHINERY is proven over the REAL KalshiVenue adapter
+(crates/fortuna-killswitch/tests/kalshi_freeze.rs, 1 test): mock transport, NO
+live socket — open_orders → cancel each (DELETE + reconcile GET → canceled) →
+KillReport(seen 2, cancelled 2, failed 0); flat-file journal records the freeze;
+5 transport calls = open_orders + 2×(DELETE+reconcile GET). I4-SAFE: mock +
+block_on (no tokio runtime); fortuna-venues already a killswitch dep so ZERO new
+crate — i4_killswitch_independence invariant test VERIFIED GREEN this battery
+(forbidden = sqlx/postgres/ledger/cognition, none added). No production change.
+
+REMAINING (next slice) — the LIVE `freeze --venue kalshi` WIRING in main.rs
+(replaces the current "no live adapter wired" stub at main.rs:68-77):
+- Read FORTUNA_KILLSWITCH_KALSHI_API_KEY_ID + _PRIVATE_KEY_PATH (env-only,
+  SEPARATE pair from the runtime per I4; reserved in .env.example + operator.md).
+  Fail CLOSED with a clear error if absent.
+- KalshiSigner::new(pem, key_id) → ReqwestKalshiTransport::new → KalshiVenue::new
+  (series empty — freeze uses only open_orders + cancel) →
+  freeze_cancel_and_report_positions.
+- EXECUTOR DECISION (I4-ADJACENT — flagged for verifier visibility/blessing): the
+  live path drives ReqwestKalshiTransport's async reqwest calls, which require a
+  tokio reactor (futures::executor::block_on panics "no reactor"). PLAN: spin a
+  minimal current-thread tokio runtime in main() for the live freeze. I4 ANALYSIS:
+  tokio is ALREADY transitive via fortuna-venues (a current killswitch dep), so a
+  DIRECT dep adds NO new package → the i4 STRUCTURAL test (forbidden list excludes
+  tokio) stays green; a SELF-SPUN runtime does NOT depend on the daemon's event
+  loop / Postgres / cognition / LLM being healthy (the I4 contract); house style is
+  "tokio for IO at the edges" and the killswitch HTTP cancel IS edge IO. So the
+  tokio-runtime plan is I4-CONSISTENT. ALTERNATIVE if the verifier reads "no event
+  loop" strictly: a blocking reqwest transport in fortuna-venues (more code, no
+  runtime). RECOMMEND the tokio-runtime plan; verifier confirms at the gate.
+- LIVE EXERCISE is operator-run AFTER the 27-item paper clearance (the switch must
+  not take its first real cancel through unverified venue code; see the kill-switch
+  entry in "Operator-blocked: Kalshi fixtures"). The mock machinery proof does NOT
+  gate on clearance.
+
 ## TRACK A — T4.2 item 2(iii) Cluster 2: Kalshi exec round-trips DONE (811e383)
 
 Transport round-trips over the recorded fixtures via MockKalshiTransport

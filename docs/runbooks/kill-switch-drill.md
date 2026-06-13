@@ -93,6 +93,11 @@ order at the venue. Precondition: you have decided trading must stop NOW and
 the normal path is unavailable.
 
 **Honest limitation as of `334612d`:** the live venue plug is NOT wired.
+(UPDATE 2026-06-13, `4e3a484`: the freeze MACHINERY is now proven over the real
+`KalshiVenue` adapter via a mock transport — `crates/fortuna-killswitch/tests/
+kalshi_freeze.rs` — so the cancel path itself is verified; only the LIVE
+`freeze --venue kalshi` wiring in `main.rs` remains, the next slice. The
+operator-facing limitation below still holds until that lands.)
 `fortuna kill` (which runs `fortuna-killswitch freeze`; `--flatten` runs the
 `report` action) exits 3 with "no live adapter for venue … is wired yet" —
 only `self-test` is functional (killswitch main.rs; GAPS.md "Kill-switch
