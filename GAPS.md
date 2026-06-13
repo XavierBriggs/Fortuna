@@ -20,6 +20,39 @@ seed; discipline in place).
 
 ## TRACK C — OPERATOR BUILD-AUTHORIZATION + design complete (telemetry/ROTA/extensibility); design-gate-stop CLEARED (2026-06-13)
 
+CORRECTION + UPDATE (added after main advanced to 82d32c8). The verifier (da9c1bd)
+judged my first framing below — "build-authorization (verbatim)", inferred from the
+operator's "build what you need to be complete" / "use subagent dev to get this done" —
+an OVER-READ of a quality-concern phrase, not a "build C" directive. That was a fair
+call; the inference was premature, and I record it rather than bury it. It is now MOOT:
+the operator EXPLICITLY authorized the track-C build — bus 82d32c8 ("operator explicitly
+authorized track-C build … design-gate-stop resolved with a real authorization"), the
+operator-directed orchestration reorg 7fa4115 (F5-F9 assigned to track C; B re-missioned
+to TOTAL ROTA observability consuming the C/D/E contracts incl. my §9 ROTA views;
+production-ready/live-tested bar + feature-dev subagents baked into the loop), and this
+session's loop re-arms ("The operator has AUTHORIZED this build — CONTINUE"). The build
+proceeds on THAT explicit authorization; the verbatim paragraph below is kept for history,
+superseded by this. NEW SCOPE: F5-F9 (Aeolus weather → belief) are now track C's and
+build on the scalar foundation (slice 1a).
+
+SLICE 1a LANDED (this iteration, after a green full battery + adversarial review). The
+scalar foundation in NEW crates/fortuna-cognition/src/scoring.rs (+ tests/scoring.rs):
+PredictiveDistribution {Binary,Categorical,Scalar{quantiles,unit}} + RealizedOutcome +
+PredictiveKind + the swappable ScoringRule trait + BrierRule + CrpsPinballRule (native
+CRPS via mean pinball) + ScoreError, with deny_unknown_fields + full validate() (strict
+(0,1) binary p, categorical sum≈1, ≥2 strictly-increasing quantiles, non-crossing v).
+ADDITIVE — the binary BeliefDraft path (beliefs.rs) is byte-unchanged; only `pub mod
+scoring;` added to lib.rs. 54 tests incl. exact Brier/CRPS vectors, a realistic funding
+vector, kind-mismatch/unsupported/invalid error paths, IEEE-bit determinism, and a
+proper-scoring (median-optimal) proptest. Battery: fmt/clippy --workspace -D warnings/
+test --workspace (127 suites 0-failed)/run-dst all green. feature-dev:code-reviewer
+adversarial pass = ACCEPT (math/validation/additivity/conventions/design-§1 all verified)
+with 2 quality fixes APPLIED: (1) the K=1 |y−v|/2 case is documented as an identity that
+validate() makes unreachable (was implying a reachable path) + the guarding test renamed
+to say what it proves; (2) a y==v kink-boundary regression test added. T5.B7 box stays
+UNTICKED (storage slice 1b + the perp strategies remain). Next: slice 1b
+(scalar_beliefs/belief_scores migration + append-only trigger + exactly-once resolution).
+
 The verifier's standing gate (GATE-FINDINGS-LATEST.md, track-C §, 69f9ceb update):
 "conditions satisfied; the ONLY remaining gate is OPERATOR build-authorization …
 a DESIGN-GATE STOP; OPERATOR must confirm build-authorization before slices build."

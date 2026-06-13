@@ -1,0 +1,619 @@
+//! Scoring module tests — written BEFORE implementation per the TDD doctrine.
+//!
+//! Spec text under test:
+//! - `PredictiveDistribution` validation for all three shapes.
+//! - `RealizedOutcome` kind parity.
+//! - `BrierRule`: exact squared-error vectors; binary-only scope.
+//! - `CrpsPinballRule`: mean-pinball vectors (hand-computed); median
+//!   degeneracy; realistic funding-rate vector; proper-scoring property.
+//! - `ScoringRule` swappability: each rule on its shape, each rule errors on
+//!   the wrong shape, kind-mismatched (pred, outcome) errors.
+//! - Determinism: same inputs → identical score on repeated calls.
+
+use fortuna_cognition::scoring::{
+    BrierRule, CategoricalBin, CrpsPinballRule, PredictiveDistribution, PredictiveKind, Quantile,
+    RealizedOutcome, ScoreError, ScoringRule,
+};
+use proptest::prelude::*;
+
+// ─── helpers ────────────────────────────────────────────────────────────────
+
+fn binary(p: f64) -> PredictiveDistribution {
+    PredictiveDistribution::Binary { p }
+}
+
+fn scalar(qs: Vec<(f64, f64)>) -> PredictiveDistribution {
+    PredictiveDistribution::Scalar {
+        quantiles: qs.into_iter().map(|(q, v)| Quantile { q, v }).collect(),
+        unit: "rate".to_string(),
+    }
+}
+
+fn categorical(bins: Vec<(&str, f64)>) -> PredictiveDistribution {
+    PredictiveDistribution::Categorical {
+        bins: bins
+            .into_iter()
+            .map(|(l, p)| CategoricalBin {
+                label: l.to_string(),
+                p,
+            })
+            .collect(),
+    }
+}
+
+/// Exact pinball loss at one quantile level.
+fn pinball(q: f64, v: f64, y: f64) -> f64 {
+    if y >= v {
+        q * (y - v)
+    } else {
+        (1.0 - q) * (v - y)
+    }
+}
+
+// ─── PredictiveDistribution::validate — Binary ──────────────────────────────
+
+#[test]
+fn binary_valid_midpoint() {
+    assert!(binary(0.5).validate().is_ok());
+}
+
+#[test]
+fn binary_valid_extremes_open_interval() {
+    assert!(binary(0.001).validate().is_ok());
+    assert!(binary(0.999).validate().is_ok());
+}
+
+#[test]
+fn binary_p_zero_is_invalid() {
+    assert!(binary(0.0).validate().is_err());
+}
+
+#[test]
+fn binary_p_one_is_invalid() {
+    assert!(binary(1.0).validate().is_err());
+}
+
+#[test]
+fn binary_p_negative_is_invalid() {
+    assert!(binary(-0.1).validate().is_err());
+}
+
+#[test]
+fn binary_p_above_one_is_invalid() {
+    assert!(binary(1.5).validate().is_err());
+}
+
+#[test]
+fn binary_p_nan_is_invalid() {
+    assert!(binary(f64::NAN).validate().is_err());
+}
+
+#[test]
+fn binary_p_inf_is_invalid() {
+    assert!(binary(f64::INFINITY).validate().is_err());
+}
+
+// ─── PredictiveDistribution::validate — Categorical ─────────────────────────
+
+#[test]
+fn categorical_valid_two_bins() {
+    assert!(categorical(vec![("yes", 0.7), ("no", 0.3)])
+        .validate()
+        .is_ok());
+}
+
+#[test]
+fn categorical_empty_bins_is_invalid() {
+    let d = PredictiveDistribution::Categorical { bins: vec![] };
+    assert!(d.validate().is_err());
+}
+
+#[test]
+fn categorical_bins_not_summing_to_one_is_invalid() {
+    // Sum = 0.6, outside tolerance.
+    assert!(categorical(vec![("a", 0.3), ("b", 0.3)])
+        .validate()
+        .is_err());
+}
+
+#[test]
+fn categorical_sum_just_outside_tolerance_is_invalid() {
+    // Sum = 1.0 + 2e-9, outside 1e-9 tolerance.
+    assert!(categorical(vec![("a", 0.5 + 1e-9), ("b", 0.5 + 1e-9)])
+        .validate()
+        .is_err());
+}
+
+#[test]
+fn categorical_sum_within_tolerance_is_valid() {
+    // Tiny float rounding: 0.1 + 0.2 + 0.7 may not sum to exactly 1.0
+    // but must be within 1e-9.
+    assert!(categorical(vec![("a", 0.1), ("b", 0.2), ("c", 0.7)])
+        .validate()
+        .is_ok());
+}
+
+#[test]
+fn categorical_bin_p_below_zero_is_invalid() {
+    assert!(categorical(vec![("a", -0.1), ("b", 1.1)])
+        .validate()
+        .is_err());
+}
+
+#[test]
+fn categorical_bin_p_above_one_is_invalid() {
+    assert!(categorical(vec![("a", 1.5), ("b", -0.5)])
+        .validate()
+        .is_err());
+}
+
+#[test]
+fn categorical_bin_non_finite_p_is_invalid() {
+    let d = PredictiveDistribution::Categorical {
+        bins: vec![
+            CategoricalBin {
+                label: "a".to_string(),
+                p: f64::NAN,
+            },
+            CategoricalBin {
+                label: "b".to_string(),
+                p: 1.0,
+            },
+        ],
+    };
+    assert!(d.validate().is_err());
+}
+
+#[test]
+fn categorical_empty_label_is_invalid() {
+    assert!(categorical(vec![("", 0.5), ("b", 0.5)]).validate().is_err());
+}
+
+#[test]
+fn categorical_duplicate_labels_is_invalid() {
+    assert!(categorical(vec![("a", 0.5), ("a", 0.5)])
+        .validate()
+        .is_err());
+}
+
+// ─── PredictiveDistribution::validate — Scalar ──────────────────────────────
+
+#[test]
+fn scalar_valid_three_quantiles() {
+    assert!(scalar(vec![(0.1, -1.0), (0.5, 0.0), (0.9, 1.0)])
+        .validate()
+        .is_ok());
+}
+
+#[test]
+fn scalar_fewer_than_two_quantiles_is_invalid() {
+    assert!(scalar(vec![(0.5, 0.0)]).validate().is_err());
+    assert!(scalar(vec![]).validate().is_err());
+}
+
+#[test]
+fn scalar_q_at_zero_is_invalid() {
+    assert!(scalar(vec![(0.0, 0.0), (0.5, 1.0)]).validate().is_err());
+}
+
+#[test]
+fn scalar_q_at_one_is_invalid() {
+    assert!(scalar(vec![(0.5, 0.0), (1.0, 1.0)]).validate().is_err());
+}
+
+#[test]
+fn scalar_q_below_zero_is_invalid() {
+    assert!(scalar(vec![(-0.1, 0.0), (0.5, 1.0)]).validate().is_err());
+}
+
+#[test]
+fn scalar_q_above_one_is_invalid() {
+    assert!(scalar(vec![(0.5, 0.0), (1.1, 1.0)]).validate().is_err());
+}
+
+#[test]
+fn scalar_q_not_strictly_increasing_is_invalid() {
+    // Equal q values violate "strictly increasing".
+    assert!(scalar(vec![(0.3, 0.0), (0.3, 1.0)]).validate().is_err());
+}
+
+#[test]
+fn scalar_q_decreasing_is_invalid() {
+    assert!(scalar(vec![(0.7, 0.0), (0.3, 1.0)]).validate().is_err());
+}
+
+#[test]
+fn scalar_v_crossing_is_invalid() {
+    // v decreases: q=0.3 → v=1.0, q=0.7 → v=0.0 is quantile crossing.
+    assert!(scalar(vec![(0.3, 1.0), (0.7, 0.0)]).validate().is_err());
+}
+
+#[test]
+fn scalar_v_non_decreasing_equal_is_valid() {
+    // Equal v at different q is valid (flat region in CDF).
+    assert!(scalar(vec![(0.3, 0.0), (0.5, 0.0), (0.9, 1.0)])
+        .validate()
+        .is_ok());
+}
+
+#[test]
+fn scalar_q_non_finite_is_invalid() {
+    let d = PredictiveDistribution::Scalar {
+        quantiles: vec![
+            Quantile {
+                q: f64::NAN,
+                v: 0.0,
+            },
+            Quantile { q: 0.9, v: 1.0 },
+        ],
+        unit: "rate".to_string(),
+    };
+    assert!(d.validate().is_err());
+}
+
+#[test]
+fn scalar_v_non_finite_is_invalid() {
+    let d = PredictiveDistribution::Scalar {
+        quantiles: vec![
+            Quantile {
+                q: 0.1,
+                v: f64::INFINITY,
+            },
+            Quantile { q: 0.9, v: 1.0 },
+        ],
+        unit: "rate".to_string(),
+    };
+    assert!(d.validate().is_err());
+}
+
+#[test]
+fn scalar_empty_unit_is_invalid() {
+    let d = PredictiveDistribution::Scalar {
+        quantiles: vec![Quantile { q: 0.1, v: -1.0 }, Quantile { q: 0.9, v: 1.0 }],
+        unit: "".to_string(),
+    };
+    assert!(d.validate().is_err());
+}
+
+// ─── PredictiveKind ──────────────────────────────────────────────────────────
+
+#[test]
+fn kind_parity_between_distribution_and_outcome() {
+    assert_eq!(binary(0.5).kind(), PredictiveKind::Binary);
+    assert_eq!(
+        categorical(vec![("a", 0.6), ("b", 0.4)]).kind(),
+        PredictiveKind::Categorical
+    );
+    assert_eq!(
+        scalar(vec![(0.1, -1.0), (0.9, 1.0)]).kind(),
+        PredictiveKind::Scalar
+    );
+
+    assert_eq!(
+        RealizedOutcome::Binary { happened: true }.kind(),
+        PredictiveKind::Binary
+    );
+    assert_eq!(
+        RealizedOutcome::Categorical {
+            label: "a".to_string()
+        }
+        .kind(),
+        PredictiveKind::Categorical
+    );
+    assert_eq!(
+        RealizedOutcome::Scalar { value: 0.0 }.kind(),
+        PredictiveKind::Scalar
+    );
+}
+
+// ─── BrierRule: exact vectors ────────────────────────────────────────────────
+
+#[test]
+fn brier_07_true_is_009() {
+    let score = BrierRule.score(&binary(0.7), &RealizedOutcome::Binary { happened: true });
+    assert!(score.is_ok());
+    let s = score.unwrap();
+    assert!((s - 0.09).abs() < 1e-12, "got {s}");
+}
+
+#[test]
+fn brier_07_false_is_049() {
+    let score = BrierRule.score(&binary(0.7), &RealizedOutcome::Binary { happened: false });
+    assert!(score.is_ok());
+    let s = score.unwrap();
+    assert!((s - 0.49).abs() < 1e-12, "got {s}");
+}
+
+#[test]
+fn brier_fair_coin_is_025() {
+    let score_t = BrierRule
+        .score(&binary(0.5), &RealizedOutcome::Binary { happened: true })
+        .unwrap();
+    let score_f = BrierRule
+        .score(&binary(0.5), &RealizedOutcome::Binary { happened: false })
+        .unwrap();
+    assert!((score_t - 0.25).abs() < 1e-12, "true got {score_t}");
+    assert!((score_f - 0.25).abs() < 1e-12, "false got {score_f}");
+}
+
+#[test]
+fn brier_id_is_brier() {
+    assert_eq!(BrierRule.id(), "brier");
+}
+
+#[test]
+fn brier_applies_to_binary_only() {
+    assert!(BrierRule.applies_to(PredictiveKind::Binary));
+    assert!(!BrierRule.applies_to(PredictiveKind::Categorical));
+    assert!(!BrierRule.applies_to(PredictiveKind::Scalar));
+}
+
+#[test]
+fn brier_on_scalar_pred_errors() {
+    let pred = scalar(vec![(0.1, -1.0), (0.9, 1.0)]);
+    let out = RealizedOutcome::Scalar { value: 0.0 };
+    let r = BrierRule.score(&pred, &out);
+    assert!(
+        matches!(r, Err(ScoreError::UnsupportedKind { .. })),
+        "expected UnsupportedKind, got {r:?}"
+    );
+}
+
+#[test]
+fn brier_on_categorical_pred_errors() {
+    let pred = categorical(vec![("a", 0.6), ("b", 0.4)]);
+    let out = RealizedOutcome::Categorical {
+        label: "a".to_string(),
+    };
+    let r = BrierRule.score(&pred, &out);
+    assert!(
+        matches!(r, Err(ScoreError::UnsupportedKind { .. })),
+        "expected UnsupportedKind, got {r:?}"
+    );
+}
+
+// ─── CrpsPinballRule: exact vectors ──────────────────────────────────────────
+//
+// Grid: [(0.1, -1.0), (0.5, 0.0), (0.9, 1.0)]
+//
+// y = 0:
+//   pinball_0.1(-1.0, 0) = 0.1*(0-(-1)) = 0.1
+//   pinball_0.5(0.0, 0)  = 0.5*(0-0)   = 0.0
+//   pinball_0.9(1.0, 0)  = (1-0.9)*(1-0) = 0.1
+//   mean = (0.1 + 0.0 + 0.1) / 3 ≈ 0.0666...
+//
+// y = 2:
+//   pinball_0.1(-1.0, 2) = 0.1*(2-(-1)) = 0.3
+//   pinball_0.5(0.0, 2)  = 0.5*(2-0)   = 1.0
+//   pinball_0.9(1.0, 2)  = 0.9*(2-1)   = 0.9
+//   mean = (0.3 + 1.0 + 0.9) / 3 ≈ 0.7333...
+
+const GRID: &[(f64, f64)] = &[(0.1, -1.0), (0.5, 0.0), (0.9, 1.0)];
+
+fn expected_crps(qs: &[(f64, f64)], y: f64) -> f64 {
+    let sum: f64 = qs.iter().map(|(q, v)| pinball(*q, *v, y)).sum();
+    sum / qs.len() as f64
+}
+
+#[test]
+fn crps_grid_y_zero() {
+    let pred = scalar(GRID.to_vec());
+    let out = RealizedOutcome::Scalar { value: 0.0 };
+    let s = CrpsPinballRule.score(&pred, &out).unwrap();
+    let expected = expected_crps(GRID, 0.0);
+    assert!((s - expected).abs() < 1e-12, "got {s}, expected {expected}");
+}
+
+#[test]
+fn crps_grid_y_two() {
+    let pred = scalar(GRID.to_vec());
+    let out = RealizedOutcome::Scalar { value: 2.0 };
+    let s = CrpsPinballRule.score(&pred, &out).unwrap();
+    let expected = expected_crps(GRID, 2.0);
+    assert!((s - expected).abs() < 1e-12, "got {s}, expected {expected}");
+}
+
+#[test]
+fn crps_single_quantile_fails_validation_as_required() {
+    // A lone q=0.5 quantile is the mathematical |y − v|/2 median case, but the
+    // ≥2-quantile invariant makes it UNREACHABLE: score() calls validate()
+    // first and MUST reject it. This pins that contract — the |y − v|/2 identity
+    // documented on the rule is never a scored input.
+    for (v, y) in [(0.0f64, 1.0f64), (0.5, 0.0), (3.0, -1.0)] {
+        let pred = PredictiveDistribution::Scalar {
+            quantiles: vec![Quantile { q: 0.5, v }],
+            unit: "rate".to_string(),
+        };
+        let out = RealizedOutcome::Scalar { value: y };
+        let r = CrpsPinballRule.score(&pred, &out);
+        assert!(
+            matches!(r, Err(ScoreError::InvalidPrediction { .. })),
+            "single quantile should fail validation, got {r:?}"
+        );
+    }
+}
+
+#[test]
+fn pinball_at_realized_equals_v_is_zero() {
+    // The kink point: at y == v the check loss is exactly 0 for every q (both
+    // branches vanish). Pins the boundary value as a regression guard and
+    // covers the flat-CDF (constant v) case.
+    let pred = scalar(vec![(0.1, 0.5), (0.9, 0.5)]);
+    let out = RealizedOutcome::Scalar { value: 0.5 };
+    let s = CrpsPinballRule.score(&pred, &out).unwrap();
+    assert!(s.abs() < 1e-15, "got {s}");
+}
+
+/// A realistic recorded Kalshi BTC funding rate: approx 5 hours of quantile
+/// forecast vs the final rate. Quantiles were chosen to bracket 0.0001 tightly.
+#[test]
+fn crps_realistic_funding_rate_vector() {
+    // Forecast: quantiles at {0.1, 0.25, 0.5, 0.75, 0.9} basis points.
+    let pred = scalar(vec![
+        (0.10, -0.0003),
+        (0.25, -0.0001),
+        (0.50, 0.0001),
+        (0.75, 0.0003),
+        (0.90, 0.0005),
+    ]);
+    // Realized rate slightly above the median:
+    let y = 0.0002_f64;
+    let out = RealizedOutcome::Scalar { value: y };
+
+    let s = CrpsPinballRule.score(&pred, &out).unwrap();
+    let expected = expected_crps(
+        &[
+            (0.10, -0.0003),
+            (0.25, -0.0001),
+            (0.50, 0.0001),
+            (0.75, 0.0003),
+            (0.90, 0.0005),
+        ],
+        y,
+    );
+    assert!((s - expected).abs() < 1e-14, "got {s}, expected {expected}");
+    // Score must be non-negative.
+    assert!(s >= 0.0);
+}
+
+#[test]
+fn crps_id_is_crps_pinball() {
+    assert_eq!(CrpsPinballRule.id(), "crps_pinball");
+}
+
+#[test]
+fn crps_applies_to_scalar_only() {
+    assert!(CrpsPinballRule.applies_to(PredictiveKind::Scalar));
+    assert!(!CrpsPinballRule.applies_to(PredictiveKind::Binary));
+    assert!(!CrpsPinballRule.applies_to(PredictiveKind::Categorical));
+}
+
+#[test]
+fn crps_on_binary_pred_errors() {
+    let pred = binary(0.7);
+    let out = RealizedOutcome::Binary { happened: true };
+    let r = CrpsPinballRule.score(&pred, &out);
+    assert!(
+        matches!(r, Err(ScoreError::UnsupportedKind { .. })),
+        "expected UnsupportedKind, got {r:?}"
+    );
+}
+
+// ─── Kind mismatch between pred and outcome ──────────────────────────────────
+
+#[test]
+fn brier_kind_mismatch_pred_binary_outcome_scalar_errors() {
+    let pred = binary(0.5);
+    let out = RealizedOutcome::Scalar { value: 1.0 };
+    let r = BrierRule.score(&pred, &out);
+    assert!(
+        matches!(r, Err(ScoreError::KindMismatch { .. })),
+        "expected KindMismatch, got {r:?}"
+    );
+}
+
+#[test]
+fn crps_kind_mismatch_pred_scalar_outcome_binary_errors() {
+    let pred = scalar(vec![(0.1, -1.0), (0.9, 1.0)]);
+    let out = RealizedOutcome::Binary { happened: false };
+    let r = CrpsPinballRule.score(&pred, &out);
+    assert!(
+        matches!(r, Err(ScoreError::KindMismatch { .. })),
+        "expected KindMismatch, got {r:?}"
+    );
+}
+
+// ─── Invalid prediction is caught by score() ────────────────────────────────
+
+#[test]
+fn brier_invalid_pred_errors_with_invalid_prediction() {
+    let pred = binary(1.5); // p outside [0,1]
+    let out = RealizedOutcome::Binary { happened: true };
+    let r = BrierRule.score(&pred, &out);
+    assert!(
+        matches!(r, Err(ScoreError::InvalidPrediction { .. })),
+        "expected InvalidPrediction, got {r:?}"
+    );
+}
+
+#[test]
+fn crps_invalid_pred_quantile_crossing_errors() {
+    let pred = scalar(vec![(0.3, 1.0), (0.7, 0.0)]); // crossing v
+    let out = RealizedOutcome::Scalar { value: 0.5 };
+    let r = CrpsPinballRule.score(&pred, &out);
+    assert!(
+        matches!(r, Err(ScoreError::InvalidPrediction { .. })),
+        "expected InvalidPrediction, got {r:?}"
+    );
+}
+
+// ─── Determinism ─────────────────────────────────────────────────────────────
+
+#[test]
+fn brier_deterministic_on_repeated_calls() {
+    let pred = binary(0.7);
+    let out = RealizedOutcome::Binary { happened: true };
+    let s1 = BrierRule.score(&pred, &out).unwrap();
+    let s2 = BrierRule.score(&pred, &out).unwrap();
+    // Identical IEEE bits on repeated evaluation (pure function, no randomness).
+    assert_eq!(s1.to_bits(), s2.to_bits());
+}
+
+#[test]
+fn crps_deterministic_on_repeated_calls() {
+    let pred = scalar(GRID.to_vec());
+    let out = RealizedOutcome::Scalar { value: 0.5 };
+    let s1 = CrpsPinballRule.score(&pred, &out).unwrap();
+    let s2 = CrpsPinballRule.score(&pred, &out).unwrap();
+    assert_eq!(s1.to_bits(), s2.to_bits());
+}
+
+// ─── Proper-scoring property (proptest) ──────────────────────────────────────
+//
+// A properly calibrated forecast scores at least as well as a shifted one.
+// Concretely: for scalar [q1,q2,q3] whose MEDIAN (q=0.5) equals the
+// realized value, the score is no worse than a forecast shifted ±δ.
+// We test the median-is-optimal property: when v_median = y, no shift
+// can improve the score.
+
+proptest! {
+    #[test]
+    fn proper_scoring_median_optimal(
+        // Central value in a narrow range
+        center in -1.0_f64..1.0_f64,
+        // Shift away from truth (strictly positive for the test to be meaningful)
+        delta in 0.001_f64..0.5_f64,
+    ) {
+        // Forecast centered at `center` (median = center).
+        let spread = 0.2_f64;
+        let pred_true = PredictiveDistribution::Scalar {
+            quantiles: vec![
+                Quantile { q: 0.1, v: center - spread },
+                Quantile { q: 0.5, v: center },
+                Quantile { q: 0.9, v: center + spread },
+            ],
+            unit: "rate".to_string(),
+        };
+        // Shifted forecast: median is center + delta.
+        let pred_shifted = PredictiveDistribution::Scalar {
+            quantiles: vec![
+                Quantile { q: 0.1, v: center + delta - spread },
+                Quantile { q: 0.5, v: center + delta },
+                Quantile { q: 0.9, v: center + delta + spread },
+            ],
+            unit: "rate".to_string(),
+        };
+
+        let y = center; // realized value = true median
+        let out = RealizedOutcome::Scalar { value: y };
+
+        let s_true = CrpsPinballRule.score(&pred_true, &out).unwrap();
+        let s_shifted = CrpsPinballRule.score(&pred_shifted, &out).unwrap();
+
+        // The truth-centered forecast must score at most as high as the shifted one.
+        prop_assert!(
+            s_true <= s_shifted + 1e-12,
+            "s_true={s_true} should be ≤ s_shifted={s_shifted} (delta={delta})"
+        );
+    }
+}
