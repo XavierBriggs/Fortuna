@@ -66,6 +66,21 @@ then_a_502_and_recovers asserts 3 connects + both snapshots + the pre-reset delt
 cancelling from the sink on recovery. NO live socket. Battery: 122 ok-result lines,
 DST 4 corpus + 10000 seeds zero violations.
 
+CLOCK-INJECTION FIX (this follow-up commit; pre-empts the verifier's flag in
+GATE-FINDINGS 2806537, "Clock-injection check re-applies"): run_dial no longer
+calls tokio::time::sleep INLINE. The backoff sleep is injected via a `Sleeper`
+trait (prod: `TokioSleeper`), so the loop never reads wall time directly —
+matching the daemon's CadenceDriver discipline ("wall time enters only at a
+controlled, injected edge"). run_dial reads no clock (no now()), so it takes a
+Sleeper rather than a &dyn Clock; flagged here in case the verifier wants a Clock
+param too (trivial add — it would be unused). The e2e test now injects a
+RecordingSleeper that captures the backoffs WITHOUT waiting and asserts the REAL
+schedule flowed through (reset -> 500ms, 502 -> 1000ms doubled) — stronger than
+the prior Duration::ZERO hack and fully deterministic. Full battery re-run green
+(fmt/clippy --workspace --all-targets/cargo test --workspace 122 ok/run-dst.sh
+10000 — all exit 0, zero invariant violations; the cold-compile OOM under load
+recovered on the warm cache, no pkill).
+
 ARCHITECTURE DECISION (flag for the verifier): tokio moved from a dev- to a NORMAL
 dependency of fortuna-venues. run_dial uses tokio::select!/time::sleep/sync::watch
 in LIB code, which the dev-only tokio could not satisfy in the strict

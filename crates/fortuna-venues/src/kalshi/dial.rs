@@ -193,6 +193,27 @@ pub trait WsTransport {
     async fn connect(&self) -> Result<Box<dyn WsConn>, DisconnectCause>;
 }
 
+/// The redial backoff sleep, INJECTED so `run_dial` never embeds wall time
+/// directly (house rule: a loop sleeps only through an injected edge, so tests
+/// are deterministic without real delays and wall time enters at one controlled
+/// seam). `run_dial` reads no clock — its only time dependency is this sleep — so
+/// it takes a `Sleeper` rather than a `Clock`.
+#[async_trait]
+pub trait Sleeper: Send + Sync {
+    async fn sleep(&self, dur: Duration);
+}
+
+/// Production sleeper: real tokio wall-clock sleep at the venue's IO edge.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct TokioSleeper;
+
+#[async_trait]
+impl Sleeper for TokioSleeper {
+    async fn sleep(&self, dur: Duration) {
+        tokio::time::sleep(dur).await;
+    }
+}
+
 /// THE WS dial loop: connect, pump one session, and on ANY end (lost connection
 /// or refused connect) redial after [`WsDial`]'s capped-exponential backoff —
 /// indefinitely, until `cancel` flips true. This is where the recorded venue
@@ -200,14 +221,16 @@ pub trait WsTransport {
 /// reconnect both route through `on_connection_lost` and a backed-off redial. The
 /// backoff sleep AND an in-flight pump are both cancellable (a stop never waits
 /// out a backoff or a healthy stream). `on_event` receives every parsed frame.
-pub async fn run_dial<T, F>(
+pub async fn run_dial<T, S, F>(
     transport: &T,
     tickers: &[&str],
     mut dial: WsDial,
+    sleeper: &S,
     mut cancel: tokio::sync::watch::Receiver<bool>,
     mut on_event: F,
 ) where
     T: WsTransport + ?Sized,
+    S: Sleeper + ?Sized,
     F: FnMut(KalshiWsEvent),
 {
     let mut sub_id = 0u64;
@@ -229,10 +252,11 @@ pub async fn run_dial<T, F>(
             }
             Err(cause) => redial_backoff(&mut dial, cause),
         };
-        // Cancellable backoff: a stop wakes immediately instead of sleeping it out.
+        // Cancellable backoff: a stop wakes immediately instead of sleeping it
+        // out; the sleep itself is injected (no direct wall-clock read here).
         tokio::select! {
             _ = cancel.changed() => return,
-            _ = tokio::time::sleep(backoff) => {}
+            _ = sleeper.sleep(backoff) => {}
         }
     }
 }
@@ -328,6 +352,19 @@ mod tests {
         }
     }
 
+    /// Records the requested backoffs and never actually waits — the redial loop
+    /// stays deterministic and fast, and the recorded schedule is asserted.
+    #[derive(Default)]
+    struct RecordingSleeper {
+        slept: std::sync::Mutex<Vec<Duration>>,
+    }
+    #[async_trait]
+    impl Sleeper for RecordingSleeper {
+        async fn sleep(&self, dur: Duration) {
+            self.slept.lock().unwrap().push(dur);
+        }
+    }
+
     #[tokio::test]
     async fn run_dial_survives_a_reset_then_a_502_and_recovers() {
         // The connect-level recorded evidence: a healthy connection that resets
@@ -348,19 +385,29 @@ mod tests {
         let (tx, rx) = tokio::sync::watch::channel(false);
         let mut snapshots = 0usize;
         let mut deltas = 0usize;
-        // Zero backoff so the redials are instant.
-        let dial = WsDial::with_backoff(Duration::ZERO, Duration::ZERO);
-        run_dial(&transport, &["FED-23DEC-T3.00"], dial, rx, |ev| match ev {
-            KalshiWsEvent::Stream(StreamEvent::BookSnapshot { .. }) => {
-                snapshots += 1;
-                // Stop once recovered — the SECOND snapshot is on connection #3.
-                if snapshots == 2 {
-                    let _ = tx.send(true);
+        // REAL default backoff (500ms base): the injected sleeper records the
+        // schedule WITHOUT waiting, proving the delays flow through the loop and
+        // that nothing sleeps on wall time directly.
+        let sleeper = RecordingSleeper::default();
+        let dial = WsDial::new();
+        run_dial(
+            &transport,
+            &["FED-23DEC-T3.00"],
+            dial,
+            &sleeper,
+            rx,
+            |ev| match ev {
+                KalshiWsEvent::Stream(StreamEvent::BookSnapshot { .. }) => {
+                    snapshots += 1;
+                    // Stop once recovered — the SECOND snapshot is on connection #3.
+                    if snapshots == 2 {
+                        let _ = tx.send(true);
+                    }
                 }
-            }
-            KalshiWsEvent::Stream(StreamEvent::BookDelta { .. }) => deltas += 1,
-            _ => {}
-        })
+                KalshiWsEvent::Stream(StreamEvent::BookDelta { .. }) => deltas += 1,
+                _ => {}
+            },
+        )
         .await;
 
         assert_eq!(
@@ -370,6 +417,24 @@ mod tests {
         );
         assert_eq!(snapshots, 2, "the initial AND the recovery snapshot");
         assert_eq!(deltas, 1, "the single pre-reset delta");
+        // The capped-exponential schedule flowed through the injected sleeper:
+        // reset -> 500ms, then the 502 -> 1000ms (doubled). A post-recovery
+        // backoff may or may not be recorded before cancel wins, so check the head.
+        let slept = sleeper.slept.lock().unwrap().clone();
+        assert!(
+            slept.len() >= 2,
+            "slept after the reset AND the 502: {slept:?}"
+        );
+        assert_eq!(
+            slept[0],
+            Duration::from_millis(500),
+            "reset -> base backoff"
+        );
+        assert_eq!(
+            slept[1],
+            Duration::from_millis(1000),
+            "502 -> doubled backoff"
+        );
     }
 
     #[tokio::test]
