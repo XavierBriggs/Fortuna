@@ -28,7 +28,15 @@ triggers (96cdb79) → E.3c DST (510ee8e) → telemetry (f65fd64) → E.4a belie
 → E.5a scoring (1009bb8) → E.6 e2e meteorologist proof (ccdaeca) → E.4b DomainAnalysis context
 section (84106b9) → the macro-economist GENERALIZATION proof DONE this commit.
 
-**Macro-economist generalization proof (§13/§17) DONE this commit.** Shipped a SECOND persona
+**Persona authoring/promotion runbook (loop §8) DONE this commit.** New
+docs/runbooks/persona-authoring.md — the operator manual: the trust model, authoring a skill
+file, registering it hash-bound (shasum → the personas INSERT), how it runs, and how the
+operator promotes/retires (the §11 verdict → the §10 operator action; daemon never
+self-promotes, I7) + a read-only ROTA section + an honest built-vs-pending list. Doc-only
+(workspace unchanged from cc20e37, full-battery-green); every file ref / personas-column
+order / ROTA endpoint verified against the code. This is the LAST Track-E deliverable.
+
+**Macro-economist generalization proof (§13/§17) DONE (commit cc20e37).** Shipped a SECOND persona
 (config/personas/macro-economist/{persona.md, schema.json}) — different domain/signals/findings-
 shape (outcomes[] not thresholds[])/tier (synthesis)/backbone (pure judgment, no μ/σ) — flowing
 through the SAME loader + runner + fan-out with ZERO per-domain code. 2 tests (load + fixture-driven
@@ -242,15 +250,47 @@ and any fortuna-invariants touch is an operator-waive item per the loop — so s
 correctly does NOT touch the protected crate. The `domain_analyses`/`PersonaRow` row types are
 already structurally order-free (review-confirmed).
 
-NEXT: the persona AUTHORING/PROMOTION RUNBOOK (loop §8 — "a persona authoring/promotion runbook
-lands by E.6") — docs/runbooks/persona-authoring.md: how the operator authors a persona skill-file
-(config/personas/<id>/), registers it (the registry insert + method_hash), promotes/retires it (the
-§10 proposal → operator action), and reads the scoring/ROTA. This is the operator MANUAL for the
-feature — a genuine deliverable, not bloat (the operator needs it to USE the system). It is the
-last Track-E item. AFTER it, EVERYTHING remaining is operator/Track-A-gated (§15 invariant pin
-operator-waive; §10 ScopeKey + live daemon wiring; ROTA §14/§20 = Track B) — at which point the
-loop is at the §6 "idle-and-stopped beats bloat" boundary: surface the gated items and RALPH STOP
-rather than invent work.
+## RALPH STOP 2026-06-13T17:25Z (Track E — build COMPLETE; every remaining item is gated; idle-and-stopped beats bloat)
+
+Per loop rule 6 (every priority item blocked/exhausted; do NOT invent unrequested work to stay
+busy), this Track-E loop stops. The persona/domain-analysis feature is BUILT, gate-clean, proven
+end-to-end on the real DB, generalized across two domains, and documented for the operator. There
+is NO pure-Track-E build slice left; everything remaining is operator/Track-A/Track-B-gated.
+
+DELIVERED (each gate-clean — the FULL workspace battery fmt/clippy --workspace --all-targets/
+cargo test --workspace/run-dst.sh 2000 ran green, real exit codes, on every code commit; review by
+feature-dev:code-reviewer on every slice):
+- E.1 ledger (dfdf3e0) — personas + domain_analyses tables/repos (append-only, content-immutable).
+- E.2 loader (d6e8c23) — skill-file PersonaDef::parse + method_hash registry validation.
+- E.3a runner + the trusted/untrusted FIREWALL (4e8b9e4) — the headline; budget/degrade/determinism.
+- E.3b triggers (96cdb79) — declarative cadences + per-(persona,region) coalescing.
+- E.3c seeded DST under the cost budget (510ee8e) — wired into run-dst.sh.
+- telemetry §19 (f65fd64) — the PersonaCounters funnel + the spend gauge.
+- E.4a belief consumption (c1c1b55) — the μ/σ→p backbone + artifact→binary-belief fan-out w/ provenance.
+- E.5a scoring §10/§11 (1009bb8) — per-(persona,version) calibration + beat-both-baselines proposal (I7).
+- E.6 end-to-end meteorologist proof (ccdaeca) — registry→...→scored beliefs on the real DB; replay-asserted.
+- E.4b SectionKind::DomainAnalysis (84106b9) — the artifact as a high-priority context item.
+- macro-economist GENERALIZATION proof (cc20e37) — one mechanism, two domains.
+- the persona authoring/promotion runbook (this commit) — the operator manual.
+
+REMAINING — ALL GATED (the operator/another track must act; exact unblock steps are in the entries
+above and the design doc):
+1. **§15 PersonaOutcome invariant pin** — OPERATOR-WAIVE of the fortuna-invariants touch (one action).
+   The order-free property holds + PersonaOutcome is Serialize-ready; the pin is a pure ADD when waived.
+2. **§10 ScopeKey + live daemon wiring** — TRACK-A coordination: fold persona dims into review::ScopeKey
+   (the daemon.rs:1024 literal) + run personas on the live drive() loop (trigger→run→persist→fan-out→
+   persist_beliefs) + feed persona scopes into the weekly review. Track E can't touch Track A's daemon
+   unilaterally (the persona scoring already runs additively via fortuna_cognition::persona_scoring).
+3. **ROTA panels (§14/§20)** — TRACK B builds the four read-only views; Track E provided the data + specs.
+4. **macro signal kinds + a `fortuna persona` registration CLI** — Track D / Track-A/B conveniences.
+
+RE-ENGAGE TRIGGER: re-arm this loop (from worktree fortuna-wt-e) if the operator waives the invariant
+pin (then E.3c-pin lands as a pure ADD) OR a Track-E-owned gate finding appears in
+GATE-FINDINGS-LATEST.md. Absent either, there is no Track-E build work — the morning decisions
+(the invariant waive; the Track-A daemon wiring to run personas live; whether to promote a persona
+after ≥60 resolved beliefs) are the operator's.
+
+(Loop deactivated via /ralph-loop:cancel-ralph this iteration.)
 
 --- HISTORICAL (design-phase RALPH STOP — SUPERSEDED by the operator approval above) ---
 

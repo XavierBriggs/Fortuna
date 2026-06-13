@@ -10,7 +10,26 @@ commit gate, `fortuna-invariants` untouched except at E.3 (operator-waive-flagge
 
 ---
 
-## Macro-economist GENERALIZATION proof (§13/§17) (this commit)
+## Persona authoring/promotion runbook (loop §8) — the operator manual (this commit)
+
+New `docs/runbooks/persona-authoring.md` — the operator-facing manual for the persona
+system: the trust model (method trusted / signals untrusted), authoring a skill file
+(the TOML frontmatter fields + the §4-firewall method body + the strict findings schema),
+registering it hash-bound (`shasum -a 256 persona.md` → the `personas` INSERT, with the
+loader refusing a hash/version mismatch), how it runs (triggers → budgeted firewalled
+runner → artifact → binary beliefs with provenance replay → zero-capital scoring), and
+how the operator promotes/retires it (the §11 verdict → the §10 operator action — a
+superseding registry insert / `status='retired'`; the daemon NEVER self-promotes, I7).
+Plus a read-only ROTA section and an honest built-vs-pending list. Doc-only (no code
+change; the workspace is unchanged from cc20e37, full-battery-green); verified every file
+reference, the personas-table column order, and the ROTA endpoint names against the code.
+
+This is the LAST Track-E deliverable. The persona track is COMPLETE: built end-to-end,
+proven across two domains, and documented for the operator. Everything remaining is
+operator/Track-A/Track-B-gated → loop reaches the §6 stop boundary (see the RALPH STOP
+entry in GAPS).
+
+## Macro-economist GENERALIZATION proof (§13/§17) (commit cc20e37)
 
 Shipped a SECOND persona — config/personas/macro-economist/{persona.md, schema.json} —
 to prove the library is ONE mechanism, not per-domain code. The macro-economist differs
