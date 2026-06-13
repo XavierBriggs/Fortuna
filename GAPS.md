@@ -47,6 +47,19 @@ UNTOUCHED. NOT-YET-WIRED (honest): the loader has no production call site — th
 wires it + maps PersonasRepo::head→RegistryHead; and no `personas` registry row exists yet
 (seeding is an operator/E.6 action), so validate_against(None)→NotRegistered until then.
 
+**REBASE/INTEGRATION STATUS (2026-06-13): track-e is 38 commits behind main (73a2a1f);
+rebase DEFERRED, code is conflict-free.** `git merge-tree main track-e` shows the ONLY conflicts
+are ASSUMPTIONS.md / BUILD_PLAN.md / GAPS.md (content) + Cargo.lock (auto-merge) — append-only
+coordination docs, NOT code. Every Track-E code/file change (the new persona module, the
+migration, the additive repos.rs/lib.rs edits, config/personas/, docs/design/*) merges clean:
+main touched 0 of those since the 2dfca28 fork. A full `git rebase --reapply-cherry-picks main`
+(the perps revert 19b3888/re-merge IS in main's history, so plain rebase would drop commits —
+reapply-cherry-picks is mandatory) would require ~8 hand-resolved doc/lock conflicts unattended
+and would rewrite the E.1/E.2 SHAs (invalidating the commit refs above) — high ledger-corruption
+risk for ZERO integration-safety gain. DEFERRED to an attended pass / the verifier's merge-time
+three-way (which already "keeps main's newer X"). Re-evaluate when a code-level conflict appears
+or at merge request.
+
 **E.1 (Ledger) DONE (commit dfdf3e0).** Migration 20260613000001_personas.sql adds the append-only
 `personas` registry (supersedes-chained, UNIQUE(persona_id,version), fortuna_refuse_mutation)
 + the content-immutable `domain_analyses` artifact (dedicated guard freezing all 12 content
