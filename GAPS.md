@@ -18,6 +18,32 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK C — slice 2b (funding_forecast strategy) DONE → SLICE 2 COMPLETE (2026-06-13)
+
+SLICE 2b LANDED: the funding_forecast belief-producer (crates/fortuna-runner/src/funding_forecast.rs)
+— ZERO-CAPITAL (proposes nothing, I6), reads PerpTick, point forecast =
+finalize_funding_rate(estimate) DIRECTLY (R1 honored — no FundingWindow in the path), emits a
+PredictiveDistribution::Scalar quantile fan whose dispersion widens with remaining-in-window
+(rung-0 model, DISPERSION_SCALE=0.002, documented in ASSUMPTIONS, CRPS-measured). 19 tests (R1,
+zero-threshold, dispersion-widens, window-roll, zero-proposals, determinism + the live-data CRPS
+test + a DST arm over tick/gap/roll/clamp chaos). Battery green (fmt/clippy --workspace -D warnings;
+funding tests 19/0; the additive slice cannot break unchanged crates). Built feature-dev implementer
+→ code-reviewer ACCEPT (all 9 probes clean; R1, I6-zero-capital, the validate_scalar-provable
+dispersion, the honest live-data disposition all verified). Additive: the slice-2a seam + binary
+path + invariants UNTOUCHED.
+
+LIVE-DATA DISPOSITION (honest, never-invent): the recorded estimate (2026-06-12, targets 20:00Z) has
+NO exact realized row in committed funding__rates_historical.json (latest KXBTCPERP1 row is
+2026-06-11T20:00Z, ~24h off — a capture reality). The live-data test scores the real estimate ->
+forecast against the CLOSEST realized rate (CRPS 0.000323, finite) as a PIPELINE exercise — NOT a
+calibration claim — and a companion test (the_exact_window_is_absent...) pins the absence executably
+(a future paired-fixture re-capture flips it red). EXACT-window calibration is gated on OPERATOR
+QUEUE item #4 (the paired-cycle KXBTC perps fixture).
+
+SLICE 2 COMPLETE (2a seam + 2b strategy). funding_forecast is built + tested standalone but NOT yet
+wired into the live daemon — that + persist_scalar_beliefs (ScalarBeliefsRepo) is SLICE 4. Next:
+slice 3 (perp_event_basis bracket-trader, fixture-gated) or slice 4 (daemon wiring); then F5-F9.
+
 ## TRACK C — slice 2a (perp-strategy seam) DONE + the funding_forecast input decision for 2b (2026-06-13)
 
 SLICE 2a LANDED (additive seam): EventPayload::PerpTick + FundingObservation (fortuna-core

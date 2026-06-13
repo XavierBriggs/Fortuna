@@ -25,6 +25,7 @@
     )
 )]
 
+pub mod funding_forecast;
 pub mod mech_extremes;
 pub mod mech_structural;
 pub mod promotion;
