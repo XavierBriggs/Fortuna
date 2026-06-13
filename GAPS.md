@@ -953,15 +953,22 @@ gate, feature-dev:code-reviewer per slice):
   KNOWN LIMITATION (documented): a "naked" cadence with NO signal for a region is a no-op (regions
   are only known from signal payloads). Fine for the shipped personas (macro's release-window run
   still has a calendar signal present); revisit if an operator-supplied region catalog is needed.
-- **Slice 2c — Track-A handoff doc.** The exact ~10-line `drive()` integration (query 2a →
-  call 2b → persist `domain_analyses` + fan-out beliefs via existing `persist_beliefs` → alert
-  defects) + the `[personas]` config section, as a paste-ready prompt (like the Track-C one).
-- **Slice 3 — §10 ScopeKey extension + review folding.** ADD `persona_id`/`persona_version` to
-  `review::ScopeKey` (keep `strategy`; add, never replace) and fold `score_persona` into the
-  weekly review's recommendation path.
+- **Slice 2c — belief `horizon` helper + the Track-A wiring handoff — DONE (this commit).**
+  `persona_beliefs::belief_horizon(region_key)` (end-of-UTC-day of the key's `YYYY-MM-DD`; `None`
+  → skip fan-out; 6 unit tests, panic-free) + `docs/design/persona-live-wiring-handoff.md` (the
+  `[personas]` config + boot load/hash-validate + the ~15-line `drive()` step, every API verified
+  against the code). **This completes Track E's "expose the building blocks" obligation** — the
+  persona library is fully runnable; only Track A's `drive()` glue remains (the handoff).
+  REMAINING FOR PERSONAS TO FIRE LIVE = Track A wires the handoff (their crate, their call).
+- **Slice 3 — §10 ScopeKey extension + review folding (OPTIONAL / Track-A-coordinated, NOT done).**
+  ADD `persona_id`/`persona_version` to `review::ScopeKey` (keep `strategy`; add, never replace)
+  and fold `score_persona` into the weekly review's recommendation path. NOTE: persona scoring
+  already runs standalone (`persona_scoring.rs`: `score_persona`/`propose_promotion`), so this is an
+  enhancement (surface persona verdicts IN the daemon's weekly digest), best done WITH Track A's
+  review wiring — not a blocker for personas running or being scored.
 
-STILL GATED (not in this batch): ROTA panels = Track B (`fortuna-ops/assets/rota/`); macro
-signal KINDS = Track D (`fortuna-sources`, constitution-forbidden for Track E). Surfaced, not built.
+STILL GATED (not Track-E): ROTA panels = Track B (`fortuna-ops/assets/rota/`); macro signal KINDS
+= Track D (`fortuna-sources`, constitution-forbidden for Track E). Surfaced, not built.
 
 ### GATE FINDING 2026-06-13 (handed to Track C) — `main`'s full-workspace test is RED
 

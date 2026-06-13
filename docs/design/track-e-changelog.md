@@ -10,7 +10,34 @@ commit gate, `fortuna-invariants` untouched except at E.3 (operator-waive-flagge
 
 ---
 
-## [Post-merge integration] Slice 2b — cognition: `run_due_personas` orchestrator (the live-loop brain) (this commit)
+## [Post-merge integration] Slice 2c — belief `horizon` helper + the Track-A wiring handoff (this commit)
+
+The last building block + the handoff that completes Track E's "expose; Track A wires" obligation.
+
+- **`persona_beliefs::belief_horizon(region_key) -> Option<UtcTimestamp>`** — derives the belief
+  resolution horizon for the live fan-out (the tests passed it by hand): the end of the UTC day
+  (`T23:59:59.999Z`) of the `YYYY-MM-DD` segment in the region_key. Works for both shipped personas
+  (`weather:…:2026-06-12`, `macro:…:2026-06-12`); `None` (→ daemon persists the artifact, skips
+  beliefs) when there's no parseable date. Panic-free (char-iterated, no indexing); calendar-range
+  validity is delegated to the timestamp parse. 6 unit tests (operator-chosen approach: a tested
+  helper from the region_key date, over doc-only or a frontmatter field).
+- **`docs/design/persona-live-wiring-handoff.md`** — the paste-ready Track-A prompt: the
+  `[personas]` config section (opt-in, default-off), boot-time load + registry hash-validation, and
+  the ~15-line `drive()` step (read signals via `recent_by_kind` → `SignalEnvelope` → `run_due_personas`
+  → persist `domain_analyses` + `belief_horizon` + `map_persona_analysis` + `persist_beliefs` → alert
+  defects), with the two integration decisions that are Track A's (the persona `StrategyId`; ULID
+  minting). Every API signature in it was verified against the code (the `validate_against`/
+  `RegistryHead` pattern corrected to match `persona_e2e.rs`).
+
+With this, the persona library is fully exposed for the live loop: nothing further is Track-E code
+for personas to run — only Track A's `drive()` glue remains (the handoff). Verified: 6 horizon unit
+tests green; `fmt` + `clippy --workspace --all-targets -D warnings` clean; full workspace test green
+except the pre-existing Track-C `kinetics_dto` red. No new DST arm (the helper is pure + unit-tested;
+the 2b corpus is unaffected).
+
+Shared-doc touches: none (new Track-E-owned design doc + code only).
+
+## [Post-merge integration] Slice 2b — cognition: `run_due_personas` orchestrator (the live-loop brain) (commit b77cbe9)
 
 The DB-free per-tick orchestrator that decides WHICH `(persona, region_key)` runs fire and
 executes them — the piece that makes personas actually run live. New
