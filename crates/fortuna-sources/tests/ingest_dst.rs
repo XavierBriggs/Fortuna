@@ -80,6 +80,7 @@ fn fast_sched(quarantine_after: u32) -> SourceSchedule {
         backoff_cap: Duration::from_secs(60),
         trust_tier: 9,
         trigger_floor: 5,
+        domain_tags: Vec::new(),
     }
 }
 

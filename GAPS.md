@@ -18,6 +18,152 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## RALPH STOP 2026-06-13T13:21:39Z (Track D — Phase-A queue exhausted; loop ends clean)
+
+Track D's cleanly-owned, in-scope (Phase A), valuable queue is EXHAUSTED. Stopping
+per the loop rule "idle-and-stopped beats bloat; do NOT invent unrequested work."
+
+DELIVERED THIS CAMPAIGN (all gated or committed-awaiting-gate; nothing manufactured):
+- Phase A news-ingestion D1–D10 (fortuna-sources crate, FetchClient w/ root-cause
+  SSRF fix, NWS/RSS/Calendar adapters, Layer-1 validator WIRED, Layer-2
+  corroborate built, scheduler, factory, the default-off [ingestion] daemon seam)
+  — MERGED @ f31aaa8.
+- Aeolus F-series F1 (auth, env-only secret, redacted) + F2 (NwsClimateSource CLI
+  grader) + F3 (AeolusSource, live fixtures) + F4 (factory-wired) — MERGED @ 9f2d678.
+- Observability DATA SURFACE (the operator's "see signals coming in + their data"):
+  OBS-1 (IngestionTelemetry struct + scheduler projection), OBS-2a (funnel
+  loop-stages), OBS-3 (registry domain_tags), OBS-2b (the published Arc<RwLock>
+  "one writer" handle). The writer side is COMPLETE; SourceTelemetry has no
+  placeholder fields. (OBS-2a/2b/3 are forward commits awaiting the verifier gate.)
+- Docs: CHANGELOG.md (root), the ingestion-ops runbook, the track-D subsystem map,
+  targeted architecture.md crate-map fix; the doc-hygiene directive baked into the
+  loop file (point 8).
+
+REMAINING ITEMS — each blocked, out-of-ownership, or out-of-scope (NOT buildable
+cleanly by track D now):
+- OBS-2c (ROTA read endpoint): track B's, by the §2 contract. Precise handoff is in
+  the "OBS-2b" GAPS section below.
+- Layer-2 corroboration WIRING — OPEN DESIGN DECISION for operator/verifier:
+  corroborate() (fortuna-sources) is built+tested but unwired. It is a pure
+  ANNOTATOR; its output is consumed by the cognition CONTEXT ASSEMBLER and would be
+  persisted via the LEDGER — BOTH outside track-D ownership. WHERE it runs is
+  undecided: (a) ingestion-side producer (IngestionCore runs it per tick over the
+  batch, annotation persisted to a new signals-store column, cognition reads it) —
+  needs ledger schema + cognition consumer; OR (b) cognition-side (the context
+  assembler runs it over signals it reads). Track D cannot wire this without
+  guessing the architecture (never-invent rule). RECOMMEND: operator/verifier picks
+  (a) or (b); if (a), grant track D a coordinated ledger column + a text-extraction
+  step. Until decided, Layer-2's deterministic half is built and dormant.
+- F4b release-aware cadence: PHASE B (loop scopes me to Phase A), and already
+  achievable via the existing SourceSchedule event_windows config (set windows to
+  the GEFS release times) — the dynamic next_run_at version is a refinement of
+  marginal ROI. Not Phase-A work.
+- F10: registry-row SEED = operator/ledger action (already a ledgered operator
+  prereq); the Aeolus dossier already EXISTS (docs/research/sources/aeolus, tier 7);
+  the v1→v2 fixture migration is entangled with cognition's F6 v2 parser (track C).
+- F5–F9: explicitly cognition (track C), not track D.
+- D7 GdeltSource: blocked on a persistent external IP rate-limit (no fixture; the
+  never-fabricate rule holds).
+
+SUPERSEDE CONDITION: a NEW verifier finding/gate-result naming track D, or an
+operator directive, supersedes this STOP — re-arm the loop and act on it. The
+verifier has not yet gated OBS-2a/2b/3 (forward commits); their gate may surface
+follow-ups that re-open the queue.
+
+## TRACK D — documentation pass (operator-directed 2026-06-13): shared-doc edit ledgered
+
+The operator directed every track to maintain its own docs + keep shared docs
+fresh with TARGETED edits (and a changelog). Track-D docs landed this iteration:
+- NEW (mine): `CHANGELOG.md` (project changelog, per-subsystem sections to avoid
+  cross-track collision), `docs/runbooks/ingestion-ops.md` (operator runbook),
+  `docs/design/track-d-ingestion-subsystem.md` (the subsystem map / living index).
+- SHARED, TARGETED (operator-authorized; ledgered here per the touch-a-non-owned-
+  file rule): `docs/architecture.md` §3 crate map — added the `fortuna-sources`
+  entry (it was MISSING), bumped "Fifteen→Sixteen crates", and clarified that the
+  `Source` adapters/scheduler moved out of fortuna-cognition. Three surgical
+  Edits, no other crate entry touched.
+ACCURACY NOTE (caught in self-verify): Layer-2 corroboration is BUILT
+(`corroborate()`) but NOT yet wired into the live `IngestionCore` tick — the docs
+were corrected to say so (the live path dedups via `normalize_and_dedup`'s
+UNIQUE index). Docs-only change: no code touched, so no cargo battery applies.
+
+## TRACK D — OBS-2b telemetry publish: DONE + OBS-2c handoff TO TRACK B
+
+OBS-2b (2026-06-13) built the "one writer" side of the observability snapshot:
+`run_ingestion_loop` publishes `wiring.telemetry(now)` into a shared
+`fortuna_live::ingestion::IngestionTelemetryHandle`
+(`Arc<tokio::sync::RwLock<IngestionTelemetry>>`) each tick; `new_telemetry_handle()`
+mints an empty one; `IngestionTelemetry` derives `Default`. The daemon creates the
+handle (inert empty Arc when ingestion is OFF → byte-unchanged; daemon_smoke
+guarantee preserved) and logs the final funnel at shutdown. Contained to
+fortuna-sources + fortuna-live ingestion.rs/main.rs (the D10 seam); NO RotaState
+touch. 1 DB-free test (handle empty → round-trips a published snapshot). Scoped
+battery green (fmt; clippy -p fortuna-sources -p fortuna-live --all-targets
+-D warnings; sources 119+5; live ingestion 7/7).
+
+>>> HANDOFF TO TRACK B (OBS-2c — the read endpoint, per the §2 contract): the
+ROTA "many readers" side is yours. To consume the live snapshot:
+1. Add a reader field to `fortuna_ops::rota::RotaState`, e.g.
+   `ingestion: Option<fortuna_live::ingestion::IngestionTelemetryHandle>` (or
+   re-export the type to avoid the fortuna-live dep — your call).
+2. In main.rs (crates/fortuna-live/src/main.rs, the dashboard `RotaState { … }`
+   construction ~line 138) pass `ingest_telemetry.clone()` — the handle already
+   exists in scope (created before the ingestion match for exactly this).
+3. The V1 Live Feed reads `.read().await.recent`; V2 Sources Health reads
+   `.sources`; V3 Funnel reads `.funnel`. Read-only, snapshot is a pure
+   projection (no DB, cheap every refresh). Empty `generated_at` => ingestion not
+   yet ticked (show "—", don't 500).
+This is a clean writer/reader seam — I intentionally did NOT touch RotaState to
+avoid colliding with your in-flight ROTA harness.
+
+## TRACK D — OBS-3 domain_tags: DONE (SourceTelemetry surface now complete)
+
+OBS-3 (2026-06-13) populated `SourceTelemetry.domain_tags` from the
+`source_registry` admission (it was hard-coded empty in OBS-1). Registry-sourced
+via a `domain_of` resolver on `build_scheduler` (parallel to `tier_of`), threaded
+SourceSchedule → telemetry; build_ingestion_wiring builds the domain map from the
+same rows. No drift (Layer-0 admission is the source of truth, not config).
+Subagent-built, main-loop verified (full-diff review + independent scoped battery
++ the new test is mutation-meaningful). The OBS-1/OBS-2a GAPS notes below that say
+`domain_tags` is empty/deferred are SUPERSEDED — it is now populated. The
+SourceTelemetry struct has no remaining placeholder fields. Scoped battery green
+(fmt; clippy -p fortuna-sources -p fortuna-live --all-targets -D warnings; test
+-p fortuna-sources 119 lib + 5 DST; test -p fortuna-live --lib ingestion 6/6).
+The DB-backed fortuna-live suite is the verifier's merge gate.
+
+## TRACK D — OBS-2a funnel loop-stages: deferred follow-ups + scoped-battery note
+
+OBS-2a (2026-06-13) completed the telemetry funnel's loop-side stages in
+fortuna-live ingestion.rs (IngestionCore: normalized/deduped; IngestionWiring:
+persisted/persist_failures), each via `telemetry(now)`. Contained to ingestion.rs
+(no main.rs/boot.rs) → zero track-A collision.
+
+ACCURACY NOTE (caught in self-verify): `deduped` (the authoritative DedupIndex)
+is RARELY hit because the Layer-1 validator's recent-hash set PERSISTS across
+ticks (validate.rs:118 — "republication spans polls"), so an exact cross-tick
+duplicate is `RejectRepublished` at the validator and counts as
+`validated_dropped`, never reaching the dedup stage. `deduped` only fires for
+duplicates that slipped past the validator's bounded recent window. The tests
+assert this real behavior (my first-draft test asserted the wrong path; corrected
+before commit).
+
+DEFERRED:
+- OBS-2b — publish `IngestionWiring::telemetry()` into an
+  `Arc<RwLock<IngestionTelemetry>>` each tick + expose a reader from main.rs (so
+  ROTA/metrics can project it). Touches main.rs → sequence vs track A; track B
+  wires the read endpoint. Until OBS-2b lands, telemetry() is computed but not
+  yet published to any reader.
+- The IngestionWiring persisted/persist_failures accumulation is
+  integration-covered, not unit-tested (it needs a Postgres-backed
+  tick_and_persist; the accumulation `+= stats.persisted` is trivially correct
+  over the already-tested IngestStats). The 3 new tests cover the CORE funnel
+  (normalized/deduped) with no DB.
+
+BATTERY: scoped green (fmt --check; clippy -p fortuna-live --all-targets
+-D warnings; test -p fortuna-live --lib ingestion = 6/6). The DB-backed
+fortuna-live suite (daemon_smoke etc.) is unaffected (no schema/query change) and
+is the verifier's merge gate (disk + concurrent cross-track batteries).
+
 ## TRACK D — OBS-1 telemetry data surface (slice 1): deferred follow-ups + scoped-battery note
 
 OBS-1 (2026-06-13) added the live `IngestionTelemetry` snapshot to the scheduler

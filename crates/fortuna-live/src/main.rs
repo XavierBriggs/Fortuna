@@ -257,6 +257,12 @@ async fn main() -> Result<()> {
     // behind [ingestion].enabled (default OFF => the daemon is byte-unchanged).
     // The Layer-1 validator runs LIVE on the ingest path here; this loop is
     // independent of the deterministic trading cycle and stops with the daemon.
+    // OBS-2b: the published telemetry snapshot ("one writer, many readers"). The
+    // loop is the writer; a reader clone goes to the ROTA/metrics handlers once
+    // track B wires it into RotaState (the live ingestion board). Created
+    // unconditionally (an empty Arc is inert when ingestion is OFF — the daemon
+    // stays byte-unchanged); only the spawned loop ever writes it.
+    let ingest_telemetry = fortuna_live::ingestion::new_telemetry_handle();
     let (ingest_stop, ingest_handle) = match (dcfg.ingestion.as_ref(), ingest_pool) {
         (Some(sec), Some(ipool)) if sec.enabled => {
             let wiring = fortuna_live::ingestion::build_ingestion_wiring(
@@ -270,11 +276,16 @@ async fn main() -> Result<()> {
             let (tx, rx) = tokio::sync::oneshot::channel::<()>();
             let tick = std::time::Duration::from_millis(sec.tick_ms);
             let clk = runner.clock.clone();
+            let telemetry_writer = ingest_telemetry.clone();
             eprintln!("fortuna-live: news-aggregation ingestion ACTIVE (validator live on the ingest path)");
             (
                 Some(tx),
                 Some(tokio::spawn(fortuna_live::ingestion::run_ingestion_loop(
-                    wiring, clk, tick, rx,
+                    wiring,
+                    clk,
+                    tick,
+                    rx,
+                    telemetry_writer,
                 ))),
             )
         }
@@ -327,6 +338,21 @@ async fn main() -> Result<()> {
                 s.persisted, s.duplicates, s.dropped, s.alerts, s.persist_failures
             ),
             Err(e) => eprintln!("fortuna-live: ingestion task join error: {e}"),
+        }
+        // OBS-2b: read the final published snapshot (proves the publish ran; the
+        // same handle ROTA reads live). Empty generated_at => the loop never
+        // ticked, so nothing to report.
+        let snap = ingest_telemetry.read().await;
+        if !snap.generated_at.is_empty() {
+            eprintln!(
+                "fortuna-live: ingestion funnel — fetched={} accepted={} normalized={} \
+                 persisted={} sources={}",
+                snap.funnel.fetched,
+                snap.funnel.validated_accepted,
+                snap.funnel.normalized,
+                snap.funnel.persisted,
+                snap.sources.len(),
+            );
         }
     }
 

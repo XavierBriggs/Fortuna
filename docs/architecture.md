@@ -131,7 +131,7 @@ waive ([CLAUDE.md](../CLAUDE.md) "Protected directory").
 
 ## 3. Crate map
 
-Fifteen crates as of `334612d`. Each entry: what it owns, its key types, and
+Sixteen crates as of `f31aaa8` (the news-ingestion merge added `fortuna-sources`). Each entry: what it owns, its key types, and
 what it must never do. The first line of each crate's `lib.rs` (or `main.rs`)
 cites its spec sections; those headers are kept true and are the per-crate
 source of record.
@@ -185,7 +185,9 @@ halts trading. Must never: appear in the kill switch's dependency tree, or
 update an append-only row in place.
 
 **[fortuna-cognition](../crates/fortuna-cognition/src/lib.rs)** — everything
-probabilistic, I6 (spec §5.7–5.12): the `Source` ingestion funnel, trigger
+probabilistic, I6 (spec §5.7–5.12): the `Source` trait (its adapters + the
+ingestion scheduler/validator now live in
+[fortuna-sources](../crates/fortuna-sources/src/lib.rs)), the trigger
 engine, budgeted manifest-hashed context assembler, the `Mind` trait
 (`StubMind` and `AnthropicMind`), comparator plus the shared Kelly sizing
 library, calibration (Platt/isotonic with shrinkage prior), the
@@ -201,6 +203,24 @@ probabilities, never money.
   `ReconciliationOutcome` (it returns a draft the composition persists; no Postgres
   in cognition) and re-uses the same firewall: the trusted **method** rides in the
   Mind system message, the untrusted **signals** only in `<context-item>` data (§4).
+**[fortuna-sources](../crates/fortuna-sources/src/lib.rs)** — the news/data
+ingestion sources (BUILD_PLAN Track D, design §4.2/§4.4; spec §5.11 untrusted
+data). Implements the `Source` adapters behind one host-pinned, politeness-
+limited, conditional-GET `FetchClient` — SSRF-safe because the pin and the
+connection share the WHATWG URL parser (a parser-differential bypass was fixed
+at root cause). Adapters: `NwsSource` (alerts/AFD), `NwsClimateSource` (the CLI
+daily-extreme settlement grader), `RssSource`, `CalendarSource` (BLS schedule/
+latest), `AeolusSource` (the proprietary forecast vendor; `x-api-key`, secret
+env-only). The `IngestionScheduler` polls the fleet on per-source cadence with a
+Healthy→Degraded→Quarantined health machine (operator `rearm` only — no
+auto-resume, the I2 spirit), enforces the Layer-1 `StructuralValidator` on every
+fetched item (future-dated / republished / over-volume are refused, never passed
+downstream) and projects an `IngestionTelemetry`
+snapshot for ROTA. `build_scheduler` maps config rows → registered sources,
+fail-closed (no `source_registry` tier ⇒ refused; an unresolved `auth_env` ⇒
+hard error). Wired into the daemon behind a default-off `[ingestion]` flag, off
+the money path. Must never: run the model in the ingestion path, read env for
+secrets (the caller resolves them), or fetch an off-pin host.
 
 **[fortuna-runner](../crates/fortuna-runner/src/lib.rs)** — the composed
 deterministic core (spec §4, §6): `SimRunner` drives one full cycle — venue

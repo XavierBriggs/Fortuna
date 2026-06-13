@@ -49,6 +49,9 @@ pub struct SourceSchedule {
     /// `wakes_decision_cycle` only when `trust_tier >= trigger_floor`.
     pub trust_tier: u8,
     pub trigger_floor: u8,
+    /// Domain tags (weather | macro | …) from the source_registry admission;
+    /// surfaced in telemetry.
+    pub domain_tags: Vec<String>,
 }
 
 impl SourceSchedule {
@@ -63,6 +66,7 @@ impl SourceSchedule {
             backoff_cap: Duration::from_secs(3600),
             trust_tier,
             trigger_floor,
+            domain_tags: Vec::new(),
         }
     }
 }
@@ -139,8 +143,7 @@ pub struct SourceTelemetry {
     pub source_id: String,
     /// Last-seen signal kind; `""` until the first signal is observed.
     pub kind: String,
-    /// Domain tags (weather | macro | …). EMPTY this slice — populated from the
-    /// source_registry/config admission in a later slice.
+    /// Domain tags (weather | macro | …) from the source_registry admission.
     pub domain_tags: Vec<String>,
     pub trust_tier: u8,
     /// `"healthy"` | `"degraded"` | `"quarantined"`.
@@ -204,7 +207,9 @@ pub struct TickTelemetry {
 /// A live ingestion telemetry snapshot. ONE writer (the ingestion loop), many
 /// readers (the Prometheus renderer + ROTA handlers). A pure projection — the
 /// `generated_at` clock is injected by the caller (never wall-clock here).
-#[derive(Debug, Clone)]
+/// `Default` is the empty pre-first-tick snapshot a published handle starts at
+/// (empty `generated_at` => "not yet generated"; readers degrade gracefully).
+#[derive(Debug, Clone, Default)]
 pub struct IngestionTelemetry {
     pub generated_at: String,
     pub sources: Vec<SourceTelemetry>,
@@ -492,7 +497,7 @@ impl IngestionScheduler {
                 SourceTelemetry {
                     source_id: reg.id.clone(),
                     kind: reg.last_kind.clone().unwrap_or_default(),
-                    domain_tags: Vec::new(),
+                    domain_tags: reg.schedule.domain_tags.clone(),
                     trust_tier: reg.schedule.trust_tier,
                     health,
                     last_poll_at: reg.last_poll_ms.and_then(iso),
