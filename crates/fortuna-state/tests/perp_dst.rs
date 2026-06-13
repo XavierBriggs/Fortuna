@@ -650,32 +650,77 @@ fn perp_plane_survives_seeded_chaos() {
     }
 }
 
-/// Regression set (definition-of-done #3): seeds that once produced a red
-/// battery replay deterministically in EVERY run. Never delete entries.
-/// Each pins the arm its failure mechanism must now hit.
-const REGRESSION_SEEDS: &[(u64, &str)] = &[
-    // track-c-final-gate-2026-06-12 [Major]: a wild-regime mark drift
-    // pushed the held position's notional past the last risk-curve tier
-    // ($100,068.43 > $100k) with no new order; MarginSim fail-closed
-    // correctly but the harness counted the designed refusal as a
-    // failure. Now the curve_exceeded designed arm (+ spec-5.15 halt).
-    (11819682492387934495, "curve_exceeded"),
-];
+/// Regression corpus (definition-of-done #3): perp-dst-tagged seeds in
+/// the canonical crates/fortuna-core/dst-corpus/ directory (one file per
+/// seed; `# harness: perp-dst` selects them for THIS harness; the core
+/// dst harness also replays the raw u64 as an incidental anchor). Each
+/// file's `# expect-arm:` line pins the arm its failure mechanism must
+/// hit. NEVER delete corpus seeds.
+fn load_perp_corpus() -> Vec<(u64, Option<String>, String)> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../fortuna-core/dst-corpus");
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return out;
+    };
+    let mut paths: Vec<_> = entries
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "seed"))
+        .collect();
+    paths.sort();
+    for path in paths {
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        if !content.contains("harness: perp-dst") {
+            continue;
+        }
+        let label = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let expect_arm = content.lines().find_map(|l| {
+            l.trim()
+                .strip_prefix("# expect-arm:")
+                .map(|a| a.trim().to_string())
+        });
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Ok(seed) = line.parse::<u64>() {
+                out.push((seed, expect_arm.clone(), label.clone()));
+            }
+        }
+    }
+    out
+}
 
 #[test]
-fn regression_seeds_replay_green() {
-    for (seed, expected_arm) in REGRESSION_SEEDS {
+fn regression_corpus_replays_green() {
+    let corpus = load_perp_corpus();
+    assert!(
+        !corpus.is_empty(),
+        "the perp corpus must contain at least the first red seed \
+         (perp-curve-exceeded-11819682492387934495.seed)"
+    );
+    for (seed, expect_arm, label) in corpus {
         let mut arms = ArmCounts::default();
-        let digest = run_scenario(*seed, &mut arms)
-            .unwrap_or_else(|e| panic!("regression seed {seed}: {e}"));
-        assert!(
-            arms.0.get(expected_arm).copied().unwrap_or(0) > 0,
-            "regression seed {seed}: arm {expected_arm} did not fire"
-        );
-        // Determinism holds on the regression path too.
+        let digest = run_scenario(seed, &mut arms)
+            .unwrap_or_else(|e| panic!("corpus {label} (seed {seed}): {e}"));
+        if let Some(arm) = &expect_arm {
+            assert!(
+                arms.0.get(arm.as_str()).copied().unwrap_or(0) > 0,
+                "corpus {label} (seed {seed}): arm {arm} did not fire"
+            );
+        }
+        // Determinism holds on the corpus path too.
         let mut rerun_arms = ArmCounts::default();
-        let rerun = run_scenario(*seed, &mut rerun_arms)
-            .unwrap_or_else(|e| panic!("regression seed {seed} rerun: {e}"));
-        assert_eq!(digest, rerun, "regression seed {seed}: non-deterministic");
+        let rerun = run_scenario(seed, &mut rerun_arms)
+            .unwrap_or_else(|e| panic!("corpus {label} (seed {seed}) rerun: {e}"));
+        assert_eq!(
+            digest, rerun,
+            "corpus {label} (seed {seed}): non-deterministic"
+        );
     }
 }

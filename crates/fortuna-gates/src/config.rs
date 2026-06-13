@@ -105,6 +105,13 @@ pub struct PerpVenueLimits {
     /// margin. Must be >= 100: below that would WEAKEN the venue's own
     /// requirement. The venue's IM = 1.3 x MM suggests >= 130.
     pub mm_safety_multiplier_pct: i64,
+    /// OPERATOR-SET venue-wide leverage ceiling, fixed-point x10
+    /// (20 = 2.0x; operator decision 2026-06-12 item 4). Enforced as
+    /// min(this, per-asset cap). ABSENT = the venue curves/per-asset caps
+    /// remain the ceiling (the operator's documented interim). Loosening
+    /// a set value is an I7-style operator review (ASSUMPTIONS).
+    #[serde(default)]
+    pub max_leverage_x10: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -176,6 +183,11 @@ impl GateConfig {
                 return err(format!(
                     "perp venue {venue}: mm_safety_multiplier_pct must be >= 100 (a smaller \
                      value would weaken the venue's own margin requirement)"
+                ));
+            }
+            if v.max_leverage_x10.is_some_and(|x| x < 1) {
+                return err(format!(
+                    "perp venue {venue}: max_leverage_x10 must be >= 0.1x when set"
                 ));
             }
         }

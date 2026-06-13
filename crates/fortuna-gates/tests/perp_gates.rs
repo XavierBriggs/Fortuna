@@ -1008,3 +1008,85 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn operator_venue_leverage_ceiling_binds_at_two_x() {
+    // Operator decision 2026-06-12 item 4: venue-wide max_leverage_x10 =
+    // 20 (2.0x), enforced as min(config, per-asset cap). Pinned exactly
+    // as specified: 2.01x refused, 1.99x passes (and exact 2.0x passes —
+    // the cap is inclusive, same doctrine as the per-asset boundary).
+    // mark = limit = $6.2500, equity 1,000,000c: 1.99x = qty 3,184;
+    // 2.00x = qty 3,200; 2.01x = qty 3,216.
+    fn ceiling_config() -> GateConfig {
+        toml::from_str(
+            r#"
+            [global]
+            max_total_exposure_cents = 100000000
+            max_daily_loss_cents = 50000
+            min_order_contracts = 1
+            max_order_contracts = 10000
+            price_band_cents = 49
+            max_cross_cents = 98
+            per_market_exposure_cents = 100000000
+            per_event_exposure_cents = 100000000
+            require_event_mapping = false
+
+            [per_strategy.perp_s]
+            max_exposure_cents = 100000000
+            max_order_notional_cents = 10000000
+            min_net_edge_bps = 10
+
+            [rate.kinetics]
+            burst = 100
+            sustained_per_min = 600
+            market_burst = 100
+            market_sustained_per_min = 600
+
+            [perp.venues.kinetics]
+            max_total_notional_cents = 100000000
+            min_order_contracts = 1
+            max_order_contracts = 10000
+            price_band_bps = 1000
+            assumed_fee_bps = 12
+            funding_drag_bps_per_window = 4
+            min_liquidation_distance_bps = 1000
+            mm_safety_multiplier_pct = 130
+            max_leverage_x10 = 20
+
+            [perp.assets.KXBTCPERP]
+            max_leverage_x10 = 50
+            max_notional_cents = 50000000
+            mm_curve = [[1000000, 500], [50000000, 800]]
+            "#,
+        )
+        .unwrap()
+    }
+    let ctx = Ctx {
+        mark: PerpPrice::new(62_500),
+        ..Ctx::new(1_000_000)
+    };
+    for (qty, passes) in [(3_184i64, true), (3_200, true), (3_216, false)] {
+        let mut p = GatePipeline::new(ceiling_config()).unwrap();
+        let mut c = candidate(qty as u64);
+        c.limit_price = PerpPrice::new(62_500);
+        c.fair_value = PerpPrice::new(63_500);
+        c.qty = Contracts::new(qty);
+        let rejected_at = reject_check(&mut p, &c, &ctx);
+        if passes {
+            assert_ne!(
+                rejected_at,
+                Some(GateCheck::LeverageCap),
+                "qty {qty} must clear the 2x ceiling"
+            );
+        } else {
+            assert_eq!(
+                rejected_at,
+                Some(GateCheck::LeverageCap),
+                "qty {qty} must be refused by the 2x ceiling"
+            );
+        }
+    }
+    // The per-asset cap (5.0x) did NOT bind here: the venue ceiling is
+    // the effective minimum. An ABSENT ceiling leaves the per-asset cap
+    // as before (covered by leverage_exactly_at_cap_passes).
+}

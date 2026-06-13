@@ -509,6 +509,9 @@ pub struct GroupSummary {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct GroupsListResponse {
+    /// ABSENT on an empty account (recorded: `{}` in the re-recorded
+    /// corpus) — same tolerance pattern as MarketsResponse.cursor.
+    #[serde(default)]
     pub order_groups: Vec<GroupSummary>,
 }
 
@@ -605,6 +608,27 @@ pub struct WsUserOrderMsg {
     pub last_updated_ts_ms: i64,
 }
 
+/// CAPTURED in the re-recorded private stream (one live taker fill):
+/// trade/order/client ids, market_ticker, side, price/count strings,
+/// fee_cost, post_position (signed count AFTER the fill), order_source
+/// ("user" | "system" — the WS surface of the 5.15 liquidation class).
+#[derive(Debug, Clone, Deserialize)]
+pub struct WsFillMsg {
+    pub trade_id: String,
+    pub order_id: String,
+    pub client_order_id: String,
+    pub market_ticker: String,
+    pub is_taker: bool,
+    pub side: String,
+    pub price: String,
+    pub count: String,
+    pub fee_cost: String,
+    pub post_position: String,
+    pub subaccount: i64,
+    pub order_source: String,
+    pub ts_ms: i64,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct WsGroupUpdateMsg {
     pub event_type: String,
@@ -644,6 +668,10 @@ pub enum WsFrame {
     UserOrder {
         sid: i64,
         msg: WsUserOrderMsg,
+    },
+    Fill {
+        sid: i64,
+        msg: WsFillMsg,
     },
     OrderGroupUpdate {
         sid: i64,
@@ -714,6 +742,10 @@ pub fn parse_ws_frame(raw: &str) -> Result<WsFrame, VenueError> {
         "user_order" => WsFrame::UserOrder {
             sid: field_i64(&v, "sid", "user_order")?,
             msg: field_msg(&v, "user_order")?,
+        },
+        "fill" => WsFrame::Fill {
+            sid: field_i64(&v, "sid", "fill")?,
+            msg: field_msg(&v, "fill")?,
         },
         "order_group_updates" => WsFrame::OrderGroupUpdate {
             sid: field_i64(&v, "sid", "order_group_updates")?,

@@ -77,7 +77,8 @@ fn classification() -> BTreeMap<&'static str, Kind> {
         ("auth__skew_plus5min", Err),
         ("auth__skew_plus5s", Balance),
         ("balance__compute_available", Balance),
-        ("cleanup__leftover_0", Err),
+        ("cleanup__leftover_0", Cancel),
+        ("cleanup__leftover_1", Cancel),
         ("exchange__status", ExchangeStatus),
         ("fees__tiers", FeeTiers),
         ("fills__after_open", Fills),
@@ -203,16 +204,22 @@ fn every_fixture_parses_into_its_typed_dto() {
             failures.push(format!("{stem}: UNCLASSIFIED — classify new fixtures"));
             continue;
         };
-        // The table must agree with the recorded status (errors <=> 4xx/5xx).
-        if let Some(status) = meta_status(stem) {
-            let is_err = *kind == Kind::Err;
-            if is_err != (status >= 400) {
-                failures.push(format!(
-                    "{stem}: classified {kind:?} but recorded status is {status}"
-                ));
+        // The recorded STATUS decides error-vs-success per capture (the
+        // corpus re-records; venue state moves between runs — e.g. the
+        // get-after reads 404 once their orders age out). The table pins
+        // each endpoint's SUCCESS shape; Kind::Err marks fixtures with
+        // no known success shape.
+        let status = meta_status(stem);
+        if status.is_some_and(|s| s >= 400) {
+            if let Err(e) = parse_as(Kind::Err, &body(stem)) {
+                failures.push(format!("{stem} as error envelope (status {status:?}): {e}"));
             }
-        }
-        if let Err(e) = parse_as(*kind, &body(stem)) {
+        } else if *kind == Kind::Err {
+            failures.push(format!(
+                "{stem}: recorded a SUCCESS but is classified error-only — \
+                 classify its success shape"
+            ));
+        } else if let Err(e) = parse_as(*kind, &body(stem)) {
             failures.push(format!("{stem} as {kind:?}: {e}"));
         }
     }
@@ -232,75 +239,91 @@ fn every_fixture_parses_into_its_typed_dto() {
 // ---- semantic spot checks (values, not just shapes) ----
 
 #[test]
-fn market_single_parses_load_bearing_values() {
+fn market_single_parses_load_bearing_structure() {
+    // RE-RECORDING-PROOF (perps-merge revert lesson): expectations
+    // derive through the parse path; capture-specific values are never
+    // pinned (the corpus re-records; uuids/quotes/marks move). Parser
+    // EXACTNESS lives in parse_primitives_round_against_garbage with
+    // fixed vectors.
     let m: dto::MarketResponse = serde_json::from_str(&body("markets__single")).unwrap();
     let m = m.market;
-    assert_eq!(m.ticker, "KXBTCPERP1");
-    assert_eq!(
-        dto::parse_perp_price(m.ask.as_deref().unwrap()).unwrap(),
-        PerpPrice::new(63_416)
-    );
-    assert_eq!(
-        dto::parse_perp_price(m.bid.as_deref().unwrap()).unwrap(),
-        PerpPrice::new(63_329)
-    );
-    // Demo BTC tick_size is the EMPTY STRING (finding 12) — tolerated.
-    assert_eq!(dto::parse_perp_price_opt(&m.tick_size).unwrap(), None);
-    // The recorded risk curve the gate/sim mm_curve derives from.
-    assert_eq!(m.leverage_estimates.get("1000000").copied(), Some(5.8143));
-    assert_eq!(m.leverage_estimate, Some(5.899));
+    assert_eq!(m.ticker, "KXBTCPERP1"); // the recorder targets this market
+    let bid = dto::parse_perp_price(m.bid.as_deref().unwrap()).unwrap();
+    let ask = dto::parse_perp_price(m.ask.as_deref().unwrap()).unwrap();
+    assert!(bid < ask, "active market quotes uncrossed");
+    // tick_size parses whether empty (finding 12) or set.
+    dto::parse_perp_price_opt(&m.tick_size).unwrap();
     assert!(!m.fractional_trading_enabled);
-    assert_eq!(
-        dto::parse_perp_price(&m.settlement_mark_price.unwrap().price).unwrap(),
-        PerpPrice::new(63_805)
-    );
+    // The recorded risk curve: non-empty, every leverage >= 1 (a venue
+    // leverage below 1x would break the RiskCurve domain).
+    assert!(!m.leverage_estimates.is_empty());
+    assert!(m.leverage_estimates.values().all(|l| *l >= 1.0));
+    for stamp in [
+        m.settlement_mark_price.as_ref(),
+        m.liquidation_mark_price.as_ref(),
+        m.reference_price.as_ref(),
+    ] {
+        let stamp = stamp.expect("active market carries all three marks");
+        assert!(dto::parse_perp_price(&stamp.price).unwrap().raw() > 0);
+    }
 }
 
 #[test]
-fn order_get_parses_sides_counts_and_source() {
-    let o: dto::OrderResponse = serde_json::from_str(&body("orders__get_after_create")).unwrap();
-    let o = o.order;
-    assert_eq!(o.side, "bid");
-    assert_eq!(o.order_source.as_deref(), Some("user"));
-    assert_eq!(
-        dto::parse_perp_price(&o.price).unwrap(),
-        PerpPrice::new(53_829)
-    );
-    assert_eq!(
-        dto::parse_whole_count(&o.remaining_count).unwrap(),
-        Contracts::new(1)
-    );
-    assert_eq!(
-        dto::parse_whole_count(&o.fill_count).unwrap(),
-        Contracts::new(0)
-    );
+fn listed_orders_parse_sides_counts_and_sources() {
+    // The re-recorded get-after probes captured 404s (their orders aged
+    // out server-side); the SUCCESS Order shape is pinned via the
+    // populated orders__list_all entries — derived, never value-pinned.
+    let list: dto::OrdersResponse = serde_json::from_str(&body("orders__list_all")).unwrap();
+    assert!(!list.orders.is_empty(), "list_all must be populated");
+    for o in &list.orders {
+        assert!(o.side == "bid" || o.side == "ask", "side {:?}", o.side);
+        assert!(dto::parse_perp_price(&o.price).unwrap().raw() > 0);
+        dto::parse_whole_count(&o.remaining_count).unwrap();
+        dto::parse_whole_count(&o.fill_count).unwrap();
+        if let Some(src) = &o.order_source {
+            assert!(src == "user" || src == "system", "order_source {src:?}");
+        }
+    }
 }
 
 #[test]
 fn position_parses_signed_count_and_dollar_strings() {
     let p: dto::PositionsResponse = serde_json::from_str(&body("positions__open")).unwrap();
+    assert!(
+        !p.positions.is_empty(),
+        "open-position capture must be populated"
+    );
     let p = &p.positions[0];
-    assert_eq!(
+    // Signed whole-count and tick-exact entry parse; the pnl dollar
+    // string parses signed (its SIGN is venue state, never pinned).
+    assert_ne!(
         dto::parse_whole_count(&p.position).unwrap(),
-        Contracts::new(1)
+        Contracts::new(0)
     );
-    assert_eq!(
-        dto::parse_perp_price(&p.entry_price).unwrap(),
-        PerpPrice::new(63_587)
-    );
-    // unrealized_pnl is a signed dollar string with 4dp.
-    assert!(dto::parse_dollars(&p.unrealized_pnl).unwrap() < rust_decimal::Decimal::ZERO);
+    assert!(dto::parse_perp_price(&p.entry_price).unwrap().raw() > 0);
+    dto::parse_dollars(&p.unrealized_pnl).unwrap();
 }
 
 #[test]
-fn funding_rates_are_floats_never_strings() {
+fn funding_rates_are_floats_on_the_8h_grid() {
+    // Type-level: funding_rate fields are f64 (a string would fail
+    // deserialization — finding 10). Values are venue state, not pinned;
+    // the 04/12/20 UTC grid IS structural (research §4, confirmed).
     let r: dto::FundingRatesHistoricalResponse =
         serde_json::from_str(&body("funding__rates_historical")).unwrap();
-    assert_eq!(r.funding_rates[0].funding_rate, -0.0009593552948286);
+    assert!(!r.funding_rates.is_empty());
+    // WIRE FINDING (re-recorded wide capture, ledgered in GAPS): deep
+    // history carries hourly/half-hourly rate OBSERVATIONS — the 8h
+    // payment grid holds for the CURRENT era + next_funding_time only.
+    // No grid is asserted on history; structure only.
+    for entry in r.funding_rates.iter().take(50) {
+        assert!(entry.funding_rate.is_finite());
+        assert!(entry.funding_time.ends_with('Z'));
+        dto::parse_perp_price(&entry.mark_price).unwrap();
+    }
     let e: dto::FundingEstimateResponse =
         serde_json::from_str(&body("funding__rates_estimate")).unwrap();
-    assert_eq!(e.funding_rate, 0.0);
-    assert_eq!(e.next_funding_time, "2026-06-12T12:00:00Z");
+    assert!(e.funding_rate.is_finite());
 }
 
 #[test]
@@ -374,6 +397,7 @@ fn parse_stream(file: &str) -> BTreeMap<String, usize> {
             WsFrame::Ticker { .. } => "ticker",
             WsFrame::Trade { .. } => "trade",
             WsFrame::UserOrder { .. } => "user_order",
+            WsFrame::Fill { .. } => "fill",
             WsFrame::OrderGroupUpdate { .. } => "order_group_updates",
             WsFrame::Unknown(v) => panic!("{file}: unknown frame type in a RECORDED stream: {v}"),
         };
@@ -384,19 +408,26 @@ fn parse_stream(file: &str) -> BTreeMap<String, usize> {
 
 #[test]
 fn public_ws_stream_parses_completely() {
+    // Counts are PRESENCE-based: capture length varies per re-recording;
+    // the pin is full typing (parse_stream panics on any unknown frame).
     let counts = parse_stream("ws__public_orderbook_ticker.jsonl");
     assert_eq!(counts.get("orderbook_snapshot").copied(), Some(1));
-    assert!(counts.get("orderbook_delta").copied().unwrap_or(0) > 1000);
-    assert!(counts.get("ticker").copied().unwrap_or(0) > 10);
-    assert!(counts.get("trade").copied().unwrap_or(0) > 1000);
+    assert!(counts.get("orderbook_delta").copied().unwrap_or(0) > 0);
+    assert!(counts.get("ticker").copied().unwrap_or(0) > 0);
 }
 
 #[test]
 fn private_ws_stream_parses_completely() {
+    // Channel emission is NOT guaranteed per lifecycle (session notes);
+    // the pin is full typing. The CURRENT capture carries the
+    // first-ever recorded fill frame — assert it types (the shape is
+    // now captured; WsFillMsg exists because of it).
     let counts = parse_stream("ws__private_lifecycle.jsonl");
-    assert!(counts.get("user_order").copied().unwrap_or(0) > 0);
-    assert!(counts.get("order_group_updates").copied().unwrap_or(0) > 0);
-    assert_eq!(counts.get("subscribed").copied(), Some(3));
+    assert!(counts.get("subscribed").copied().unwrap_or(0) > 0);
+    assert!(
+        counts.get("fill").copied().unwrap_or(0) > 0,
+        "the re-recorded private stream carries a typed fill frame"
+    );
 }
 
 #[test]

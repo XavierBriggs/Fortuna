@@ -290,7 +290,7 @@ impl GatePipeline {
             ),
             (
                 GateCheck::LeverageCap,
-                check_leverage_cap(&profile, asset_cfg, inputs),
+                check_leverage_cap(&profile, venue_cfg, asset_cfg, inputs),
             ),
             (
                 GateCheck::PerpNotionalCap,
@@ -709,31 +709,39 @@ fn check_liquidation_distance(
     ))
 }
 
-// ---- check 13 (spec 5.15 gate (b)) ----
+// ---- check 13 (spec 5.15 gate (b); operator 2x ceiling 2026-06-12) ----
 fn check_leverage_cap(
     profile: &PerpProfile,
+    venue_cfg: &PerpVenueLimits,
     asset_cfg: &PerpAssetLimits,
     i: &PerpGateInputs,
 ) -> Result<String, String> {
     if profile.reducing {
         return Ok("exposure-reducing close: leverage can only fall".to_string());
     }
+    // Effective cap = min(operator venue-wide ceiling, per-asset cap);
+    // an absent venue ceiling leaves the per-asset (venue-curve-derived)
+    // cap as the ceiling — the operator's documented interim.
+    let cap_x10 = match venue_cfg.max_leverage_x10 {
+        Some(venue_cap) => venue_cap.min(asset_cfg.max_leverage_x10),
+        None => asset_cfg.max_leverage_x10,
+    };
     // worst_notional / equity <= cap/10, cross-multiplied in i128:
-    // worst_notional x 10 <= equity x max_leverage_x10.
+    // worst_notional x 10 <= equity x cap_x10.
     let lhs = i128::from(profile.worst_notional.raw()) * 10;
-    let rhs = i128::from(i.account.equity.raw()) * i128::from(asset_cfg.max_leverage_x10);
+    let rhs = i128::from(i.account.equity.raw()) * i128::from(cap_x10);
     if lhs > rhs {
         return Err(format!(
             "worst-case notional {} exceeds the {}.{}x leverage cap on equity {}",
             profile.worst_notional,
-            asset_cfg.max_leverage_x10 / 10,
-            asset_cfg.max_leverage_x10 % 10,
+            cap_x10 / 10,
+            cap_x10 % 10,
             i.account.equity
         ));
     }
     Ok(format!(
         "worst-case notional {} within leverage cap ({} x10) on equity {}",
-        profile.worst_notional, asset_cfg.max_leverage_x10, i.account.equity
+        profile.worst_notional, cap_x10, i.account.equity
     ))
 }
 

@@ -1936,6 +1936,35 @@ observed so far: `INVALID_PARAMETER` (malformed key id) and
   5.2 alongside the corrections; the Kalshi event quadratic x0.07 is now
   marked fixture-confirmed (real demo fill, 2026-06-11).
 
+## PERPS RE-MERGE PACKAGE: COMPLETE (track C, 2026-06-12, re-armed loop)
+
+Per the bus ("FOR THE POOL / restarted TRACK C") + the amended loop
+queue, all three parts landed on the reinstated plane (revert-of-revert
+d81ab6c):
+
+1. CLIENT-ID FINDING (the revert root cause, exec-adjudicated option 2):
+   the kinetics suites were value-pinning capture uuids; the corpus was
+   RE-RECORDED for the re-gate and every pinned value broke. ALL FOUR
+   suites now derive expectations through the path (params parsed out of
+   meta.json; responses vs the recorded body's own fields; structure
+   over capture state) — re-recording-proof, doctrine in ASSUMPTIONS.
+   Bonus from the new capture: the WS fill frame shape is NOW CAPTURED
+   and typed (closes the ledgered fill-frame gap); deep funding history
+   REFUTES the universal 8h grid (wire finding, ASSUMPTIONS; research
+   §4's "empirically confirmed" claim holds for the current era only —
+   erratum candidate for the verification session's research doc).
+2. OPERATOR 2x LEVERAGE CEILING (decision item 4): [perp.venues]
+   max_leverage_x10 (Option; absent = interim per-asset ceiling stands),
+   enforced as min(ceiling, asset cap), boundary-pinned (1.99x/2.00x
+   pass, 2.01x refused). Production config entry = operator/composition
+   step.
+3. RED-SEED CORPUS COMMITMENT (amended queue): seed 11819682492387934495
+   now lives in crates/fortuna-core/dst-corpus/ (perp-curve-exceeded-*.
+   seed, failure-mode comment, never-delete) and the perp harness loads
+   perp-dst-tagged corpus seeds with expect-arm + determinism assertions
+   (replacing the in-file regression list; the designed-refusal arm +
+   spec-5.15 halt landed pre-revert at e0d4ae2 and is reinstated).
+
 ## RALPH STOP 2026-06-12T10:22:01Z (track C — queue exhausted, protocol stop)
 
 [POST-STOP ADDENDUM ~10:50Z, operator-resumed: the final gate

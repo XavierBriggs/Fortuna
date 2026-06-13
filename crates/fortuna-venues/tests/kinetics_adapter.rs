@@ -152,36 +152,41 @@ fn block_on<F: std::future::Future>(f: F) -> F::Output {
 
 #[test]
 fn place_maps_gated_order_to_the_recorded_create_request() {
-    // The recorded GTC create: bid 1 @ 5.3829, client id 99845c0f-....
-    let order = gate_order(
-        1,
-        "99845c0f-725c-4a4a-8955-a95a30e58072",
-        53_829,
-        1,
-        Action::Buy,
-        false,
-        None,
-    );
-    let (adapter, transport) = adapter_with(vec![(201, fixture_json("orders__create_gtc"))]);
-    let placement =
-        block_on(adapter.place(&order, TimeInForce::GoodTillCanceled, Some(false))).unwrap();
-    assert_eq!(
-        placement.venue_order_id.as_str(),
-        "c445aeac-f95b-4c96-8086-faacebfd300d"
-    );
-    assert_eq!(placement.filled, Contracts::new(0));
-    assert_eq!(placement.remaining, Contracts::new(1));
-
-    // The wire body equals the recording.
+    // RE-RECORDING-PROOF (perps-merge revert lesson): the candidate is
+    // built FROM the recorded request body (client id, price, count) and
+    // the placement assertions compare against the recorded response's
+    // own fields. Nothing capture-specific is hardcoded.
     let meta: serde_json::Value = serde_json::from_str(
         &fs::read_to_string(fixtures_dir().join("orders__create_gtc.meta.json")).unwrap(),
     )
     .unwrap();
+    let req = &meta["request_body"];
+    let price =
+        fortuna_venues::kinetics::dto::parse_perp_price(req["price"].as_str().unwrap()).unwrap();
+    let response = fixture_json("orders__create_gtc");
+    let order = gate_order(
+        1,
+        req["client_order_id"].as_str().unwrap(),
+        price.raw(),
+        req["count"].as_str().unwrap().parse().unwrap(),
+        Action::Buy,
+        false,
+        None,
+    );
+    let (adapter, transport) = adapter_with(vec![(201, response.clone())]);
+    let placement =
+        block_on(adapter.place(&order, TimeInForce::GoodTillCanceled, Some(false))).unwrap();
+    assert_eq!(
+        placement.venue_order_id.as_str(),
+        response["order_id"].as_str().unwrap()
+    );
+
+    // The wire body equals the recording.
     let calls = transport.calls();
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].method, "POST");
     assert_eq!(calls[0].path, "/margin/orders");
-    assert_eq!(calls[0].body.as_ref(), Some(&meta["request_body"]));
+    assert_eq!(calls[0].body.as_ref(), Some(req));
 }
 
 #[test]
@@ -220,26 +225,23 @@ fn reduce_only_gtc_is_refused_before_the_wire() {
 
 #[test]
 fn duplicate_client_id_resolves_to_already_exists_via_list_scan() {
-    // orders__list_all carries client id a4e0fe1c-... -> order 1d45702e-...
-    let order = gate_order(
-        3,
-        "a4e0fe1c-84ae-424b-a662-38f2802d6871",
-        53_829,
-        1,
-        Action::Buy,
-        false,
-        None,
-    );
+    // Derived: the duplicate's client id and the expected venue order id
+    // come from the FIRST entry of the recorded list itself.
+    let listing = fixture_json("orders__list_all");
+    let first = &listing["orders"][0];
+    let client_id = first["client_order_id"].as_str().unwrap();
+    let expected_order_id = first["order_id"].as_str().unwrap();
+    let order = gate_order(3, client_id, 53_829, 1, Action::Buy, false, None);
     let (adapter, _) = adapter_with(vec![
         (409, fixture_json("orders__duplicate_client_order_id")),
-        (200, fixture_json("orders__list_all")),
+        (200, listing.clone()),
     ]);
     let err =
         block_on(adapter.place(&order, TimeInForce::GoodTillCanceled, Some(false))).unwrap_err();
     let VenueError::AlreadyExists { existing } = &err else {
         panic!("expected AlreadyExists, got {err:?}");
     };
-    assert_eq!(existing.as_str(), "1d45702e-4b93-476a-958d-0f9bed496826");
+    assert_eq!(existing.as_str(), expected_order_id);
 }
 
 #[test]

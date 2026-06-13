@@ -30,6 +30,7 @@ use crate::kinetics::client::BookSide;
 use crate::kinetics::dto::{self, WsFrame};
 use crate::VenueError;
 use fortuna_core::market::{Contracts, MarketId};
+use fortuna_core::money::Cents;
 use fortuna_core::perp::PerpPrice;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -131,6 +132,26 @@ pub enum KineticsWsEvent {
         fill_count: Contracts,
         remaining_count: Contracts,
         last_updated_ts_ms: i64,
+    },
+    /// A private fill echo (CAPTURED in the re-recorded stream).
+    /// order_source = "system" is the WS surface of the spec-5.15
+    /// liquidation class — consumers must treat it like the REST
+    /// Liquidation fill class, never as ordinary flow.
+    Fill {
+        trade_id: String,
+        order_id: String,
+        client_order_id: String,
+        market: MarketId,
+        side: BookSide,
+        price: PerpPrice,
+        count: Contracts,
+        /// Charged fee, CEILED (never understated) — same doctrine as
+        /// the REST fill conversion.
+        fee: Cents,
+        post_position: Contracts,
+        is_taker: bool,
+        is_system: bool,
+        ts_ms: i64,
     },
     GroupUpdate {
         event_type: String,
@@ -256,6 +277,24 @@ impl KineticsWsSession {
                 fill_count: dto::parse_whole_count(&msg.fill_count)?,
                 remaining_count: dto::parse_whole_count(&msg.remaining_count)?,
                 last_updated_ts_ms: msg.last_updated_ts_ms,
+            }),
+            WsFrame::Fill { msg, .. } => Ok(KineticsWsEvent::Fill {
+                trade_id: msg.trade_id,
+                order_id: msg.order_id,
+                client_order_id: msg.client_order_id,
+                market: market_id(&msg.market_ticker)?,
+                side: book_side(&msg.side)?,
+                price: dto::parse_perp_price(&msg.price)?,
+                count: dto::parse_whole_count(&msg.count)?,
+                fee: Cents::from_dollars_ceil(dto::parse_dollars(&msg.fee_cost)?).map_err(|e| {
+                    VenueError::Invalid {
+                        reason: format!("ws fill fee: {e}"),
+                    }
+                })?,
+                post_position: dto::parse_whole_count(&msg.post_position)?,
+                is_taker: msg.is_taker,
+                is_system: msg.order_source == "system",
+                ts_ms: msg.ts_ms,
             }),
             WsFrame::OrderGroupUpdate { msg, .. } => Ok(KineticsWsEvent::GroupUpdate {
                 event_type: msg.event_type,

@@ -203,3 +203,20 @@ neither private channel's emission is guaranteed per lifecycle; the
 `fill` channel's frame SHAPE remains UNCAPTURED in this corpus (the
 typed WS layer degrades unknown/uncaptured frames to Ignored, and REST
 fills remain the reconciliation source of truth — ledgered in GAPS).
+
+## Committed-capture annotation 2 (2026-06-12, post-re-recording)
+
+The corpus was RE-RECORDED for the re-gate (commit 8b8b222): fresh venue
+uuids throughout; the get-after probes captured 404s (their orders aged
+out between runs); groups__list captured `{}` (empty account state);
+transfer__intra_exchange captured a 503 (the rail flaked this run);
+cleanup__leftover_1 added. The private WS stream NOW CARRIES ONE `fill`
+frame — its shape is CAPTURED (trade/order/client ids, market_ticker,
+is_taker, side, price/count, fee_cost, post_position, subaccount,
+order_source) and the typed WS layer consumes it (annotation 1's "shape
+remains UNCAPTURED" is superseded for the frame SHAPE; channel emission
+per lifecycle remains non-guaranteed). WIRE FINDING from the wide
+funding-history capture: deep history carries hourly/half-hourly rate
+OBSERVATIONS (e.g. 17:30:00Z, 18:00:00Z) — the 8h 04/12/20 UTC grid
+holds for the CURRENT payment era + next_funding_time, NOT for the
+historical bulk; ingestion must take recorded times verbatim.

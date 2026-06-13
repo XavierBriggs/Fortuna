@@ -77,6 +77,42 @@ conservative option, and the spec section it interprets.
   proceeded — the operator must read the output; exit 0 is reserved for
   fully-confirmed shutdowns and true idempotent no-ops.
 
+## Perps re-merge package (track C, 2026-06-12; post-revert)
+
+- **RE-RECORDING-PROOF test doctrine (the revert lesson):** fixture
+  corpora RE-RECORD, and venue state moves between runs (uuids
+  regenerate, orders age out to 404, rails flake to 503, accounts empty
+  out). Tests therefore DERIVE every expectation through the path —
+  request params parsed OUT of the .meta.json, response assertions
+  against the recorded body's own fields, presence/structure instead of
+  capture values. Parser EXACTNESS stays pinned by fixed literal vectors
+  (not fixture-coupled). Venue-STATE observations (a pnl's sign, a
+  tick_size's emptiness) are never asserted as invariants.
+- **Venue-wide leverage ceiling (operator decision item 4):**
+  `[perp.venues.<v>] max_leverage_x10` (20 = the confirmed 2.0x),
+  enforced as min(ceiling, per-asset cap); boundary-pinned 1.99x/2.00x
+  pass, 2.01x refused. ABSENT = per-asset (venue-curve-derived) caps
+  remain the ceiling — the operator's documented interim, and what keeps
+  the protected crate's test configs untouched. LOOSENING a set ceiling
+  is an I7-style operator review: it widens the worst-case liquidation
+  loss the gates certify. The production config entry is a composition/
+  operator step (no [perp] section is committed yet).
+- **WS fill frame is now CAPTURED and typed** (WsFillMsg /
+  KineticsWsEvent::Fill with order_source-driven is_system — the WS
+  surface of the 5.15 liquidation class). REST fills remain the fee/
+  reconciliation source of truth; channel emission per lifecycle is
+  still non-guaranteed.
+- **Funding-history grid finding:** the wide historical capture carries
+  hourly/half-hourly rate OBSERVATIONS; the 8h 04/12/20 grid holds for
+  the CURRENT payment era + next_funding_time only.
+  `funding_times_between` models the CURRENT payment schedule (forward
+  sim); `FundingAccrual` stores recorded times verbatim (no schedule
+  assumption); historical ingestion must do the same.
+- **Perp regression corpus rides in crates/fortuna-core/dst-corpus/**
+  with `# harness: perp-dst` + `# expect-arm:` tags; the perp harness
+  loads and arm-asserts tagged seeds (the core harness incidentally
+  replays the raw u64 — green there is expected and pins nothing).
+
 ## T5.B4 slice 1: kinetics DTOs (track C, 2026-06-12; fixtures-first)
 
 - **DTO fields are exactly as recorded, optionality included:** required
