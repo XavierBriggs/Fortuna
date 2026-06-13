@@ -13,10 +13,9 @@
 //! docs/design/track-a-kalshi-paper-clearance.md.
 //!
 //! Honesty rules honored here:
-//! - Assertions on `error_reason` use CONTAINS, never equality on the raw body,
-//!   so they stay true whether the code surfaces the venue code via raw-JSON
-//!   fallback (today) or structured extraction (after the ledgered DTO fix) —
-//!   the tests do not enshrine the current gap.
+//! - Assertions on `error_reason` use CONTAINS, never equality on the raw body —
+//!   they assert the venue code/message SURFACES, not the exact rendering, so a
+//!   later diagnostics refactor cannot bug-lock them.
 //! - The wire SHAPE is pinned at the serde_json::Value level (ground truth that
 //!   never drifts), independent of how the adapter renders it.
 
@@ -245,10 +244,10 @@ fn recorded_bare_msg_error_body_surfaces_the_message() {
 fn recorded_nested_4xx_error_bodies_surface_their_venue_code() {
     // Wire finding 1a: the NESTED {"error":{"code","message","service"}} shape —
     // 17 of 19 recorded 4xx bodies. Pin the wire shape at the Value level (ground
-    // truth) AND assert error_reason surfaces the code string. NOTE (ledgered
-    // gap, GAPS.md): KalshiErrorBody.error is Option<String> but the wire sends
-    // an OBJECT, so the struct-parse fails and error_reason surfaces the code via
-    // the RAW-JSON fallback, not structured extraction. The HTTP-status routing
+    // truth) AND assert error_reason STRUCTURE-EXTRACTS the nested code (the
+    // `code=` diagnostic prefix). Per the G1 fix, KalshiErrorBody.error is
+    // Option<Value>, so the nested object's code/message/details are pulled into
+    // the same diagnostic form as the flat shape. The HTTP-status routing
     // (400->Rejected, 404->NotFound) is independent and is covered in Cluster 2.
     for (file, code) in [
         (
@@ -267,11 +266,11 @@ fn recorded_nested_4xx_error_bodies_surface_their_venue_code() {
             Some(code),
             "{file}: recorded venue code"
         );
-        // The adapter surfaces it in diagnostics (raw-JSON fallback today).
+        // error_reason structure-extracts the nested code (G1): `code={code}`.
         let reason = error_reason(&body);
         assert!(
-            reason.contains(code),
-            "{file}: error_reason must surface {code}: {reason}"
+            reason.contains(&format!("code={code}")),
+            "{file}: error_reason must structure-extract code={code}: {reason}"
         );
     }
 }

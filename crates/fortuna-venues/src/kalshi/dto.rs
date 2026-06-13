@@ -557,9 +557,12 @@ pub struct KalshiErrorBody {
     pub details: Option<String>,
     #[serde(default)]
     pub service: Option<String>,
-    /// The rate-limit page's `{"error": "too many requests"}` shape.
+    /// The `error` field is polymorphic on the wire: the rate-limit page sends a
+    /// STRING (`{"error": "too many requests"}`), while 17/19 recorded 4xx bodies
+    /// nest an OBJECT (`{"error":{"code","message","service"}}`, fixture finding
+    /// F1). Held as a Value so `error_reason` can unpack BOTH forms.
     #[serde(default)]
-    pub error: Option<String>,
+    pub error: Option<serde_json::Value>,
 }
 
 /// Render whatever error body the venue sent into a diagnostic string.
@@ -578,8 +581,24 @@ pub fn error_reason(body: &serde_json::Value) -> String {
         if let Some(details) = e.details {
             parts.push(details);
         }
-        if let Some(error) = e.error {
-            parts.push(error);
+        match e.error {
+            // 429 shape: {"error": "too many requests"}.
+            Some(serde_json::Value::String(s)) => parts.push(s),
+            // Nested shape (F1, 17/19 4xx): {"error":{"code","message","details"}}
+            // — extract the same fields the flat shape exposes at the top level so
+            // the venue's code/message reach diagnostics structured, not as raw JSON.
+            Some(serde_json::Value::Object(obj)) => {
+                if let Some(code) = obj.get("code").and_then(|v| v.as_str()) {
+                    parts.push(format!("code={code}"));
+                }
+                if let Some(message) = obj.get("message").and_then(|v| v.as_str()) {
+                    parts.push(message.to_string());
+                }
+                if let Some(details) = obj.get("details").and_then(|v| v.as_str()) {
+                    parts.push(details.to_string());
+                }
+            }
+            _ => {}
         }
         if !parts.is_empty() {
             return parts.join("; ");
