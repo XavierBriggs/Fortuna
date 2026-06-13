@@ -821,6 +821,7 @@ async fn cognition_degrades_without_pool_but_stays_200() {
         "no pool => beliefs unavailable, explicit: {j}"
     );
     assert_eq!(j["calibration_scopes"]["available"], false, "{j}");
+    assert_eq!(j["belief_lifecycle"]["available"], false, "{j}");
     assert!(
         j["counters_status"]
             .as_str()
@@ -892,6 +893,108 @@ async fn cognition_serves_seeded_beliefs_and_scopes(pool: sqlx::PgPool) {
     assert_eq!(scopes[0]["version"], 2, "max version wins: {j}");
     assert_eq!(scopes[0]["model_id"], "claude-fable-5");
     assert_eq!(scopes[0]["kind"], "platt");
+}
+
+// The belief LIFECYCLE aggregates: status distribution + the resolved beliefs'
+// calibration outcome (mean Brier). POPULATED-path over real beliefs of every
+// status — a fabricated/empty panel cannot satisfy these counts. (D V6's per-
+// belief strategy/PnL columns are schema-blocked; this is the buildable lifecycle.)
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn cognition_lifecycle_aggregates_beliefs_by_status(pool: sqlx::PgPool) {
+    use fortuna_ledger::BeliefsRepo;
+    seed_event(&pool, "01EVENTROTALIFECYCLE000001").await;
+    let beliefs = BeliefsRepo::new(pool.clone());
+    let evid = serde_json::json!({"r": "x"});
+    let prov = serde_json::json!({"model_id": "m"});
+    // 2 open.
+    for id in ["01BLIFEOPEN0000000000000001", "01BLIFEOPEN0000000000000002"] {
+        beliefs
+            .insert(
+                id,
+                "2026-06-12T01:00:00.000Z",
+                "01EVENTROTALIFECYCLE000001",
+                0.6,
+                0.6,
+                "2026-06-13T00:00:00.000Z",
+                &evid,
+                &prov,
+                None,
+            )
+            .await
+            .unwrap();
+    }
+    // 1 resolved + scored (Brier 0.2).
+    beliefs
+        .insert(
+            "01BLIFERESOLVED00000000001",
+            "2026-06-12T01:00:00.000Z",
+            "01EVENTROTALIFECYCLE000001",
+            0.7,
+            0.66,
+            "2026-06-13T00:00:00.000Z",
+            &evid,
+            &prov,
+            None,
+        )
+        .await
+        .unwrap();
+    beliefs
+        .resolve_and_score("01BLIFERESOLVED00000000001", true, 0.2, Some(40.0))
+        .await
+        .unwrap();
+    // 1 superseded (X superseded by Y; Y stays open).
+    beliefs
+        .insert(
+            "01BLIFESUPSEDED0000000001",
+            "2026-06-12T01:00:00.000Z",
+            "01EVENTROTALIFECYCLE000001",
+            0.5,
+            0.5,
+            "2026-06-13T00:00:00.000Z",
+            &evid,
+            &prov,
+            None,
+        )
+        .await
+        .unwrap();
+    beliefs
+        .insert(
+            "01BLIFESUPSEDER0000000002",
+            "2026-06-12T01:00:00.000Z",
+            "01EVENTROTALIFECYCLE000001",
+            0.5,
+            0.5,
+            "2026-06-13T00:00:00.000Z",
+            &evid,
+            &prov,
+            Some("01BLIFESUPSEDED0000000001"),
+        )
+        .await
+        .unwrap();
+
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+    };
+    let j = get_cognition(state).await;
+    let lc = &j["belief_lifecycle"];
+    assert_eq!(lc["available"], true, "{j}");
+    // open = 2 + the superseder (Y) = 3; resolved 1; superseded 1 (X); abandoned 0.
+    assert_eq!(lc["by_status"]["open"], 3, "{j}");
+    assert_eq!(lc["by_status"]["resolved"], 1, "{j}");
+    assert_eq!(lc["by_status"]["superseded"], 1, "{j}");
+    assert_eq!(
+        lc["by_status"]["abandoned"], 0,
+        "an absent bucket reads 0, never missing: {j}"
+    );
+    assert_eq!(lc["resolved_scored_n"], 1, "{j}");
+    // The calibration outcome is real (AVG over the one scored belief), not fabricated.
+    assert_eq!(lc["mean_brier"], 0.2, "{j}");
+    assert_eq!(
+        lc["mean_clv_bps"], 40.0,
+        "the CLV edge proxy is real too: {j}"
+    );
 }
 
 #[sqlx::test(migrations = "../fortuna-ledger/migrations")]

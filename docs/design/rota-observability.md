@@ -25,7 +25,7 @@ telemetry on every layer — consuming the C/D/E observability contracts.
 | Health | `/health` | snapshot | live (A) | DONE + screenshot-verified (mission 1) |
 | Money | `/money` | snapshot | live (A) | DONE + verified |
 | Gates | `/gates` | snapshot | live (A) | DONE + verified |
-| Cognition | `/cognition` | snapshot + R7 ledger | B (queries) | DONE + verified; persona-provenance render = item 1 |
+| Cognition | `/cognition` | snapshot + R7 ledger + lifecycle agg | B (queries) | DONE + verified; DEEPENED with the belief LIFECYCLE (status distribution + resolved calibration Brier/CLV via real `GROUP BY`/`AVG`); persona-provenance renders |
 | Settlement | `/settlement` | snapshot | live (A) | DONE + verified |
 | Streams | `/streams` | snapshot + recorder fs | B | DONE + verified |
 | Audit | `/audit` | ledger | B | DONE + verified |
@@ -34,7 +34,7 @@ telemetry on every layer — consuming the C/D/E observability contracts.
 | Ingest — Funnel (D V3) | `/ingest_funnel` | `IngestionTelemetry.funnel` (on main) | D publish | **DONE** — funnel-as-stage-table (reuses `boardTable`): fetched→validated→normalized→persisted with retention % + drop-offs + populated test + screenshot; prod data pending OBS-2 (loop-stages null-until-wired, never a fabricated 0) |
 | Vendor Scorecard (D V4) | `/ingest/scorecard` | `source_reliability` | D (Layer-3 job) | BLOCKED on the Layer-3 trust-attribution job |
 | Forecast→Outcome (D V5) | `/forecast_outcome` | beliefs+events+settlements+signals | mixed | BLOCKED on the data flow |
-| Hypothesis Lifecycle (D V6) | `/hypotheses` | beliefs+intents+settlements | mixed | BLOCKED on the data flow |
+| Hypothesis Lifecycle (D V6) | (on Cognition) | beliefs (+ intents/settlements) | mixed | PARTIAL — status + calibration live on Cognition; the full belief→strategy→PnL is DATA-BLOCKED (no belief→trade link / `strategy` column / per-belief PnL on the schema — explorer-confirmed; needs a schema change, ledgered) |
 | Forecasts scorecard (C 9.1) | `/forecasts` | `scalar_beliefs`/`belief_scores` | C | frontend buildable; query BLOCKED on C tables |
 | Perps regime/basis (C 9.2) | `/perps` | `scalar_beliefs`/`belief_scores` | C | "" |
 | Personas (E 20.1) | `/personas` | `personas` | E | frontend buildable; query BLOCKED on E tables |

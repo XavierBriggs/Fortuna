@@ -541,8 +541,13 @@ Polymarket research+fixtures, spec v0.9 touch-up).
   - [x] V3 Ingest Funnel (D ingestion contract) — funnel-as-stage-table (reuses
         boardTable): fetched→validated→normalized→persisted with retention % +
         drop-offs + /api/rota/v1/ingest_funnel + populated-path test;
-        screenshot-verified (this commit). Completes the live ingestion triad
+        screenshot-verified (d650710). Completes the live ingestion triad
         (V1/V2/V3, 10 boards). Prod data pending OBS-2 (loop-stages null-until-wired).
+  - [x] Cognition belief LIFECYCLE (mission item 1 / D V6 partial) — the cognition
+        board deepened with the belief status distribution + resolved calibration
+        (Brier/CLV) via a real GROUP BY/AVG (runtime sqlx); DB-backed populated test
+        (this commit). D V6 full belief→strategy→PnL is SCHEMA-BLOCKED (no
+        belief→trade link; GAPS) — calibration edge proxy surfaced, never a fake PnL.
 
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)

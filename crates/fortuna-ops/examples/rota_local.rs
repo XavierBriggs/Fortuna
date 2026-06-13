@@ -219,6 +219,81 @@ async fn seed(pool: &PgPool) -> Result<(), BoxErr> {
             .await,
     );
 
+    // A superseded belief (insert X, then a newer Y that supersedes it → X flips
+    // to 'superseded') and an abandoned one (an open belief on a dead event) so
+    // the cognition lifecycle shows the full status distribution.
+    let superseded_id = "01J0BELIEFSUPERSEDED000001";
+    let superseder_id = "01J0BELIEFSUPERSEDER000002";
+    warn_seed(
+        "belief.superseded",
+        beliefs
+            .insert(
+                superseded_id,
+                "2026-06-13T10:00:00.000Z",
+                event_id,
+                0.50,
+                0.50,
+                "2026-06-13",
+                &evidence,
+                &prov_plain,
+                None,
+            )
+            .await,
+    );
+    warn_seed(
+        "belief.superseder",
+        beliefs
+            .insert(
+                superseder_id,
+                "2026-06-13T11:30:00.000Z",
+                event_id,
+                0.55,
+                0.52,
+                "2026-06-13",
+                &evidence,
+                &prov_plain,
+                Some(superseded_id),
+            )
+            .await,
+    );
+    let dead_event = "01J0EVENTDEADBOSTON0000001";
+    warn_seed(
+        "event.dead",
+        events
+            .create(
+                dead_event,
+                "Boston daily high \u{2265} 70\u{00B0}F on 2026-06-13",
+                "NWS CLI observed daily maximum temperature for KBOS",
+                "nws.cli",
+                Some("2026-06-13"),
+                "2026-06-13T16:00:00.000Z",
+                "weather",
+                "2026-06-12T18:00:00.000Z",
+            )
+            .await,
+    );
+    let abandoned_id = "01J0BELIEFABANDONED0000001";
+    warn_seed(
+        "belief.abandon-insert",
+        beliefs
+            .insert(
+                abandoned_id,
+                "2026-06-13T10:30:00.000Z",
+                dead_event,
+                0.40,
+                0.40,
+                "2026-06-13",
+                &evidence,
+                &prov_plain,
+                None,
+            )
+            .await,
+    );
+    warn_seed(
+        "belief.abandon",
+        beliefs.abandon_open_for_event(dead_event).await.map(|_| ()),
+    );
+
     let cal = CalibrationParamsRepo::new(pool.clone());
     warn_seed(
         "calibration.platt",

@@ -763,6 +763,33 @@ Until those land, the new boards ship as read-only frontend + honest-degraded
 (`available:false`) handlers — the discipline all three contracts specify
 ("build the panels now; they light up when the data lands").
 
+### COGNITION BELIEF LIFECYCLE DONE (2026-06-13) — the belief-formation board deepened; D V6 full lifecycle is SCHEMA-BLOCKED
+Deepened the existing Cognition board (mission item 1, "how beliefs are created
+made legible") with the belief LIFECYCLE: status distribution (open/resolved/
+superseded/abandoned) + the resolved beliefs' calibration OUTCOME (n, mean Brier,
+mean CLV). New `belief_lifecycle(pool)` runtime-sqlx aggregate in rota.rs (GROUP BY
+status, pinned 4 buckets; AVG(brier)/AVG(clv_bps) over scored resolved beliefs) —
+runtime sqlx (audit-tail precedent, NO offline-cache coupling, no fortuna-ledger
+touch). Threaded into view_cognition (degrades like beliefs/scopes). DB-backed
+populated-path test (open/resolved/superseded/abandoned counts + mean Brier/CLV) +
+the no-pool degraded test extended. feature-dev code-reviewer: SQL decode-types +
+zero-rows nulls + injection-safety + honesty all confirmed (no blockers; 2 test-
+coverage adds applied). Screenshot-verified; archived
+docs/reviews/rota-visual/rota-cognition-lifecycle-2026-06-13.png.
+
+D V6 (Hypothesis Lifecycle "signal→hypothesis→trade→outcome→PnL") FULL form is
+DATA-BLOCKED — feature-dev code-explorer confirmed against the current schema:
+NO belief→trade link (beliefs has no intent_id/order_id/strategy; intents are an
+append-only `intent_events` log, not row-joinable by belief; fills/settlement_entries
+carry no belief_id; no per-belief realized-PnL anywhere). The only belief→market path
+is structural via event_id (not causal, no strategy). So the per-belief STRATEGY +
+realized-dollar-PnL columns are not buildable; ROTA surfaces the calibration edge
+proxy (clv_bps), never a fabricated PnL. UNBLOCK (operator/cognition-track schema
+decision, NOT track B): add a `strategy TEXT` column on beliefs (set by the cognition
+harness at draft time) + a belief→intent link (a `belief_id` on the intent event, or
+a belief_id→intent_id mapping table) so fills can be aggregated to a per-belief PnL.
+Then ROTA lights the full V6 columns. Ledgered, not built.
+
 ### V3 INGEST FUNNEL DONE (2026-06-13) — completes the live ingestion triad (V1/V2/V3); the OBS-2 funnel envelope contract
 Built the D-contract V3 Ingest Funnel as a stage table (reuses `boardTable`):
 `view_ingest_funnel` reads `snapshot.views["ingest_funnel"]`; new panel + poll;

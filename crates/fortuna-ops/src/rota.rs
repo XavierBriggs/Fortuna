@@ -189,8 +189,9 @@ async fn view_cognition(State(s): State<RotaState>) -> impl IntoResponse {
             "detail": "no cognition strategy composed yet (synthesis-in-main pending)",
         }),
     };
-    let (beliefs, scopes) = match &s.pool {
+    let (beliefs, scopes, lifecycle) = match &s.pool {
         None => (
+            ledger_unavailable("postgres capability absent (standalone ROTA)"),
             ledger_unavailable("postgres capability absent (standalone ROTA)"),
             ledger_unavailable("postgres capability absent (standalone ROTA)"),
         ),
@@ -244,15 +245,66 @@ async fn view_cognition(State(s): State<RotaState>) -> impl IntoResponse {
                     ledger_unavailable("calibration read unavailable (dashboard pool degraded)")
                 }
             };
-            (beliefs, scopes)
+            // The belief LIFECYCLE aggregates (status distribution + the
+            // resolved beliefs' calibration outcome) — the "is belief formation
+            // healthy + are we calibrated" read. Degrades like the others.
+            let lifecycle = match belief_lifecycle(pool).await {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("rota: cognition lifecycle read degraded: {e}");
+                    ledger_unavailable("belief lifecycle unavailable (dashboard pool degraded)")
+                }
+            };
+            (beliefs, scopes, lifecycle)
         }
     };
     if let Some(obj) = out.as_object_mut() {
         obj.insert("generated_at".to_string(), json!(generated_at));
         obj.insert("recent_beliefs".to_string(), beliefs);
         obj.insert("calibration_scopes".to_string(), scopes);
+        obj.insert("belief_lifecycle".to_string(), lifecycle);
     }
     Json(out)
+}
+
+/// Belief LIFECYCLE aggregates for the cognition panel — the status distribution
+/// (open / resolved / superseded / abandoned) and the resolved beliefs'
+/// calibration OUTCOME (n, mean Brier, mean CLV bps): "is belief formation
+/// healthy, and are we calibrated with edge?". The D-contract V6 per-belief
+/// STRATEGY + realized-dollar-PnL columns are SCHEMA-BLOCKED — there is no
+/// belief→trade link on the current schema (GAPS) — so this surfaces the
+/// calibration edge proxy (`clv_bps`), NEVER a fabricated PnL. Runtime sqlx (the
+/// audit-tail precedent): a read-only dashboard aggregate, schema-pinned by the
+/// migration, kept out of the offline cache. The `status` CHECK pins the buckets.
+async fn belief_lifecycle(pool: &PgPool) -> Result<Value, sqlx::Error> {
+    let counts =
+        sqlx::query_as::<_, (String, i64)>("SELECT status, COUNT(*) FROM beliefs GROUP BY status")
+            .fetch_all(pool)
+            .await?;
+    // Pin all four buckets so an absent status reads 0, not missing (honest).
+    let mut by_status = serde_json::Map::new();
+    for s in ["open", "resolved", "superseded", "abandoned"] {
+        by_status.insert(s.to_string(), json!(0));
+    }
+    for (status, n) in counts {
+        by_status.insert(status, json!(n));
+    }
+    // Calibration outcome over the SCORED resolved beliefs (brier present). No
+    // resolved-scored rows => COUNT 0 + NULL averages => null (renders "—").
+    let (resolved_scored_n, mean_brier, mean_clv_bps): (i64, Option<f64>, Option<f64>) =
+        sqlx::query_as(
+            "SELECT COUNT(*), AVG(brier), AVG(clv_bps) FROM beliefs \
+             WHERE status = 'resolved' AND brier IS NOT NULL",
+        )
+        .fetch_one(pool)
+        .await?;
+    Ok(json!({
+        "available": true,
+        "by_status": Value::Object(by_status),
+        "resolved_scored_n": resolved_scored_n,
+        "mean_brier": mean_brier,
+        "mean_clv_bps": mean_clv_bps,
+    }))
 }
 /// Cheap liveness stat of the recorder's perishable JSONL streams (the
 /// /streams panel's `recorder` section). Reads only file METADATA (mtime +
@@ -605,6 +657,11 @@ const R={
   else{h+=kv("spend today",fmtCents(j.mind_spend_today_cents),1)
    +kv("daily budget",fmtCents(j.daily_budget_cents))
    +kv("failures",j.cognition_failures_total??"—")+kv("breaches",j.budget_breaches_total??"—");}
+  const lc=j.belief_lifecycle;
+  if(lc&&lc.available){const bs=lc.by_status||{};
+   h+=kv("beliefs",`open ${bs.open??0} · resolved ${bs.resolved??0} · superseded ${bs.superseded??0} · abandoned ${bs.abandoned??0}`,1)
+    +kv("calibration",lc.resolved_scored_n?`n=${lc.resolved_scored_n} · Brier ${lc.mean_brier!=null?(+lc.mean_brier).toFixed(3):"—"} · CLV ${lc.mean_clv_bps!=null?Math.round(lc.mean_clv_bps)+"bp":"—"}`:"no resolved beliefs yet");}
+  else if(lc&&lc.detail)h+=`<div class="warn">lifecycle: ${esc(lc.detail)}</div>`;
   const sc=j.calibration_scopes;
   if(sc&&sc.available)sc.rows.forEach(s=>h+=kv("cal "+esc(s.model_id)+"/"+esc(s.kind),"v"+s.version));
   else if(sc)h+=`<div class="warn">scopes: ${esc(sc.detail)}</div>`;
