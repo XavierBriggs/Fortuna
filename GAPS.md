@@ -18,6 +18,93 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## RALPH STOP 2026-06-13T05:50:50Z (track C — T5.B7/B8 remainder is cross-track-blocked; ownership mechanics unresolved)
+
+Stopping per loop rule 6 + the north star ("blocked-with-precise-findings
+beats running-but-wrong"). NOT a repeat of the last ownership stop — that
+one was resolved by the operator re-arming for T5.B7/B8. This is a NEW,
+more precise blocker the re-arm did NOT resolve: it assigned the TASKS but
+not the OWNERSHIP MECHANICS, and the remaining work needs decisions only
+the operator/verifier (or track A) can make. Done this cycle: T5.B7 slice
+1, the in-OWNERSHIP deterministic funding-forecast kernel (507b1ad,
+gate-clean). Below is the actionable hand-off so the next firing (after
+resolution) builds immediately.
+
+WHY EACH REMAINING PIECE IS BLOCKED (not buildable cleanly by track C now):
+
+1. OWNERSHIP COLLISION (the load-bearing blocker). T5.B7 strategy plugins
+   live in crates/fortuna-runner (Strategy trait, Proposal, CoreHandle,
+   composition); T5.B8 kill-switch perps flatten lives in
+   crates/fortuna-killswitch. BOTH are TRACK A's owned crates
+   (orchestration.md:15) AND track A is ACTIVELY committing there
+   (fortuna-runner: synthesis-in-main S2-S6b, digest — 183b005/64d45db/
+   2d5c31c/1900ff2 this campaign; fortuna-killswitch: the "kill-switch
+   Kalshi plug" is in track A's live queue, bus TRACK A). rule 7's track-C
+   crate list is UNCHANGED (perp modules in fortuna-core/gates/state +
+   kinetics + perp DST only); orchestration.md:136 added a track-C re-arm
+   HEADER for T5.B7/B8 but with NO BODY resolving the cross-crate
+   ownership. Building perp plugins / flatten in track-A's active crates
+   now is the exact cross-tree interaction that caused the perps-merge
+   REVERT (deterministic client-id instability across merged trees,
+   19b3888). The verifier explicitly guards against this.
+
+2. ARCHITECTURE IMPEDANCE (ledgered in the section below, confirmed this
+   cycle): Strategy/Proposal/ProposedLeg are Cents/YES-NO/OrderBook-shaped;
+   the perp domain is type-separated (PerpPrice, evaluate_perp). CoreHandle
+   exposes no perp data. A perp TRADING strategy needs the runner Proposal+
+   exec path extended for perp legs OR must trade event-contract BRACKET
+   legs with perp-as-input. Either way it touches track-A shared infra.
+
+3. UN-INVENTABLE MODELING (must not be guessed — "blocked beats wrong"):
+   - perp_event_basis needs the BRACKET-implied distribution -> central
+     estimate (event-contract bracket math = track A's mech_structural
+     domain) and a defensible perp point-forecast-vs-bracket comparison.
+     The exact basis model is not specified in the plan/spec; inventing it
+     risks building the wrong edge.
+   - funding_forecast's "scalar claims via prob_claims/v1" is the SIGNAL-
+     INGESTION path (a source emitting scalar quantiles, scored as
+     beliefs). BeliefDraft is BINARY-p shaped (beliefs.rs:53; p:f64,
+     brier_score over a bool) — NO scalar quantiles. The scalar
+     prob_claims/v1 type + mapper is UNBUILT ("scalar with the first
+     scalar consumer", signal-contract.md:130) and lives in cognition/
+     sources (cross-crate). A hand-mapped binary funding belief now would
+     be throwaway when the scalar contract lands, and the forecast->
+     probability mapping is itself an un-specified modeling choice.
+
+4. funding_carry is DATA-ONLY (amendment B; no Sim < 60d funding history):
+   no strategy code this phase by design — the B0 recorder collects the
+   data. Nothing to build.
+
+RESOLUTION MENU (operator/verifier — pick one, then re-arm):
+  (A) GRANT track C explicit ownership of NEW perp-strategy files in
+      fortuna-runner (e.g. perp_event_basis.rs, funding_forecast.rs) + the
+      minimal additive lib.rs mod/use, with a coordination rule that track
+      C does NOT modify track A's existing strategy/runner files; AND
+      sequence the T5.B8 kill-switch perps flatten vs track A's kill-switch
+      Kalshi plug (one track builds fortuna-killswitch, or split by file).
+      Also decide the perp-data SEAM: perp marks/funding via a new typed
+      EventPayload variant (fortuna-core bus.rs — design sanctions
+      "variants added by the tasks that own them") or via the existing
+      Raw{kind,data} flow (no bus change).
+  (B) Have TRACK A build the runner perp-execution/perp-data seam
+      (Proposal perp legs + CoreHandle perp marks/funding + a perp
+      paper/sim venue), then track C builds the strategy plugins on it.
+  (C) Specify the modeling: the perp_event_basis basis model (which
+      bracket estimate, which perp forecast, the inconsistency rule) and
+      the funding_forecast claim shape (binary BeliefDraft now vs wait for
+      scalar prob_claims/v1) — without these two specs the strategies
+      cannot be built correctly.
+  Recommended: (A) + (C). funding_forecast as a fortuna-runner belief-
+  producer reading Raw perp events + my FundingWindow kernel is the
+  lowest-risk FIRST plugin once (A) grants the file + (C) fixes the claim
+  shape; perp_event_basis follows as a bracket-trader once (C) fixes the
+  basis model.
+
+Battery at stop (HEAD 507b1ad): fmt 0, clippy 0, workspace 991/0,
+run-dst.sh exit 0 (4 corpus seeds, all 7 perp arms). Branch track-c =
+main + the funding-kernel commit; nothing pushed. Phase-5 EXIT needs
+T5.B7 + T5.B8, both unblocked by the menu above.
+
 ## TRACK C — T5.B7 fit-validation + funding kernel (restarted/expanded scope, 2026-06-13)
 
 Track C re-armed by the operator for T5.B7 -> T5.B8 (perps plane MERGED;
