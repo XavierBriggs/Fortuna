@@ -18,6 +18,20 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK C — slices 1a+1b VERIFIER-ACCEPTED; doc-hygiene directive applied (2026-06-13)
+
+The independent gate ACCEPTED slice 1a (docs/reviews/2026-06-13-T5.B7-slice-1a.md —
+scoring math / quantile-CRPS / additivity verified) and slice 1b (bus 7dc6a24,
+scalar-belief storage): "C SCALAR FOUNDATION COMPLETE (1a+1b)". The cross-track merge
+battery is GREEN (bzn3ahb7b exit 0: fmt / clippy --workspace -D warnings / test
+--workspace 0-failed / run-dst). DOC-HYGIENE directive applied (bus DOC OWNERSHIP,
+2026-06-13: NO per-track changelog FILES): the track-c changelog migrated into the ROOT
+CHANGELOG.md (track-C `### Cognition belief-pipeline & perps` subsection under
+[Unreleased], no track-D false-claims — header-only so the verifier reconciles cleanly);
+docs/design/track-c-changelog.md removed; loop item 8 updated to the root convention.
+Next: slice 2 (funding_forecast + PerpTick + drain_scalar_beliefs), live-data driven;
+then F5-F9 (Aeolus weather→belief) per the orchestration reorg (7fa4115).
+
 ## TRACK C — MERGED main into track-c (cross-track integration with track-E/D, 2026-06-13)
 
 After slices 1a+1b landed, `git merge main` integrated track-E's persona ledger +

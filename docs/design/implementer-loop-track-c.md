@@ -93,9 +93,12 @@ EACH ITERATION, do exactly ONE item, then commit and start the next iteration.
 8. DOCUMENTATION (operator directive, 2026-06-13): keep the docs current as you
    build — stale docs are a defect.
    - MAINTAIN track C's OWN docs: docs/design/perp-strategies-and-scalar-claims.md
-     is the authoritative design artifact (amend it as the design evolves), and
-     keep a CHANGELOG at docs/design/track-c-changelog.md — ONE dated entry per
-     landed slice (what shipped, the commit, the gate result).
+     is the authoritative design artifact (amend it as the design evolves). Per
+     the doc-hygiene directive (bus 2026-06-13: NO per-track changelog FILES),
+     log changes in the ROOT CHANGELOG.md — APPEND to track C's own
+     `### Cognition belief-pipeline & perps (Track C)` subsection under
+     `## [Unreleased]` (one concise bullet per landed slice; the verifier
+     reconciles subsections on merge).
    - AMEND the SHARED docs when a slice changes their truth: docs/architecture.md
      (new crates/tables/seams/telemetry/ROTA contracts), docs/operations.md +
      docs/runbooks/ (new operational steps, e.g. the sqlx migrate/prepare flow,
