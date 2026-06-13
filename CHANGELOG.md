@@ -122,7 +122,33 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
-### 2026-06-13 — T4.2 (ii) book-driven recorded-stream replay into PaperVenue — `fc5bd64`
+### 2026-06-13 — T4.2 (iii) Cluster 1: Kalshi paper-clearance — `f7206a4`
+
+**What.** `crates/fortuna-venues/tests/kalshi_recorded.rs` (18 tests; test-only) —
+the FIRST tests to load the operator-recorded `fixtures/kalshi/` bodies (every
+prior adapter test used doc-derived samples), asserting the adapter parses the
+real wire per the README findings. Plus the 27-item clearance record
+`docs/design/track-a-kalshi-paper-clearance.md` (operator-signed gate; UNSIGNED).
+
+**Why.** Queue 2(iii): an executable, operator-signable clearance that the adapter
+handles the wire the venue ACTUALLY sent — `venue=kalshi` stays boot-refused until
+signed.
+
+**Verdicts.** Cluster 1 PASS: 1,7,8,9,10,13,14,16,17,18,20,21. PENDING: Cluster 2
+(transport round-trips), Cluster 3 (auth-skew, WS live handshake). UNCOVERABLE
+(re-capture): demo/prod parity, STP maker mode, cursor stability/expired,
+settlement units, populated series fee fields, maintenance-window status.
+
+**Adapter gaps EXPOSED (ledgered GAPS, not fixed here).** G1 nested error body not
+structure-extracted (diagnostic quality; routing correct). G2 no exchange-status
+DTO/method (halt rails). Both resolve before promotion.
+
+**Battery.** fmt; clippy --workspace --all-targets; cargo test --workspace (127
+targets, 0 failed); run-dst.sh 200 (4 corpus + 200 seeds, 0 violations;
+daemon_smoke 15/15). code-reviewer pass folded in (C1 doc path; C2 legacy-family
+label). Protected crate untouched.
+
+### 2026-06-13 — T4.2 (ii) book-driven recorded-stream replay into PaperVenue — `e6dd7ec`
 
 **What.** New integration test `crates/fortuna-runner/tests/recorded_replay.rs`
 (7 tests; test-only, no production change). Drives the production replay seam

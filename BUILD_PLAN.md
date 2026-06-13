@@ -399,10 +399,13 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       1-2 + 4-5 + concrete transport CERTIFIED (t42-wsdial/redial/wsdial-transport
       gates 2026-06-13; live socket round-trip is operator-run first); (ii) book-
       driven recorded-stream replay into PaperVenue under both mech strategies DONE
-      (fc5bd64, recorded_replay.rs) — trade-through + multi-market-bracket replay
-      stay fixture-blocked (ledgered GAPS, never fabricated). Remaining: (iii)
-      27-item paper-clearance record, (iv) kill-switch Kalshi plug, (v) Slack
-      listener.
+      (e6dd7ec, recorded_replay.rs) — trade-through + multi-market-bracket replay
+      stay fixture-blocked (ledgered GAPS, never fabricated); (iii) 27-item paper-
+      clearance Cluster 1 DONE (f7206a4, kalshi_recorded.rs 18 tests + clearance
+      record docs/design/track-a-kalshi-paper-clearance.md) — first recorded-fixture
+      adapter tests; exposed 2 ledgered adapter gaps (G1 nested-error extraction,
+      G2 exchange-status DTO); Clusters 2 (transport) + 3 (auth/WS) pending.
+      Remaining: (iv) kill-switch Kalshi plug, (v) Slack listener.
 - [ ] T4.3 ROTA — the operator dashboard (operator-directed 2026-06-11; design
       AUTHORITATIVE at docs/design/rota-dashboard.md INCLUDING its amendments
       section): read-only gold/black operator console — server-rendered Rust

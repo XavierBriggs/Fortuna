@@ -164,6 +164,41 @@ BATTERY: scoped green (fmt --check; clippy -p fortuna-live --all-targets
 fortuna-live suite (daemon_smoke etc.) is unaffected (no schema/query change) and
 is the verifier's merge gate (disk + concurrent cross-track batteries).
 
+## TRACK A — T4.2 item 2(iii) Cluster 1: Kalshi paper-clearance DONE (f7206a4)
+
+Queue item 2(iii) (the 27-item paper-clearance record). NO production change.
+Cluster 1 = recorded-fixture PARSING/error/units/status assertions: a new test
+(crates/fortuna-venues/tests/kalshi_recorded.rs, 18 tests) loads the OPERATOR-
+RECORDED fixtures (fixtures/kalshi/) — the FIRST tests to do so (every prior
+adapter test used doc-derived samples in tests/kalshi_doc_samples/) — and asserts
+the adapter handles the real wire per the README findings (3 error-body shapes,
+409 order_already_exists, cancel-404s, balance/fill units, taker fee, orderbook
+no-leg, status vocab, endpoint costs, exchange status). error_reason assertions
+are CONTAINS-based + Value-level ground truth (non-bug-locking). Clearance record
+(track-owned per the doc-ownership model): docs/design/track-a-kalshi-paper-
+clearance.md (operator signs; UNSIGNED). Cluster 1 PASS items
+1,7,8,9,10,13,14,16,17,18,20,21; Clusters 2 (transport round-trips) + 3
+(auth-skew, WS live handshake) PENDING; venue=kalshi stays boot-refused until
+signed. Full battery green (fmt + clippy --workspace --all-targets + test
+--workspace 127 targets 0-failed + run-dst 200 0-violations; daemon_smoke 15/15).
+
+TWO ADAPTER GAPS the recording EXPOSED (clearance doing its job; resolve before
+promotion; NOT fixed this slice — own-battery follow-ups):
+- G1 NESTED ERROR BODY not structure-extracted: KalshiErrorBody.error is
+  Option<String> (dto.rs:562) but 17/19 recorded 4xx bodies send
+  {"error":{"code","message","service"}} (an object) -> serde_json::from_value
+  fails -> error_reason surfaces the venue code via the RAW-JSON fallback, not
+  structured extraction. HTTP-status routing (400->Rejected, 404->NotFound) is
+  independent + correct, so this is DIAGNOSTIC QUALITY, not a safety gap. Fix:
+  error: Option<serde_json::Value> + extract nested code/message/details.
+- G2 NO HALT-STATUS DTO: no KalshiExchangeStatus DTO / KalshiVenue::exchange_status()
+  method; exchange__status.json parses into a local test struct but the adapter
+  cannot consume exchange status for the I2/I3 halt rails. Structural; land before
+  live halt detection depends on the venue.
+
+NEXT (queue order): 2(iii) Cluster 2 (transport round-trips) + Cluster 3 (auth/WS),
+the G1/G2 fixes, then 2(iv) kill-switch Kalshi plug, 2(v) Slack listener.
+
 ## TRACK D — OBS-1 telemetry data surface (slice 1): deferred follow-ups + scoped-battery note
 
 OBS-1 (2026-06-13) added the live `IngestionTelemetry` snapshot to the scheduler
@@ -223,7 +258,7 @@ gate runs the full battery + the executed mutation check). Predicted mutation:
 neutralize the (Nws,"climate") arm => wires_the_climate_grader_and_aeolus reds
 (unwrap on the Err arm). Not operator-blocked; verifier-gated on merge.
 
-## TRACK A — T4.2 item 2(ii) book-driven PaperVenue replay DONE (fc5bd64)
+## TRACK A — T4.2 item 2(ii) book-driven PaperVenue replay DONE (e6dd7ec)
 
 Queue item 2(ii): venue-generic recorded-stream replay into PaperVenue for both
 mech strategies. NO production change — a new integration test
