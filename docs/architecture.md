@@ -177,9 +177,9 @@ behavior beyond fixtures and the research archive. (The `kinetics/` perps
 adapter exists on `track-c`, pending re-merge.)
 
 **[fortuna-ledger](../crates/fortuna-ledger/src/lib.rs)** — all Postgres
-persistence, I5 (spec §5.5, §5.13, §7): beliefs, events, edges, journal,
-lessons, audit, orders/fills, intents, settlements, discrepancies, snapshots,
-reservations; `sqlx` with migrations. Append-only is enforced twice — INSERT-
+persistence, I5 (spec §5.5, §5.13, §7): beliefs, scalar_beliefs, belief_scores,
+events, edges, journal, lessons, audit, orders/fills, intents, settlements,
+discrepancies, snapshots, reservations; `sqlx` with migrations. Append-only is enforced twice — INSERT-
 only repos *and* database triggers rejecting UPDATE/DELETE. Audit write failure
 halts trading. Must never: appear in the kill switch's dependency tree, or
 update an append-only row in place.
@@ -188,8 +188,10 @@ update an append-only row in place.
 probabilistic, I6 (spec §5.7–5.12): the `Source` ingestion funnel, trigger
 engine, budgeted manifest-hashed context assembler, the `Mind` trait
 (`StubMind` and `AnthropicMind`), comparator plus the shared Kelly sizing
-library, calibration (Platt/isotonic with shrinkage prior), the
-daily/weekly/monthly loops, and the reduce-only model veto. Must never: mutate
+library, calibration (Platt/isotonic with shrinkage prior), the swappable
+scoring layer ([`prob_claims/v1` scalar beliefs + `ScoringRule`](design/perp-strategies-and-scalar-claims.md):
+Brier + native-CRPS over immutable `PredictiveDistribution`/`RealizedOutcome`),
+the daily/weekly/monthly loops, and the reduce-only model veto. Must never: mutate
 external state — `MindOutput` is propose-only, and `f64` here is for
 probabilities, never money.
 

@@ -53,6 +53,20 @@ to say what it proves; (2) a y==v kink-boundary regression test added. T5.B7 box
 UNTICKED (storage slice 1b + the perp strategies remain). Next: slice 1b
 (scalar_beliefs/belief_scores migration + append-only trigger + exactly-once resolution).
 
+SLICE 1b LANDED (this iteration). Scalar-belief STORAGE in fortuna-ledger — migration
+20260613000001_scalar_beliefs.sql: scalar_beliefs + belief_scores, both append-only via
+DB triggers (the fine-grained scalar guard allows resolution columns once-from-NULL; the
+blunt fortuna_refuse_mutation on belief_scores), `producer` first-class for the §9.1 ROTA
+scorecard, belief_scores FK -> scalar_beliefs, exactly-once resolution mirroring
+resolve_and_score. + ScalarBeliefsRepo/BeliefScoresRepo (insert/get/resolve/recent;
+insert/scores_for_belief/_for_rule). Additive — the binary beliefs path is byte-unchanged.
+7 live-PG #[sqlx::test] tests; FULL battery green; the .sqlx offline cache was regenerated
++ committed (CI-safe). Built via the feature-dev explorer->implementer->code-reviewer flow;
+the reviewer's 3 findings (belief_scores FK, rewrite-assertion specificity, no-op-UPDATE
+doc) all FOLDED IN before commit. Doc directive honored: docs/design/track-c-changelog.md
+started; architecture.md §3 amended (targeted, links the design doc). Next: slice 2
+(funding_forecast + PerpTick + drain_scalar_beliefs), live-data driven.
+
 The verifier's standing gate (GATE-FINDINGS-LATEST.md, track-C §, 69f9ceb update):
 "conditions satisfied; the ONLY remaining gate is OPERATOR build-authorization …
 a DESIGN-GATE STOP; OPERATOR must confirm build-authorization before slices build."

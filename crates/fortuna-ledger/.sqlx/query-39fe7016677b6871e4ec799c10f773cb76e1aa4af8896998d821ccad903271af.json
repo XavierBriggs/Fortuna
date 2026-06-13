@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT belief_id, created_at, event_id, p, p_raw, status,\n                      brier, clv_bps, evidence, provenance\n               FROM beliefs ORDER BY belief_id DESC LIMIT $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "belief_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "p",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 4,
+        "name": "p_raw",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 5,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "brier",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 7,
+        "name": "clv_bps",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 8,
+        "name": "evidence",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "provenance",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "39fe7016677b6871e4ec799c10f773cb76e1aa4af8896998d821ccad903271af"
+}

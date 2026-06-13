@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO scalar_beliefs\n               (belief_id, producer, event_key, quantiles, unit, horizon,\n                provenance, created_at)\n               VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4e3495c19a9422eb3eb78d867d28ac25f2240d9643d64393ee7498f7379cc416"
+}
