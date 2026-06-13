@@ -313,6 +313,11 @@ crates/fortuna-live/src/main.rs:113-143):
 open http://127.0.0.1:9187/rota
 ```
 
+For a STANDALONE bringup without the daemon — seeded local data, used to verify
+or screenshot the boards in isolation — see
+[runbooks/rota-local-bringup.md](runbooks/rota-local-bringup.md)
+(`cargo run -p fortuna-ops --example rota_local`, serves `:8799`).
+
 The legacy T1.5 instrument routes (`/`, `/metrics`, `/api/boards`) remain
 alongside it (design §0.1 + slice 3 note). **Every ROTA route is GET-only by
 construction**; the route-table test pins 405 on every mutating method, and

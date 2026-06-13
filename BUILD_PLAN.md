@@ -520,6 +520,17 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       queries. TEST RULE: populated-path seeds; a test green under a
       stubbed-empty source does not count. Verifier-gated.
 
+- [ ] T4.6 ROTA TOTAL OBSERVABILITY (mission 2; track B re-missioned 2026-06-13)
+      — the operator single pane of glass consuming the C/D/E observability
+      contracts. Authoritative tracker (board matrix + changelog):
+      docs/design/rota-observability.md; sequenced queue + cross-track data-seam
+      requests: GAPS.md "TRACK B — RE-MISSIONED ... TOTAL ROTA OBSERVABILITY".
+      Read-only + honest-nulls absolute; every board screenshot-verified with
+      real rows before its sub-box ticks. Verifier-gated.
+  - [x] item 0 — local bringup harness (crates/fortuna-ops/examples/rota_local.rs)
+        + the 7 existing boards screenshot-verified with real rows off a seeded
+        local DB (this commit). The reusable screenshot rig for later boards.
+
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)
 with the Anthropic mind active under budgets, ROTA up locally, and the perps

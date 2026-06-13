@@ -763,6 +763,31 @@ Until those land, the new boards ship as read-only frontend + honest-degraded
 (`available:false`) handlers — the discipline all three contracts specify
 ("build the panels now; they light up when the data lands").
 
+### ITEM 0 DONE (2026-06-13) — local bringup harness + existing boards screenshot-verified
+`crates/fortuna-ops/examples/rota_local.rs` (new): seeds a throwaway local
+Postgres (guard: reads only `ROTA_LOCAL_DATABASE_URL`, refuses any DB name
+without `rota_local` — never the operator's `DATABASE_URL`) + a representative
+snapshot mirroring `views_from`, serves `rota_router`. All 7 existing boards
+screenshot-verified with REAL rows (browser accessibility snapshot + a
+gold-on-black full-page PNG): Health / Money / Gates (real `GateCheck` names
+EdgeFloor/RateLimits/Halts) / Cognition (incl. a persona-provenance belief — E
+§20.3 renders TODAY, provenance passes through verbatim per rota.rs:175 — and a
+resolved belief with Brier+CLV) / Settlement / Streams (recorder live off a temp
+perishable dir) / Audit (5 distinct kinds). Hardened by a feature-dev
+code-reviewer pass. Docs: `docs/design/rota-observability.md` (my living
+status+changelog), `docs/runbooks/rota-local-bringup.md`, + targeted
+operations.md/architecture.md pointers. The harness (not a static screenshot) is
+the reusable, never-stale rig the C/D/E boards get screenshot-verified through.
+
+CROSS-TRACK FINDING for TRACK A (`fortuna-live/src/views.rs`): the ROTA
+settlement renderer reads `discrepancies_open` (rota.rs `R.settlement`) but
+`views_from` (views.rs:140-146) does NOT emit it, so a live daemon renders "—"
+for open discrepancies even though `DiscrepanciesRepo::open_count` exists
+(repos.rs:403-415; design §4 panel inventory lists it). TARGETED FIX (track A's
+file): add `"discrepancies_open": <open count>` to the settlement view in
+`views_from`. Non-blocking (the "—" is honest today); the harness seeds the
+field to exercise the renderer line.
+
 ## TRACK A — T4.2 item 2(i) WS dial COMPLETE: full KalshiWsTransport built (operator runs the first live exercise)
 ## TRACK E — BUILD PHASE (operator-approved 2026-06-13); E.1 + E.2 + E.3a DONE
 ## TRACK E — BUILD COMPLETE + GENERALIZED (2 domains); remainder = operator/Track-A-gated + 1 doc
