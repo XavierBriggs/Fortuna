@@ -18,6 +18,50 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK C → TRACK B REQUEST — ROTA must surface the RECENT scalar-belief feed (operator-wanted, 2026-06-13)
+
+OPERATOR WANT (2026-06-13): the cognition/forecasts ROTA view must let one "completely see
+the belief and everything" — every persisted scalar belief fully inspectable (the quantile
+FAN + evidence + provenance), not merely a row count or a resolved-only CRPS score.
+
+PROVEN STATE (live wt-c soak daemon — isolated: port 9188, scratch DB fortuna_soak_wtc,
+slice-4d/4e binary @12e40ce): funding_forecast PERSISTS scalar beliefs continuously —
+`scalar_beliefs` grew 0 → 56+ (~1 / 6s segment), real claims (producer=funding_forecast,
+unit="rate", {0.1,0.5,0.9} quantile fan, event_key=`KXBTCPERP1:<funding_time>`,
+evidence={estimate, point_forecast, remaining_candles}, provenance). The DATA flows; only the
+SURFACING is missing.
+
+THE GAP (ROTA — track-B-owned crates/fortuna-ops/src/rota.rs + assets/rota shell): NO endpoint
+surfaces the RECENT (unresolved) scalar beliefs richly.
+  - /api/rota/v1/cognition → BINARY beliefs only (BeliefsRepo::recent); never queries
+    scalar_beliefs (empty without a synthesis arm).
+  - /api/rota/v1/forecasts → the RESOLVED scorecard only (forecast_scorecard = scalar_beliefs
+    ⋈ belief_scores, realized-only); empty until beliefs resolve+score. Its OWN doc
+    (rota.rs:776) calls the recent-forecast feed a "§9.1 follow-on (ledgered)".
+  - /api/rota/v1/db → scalar_beliefs COUNT only (56) — growth visible, beliefs not.
+
+BUILD ASK (track B; ADDITIVE; the read seam ALREADY EXISTS):
+  1. `ScalarBeliefsRepo::recent(limit)` already exists (crates/fortuna-ledger/src/repos.rs:1988)
+     and returns `ScalarBeliefRow` with EVERY field needed: belief_id, producer, event_key,
+     quantiles (JSONB), unit, horizon, provenance (JSONB), created_at, realized_value,
+     resolved_at. NO ledger change required.
+  2. Add a `recent_forecasts` section to `view_forecasts` (or a recent-scalar section to
+     `view_cognition` — the operator named /cognition) that calls `ScalarBeliefsRepo::recent(~20)`
+     and shapes one row per belief: producer, event_key, unit, created_at, horizon, the quantile
+     FAN (q/v pairs), realized_value/resolved_at when present, + evidence and provenance as
+     CLICK-TO-EXPAND JSONB — mirror the binary cognition panel's `truncate_evidence` + `<details>`
+     rendering (rota.rs:1011-1012; shell ~rota.rs:1544).
+  3. UNTRUSTED-DATA NOTE (spec 5.11): quantiles/provenance/evidence are model+venue output —
+     render as DATA, never interpret; `truncate_evidence` is the precedent. Read-only, gold-on-
+     black (ROTA doctrine). Poll cadence per the existing forecasts board.
+DESIGN refs: perp-strategies-and-scalar-claims.md §8-9 (/forecasts, /perps); rota-dashboard.md
+§9.1 (line ~776 follow-on note); operator preference (cognition panel surfaces each belief's
+persisted evidence + provenance JSONB, click-to-expand).
+OWNERSHIP: rota.rs + assets/rota are TRACK B (orchestration.md). Track C ledgered-and-skipped
+(did NOT touch them). VERIFY when built: run a wt-c slice-4 daemon with
+`[funding_forecast].ticker_feed_jsonl` = the committed fixture; the new section must render the
+live rows (this exact soak reached 56+ in ~6 min).
+
 ## TRACK C — slice 4 (daemon composition) SCOPED + the PerpTick-PRODUCER GAP found + sub-slice 4a (KineticsPerpObservation) DONE (2026-06-13)
 
 ARCHITECTURAL FINDING (slice-4 scoping): `EventPayload::PerpTick` has NO PRODUCER anywhere outside tests —
