@@ -16,6 +16,7 @@ members = [
   "crates/fortuna-paper",
   "crates/fortuna-recorder",
   "crates/fortuna-live",
+  "crates/fortuna-sources",
 ]
 
 [workspace.dependencies]

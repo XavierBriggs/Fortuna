@@ -642,3 +642,79 @@ perp DST arms in every battery; zero changes to the invariant middle
 I7 ladder and the operator's Kinetics PROD parity sweep — out of scope for
 the EXIT.
 
+## Track D — News-aggregation Phase A (operator-approved 2026-06-12)
+
+Design authority: docs/superpowers/specs/2026-06-12-news-aggregation-design.md
+(four-layer trust framework §4.4; Layers 0–2 Phase-A-binding per
+docs/design/implementer-loop-track-d.md, which governs this track). Fixtures
+first under fixtures/sources/; NO model in the ingestion path; ownership =
+crates/fortuna-sources + fixtures/sources/ + one flagged drive() seam.
+
+- [x] D1 Crate scaffold + per-source config types: SourcesConfig/SourceConfig/
+      EventWindow/SourceKind parsed fail-closed from [sources.<id>] TOML
+      (design §4.3); Phase-A refusals encoded in validation (enabled
+      scrape/mcp/model-extraction rejected at parse, not by convention);
+      13 unit tests written from the design text, incl. the §4.3 example
+      verbatim. (DONE 2026-06-12, 17c95fa after rebase onto main e85f92c;
+      full battery green.)
+- [x] D2 FetchClient substrate: mockable FetchTransport trait + thin
+      ReqwestFetchTransport (auto-redirect OFF so the client re-validates
+      every hop); HostPin (https-only + exact-host, userinfo-smuggling
+      refused); PoliteLimiter (GCRA, Clock-driven, integer-exact);
+      conditional-GET (ETag/If-Modified-Since → 304 NotModified); size cap;
+      RateLimited/Timeout/Outage + local BudgetExhausted classification.
+      17 tests incl. 2 proptests (bucket never exceeds the refill bound;
+      first attempt always granted). (DONE 2026-06-13, full battery green;
+      hash recorded next iteration.)
+- [x] D3 Layer 0+1 plumbing (re-decomposed — see note): Layer 1
+      StructuralValidator (future-dated reject w/ clock-skew tolerance;
+      stale-republication FLAG via bounded recent-hash buffer; per-tick
+      volume envelope, §7 containment; future/dup never consume volume
+      budget) + Layer 0 dossier TEMPLATE/rubric at docs/research/sources/
+      TEMPLATE.md (six-dimension score, tier bands, consumption
+      consequences). Deterministic + Clock-driven (DST-replayable). 8 tests.
+      RE-DECOMPOSITION: the per-source dossiers move to D4–D7 — each adapter
+      lands its source's dossier WITH its fixtures, facts grounded in
+      research at record time (a source is vetted when it is built, not in
+      the abstract). Phase A still ends with Layers 0–2 complete. Ledgered
+      in ASSUMPTIONS/GAPS. (DONE 2026-06-13, full battery green; hash next
+      iteration.)
+      (Each of D4–D7 below ALSO lands its source's Layer-0 dossier from the
+      TEMPLATE, grounded in research, with that source's fixtures.)
+- [x] D4 NwsSource (impl cognition Source trait): fetches one configured NWS
+      endpoint via FetchClient; parses the two REAL response shapes —
+      `/alerts/active` FeatureCollection → `nws.alert` signals,
+      `/products?type=AFD` `@graph` → `nws.afd` signals; conditional-GET
+      validators carried across polls (304 → no signals); error envelopes &
+      non-JSON → SignalError, never emitted as signal; `nws_claimed_time`
+      extracts the Layer-1 future-check time (alert.sent / afd.issuanceTime).
+      Dumb adapter (no dedup/trust/trigger — those are downstream). Fixtures
+      under fixtures/sources/nws/ are REAL captures (2026-06-13, README has
+      provenance + re-record cmds). Research-grounded dossier at
+      docs/research/sources/nws/dossier.md (admitted tier 9). 9 tests.
+      (DONE 2026-06-13, full battery green; hash next iteration.)
+- [x] D5 RssSource (generic, impl cognition Source trait) via feed-rs:
+      ONE adapter, N configured feeds; feed-rs unifies RSS 2.0 / Atom / RDF /
+      JSON-Feed -> the same `rss.item` signal shape (format normalization, not
+      content interpretation). Conditional-GET across polls; malformed body ->
+      SignalError (never a panic). rss_claimed_time = published, fallback
+      updated (Layer-1 future check). Dates rendered in the system's fixed-ms
+      ISO8601. Fixtures REAL captures (2026-06-13): Fed press RSS 2.0 + SEC
+      EDGAR Atom (proves both formats -> one shape) + a malformed doc; README
+      has provenance. Research-grounded dossiers: rss_fed_press (tier 9) +
+      rss_sec_edgar (tier 9). 8 tests (55 crate total). (DONE 2026-06-13,
+      full battery green; hash next iteration.)
+- [ ] D6 CalendarSource — BLS/Fed/FRED release calendars; emits
+      release_scheduled + release_printed signal types (fixtures first:
+      fixtures/sources/calendar/).
+- [ ] D7 GdeltSource (fixtures first: fixtures/sources/gdelt/; query design
+      needs a docs/research pass — open question in the design doc).
+- [ ] D8 Layer 2 corroboration: deterministic near-dup clustering +
+      independent-origin counting + annotation fields (design §4.4 Layer 2).
+- [ ] D9 Ingestion scheduler: Clock+CancellationToken loop, per-source cadence
+      + static event windows, health state machine healthy→degraded→
+      quarantined (loud), per-source isolation, trigger/resolution floors as
+      config rules; DST scenarios (timeout mid-window, 429 storm,
+      crash-in-window recovery, burst coalescing, quarantine escalation).
+- [ ] D10 drive() seam: ONE minimal flagged commit wiring the scheduler into
+      fortuna-live behind a config flag (default off).

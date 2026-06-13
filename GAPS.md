@@ -2217,5 +2217,93 @@ Final battery at stop: fmt 0 diffs, clippy 0 errors, workspace 939/0,
 DST exit 0 (2000/stage; corpus 3 seeds). Branch track-c at 4fd16de,
 rebased on main f4b4a54-era; all work committed, nothing pushed.
 
+## Track D — news-aggregation Phase A
+
+- **GATE RESPONSE — CRITICAL SSRF fail-open: FIXED (2026-06-13).** The gate
+  (track-d-nws-gate-2026-06-13.md + the STOP escalation) reproduced a
+  parser-differential host-pin bypass: the hand-rolled `host_of_https` in
+  fetch.rs read `https://evil.example.com\@api.weather.gov/x` as host
+  `api.weather.gov` (ADMITTED) while reqwest's WHATWG parser connects to
+  `evil.example.com`. ROOT-CAUSE FIX applied exactly as directed: `host_of_https`
+  DELETED; the pin decision now uses `reqwest::Url::parse(url).host_str()` — the
+  SAME parser reqwest connects through — in one helper `canonical_https_host`,
+  called for both the initial URL and every redirect hop (redirect-follow stays
+  disabled in the transport; Location is re-validated through the same helper).
+  Regression tests, all through the public `FetchClient::fetch` path: the exact
+  backslash payload REFUSED as the initial URL AND as a redirect Location; a
+  redirect-to-unpinned Location REFUSED; plus `#@`-fragment and path-only
+  shapes. Verified empirically that the parser resolves the vuln payload to
+  evil.example.com (refused) and the mirror `api.weather.gov\@evil…` to the
+  pinned host (correctly admitted — `@evil…` is path; the pin tracks the TRUE
+  connection host). Two stale pre-fix pin tests corrected to true WHATWG
+  semantics (no assertion weakened — they encoded a wrong hand-rolled-parser
+  model; `https:///nopath` resolves to host `nopath`, not an error). Empty-host
+  guard added. NOT a backslash blocklist — parser unification. SWEEP: grepped
+  the crate for any other hand-rolled URL/host parsing — the only remaining
+  `starts_with("https://")` is config.rs:165, a COSMETIC startup pre-check
+  (fail-fast on obviously-non-https config); it is NOT a security boundary —
+  every fetched URL (initial + each redirect hop) is gated by
+  `canonical_https_host` via `HostPin`, the single parser. Awaiting re-gate of
+  the whole D1–D5 unit.
+
+- **GATE RESPONSE — MAJOR (Layer-1 validator unwired): is D9, by design.** The
+  gate noted the `StructuralValidator` (validate.rs) is not wired into a
+  per-item ingest path. That is correct and intended for this stage: the
+  validator runs in the INGESTION SCHEDULER (D9), between adapter.fetch() and
+  the cognition normalizer — adapters stay dumb (spec 5.11). There is no ingest
+  path to wire it into until D9 exists. The adapters already expose the inputs
+  the scheduler needs (`nws_claimed_time`, `rss_claimed_time`). Tracked as D9
+  scope; not part of this SSRF-only fix iteration (per the bus: "your NEXT
+  iteration is THE SSRF FIX, nothing else"). If the gate wants the validator
+  wired sooner, D9 can be pulled forward after the SSRF re-gate.
+
+- **D4 NWS AFD full-text is a deferred second hop.** NwsSource emits the AFD
+  product SUMMARY (id, office, issuanceTime, code) from the `/products?type=AFD`
+  list. Attaching the full `productText` requires a second hop
+  `GET /products/{id}` (shape captured in fixtures/sources/nws/afd_product.json).
+  The summary already dedups and drives a "new AFD issued" trigger; the text
+  hop is enrichment, not a blocker. Follow-up for a later iteration (would add
+  a two-hop mode to NwsSource or a dedicated AFD-text source).
+
+- **D4 NWS scheduler-side wiring pending D9.** The adapter exposes
+  `nws_claimed_time` for the Layer-1 future-dated check, but the scheduler
+  (D9) is what calls StructuralValidator with the extracted claimed_time and
+  builds Candidates from RawSignals. D4 ships the adapter + the extractor;
+  D9 connects them. Registry row + `[sources.nws_*]` config entries are also
+  created at scheduler-wiring time (dossier admitted the source at tier 9).
+
+- **Layer-4 consumption floors are only half-enforceable from this track.**
+  The trigger floor can be enforced at the drive() seam (filter which signals
+  are offered to TriggerEngine); the resolution-source floor is consumed
+  inside world-forward discovery (fortuna-cognition — not Track D ownership).
+  Phase A ships the config + registry data; the cognition-side check is
+  ledgered here for the owner of fortuna-cognition to wire (design §4.4
+  Layer 4).
+
+- **CROSS-TRACK fmt red on main — RESOLVED on main (2026-06-13).** During
+  D1 (pre-rebase) `cargo fmt --check` failed on
+  `crates/fortuna-venues/examples/record_kalshi_fixtures.rs:43` (Track A/C
+  commit c139386). After rebasing track-d onto main @ e85f92c the red is
+  gone (gate bus certified main GREEN); `cargo fmt --check` is clean on the
+  rebased tree. No Track D action was needed or taken. Left here as the
+  record of why D1's commit message references it.
+
+- **D3 Layer-1 stale-republication flag is a BOUNDED in-memory check, not
+  authoritative dedup.** `StructuralValidator` flags a content hash seen
+  within its recent-hash buffer (default 4096 hashes, FIFO eviction). A
+  republication older than the buffer window is NOT flagged here — it is
+  still caught downstream by the ledger's `UNIQUE(source, content_hash)`
+  dedup (the source of truth, fortuna-cognition normalizer). The Layer-1
+  flag exists for fast-path observability (a feed re-emitting old items is a
+  health signal), not correctness. Sizing the buffer vs. a source's real
+  re-emission window is a per-source tuning concern for D9/operations.
+
+- **D3 re-decomposition: per-source Layer-0 dossiers ride with their
+  adapters (D4–D7), not D3.** D3 shipped the dossier TEMPLATE/rubric
+  (docs/research/sources/TEMPLATE.md) + the Layer-1 validator. Each source's
+  filled dossier lands with that source's adapter and fixtures, facts
+  grounded in research at record time. Phase A still exits with Layers 0–2
+  complete; this is a sequencing change, not a scope cut.
+
 ## Disputed invariant tests
 (none)
