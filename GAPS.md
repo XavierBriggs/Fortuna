@@ -18,16 +18,29 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
-## TRACK E — BUILD PHASE (operator-approved 2026-06-13); E.1 + E.2 + E.3a/b/c DONE
+## TRACK E — BUILD PHASE (operator-approved 2026-06-13); E.1 + E.2 + E.3a/b/c + telemetry DONE
 
 STATUS 2026-06-13 (SUPERSEDES the design-phase RALPH STOP preserved below): the operator
 APPROVED the design ("looks good, rearm"; commit b4eaae3) and re-armed Track E in worktree
 fortuna-wt-e. BUILD PHASE active — building design §18's six slices, one gate-clean slice
-per iteration. E.3 is sub-sliced: E.3a (runner core + firewall, commit 4e8b9e4) + E.3b (trigger
-layer §7, commit 96cdb79) + E.3c (the seeded DST runner-under-budget arm) DONE. REMAINING E.3
-items: persona telemetry §19 + the PersonaOutcome invariant pin §15 (operator-waive).
+per iteration. E.3 is sub-sliced: E.3a (runner core + firewall, 4e8b9e4) + E.3b (trigger layer
+§7, 96cdb79) + E.3c (seeded DST runner-under-budget arm, 510ee8e) + telemetry §19 DONE.
+REMAINING E.3 item: ONLY the PersonaOutcome invariant pin §15 (operator-waive, below). Then E.4.
 
-**E.3c (Persona runner DST arm) DONE this commit.** New crates/fortuna-cognition/tests/persona_dst.rs
+**E.3 telemetry (persona metrics §19) DONE this commit.** New `fortuna_cognition::persona_metrics`:
+`PersonaCounters` folds PersonaOutcomes → the funnel (runs → analyses, with budget_skips /
+no_signal_skips / run_failures{reason} / triggers_coalesced explaining the drops), the cumulative
+cost_cents counter, and the daily spend_today_cents GAUGE (UTC-day roll). `samples()` emits
+`PersonaMetricSample`s shape-compatible with the runner's MetricSample, so the composition drains
+them into fortuna-ops's integer-only registry via the same loop — no new telemetry infra. Test-
+pinned accounting identity (runs == analyses + skips + failures). 10 tests; full battery green.
+feature-dev review: 2 Major — §19 `reason` listed `context` but context-assembly is the runner's
+ONE hard error (not a counted defect) → design §19 reconciled (reason ∈ provider/schema_invalid/
+other); the spend_today gauge was missing → IMPLEMENTED. NOT-YET-WIRED: the composition (E.6 / a
+Track-A drive() seam) maps samples() into the ops registry; this slice provides the fold + names.
+fortuna-invariants UNTOUCHED. Shared-doc touch (loop §8): design §19 row reconciled.
+
+**E.3c (Persona runner DST arm) DONE (commit 510ee8e).** New crates/fortuna-cognition/tests/persona_dst.rs
 (design §8/§15), wired into scripts/run-dst.sh (PERSONA_DST_SCENARIOS; battery runs 2000). Seeded
 chaos: 0..=4 signals (0 → skip path), a possibly-pre-exhausted DiscoveryBudget, a call-counting
 ChaosMind across all failure modes. Per-seed invariants: never crash/Err (degrade); throttle ⟹
@@ -148,10 +161,11 @@ and any fortuna-invariants touch is an operator-waive item per the loop — so s
 correctly does NOT touch the protected crate. The `domain_analyses`/`PersonaRow` row types are
 already structurally order-free (review-confirmed).
 
-NEXT: persona telemetry §19 (the PersonaCounters fold exported through metrics_export — runs /
-analyses / failures / budget_skips / no_signal_skips / coalesced / cost; integer-only to
-Prometheus), then the PersonaOutcome no-order/size invariant pin §15 (gated on the operator-waive
-above), then E.4 (belief consumption — the DomainAnalysis section + provenance citation).
+NEXT: E.4 (belief consumption — a new SectionKind::DomainAnalysis high-priority context item +
+BeliefDraft evidence/provenance citing {persona_id, persona_version, analysis_id,
+analysis_content_hash}; the μ/σ→p helper in code; fans out to binary BeliefDrafts per
+reconciliation.rs:65-104). The PersonaOutcome invariant pin §15 remains gated on the
+operator-waive (below) — pick it up whenever the operator waives the fortuna-invariants touch.
 
 --- HISTORICAL (design-phase RALPH STOP — SUPERSEDED by the operator approval above) ---
 

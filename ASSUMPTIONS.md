@@ -1676,3 +1676,24 @@ domain-analysis artifact (authoritative design: docs/design/domain-analysis-pers
   `DiscoveryBudget::allows` (`<`, not `<=`); a throttle makes zero mind calls and no
   spend; a single permitted call may push cumulative spend past `cap` (throttle is
   before-spend, by design).
+
+## Track E — E.3 telemetry (persona metrics; design §19)
+
+- **`PersonaCounters` lives in cognition** (Track E's layer) and emits
+  `PersonaMetricSample` shape-compatible with the runner's `MetricSample`
+  (name/help/counter/labels/value). The COMPOSITION (E.6 / a Track-A drive() seam)
+  drains `samples()` into fortuna-ops's `MetricsRegistry` via the same loop it uses
+  for `metrics_export()` — Track E does NOT modify fortuna-runner/fortuna-ops
+  (extend, gated). This keeps cognition free of an ops dependency.
+- **`run_failures_total{reason}` reason ∈ {provider, schema_invalid, other}** —
+  classified from the outcome's defect strings. A **context-assembly** failure is the
+  runner's ONE hard error (§8), surfaced as `PersonaRunError`, NOT a counted run-
+  failure; so `context` is not a reason value (design §19 reconciled after the E.3
+  telemetry review). `other` is a defensive catch-all (test-covered, unreachable by
+  today's runner defects).
+- **`spend_today_cents` is a daily-reset GAUGE** tracked in the fold: `observe` takes
+  the injected `now` and rolls per UTC day (epoch_millis / 86_400_000), mirroring the
+  mind's `spent_today_cents`. `cost_cents_total` is the ever-growing counter (distinct).
+- **`observe` takes `domain` explicitly** (the metric label) from the persona def;
+  `PersonaOutcome` is not changed to carry domain (kept minimal). Float scorecard
+  (Brier/quality) stays in the ROTA JSON, never these integer counters (§19).

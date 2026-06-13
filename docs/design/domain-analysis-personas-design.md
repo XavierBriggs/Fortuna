@@ -474,7 +474,7 @@ the design adds zero per-domain code. Labels follow the in-use keys (`venue`/`st
 |---|---|---|---|---|
 | `fortuna_persona_runs_total` | counter | persona,domain | a trigger fired a run | 3 |
 | `fortuna_persona_analyses_total` | counter | persona,domain | an artifact was persisted | 3 |
-| `fortuna_persona_run_failures_total` | counter | persona,reason | run degraded (`reason`∈ schema_invalid\|provider\|context) | 3 |
+| `fortuna_persona_run_failures_total` | counter | persona,reason | run reached the mind but degraded (`reason`∈ `provider`\|`schema_invalid`\|`other`-defensive; a **context-assembly** failure is the runner's ONE hard error per §8, surfaced as a `PersonaRunError`, NOT a counted run-failure) | 3 |
 | `fortuna_persona_budget_skips_total` | counter | persona | budget-exhausted skip (degrade, no crash) | 3 |
 | `fortuna_persona_no_signal_skips_total` | counter | persona | no in-window signals → skip | 3 |
 | `fortuna_persona_triggers_coalesced_total` | counter | persona | duplicate/concurrent triggers debounced into one run | 3 |

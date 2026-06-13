@@ -680,10 +680,11 @@ at E.3 (the PersonaOutcome no-order/size field-surface pin) under operator waive
       E.3b DONE (commit 96cdb79): fortuna_cognition::persona_trigger — Cadence (fire-once-per-period,
       generalizing DailyScheduler) + validate(); PersonaTriggerSpec::fires_on_signal; and the
       PersonaTriggerGate reusing signals::TriggerEngine for per-(persona,region) coalescing.
-      E.3c DONE this commit: the seeded persona-runner DST arm (tests/persona_dst.rs, wired into
-      run-dst.sh) — chaos mind across all failure modes + pre-exhausted budget + skip path + the
-      integration coalescing arm (K+1 triggers → one run); passes 2000 seeds; full battery green.
-      REMAINING E.3: persona telemetry §19 + the §15 invariant pin (operator-waive).]
+      E.3c DONE (commit 510ee8e): the seeded persona-runner DST arm (tests/persona_dst.rs).
+      E.3 telemetry DONE this commit: fortuna_cognition::persona_metrics — PersonaCounters folds
+      PersonaOutcomes → the §19 funnel counters + cost counter + spend_today gauge; samples()
+      shape-compatible with MetricSample; accounting identity test-pinned; 10 tests; full battery
+      green. REMAINING E.3: ONLY the §15 PersonaOutcome invariant pin (operator-waive, see GAPS).]
 - [ ] E.4 Belief consumption — DomainAnalysis section + evidence/provenance citation; the
       μ/σ→p helper in code; `fortuna_persona_beliefs_total` metric.
 - [ ] E.5 Scoring scope extension — ScopeKey + weekly-review promote/retire proposal (baseline +

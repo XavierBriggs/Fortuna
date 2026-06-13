@@ -34,6 +34,7 @@ pub mod discovery;
 pub mod events;
 pub mod mind;
 pub mod persona;
+pub mod persona_metrics;
 pub mod persona_runner;
 pub mod persona_trigger;
 pub mod reconciliation;

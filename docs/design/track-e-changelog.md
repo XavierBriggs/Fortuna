@@ -10,7 +10,29 @@ commit gate, `fortuna-invariants` untouched except at E.3 (operator-waive-flagge
 
 ---
 
-## E.3c — persona runner DST arm (seeded, under the cost budget) (this commit)
+## E.3 telemetry — persona-runner metrics (§19) (this commit)
+
+New `fortuna_cognition::persona_metrics`: `PersonaCounters` folds `PersonaOutcome`s
+into the operator funnel — `runs → analyses`, with the degrade counters
+(`budget_skips`, `no_signal_skips`, `run_failures{reason}`, `triggers_coalesced`)
+explaining every drop, the cumulative `cost_cents` counter, and the daily
+`spend_today_cents` GAUGE (resets on the UTC-day roll, mirroring
+`fortuna_mind_spend_today_cents`). `samples()` emits `PersonaMetricSample`s
+shape-compatible with the runner's `MetricSample` (name/help/counter/labels/value),
+so the composition drains them into fortuna-ops's integer-only registry through the
+SAME loop — no new telemetry infra; persona-agnostic labels. Test-pinned accounting
+identity: `runs == analyses + budget_skips + no_signal_skips + sum(failures)`.
+
+10 tests. FULL workspace battery green. feature-dev:code-reviewer: two Major — the
+§19 `reason` enum listed `context`, but context-assembly is the runner's ONE hard
+error (not a counted defect) → design §19 reconciled (reason ∈ provider /
+schema_invalid / other-defensive); and the `spend_today_cents` gauge was missing →
+IMPLEMENTED (day-roll). Plus a Minor (added the "other" + "no findings journal"
+tests). fortuna-invariants UNTOUCHED. Shared-doc touch (loop §8): design §19 row.
+NOT-YET-WIRED: the composition (E.6 / a Track-A drive() seam) maps `samples()` into
+the ops registry; this slice provides the fold + the names.
+
+## E.3c — persona runner DST arm (seeded, under the cost budget) (commit 510ee8e)
 
 New `crates/fortuna-cognition/tests/persona_dst.rs` (design §8/§15), wired into
 `scripts/run-dst.sh` (`PERSONA_DST_SCENARIOS`, default 20; battery runs 2000). Each
