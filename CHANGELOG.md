@@ -174,6 +174,28 @@ default — merged code activates zero ingestion until an operator opts in (see
   F9 the Layer-3 `source_reliability` scoring that V4 of the ROTA scorecard
   depends on (until then V4 shows "insufficient data").
 
+### Domain-analysis personas (fortuna-cognition, Track E)
+
+Persona analysts (meteorologist + macro economist) that reason over UNTRUSTED
+signals and emit calibration-scored beliefs. Verifier-gated ACCEPT and MERGED to
+main @2668291, 2026-06-13. No model action is ever execution — personas propose.
+
+#### Added
+
+- Persona belief consumption (`persona_beliefs`, E.4): the μ/σ→p backbone +
+  artifact→`BeliefDraft` fan-out into the GATED belief pipeline (never orders —
+  I6), plus the `SectionKind::DomainAnalysis` context section.
+- Persona scoring + promote/retire (`persona_scoring`, E.5): calibration Brier vs
+  both baselines (raw + market) + CLV; `propose_promotion` returns a
+  RECOMMENDATION-ONLY `PersonaPromotionProposal` (the daemon never self-promotes —
+  the I7 analog; a human acts on the proposal). Mutation-proven gate.
+- The trusted/untrusted firewall (E.3a core): the persona's method rides the Mind
+  `system_charter`; untrusted signals are assembled only as `<context-item>` data,
+  never as instructions.
+- End-to-end meteorologist proof + macro-economist generalization (one mechanism,
+  two domains) + the persona-authoring operator runbook + a seeded persona-runner
+  DST arm (budget throttle, signal absence, schema-invalid findings).
+
 ### Trading core, venues & exec
 
 _Owned by Tracks A / C / E — see their entries. Not maintained here._
