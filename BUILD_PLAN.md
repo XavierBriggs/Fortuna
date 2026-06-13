@@ -855,9 +855,24 @@ scheduler is shared with D9). The skill/persona layer is a separate session
       n_scored=30). Research-grounded dossier (tier 7 — sober: μ commodity,
       market edge unproven, Layer-3-earned; resolution-elig 2, NOT the grader).
       13 tests. (DONE 2026-06-13, battery green.)
-- [ ] F4 D9 scheduler integration: StructuralValidator Layer-1a on Aeolus
-      signals; consume next_run_at + GEFS release pattern for release-aware
-      cadence. (Folds into D9.)
+- [x] F4 scheduler integration — wire the adapters into the factory so they are
+      scheduler-validated + reachable. Added the (Nws, "climate") factory arm ->
+      NwsClimateSource (F2) + nws_climate_claimed_time (the grader was built+
+      exported but UNWIRED — the F2-gate residual). Aeolus's arm was already
+      wired in F3. Every factory-built source goes through scheduler.register,
+      which attaches the StructuralValidator (Layer-1) with NO bypass (D9 hard
+      gate) — so "registered via the factory" == "Layer-1 validated on the ingest
+      path". Test wires_the_climate_grader_and_aeolus asserts both register
+      (mutation-proof: delete the climate arm -> feed="climate" reroutes to the
+      (Nws,_) Err arm -> build_scheduler().unwrap() panics -> red). 113 sources
+      tests (112 lib + 1) + 5 ingest_dst. (DONE 2026-06-13 <hash>; SCOPED battery
+      green — fmt --check + clippy -p fortuna-sources --all-targets -D warnings +
+      test -p fortuna-sources + check -p fortuna-live consumer; full-workspace
+      battery is the verifier's merge gate, see GAPS "TRACK D — F4".)
+- [ ] F4b release-aware cadence: consume next_run_at + the GEFS release pattern
+      to tighten the poll cadence around forecast issuance. DEFERRED to Phase B —
+      a scheduling refinement, NOT the gate's reachability/validation ask (which
+      F4 closes). Today the Aeolus source polls on its configured base_interval.
 - [ ] F10 registry row + Layer-0 dossier (docs/research/sources/aeolus/, stating
       MEASURED reality not an unproven edge, per contract §1/§5) + v1→v2 fixture
       migration (keep v1 behind "schema absent ⇒ v1"; aeolus_eval T2.7 stays

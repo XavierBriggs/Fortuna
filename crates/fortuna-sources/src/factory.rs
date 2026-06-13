@@ -19,6 +19,7 @@ use crate::config::{SourceConfig, SourceKind, SourcesConfig};
 use crate::error::SourcesError;
 use crate::fetch::{FetchCaps, FetchClient, HostPin, ReqwestFetchTransport};
 use crate::nws::{nws_claimed_time, NwsFeed, NwsSource};
+use crate::nws_climate::{nws_climate_claimed_time, NwsClimateSource};
 use crate::rss::{rss_claimed_time, RssSource};
 use crate::scheduler::{ClaimedTimeFn, IngestionScheduler, SourceSchedule};
 use crate::validate::StructuralConfig;
@@ -99,9 +100,15 @@ fn build_adapter(
             Box::new(NwsSource::new(id, NwsFeed::AfdProducts, url, client, clock)),
             nws_claimed_time,
         )),
+        (SourceKind::Nws, Some("climate")) => Ok((
+            // The observed daily-extreme grader (F2): the CLI products list URL.
+            // Two-hop fetch + its own claimed-time (issuanceTime).
+            Box::new(NwsClimateSource::new(id, url, client, clock)),
+            nws_climate_claimed_time,
+        )),
         (SourceKind::Nws, _) => Err(invalid(
             id,
-            "nws source requires feed = \"alerts\" | \"afd\"",
+            "nws source requires feed = \"alerts\" | \"afd\" | \"climate\"",
         )),
         (SourceKind::Rss, _) => Ok((
             Box::new(RssSource::new(id, url, client, clock)),
@@ -284,6 +291,42 @@ enabled = false
         let mut ids = s.source_ids();
         ids.sort_unstable();
         assert_eq!(ids, vec!["bls_schedule", "fed_press", "nws_alerts"]);
+    }
+
+    /// F4: the NWS-CLI grader (feed = "climate") and Aeolus are reachable
+    /// through the factory and thus REGISTERED in the scheduler — which means
+    /// their output is Layer-1 validated (scheduler.register attaches the
+    /// StructuralValidator; there is no bypass).
+    #[test]
+    fn wires_the_climate_grader_and_aeolus() {
+        const F4: &str = r#"
+[sources.nws_climate]
+kind = "nws"
+feed = "climate"
+url = "https://api.weather.gov/products?type=CLI"
+base_interval = "1d"
+rate_budget_per_min = 6
+
+[sources.aeolus]
+kind = "aeolus"
+url = "https://aeolus.example.com/v2/forecasts?station=KNYC&variable=tmax"
+base_interval = "6h"
+rate_budget_per_min = 10
+auth_header = "x-api-key"
+auth_env = "AEOLUS_API_TOKEN"
+"#;
+        let cfg = SourcesConfig::from_toml_str(F4).unwrap();
+        let c = clock();
+        let secrets = |env: &str| (env == "AEOLUS_API_TOKEN").then(|| "test-token".to_string());
+        let tier_of = |id: &str| match id {
+            "nws_climate" => Some(10),
+            "aeolus" => Some(7),
+            _ => None,
+        };
+        let s = build_scheduler(&cfg, &factory_cfg(), tier_of, secrets, c.clone()).unwrap();
+        let mut ids = s.source_ids();
+        ids.sort_unstable();
+        assert_eq!(ids, vec!["aeolus", "nws_climate"]);
     }
 
     #[test]

@@ -18,6 +18,35 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK D — F4 factory wiring: SCOPED-battery deferral (verifier owns the full-workspace merge gate)
+
+F4 (2026-06-13) wired the F2 grader into the source factory ((Nws,"climate") ->
+NwsClimateSource) so it is reachable + scheduler-validated; Aeolus was already
+wired (F3). The change is SINGLE-CRATE-ADDITIVE to crates/fortuna-sources (one
+match arm + one test), no public-API change.
+
+BATTERY RUN (this iteration, all real exit codes): `cargo fmt --check` clean;
+`cargo clippy -p fortuna-sources --all-targets -- -D warnings` clean (2s
+incremental — only fortuna-sources rechecked, proving containment);
+`cargo test -p fortuna-sources` 112 lib + 5 ingest_dst DST, 0 failed (incl. the
+new wires_the_climate_grader_and_aeolus); `cargo check -p fortuna-live` clean
+(the consumer + full transitive chain: exec/state/ledger/runner/ops).
+
+DEFERRED (not run this iteration): the FULL-workspace `clippy --workspace` /
+`cargo test --workspace` / `scripts/run-dst.sh`. WHY: at run time the machine had
+MULTIPLE concurrent full-workspace batteries from other tracks (observed: a
+`cargo test --workspace`, a `clippy --workspace`, a `check --workspace`) with
+~30Gi free — launching a 4th competing cold workspace compile risks ENOSPC and
+violates the one-battery-at-a-time rule. A single-arm fortuna-sources change
+cannot affect other crates' compilation/tests (no public-API change; consumer
+chain independently confirmed to compile). This mirrors the verifier's own
+documented warm-target-incremental posture (GATE-FINDINGS DISK note).
+UNBLOCK: the verifier owns the clean-window full-workspace battery + the merge
+gate (the established D9/D10 pattern: implementer commits scoped-validated, the
+gate runs the full battery + the executed mutation check). Predicted mutation:
+neutralize the (Nws,"climate") arm => wires_the_climate_grader_and_aeolus reds
+(unwrap on the Err arm). Not operator-blocked; verifier-gated on merge.
+
 ## TRACK A — T4.2 item 2(i) WS dial COMPLETE: full KalshiWsTransport built (operator runs the first live exercise)
 
 Queue item 2(i) (Kalshi WS dial). Built the SURVIVAL DECISION core as a pure,
