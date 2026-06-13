@@ -166,6 +166,41 @@ pub struct SimSection {
     pub bracket_sets: Vec<Vec<String>>,
 }
 
+/// The `[ingestion]` section (D10, opt-in, default OFF). Its PRESENCE with
+/// `enabled = true` spawns the news-aggregation ingestion loop alongside the
+/// trading daemon (the Layer-1 validator runs live on the ingest path). Absent
+/// or `enabled = false` => no ingestion (fail closed; the daemon is unchanged).
+/// The actual source set is the `[sources.<id>]` tables, parsed separately by
+/// `fortuna_sources::SourcesConfig`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IngestionSection {
+    pub enabled: bool,
+    /// Cadence the ingestion loop ticks at (ms); the scheduler skips not-due
+    /// sources internally, so this is a polling granularity, not a per-source
+    /// interval. Default 5000.
+    #[serde(default = "default_ingestion_tick_ms")]
+    pub tick_ms: u64,
+    /// Global trigger floor: tier >= floor may wake a decision cycle. Default 5.
+    #[serde(default = "default_trigger_floor")]
+    pub trigger_floor: u8,
+    /// Per-tick accepted-item envelope (the AFD-firehose containment). Default 512.
+    #[serde(default = "default_volume_envelope")]
+    pub volume_envelope: usize,
+    /// User-Agent every fetch sends (identify the app + contact).
+    pub user_agent: String,
+}
+
+fn default_ingestion_tick_ms() -> u64 {
+    5000
+}
+fn default_trigger_floor() -> u8 {
+    5
+}
+fn default_volume_envelope() -> usize {
+    512
+}
+
 #[derive(Debug, Deserialize)]
 struct RawToml {
     daemon: Option<DaemonSection>,
@@ -174,6 +209,7 @@ struct RawToml {
     synthesis: Option<crate::compose::SynthesisSection>,
     mech_extremes: Option<crate::compose::MechExtremesSection>,
     review: Option<crate::compose::ReviewSection>,
+    ingestion: Option<IngestionSection>,
 }
 
 /// The parsed daemon-relevant config.
@@ -194,6 +230,10 @@ pub struct DaemonToml {
     /// monthly review cadence (GO/NO-GO thresholds; advisory only, I7). Absent
     /// => no review fires (fail closed).
     pub review: Option<crate::compose::ReviewSection>,
+    /// Optional `[ingestion]` opt-in (D10, default OFF). `enabled = true`
+    /// spawns the news-aggregation ingestion loop (validator live on the
+    /// ingest path). Absent / `enabled = false` => no ingestion.
+    pub ingestion: Option<IngestionSection>,
 }
 
 impl DaemonToml {
@@ -220,6 +260,7 @@ impl DaemonToml {
             synthesis: raw.synthesis,
             mech_extremes: raw.mech_extremes,
             review: raw.review,
+            ingestion: raw.ingestion,
         })
     }
 

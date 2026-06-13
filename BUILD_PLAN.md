@@ -769,8 +769,32 @@ crates/fortuna-sources + fixtures/sources/ + one flagged drive() seam.
       tests/ingest_dst.rs, wired into scripts/run-dst.sh. Adds sha2 dep. 89
       crate tests + 5 ingest_dst. (DONE 2026-06-13, full battery green; hash
       next iter.)
-- [ ] D10 drive() seam: ONE minimal flagged commit wiring the scheduler into
-      fortuna-live behind a config flag (default off).
+- [x] D10 drive() seam: the scheduler wired LIVE into fortuna-live behind the
+      [ingestion] flag (default OFF). Closes the hard gate — the Layer-1
+      validator now runs on the LIVE ingest path in the daemon.
+      Design choice: rather than mutate drive()'s huge shared signature (breaks
+      every caller, high collision risk), ingestion runs as an INDEPENDENT loop
+      spawned by main.rs alongside drive() — it is its own IO loop, not part of
+      the deterministic trading cycle. Pieces:
+      - fortuna-sources factory build_scheduler (D10 1/2, 30ae38f).
+      - fortuna-live ingestion.rs: IngestionCore (scheduler tick -> validate ->
+        normalize_and_dedup -> SignalEnvelopes; TESTABLE, no DB) + IngestionWiring
+        (adds SignalsRepo persistence + Slack) + run_ingestion_loop (Clock-read,
+        real-time sleep at the IO edge, stop-signal) + build_ingestion_wiring
+        (loads tiers from source_registry, parses [sources], factory).
+      - boot.rs [ingestion] section (enabled/tick_ms/trigger_floor/
+        volume_envelope/user_agent), deny_unknown_fields, default off.
+      - main.rs: spawn the loop when enabled; stop it with the daemon.
+      HARD GATE PROVEN END-TO-END: ingestion test
+      validator_is_live_a_future_item_never_becomes_an_envelope — a future-dated
+      item is refused by the validator and NEVER reaches the signals store.
+      REGRESSION: daemon_smoke 15/15 green (daemon byte-unchanged when off).
+      OPERATOR PREREQ to enable (ledgered GAPS): seed source_registry rows
+      (tiers, per the Layer-0 dossiers) + [sources.*] config + [ingestion]
+      enabled = true. DEFERRED: ingestion-alert Slack routing (quarantines
+      counted/logged now); wakes_decision_cycle tag not persisted (trigger-
+      engine wiring is cognition-side). 3 ingestion tests (92 sources-crate +
+      daemon_smoke 15). (DONE 2026-06-13, full battery green.)
 
 ### Track D — Aeolus integration (F-series; operator-approved 2026-06-13)
 

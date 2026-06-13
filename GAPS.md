@@ -2239,6 +2239,27 @@ rebased on main f4b4a54-era; all work committed, nothing pushed.
 
 ## Track D — news-aggregation Phase A
 
+- **D10 OPERATOR PREREQ to ENABLE ingestion (default off).** Turning on the
+  ingestion loop needs THREE things together: (1) `[ingestion] enabled = true`
+  + `user_agent` in fortuna.toml; (2) `[sources.<id>]` tables for the sources to
+  run (kind/feed/url/base_interval/rate_budget_per_min — see
+  fortuna_sources::config); (3) `source_registry` ROWS (trust tiers) for those
+  ids — the factory is FAIL-CLOSED: an enabled source with no registry tier is
+  refused (admit-first, per the Layer-0 dossiers). The dossiers under
+  docs/research/sources/ inform the tiers. No rows / no `[sources]` ⇒ the loop
+  spawns with zero sources (harmless) or refuses at build. Daemon is
+  byte-unchanged when `[ingestion]` is absent (daemon_smoke 15/15).
+
+- **D10 DEFERRED bits (non-blocking).** (a) Ingestion-alert Slack routing: the
+  IngestionWiring counts quarantine alerts and can slack them, but main.rs wires
+  `slack=None` to avoid a second SlackRouter under the borrow constraints —
+  quarantines are counted/logged, not slacked yet (pass a router to
+  build_ingestion_wiring to enable). (b) The `wakes_decision_cycle` trigger-floor
+  tag (D9) is computed but NOT persisted — actually waking the decision cycle is
+  the cognition trigger engine's job; the tag is available in TickOutcome for
+  that wiring. (c) AFD volume: configure a tight `volume_envelope` for the AFD
+  source (the firehose finding below).
+
 - **LIVE FINDING (2026-06-13, examples/live_smoke): NWS AFD is a firehose.**
   `GET /products?type=AFD` returns the FULL set of every office's discussions —
   4,705 signals in one fetch. As one source that floods the signals table every
