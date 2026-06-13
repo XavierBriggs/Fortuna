@@ -145,7 +145,7 @@ OWNER PLAN: a RESTARTED track C, scoped to "extend the now-merged perps plane"
 AFTER the re-merge gate ACCEPTs and the merge lands. Phase-5 EXIT (BUILD_PLAN)
 is not met until B7+B8 land.
 
-## TRACK D — MERGED to main (2476554; SSRF-fixed news crate D1-D5; post-merge build green). Branch building forward UNMERGED toward D9: D8 Layer-2 corroboration (near-dup clustering, 6526106) + a live_smoke diagnostic / "AFD-firehose" telemetry finding (80fcc1d) landed this session; D7 GdeltSource deferred (honest external rate-limit). D9 GATE = ACCEPT — THE HARD GATE IS SATISFIED (track-d-d9-ingest-core-gate-2026-06-13.md). The Layer-1 validator is now WIRED (scheduler.rs:232, on every item pre-accept) and refusal REPRODUCES on the wired path — PROVEN BY EXECUTED MUTATION (neutralize assess->Accept => the wired-path DST scenario_burst + 2 scheduler tests go RED; restored). No model in path, Clock-injected, SSRF pin un-regressed, protected crate untouched, 84 lib + 5 DST green. EXPOSURE BOUNDARY: zero fortuna-live changes — the scheduler is UNREACHABLE from the daemon; live-ingest exposure still sits behind the pending D10 drive() seam (BUILD_PLAN:772, [ ]). MERGE HELD (not a defect): merging D6-D9 in isolation gives zero live benefit until D10 wires the seam, AND track-d's working tree has an uncommitted NON-COMPILING D10 overlay (factory.rs untracked + 3 mods; IngestionScheduler needs #[derive(Debug)]; fails fmt). PLAN: track-D finishes+commits D10 (its own battery forces the Debug fix), gate D10, then merge D6-D9-D10 as ONE coherent reachable unit. MERGE THE COMMIT NEVER THE DIRTY TREE. Track-D NEXT: finish D10 drive seam. Minor ledgered: BUILD_PLAN:770 "89 tests" vs committed 84 lib+5 DST (counts the uncommitted factory.rs). Phase A partial (2/4 adapters). WATCH: an "AFD-firehose" volume/telemetry finding may bear on the Aeolus/NWS cost-budget design — surface it as a GAPS/bus note if cross-track. Scope: PARK slot F / track M per operator.
+## TRACK D — MERGED to main (2476554; SSRF-fixed news crate D1-D5; post-merge build green). Branch building forward UNMERGED toward D9: D8 Layer-2 corroboration (near-dup clustering, 6526106) + a live_smoke diagnostic / "AFD-firehose" telemetry finding (80fcc1d) landed this session; D7 GdeltSource deferred (honest external rate-limit). D9 GATE = ACCEPT — THE HARD GATE IS SATISFIED (track-d-d9-ingest-core-gate-2026-06-13.md). The Layer-1 validator is now WIRED (scheduler.rs:232, on every item pre-accept) and refusal REPRODUCES on the wired path — PROVEN BY EXECUTED MUTATION (neutralize assess->Accept => the wired-path DST scenario_burst + 2 scheduler tests go RED; restored). No model in path, Clock-injected, SSRF pin un-regressed, protected crate untouched, 84 lib + 5 DST green. EXPOSURE BOUNDARY: zero fortuna-live changes — the scheduler is UNREACHABLE from the daemon; live-ingest exposure still sits behind the pending D10 drive() seam (BUILD_PLAN:772, [ ]). MERGE HELD (not a defect): merging D6-D9 in isolation gives zero live benefit until D10 wires the seam, AND track-d's working tree has an uncommitted NON-COMPILING D10 overlay (factory.rs untracked + 3 mods; IngestionScheduler needs #[derive(Debug)]; fails fmt). PLAN: track-D finishes+commits D10 (its own battery forces the Debug fix), gate D10, then merge D6-D9-D10 as ONE coherent reachable unit. MERGE THE COMMIT NEVER THE DIRTY TREE. D10 (1/2) config-driven source factory LANDED + GATE-CLEAN (30ae38f; track-d-d10-part1-gate-2026-06-13.md, ACCEPT-SLICE): factory routes every source through scheduler.register WITH a validator_cfg (no bypass), no-model enforcement intact, dirty-tree caveat RESOLVED (overlay committed, Debug-derive fixed), fresh battery 88 lib + 5 DST green. [A first run showed a FALSE scenario_burst failure from a STALE shared-target artifact — see GATE-TARGET HYGIENE below — proven false by cargo clean + rebuild; no regression.] Track-D NEXT: D10 (2/2) the drive() seam into fortuna-live = THE live-exposure gate (makes the validator path daemon-reachable; D9 refuse-and-quarantine re-applies ON the daemon path). Then gate D9+D10 as a unit + merge. Phase A partial (2/4 adapters). WATCH: an "AFD-firehose" volume/telemetry finding may bear on the Aeolus/NWS cost-budget design — surface it as a GAPS/bus note if cross-track. Scope: PARK slot F / track M per operator.
 
 ## [merged] TRACK D — SSRF CLEARED (track-d-regate-2026-06-13.md)
 
@@ -173,6 +173,20 @@ shape-drifted item from a pinned host would ingest verbatim. NON-EXPOSED today
 pass its gate without refuse-and-quarantine live on the ingest path. Phase A is
 PARTIAL: 2 of 4 adapters (NWS+RSS; Calendar/GDELT pending), no scheduler, no
 registry rows yet.
+
+## GATE-TARGET HYGIENE — mutation experiments contaminate the shared target (verifier protocol)
+
+A mutation-check (deliberately breaking code to confirm a test reds) run against
+the SHARED CARGO_TARGET_DIR=/tmp/fortuna-gate-target leaves a stale mutated
+artifact that yields FALSE pass/fail in the NEXT gate (it bit the D10(1/2) gate:
+a stale always-Accept ingest_dst binary failed scenario_burst with the
+nothing-refused signature even though the committed code was clean). RULE: a
+mutation experiment MUST use an isolated CARGO_TARGET_DIR (/tmp/fortuna-mut-<n>)
+OR be followed by `cargo clean -p <pkg>` before any later gate reuses the shared
+target. TELL: a split result (a package's lib unit tests pass while its
+integration-test binary fails with a logic-mutation signature) = suspect a stale
+artifact; `cargo clean -p <pkg>` + rebuild before reporting a regression. Verifier
+subagent briefs requesting a mutation check now carry this isolation rule.
 
 ## DISK — MACHINE CONSTRAINT (operator action; the re-gate hit 120Mi mid-run)
 Five build trees (A/C/D/E targets ~9-13GB each) + gate caches + 5GB perishable
