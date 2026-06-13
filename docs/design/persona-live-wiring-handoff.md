@@ -200,3 +200,59 @@ asserts one `domain_analyses` row + N beliefs with provenance `{persona_id, pers
 analysis_id, analysis_content_hash}` resolving to that artifact. Mirror the end-to-end shape in
 `crates/fortuna-ledger/tests/persona_e2e.rs` (the pipeline, sans the live loop). Gate as usual:
 `fmt` + `clippy --workspace --all-targets -D warnings` + `cargo test --workspace` + `run-dst.sh`.
+
+---
+
+## 8. Slice 3 — surface persona promote/retire verdicts in the weekly review (do this WITH your review wiring)
+
+Per design §10/§11/§21, persona scoring is an **additive parallel layer** — you do **not** extend
+`review::ScopeKey` (that struct literal is yours at `daemon.rs:1024`; adding fields there is exactly
+what §21 deliberately avoided so the boundary holds). Instead, in your weekly-review step, score each
+`(persona, version)` with the already-built `fortuna_cognition::persona_scoring` and route the
+verdicts to `#fortuna-review` alongside the GO/NO-GO recs. **Recommendation-only (I7):** the daemon
+never promotes/retires; the operator acts out-of-band (a superseding `personas` registry insert, or
+`status='retired'`). The §20.1 ROTA personas-view reads the SAME scoring.
+
+The API (all built + tested in `persona_scoring.rs`):
+
+```rust
+use fortuna_cognition::persona_scoring::{
+    Baseline, PersonaScope, PersonaScopeRecord, propose_promotion, score_persona,
+};
+// per (persona, version):
+let record = PersonaScopeRecord {
+    scope:   PersonaScope { persona_id, persona_version },
+    samples: /* Vec<(claimed_p, outcome_bool)> — the scope's RESOLVED beliefs */,
+    clv_bps: /* Vec<f64> — their CLV measurements (skip the None ones) */,
+};
+let card     = score_persona(&record);
+let proposal = propose_promotion(
+    &card,
+    prior_version_card.as_ref(),                  // Option<&PersonaScorecard> (beats_prior_version)
+    Baseline { brier_mean: no_persona_brier },    // raw-source-direct beliefs, SAME events
+    Baseline { brier_mean: market_brier },        // market-implied p, SAME events
+    cfg.review.min_resolved_beliefs_synthesis,    // the §11 floor (≈60)
+);
+// proposal.verdict ∈ Evaluating { resolved, needed } | Promotable | RetireCandidate
+route_to_review(format!(
+    "{}@{} — {:?}: {}",
+    record.scope.persona_id, record.scope.persona_version, proposal.verdict, proposal.rationale,
+));
+```
+
+**The one data dependency (a shared building block).** Each `PersonaScopeRecord` needs the scope's
+RESOLVED beliefs (claimed `p`, `outcome`, `clv_bps`) grouped by the provenance
+`{persona_id, persona_version}` that the fan-out stamps (`map_persona_analysis`). Two ways:
+- **Quick:** filter `BeliefsRepo::recent(limit)` (it already returns `brier`/`clv_bps`/`provenance`)
+  by `provenance.persona_id` / `persona_version` — fine for a first cut, bounded by `limit`; or
+- **Clean:** a dedicated `BeliefsRepo::resolved_persona_stats(persona_id, version) -> PersonaScopeRecord`
+  query — the §20.1 ROTA personas-view needs the SAME data. **Track E will add this query on request**
+  (a small `recent_by_kind`-style ledger slice); ask and it lands.
+
+**The baselines** (`no_persona_brier`, `market_brier`) are the §11 comparison, scored over the SAME
+resolved events: the raw-source-direct belief Brier and the market-implied (`p` = price) Brier. You
+already assemble market-implied inputs in the weekly review. If either baseline is unavailable for a
+scope, leave it `Evaluating` — never promote without both (§11).
+
+This step is **not a blocker** for personas running or being scored: `persona_scoring` works
+standalone today; Slice 3 just surfaces its verdicts inside the daemon's weekly digest.

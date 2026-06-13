@@ -960,12 +960,16 @@ gate, feature-dev:code-reviewer per slice):
   against the code). **This completes Track E's "expose the building blocks" obligation** — the
   persona library is fully runnable; only Track A's `drive()` glue remains (the handoff).
   REMAINING FOR PERSONAS TO FIRE LIVE = Track A wires the handoff (their crate, their call).
-- **Slice 3 — §10 ScopeKey extension + review folding (OPTIONAL / Track-A-coordinated, NOT done).**
-  ADD `persona_id`/`persona_version` to `review::ScopeKey` (keep `strategy`; add, never replace)
-  and fold `score_persona` into the weekly review's recommendation path. NOTE: persona scoring
-  already runs standalone (`persona_scoring.rs`: `score_persona`/`propose_promotion`), so this is an
-  enhancement (surface persona verdicts IN the daemon's weekly digest), best done WITH Track A's
-  review wiring — not a blocker for personas running or being scored.
+- **Slice 3 — review folding — DOCUMENTED in the Track-A handoff §8 (operator-directed; Track A
+  builds it WITH their review wiring).** Per §21 it is an ADDITIVE PARALLEL layer, NOT a
+  `review::ScopeKey` mutation (that literal is Track A's at `daemon.rs:1024`): the daemon's weekly
+  review calls the already-built `score_persona`/`propose_promotion` per `(persona, version)` and
+  routes verdicts to `#fortuna-review` (recommendation-only, I7). persona_scoring runs standalone
+  today, so this only surfaces verdicts in the digest — not a blocker.
+  ONE BUILDING-BLOCK Track E provides ON REQUEST: a `BeliefsRepo::resolved_persona_stats(persona_id,
+  version)` query (resolved beliefs grouped by the provenance `{persona_id, persona_version}`) — the
+  clean data source for Slice 3 AND the §20.1 ROTA personas-view. A small `recent_by_kind`-style
+  slice; not built yet (Track A can filter `BeliefsRepo::recent` for a first cut).
 
 STILL GATED (not Track-E): ROTA panels = Track B (`fortuna-ops/assets/rota/`); macro signal KINDS
 = Track D (`fortuna-sources`, constitution-forbidden for Track E). Surfaced, not built.

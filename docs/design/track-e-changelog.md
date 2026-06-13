@@ -10,7 +10,19 @@ commit gate, `fortuna-invariants` untouched except at E.3 (operator-waive-flagge
 
 ---
 
-## [Post-merge integration] Slice 2c — belief `horizon` helper + the Track-A wiring handoff (this commit)
+## [Post-merge integration] Slice 3 ADDED to the Track-A handoff (operator-directed, doc-only) (this commit)
+
+Per operator ("add slice 3 to the track-a handoff"), `persona-live-wiring-handoff.md` gains §8: how
+Track A folds persona promote/retire verdicts into its weekly review. Documented, not built —
+consistent with §21's decision that persona scoring is an **additive parallel layer** (it does NOT
+extend `review::ScopeKey`, whose struct literal is Track A's at `daemon.rs:1024`). The section gives
+the exact `score_persona`/`propose_promotion` API (already built + tested), the recommendation-only
+routing to `#fortuna-review` (I7), and honestly flags the one data dependency — gathering resolved
+beliefs grouped by the provenance `{persona_id, persona_version}` — with two paths (filter the
+existing `BeliefsRepo::recent` scoreboard, or a dedicated `resolved_persona_stats` query Track E will
+add on request, which the §20.1 ROTA personas-view also needs). Doc-only; no code, no battery.
+
+## [Post-merge integration] Slice 2c — belief `horizon` helper + the Track-A wiring handoff (commit fa9e8ee)
 
 The last building block + the handoff that completes Track E's "expose; Track A wires" obligation.
 
