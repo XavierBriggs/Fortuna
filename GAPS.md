@@ -2174,6 +2174,44 @@ rebased on main f4b4a54-era; all work committed, nothing pushed.
 
 ## Track D — news-aggregation Phase A
 
+- **GATE RESPONSE — CRITICAL SSRF fail-open: FIXED (2026-06-13).** The gate
+  (track-d-nws-gate-2026-06-13.md + the STOP escalation) reproduced a
+  parser-differential host-pin bypass: the hand-rolled `host_of_https` in
+  fetch.rs read `https://evil.example.com\@api.weather.gov/x` as host
+  `api.weather.gov` (ADMITTED) while reqwest's WHATWG parser connects to
+  `evil.example.com`. ROOT-CAUSE FIX applied exactly as directed: `host_of_https`
+  DELETED; the pin decision now uses `reqwest::Url::parse(url).host_str()` — the
+  SAME parser reqwest connects through — in one helper `canonical_https_host`,
+  called for both the initial URL and every redirect hop (redirect-follow stays
+  disabled in the transport; Location is re-validated through the same helper).
+  Regression tests, all through the public `FetchClient::fetch` path: the exact
+  backslash payload REFUSED as the initial URL AND as a redirect Location; a
+  redirect-to-unpinned Location REFUSED; plus `#@`-fragment and path-only
+  shapes. Verified empirically that the parser resolves the vuln payload to
+  evil.example.com (refused) and the mirror `api.weather.gov\@evil…` to the
+  pinned host (correctly admitted — `@evil…` is path; the pin tracks the TRUE
+  connection host). Two stale pre-fix pin tests corrected to true WHATWG
+  semantics (no assertion weakened — they encoded a wrong hand-rolled-parser
+  model; `https:///nopath` resolves to host `nopath`, not an error). Empty-host
+  guard added. NOT a backslash blocklist — parser unification. SWEEP: grepped
+  the crate for any other hand-rolled URL/host parsing — the only remaining
+  `starts_with("https://")` is config.rs:165, a COSMETIC startup pre-check
+  (fail-fast on obviously-non-https config); it is NOT a security boundary —
+  every fetched URL (initial + each redirect hop) is gated by
+  `canonical_https_host` via `HostPin`, the single parser. Awaiting re-gate of
+  the whole D1–D5 unit.
+
+- **GATE RESPONSE — MAJOR (Layer-1 validator unwired): is D9, by design.** The
+  gate noted the `StructuralValidator` (validate.rs) is not wired into a
+  per-item ingest path. That is correct and intended for this stage: the
+  validator runs in the INGESTION SCHEDULER (D9), between adapter.fetch() and
+  the cognition normalizer — adapters stay dumb (spec 5.11). There is no ingest
+  path to wire it into until D9 exists. The adapters already expose the inputs
+  the scheduler needs (`nws_claimed_time`, `rss_claimed_time`). Tracked as D9
+  scope; not part of this SSRF-only fix iteration (per the bus: "your NEXT
+  iteration is THE SSRF FIX, nothing else"). If the gate wants the validator
+  wired sooner, D9 can be pulled forward after the SSRF re-gate.
+
 - **D4 NWS AFD full-text is a deferred second hop.** NwsSource emits the AFD
   product SUMMARY (id, office, issuanceTime, code) from the `/products?type=AFD`
   list. Attaching the full `productText` requires a second hop

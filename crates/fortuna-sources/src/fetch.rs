@@ -70,19 +70,23 @@ pub struct HostPin {
 impl HostPin {
     /// Pin to the host of `base_url`. The URL must be https with a host.
     pub fn from_url(base_url: &str) -> Result<HostPin, SourcesError> {
-        let host = host_of_https(base_url).map_err(|reason| SourcesError::ConfigInvalid {
-            source_id: base_url.to_string(),
-            reason,
-        })?;
+        let host =
+            canonical_https_host(base_url).map_err(|reason| SourcesError::ConfigInvalid {
+                source_id: base_url.to_string(),
+                reason,
+            })?;
         Ok(HostPin { host })
     }
 
-    /// Accept `url` only if it is https AND its host equals the pinned host
-    /// (ASCII-case-insensitive). This is the single chokepoint the request
-    /// path and every redirect hop both call.
+    /// Accept `url` only if it is https AND the host the HTTP client will
+    /// actually connect to equals the pinned host. This is the single
+    /// chokepoint the request path and every redirect hop both call.
     pub fn admits(&self, url: &str) -> Result<(), FetchError> {
-        let host = host_of_https(url).map_err(|reason| FetchError::OffPin { reason })?;
-        if host.eq_ignore_ascii_case(&self.host) {
+        let host = canonical_https_host(url).map_err(|reason| FetchError::OffPin { reason })?;
+        // Both sides are normalized by the SAME WHATWG parser, so a byte
+        // comparison is exact — no case folding needed (the parser already
+        // lower-cased ASCII domains).
+        if host == self.host {
             Ok(())
         } else {
             Err(FetchError::OffPin {
@@ -96,29 +100,30 @@ impl HostPin {
     }
 }
 
-/// Extract the host of an https URL, lower-cased. Rejects any other scheme
-/// (the SSRF posture is https-only) and any URL without a host. Parsing is
-/// deliberately strict and dependency-light: scheme check, then host up to
-/// the first `/`, `?`, or `#`, with any `userinfo@` and `:port` stripped.
-fn host_of_https(url: &str) -> Result<String, String> {
-    const SCHEME: &str = "https://";
-    let rest = url
-        .strip_prefix(SCHEME)
-        .ok_or_else(|| format!("url must be https (SSRF posture): `{url}`"))?;
-    // Authority ends at the first path/query/fragment delimiter.
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
-    // Drop any userinfo (`user:pass@host`) — keep only what follows the last `@`.
-    let host_port = authority.rsplit('@').next().unwrap_or(authority);
-    // Drop a `:port` suffix. IPv6 literals (`[::1]`) are not a supported
-    // source host shape; reject the bracket rather than mis-parse it.
-    if host_port.starts_with('[') {
-        return Err(format!("bracketed/IPv6 host not supported: `{url}`"));
+/// Resolve the host of an https URL using `reqwest::Url` — the SAME WHATWG
+/// URL parser reqwest uses to open the connection. This is the load-bearing
+/// SSRF control: the pin DECISION and the actual CONNECTION resolve the host
+/// through one parser, so they can never disagree.
+///
+/// A hand-rolled parser here was a CRITICAL fail-open
+/// (`https://evil.example.com\@api.weather.gov/x` was read as host
+/// `api.weather.gov` and admitted, while reqwest connects to
+/// `evil.example.com`). The root-cause fix is parser unification, never a
+/// per-trick blocklist — backslash, userinfo, percent-encoding, and IDNA
+/// are all handled by the one parser, identically on both sides.
+fn canonical_https_host(url: &str) -> Result<String, String> {
+    let parsed =
+        reqwest::Url::parse(url).map_err(|e| format!("url did not parse: `{url}`: {e}"))?;
+    if parsed.scheme() != "https" {
+        return Err(format!("url must be https (SSRF posture): `{url}`"));
     }
-    let host = host_port.split(':').next().unwrap_or(host_port);
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| format!("url has no host: `{url}`"))?;
     if host.is_empty() {
-        return Err(format!("url has no host: `{url}`"));
+        return Err(format!("url has an empty host: `{url}`"));
     }
-    Ok(host.to_ascii_lowercase())
+    Ok(host.to_string())
 }
 
 /// Conditional-GET validators carried between polls (design §4.2): steady
@@ -459,11 +464,61 @@ mod tests {
         assert!(pin.admits("https://api.weather.gov:443/x").is_ok());
     }
 
+    /// REGRESSION (Critical SSRF, gate 2026-06-13): a backslash-authority
+    /// payload was read by the old hand-rolled parser as host
+    /// `api.weather.gov` (ADMITTED) while reqwest's WHATWG parser resolves it
+    /// to `evil.example.com` and connects there. Both sides now go through
+    /// `reqwest::Url`, so the host the client connects to IS the host the pin
+    /// checks. The exact gate payload must be REFUSED.
     #[test]
-    fn pin_construction_rejects_non_https() {
+    fn pin_refuses_backslash_authority_parser_differential() {
+        let pin = HostPin::from_url("https://api.weather.gov/").unwrap();
+        // WHATWG converts the backslash to '/', so the real host is
+        // evil.example.com — the `@api.weather.gov` is path, not authority.
+        assert_eq!(
+            reqwest::Url::parse(r"https://evil.example.com\@api.weather.gov/x")
+                .unwrap()
+                .host_str(),
+            Some("evil.example.com"),
+            "sanity: the connection host is evil.example.com"
+        );
+        assert!(
+            matches!(
+                pin.admits(r"https://evil.example.com\@api.weather.gov/x"),
+                Err(FetchError::OffPin { .. })
+            ),
+            "the backslash-authority SSRF payload must be refused"
+        );
+        // More shapes whose REAL host (per the one parser) is the attacker —
+        // all refused.
+        for payload in [
+            "https://evil.example.com#@api.weather.gov/x", // '#' => fragment; host evil
+            "https://evil.example.com/api.weather.gov",    // pinned host only in the path
+        ] {
+            assert!(
+                matches!(pin.admits(payload), Err(FetchError::OffPin { .. })),
+                "payload should be refused: {payload}"
+            );
+        }
+        // The mirror image is CORRECTLY admitted: here the backslash makes
+        // `@evil.example.com` the PATH, so the real connection host IS the
+        // pinned host. The pin tracks the true connection target, so admitting
+        // is right (reqwest connects to api.weather.gov, which is safe).
+        assert!(
+            pin.admits(r"https://api.weather.gov\@evil.example.com/x")
+                .is_ok(),
+            "host is the pinned host (the @evil… is path) — safe to admit"
+        );
+    }
+
+    #[test]
+    fn pin_construction_rejects_non_https_and_hostless() {
         assert!(HostPin::from_url("http://x.test/").is_err());
         assert!(HostPin::from_url("ftp://x.test/").is_err());
-        assert!(HostPin::from_url("https:///nopath").is_err());
+        // Empty authority for a special scheme has no host.
+        assert!(HostPin::from_url("https://").is_err());
+        // Not a URL at all.
+        assert!(HostPin::from_url("not a url").is_err());
     }
 
     // --- politeness limiter (GCRA) --------------------------------------
@@ -669,6 +724,46 @@ mod tests {
             body: vec![],
         })]);
         let c = client(off, 10, FetchCaps::default());
+        let err = c
+            .fetch("https://api.weather.gov/x", &Conditional::default(), &clock)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, FetchError::OffPin { .. }));
+    }
+
+    /// REGRESSION (Critical SSRF, gate 2026-06-13) through the PUBLIC fetch
+    /// path: the exact backslash-authority payload must be refused both as the
+    /// initial URL and as a redirect Location, and the transport must never be
+    /// reached for the smuggled host (the mock has no scripted response, so any
+    /// transport call panics).
+    #[tokio::test]
+    async fn fetch_refuses_backslash_ssrf_payload_as_initial_url() {
+        let t = MockTransport::new(vec![]); // unreachable if the pin holds
+        let c = client(t, 10, FetchCaps::default());
+        let clock = SimClock::new(ts(0));
+        let err = c
+            .fetch(
+                r"https://evil.example.com\@api.weather.gov/x",
+                &Conditional::default(),
+                &clock,
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, FetchError::OffPin { .. }));
+    }
+
+    #[tokio::test]
+    async fn fetch_refuses_backslash_ssrf_payload_in_redirect_location() {
+        // The origin (on-pin) tries to bounce us to the smuggling payload.
+        let t = MockTransport::new(vec![Ok(RawHttpResponse {
+            status: 302,
+            etag: None,
+            last_modified: None,
+            location: Some(r"https://evil.example.com\@api.weather.gov/x".into()),
+            body: vec![],
+        })]);
+        let c = client(t, 10, FetchCaps::default());
+        let clock = SimClock::new(ts(0));
         let err = c
             .fetch("https://api.weather.gov/x", &Conditional::default(), &clock)
             .await
