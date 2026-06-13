@@ -266,6 +266,15 @@ with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
   or exposed; the recent-forecast feed + `coverage_bps` + sparkline are §9.1 follow-
   ons (GAPS). Degrades honest-`unavailable` until track-C's daemon persist (slice 4)
   writes the tables — never a fabricated score.
+- **Working Orders board** (`GET /api/rota/v1/working_orders`, mission item 3 "trades
+  being executed" — the live side) — the intents currently resting at the venue
+  (submitted / acked / partially-filled, not yet terminal): market, side, action,
+  limit (dollars), qty, filled, status, submitted-at, with a `{working}` summary. A
+  `views_from` board shaped daemon-side from `runner.manager().intents()` filtered by
+  `IntentStatus::is_working()` (the same ROTA seam as Strategy P&L; a pure panic-free
+  read — daemon snapshot byte-unchanged, daemon_smoke 15/15). Empty when nothing rests
+  (honest). With Recent Fills + Strategy P&L, mission item 3 (trades) is substantially
+  covered; unrealized PnL remains the mark-loop gap.
 - **Strategy P&L board** (`GET /api/rota/v1/strategies`, mission item 3 "realized
   PnL per strategy") — per-strategy realized PnL / fees / fills / open exposure,
   shaped daemon-side from `runner.digest_snapshot()` (the same attribution the

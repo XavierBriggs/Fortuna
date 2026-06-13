@@ -30,7 +30,8 @@ telemetry on every layer — consuming the C/D/E observability contracts.
 | Streams | `/streams` | snapshot + recorder fs | B | DONE + verified |
 | Audit | `/audit` | ledger | B | DONE + verified |
 | Trades — Recent Fills (item 3) | `/fills` | `fills` ledger | B | **DONE** — executed-trades board (runtime sqlx + `cents` flag) |
-| Trades — Strategy P&L (item 3) | `/strategies` | `runner.digest_snapshot()` | B (views_from) | **DONE** — per-strategy realized PnL/fees/fills/open-exposure (views_from + `cents`); working orders + unrealized-PnL gap are follow-ons (GAPS) |
+| Trades — Strategy P&L (item 3) | `/strategies` | `runner.digest_snapshot()` | B (views_from) | **DONE** — per-strategy realized PnL/fees/fills/open-exposure (views_from + `cents`); unrealized-PnL gap is a follow-on (mark loop, GAPS) |
+| Trades — Working Orders (item 3) | `/working_orders` | `runner.manager().intents()` | B (views_from) | **DONE** — the intents resting at the venue (submitted/acked/partially-filled) with market/side/action/limit($)/qty/filled/status; views_from fold filtered by `is_working()`, pure panic-free read (daemon_smoke 15/15) |
 | Discovery — Events (item 4) | `/discovery` | `events` ⋈ `market_event_edges` | B | **DONE** — canonical events + status + DISTINCT mapped-market count (runtime sqlx); benchmark detail + per-event drill-in + sources inventory are follow-ons (GAPS) |
 | Database (item 5) | `/db` | all 24 ledger tables | B | **DONE** — exact `COUNT(*)` sweep over every ledger table (incl. the `scalar_beliefs`/`belief_scores` plane), busiest-first, with a `{tables,total_rows}` summary (runtime sqlx, literal names — no injection; honest `0` for empty tables); reltuples-at-scale + per-table drill-in are follow-ons (GAPS) |
 | Ingest — Sources (D V2) | `/ingest_sources` | `IngestionTelemetry.sources` | B (OBS-2c) | **LIVE** — handler + `boardTable` + screenshot; daemon shapes it via `merge_ingest_views` (OBS-2c) from the published telemetry handle |

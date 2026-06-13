@@ -38,11 +38,28 @@
 //!     never a fabricated age.
 
 use fortuna_core::clock::UtcTimestamp;
+use fortuna_core::market::{Action, Side};
 use fortuna_exec::IntentJournal;
 use fortuna_gates::GateCheck;
 use fortuna_runner::SimRunner;
 use fortuna_sources::{FunnelCounts, IngestionTelemetry, SignalRecord, SourceTelemetry};
 use serde_json::{json, Value};
+
+/// Render a market `Side` as the lowercase token the ROTA board displays.
+fn side_str(s: Side) -> &'static str {
+    match s {
+        Side::Yes => "yes",
+        Side::No => "no",
+    }
+}
+
+/// Render an order `Action` as the lowercase token the ROTA board displays.
+fn action_str(a: Action) -> &'static str {
+    match a {
+        Action::Buy => "buy",
+        Action::Sell => "sell",
+    }
+}
 
 /// Shape the counter/board-derived ROTA views from the runner's existing
 /// read accessors. The result is the `DashboardSnapshot.views` payload; keys
@@ -138,6 +155,37 @@ pub fn views_from<J: IntentJournal + Send>(runner: &SimRunner<J>, generated_at: 
     let strategy_fills: u64 = digest.strategies.iter().map(|s| s.fills).sum();
     let strategy_count = digest.strategies.len();
 
+    // Working orders (mission item 3): the intents currently LIVE at the venue —
+    // submitted / acked / partially-filled, not yet terminal — straight from the
+    // OrderManager. A read-only fold over `runner.manager().intents()` filtered by
+    // `IntentStatus::is_working()`, newest-first. Empty when nothing rests (honest —
+    // no fabricated rows). Pure: a plain read accessor, no clock / IO / money path,
+    // so the between-segments `try_write` stays panic-free.
+    let mut working: Vec<_> = runner
+        .manager()
+        .intents()
+        .into_iter()
+        .filter(|(_, rec)| rec.status.is_working())
+        .collect();
+    working.sort_by(|a, b| b.1.created_at.cmp(&a.1.created_at));
+    let working_rows: Vec<Value> = working
+        .iter()
+        .map(|(_, rec)| {
+            let o = &rec.order;
+            json!({
+                "market": o.market.as_str(),
+                "side": side_str(o.side),
+                "action": action_str(o.action),
+                "limit_cents": o.limit_price.raw(),
+                "qty": o.qty.raw(),
+                "filled": rec.cum_filled.raw(),
+                "status": rec.status.name(),
+                "created_at": rec.created_at.to_string(),
+            })
+        })
+        .collect();
+    let working_count = working_rows.len();
+
     json!({
         "health": {
             "generated_at": generated_at,
@@ -211,6 +259,22 @@ pub fn views_from<J: IntentJournal + Send>(runner: &SimRunner<J>, generated_at: 
             ],
             "rows": strategy_rows,
             "summary": {"strategies": strategy_count, "fills": strategy_fills},
+        },
+        "working_orders": {
+            "generated_at": generated_at,
+            "title": "Working Orders",
+            "columns": [
+                {"key":"market","label":"Market"},
+                {"key":"side","label":"Side"},
+                {"key":"action","label":"Action"},
+                {"key":"limit_cents","label":"Limit","cents":true},
+                {"key":"qty","label":"Qty"},
+                {"key":"filled","label":"Filled"},
+                {"key":"status","label":"Status","pill":true},
+                {"key":"created_at","label":"Submitted (UTC)"},
+            ],
+            "rows": working_rows,
+            "summary": {"working": working_count},
         },
     })
 }

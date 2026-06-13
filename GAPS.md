@@ -763,6 +763,44 @@ Until those land, the new boards ship as read-only frontend + honest-degraded
 (`available:false`) handlers — the discipline all three contracts specify
 ("build the panels now; they light up when the data lands").
 
+### CROSS-TRACK FINDING — MAIN HAS A RED TEST (not track-B; for the verifier) (2026-06-13)
+Running the full workspace battery on the rebased main surfaced ONE pre-existing
+failure that track-B did NOT cause and cannot fix (rule-4 ownership): `cargo test -p
+fortuna-venues --test kinetics_dto every_fixture_parses_into_its_typed_dto` FAILS with
+`paired_cycle_btc_perp_vs_kxbtc: UNCLASSIFIED — classify new fixtures`. The
+`paired_cycle_btc_perp_vs_kxbtc` fixture was added by track-C's perp slice-3 (main
+@2c17295) but is not registered in the kinetics_dto fixture-classification list, so the
+"every fixture parses into its typed DTO" guard reds. fortuna-venues is track-A/C
+ownership; the verifier's "full test --workspace DISK-DEFERRED" posture means the
+merged-tree full run wasn't executed, so this slipped through. ACTION (owning track):
+classify the new fixture (or exclude it) in `crates/fortuna-venues/tests/kinetics_dto.rs`.
+Track-B impact: my full-workspace battery is green on EVERYTHING ELSE (1216 passed /
+this 1 pre-existing main red / DST exit 0 / daemon_smoke 15/15 / clippy + fmt clean);
+this red is inherited from main, independent of the ROTA work.
+
+### WORKING ORDERS DONE (2026-06-13) — mission item 3 (trades being executed, LIVE side)
+Built the Working Orders board (`/api/rota/v1/working_orders`): a views_from board (the
+ROTA seam in fortuna-live, like Strategy P&L) — `views_from` folds
+`runner.manager().intents()` filtered by `IntentStatus::is_working()` (submitted / acked
+/ partially-filled, not terminal), newest-first, into `snapshot.views["working_orders"]`:
+market, side, action, limit (Cents→cents flag→dollars), qty, filled (cum_filled), status
+(pill), submitted-at. + view_working_orders handler (read_view passthrough, fortuna-ops)
++ panel + 10s poll + PATHS[20] + degraded-loop. PURE read (no clock/IO/mutation), so the
+between-segments try_write stays panic-free (reviewer-confirmed: no unwrap/panic in the
+fold or the side_str/action_str helpers; additive view key, daemon_smoke 15/15 unchanged).
+TWO tests: fortuna-live POPULATED-path (`working_orders_view_lists_the_resting_intents`:
+seed 11 + ack_delay fault + set_arb_books + 1 tick → 3 arb legs rest as SUBMITTED → asserts
+3 rows + the real order shape) + fortuna-ops handler test (seeded view served verbatim,
+incl. a partial fill shown honestly). Reviewer RAN — CLEAN (pure read, lossless conversions
+Cents::raw/Contracts::raw/MarketId::as_str/IntentStatus::name, total Ord sort, genuine
+populated-path). BATTERY: green for all track-B work + the whole workspace EXCEPT the ONE
+pre-existing main `kinetics_dto` red (above — not track-B): fmt + clippy --workspace -D
+warnings clean, `cargo test --workspace` 1216 passed / 1 pre-existing-main-failed,
+run-dst.sh exit 0, daemon_smoke 15/15. Screenshot-verified (18 boards; Working Orders shows
+working 2 — an acked maker + a partially-filled order, limit as dollars, status pills).
+Mission item 3 (trades) is now substantially COMPLETE: fills + working orders + strategy
+P&L. Unrealized PnL remains the mark-loop gap (Money board, operator/track-A).
+
 ### FORECASTS SCORECARD DONE (2026-06-13) — track-C §9.1 (forecast outcomes/calibration)
 Built the Forecasts board (`/api/rota/v1/forecasts`, track-C §9.1 CALIBRATION half):
 `forecast_scorecard(pool)` runtime-sqlx — `scalar_beliefs ⋈ belief_scores` aggregate over

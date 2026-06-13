@@ -66,7 +66,7 @@ async fn serve() -> (String, tokio::task::JoinHandle<()>) {
     (format!("http://{addr}"), handle)
 }
 
-const PATHS: [&str; 19] = [
+const PATHS: [&str; 20] = [
     "/rota",
     "/assets/rota/logo.svg",
     "/api/rota/v1/health",
@@ -80,6 +80,7 @@ const PATHS: [&str; 19] = [
     "/api/rota/v1/ingest_funnel",
     "/api/rota/v1/fills",
     "/api/rota/v1/strategies",
+    "/api/rota/v1/working_orders",
     "/api/rota/v1/discovery",
     "/api/rota/v1/personas",
     "/api/rota/v1/analyses",
@@ -137,6 +138,7 @@ async fn degraded_surfaces_are_200_with_explicit_unavailable() {
         "ingest_funnel",
         "fills",
         "strategies",
+        "working_orders",
         "discovery",
         "personas",
         "analyses",
@@ -1145,6 +1147,62 @@ async fn strategies_board_serves_seeded_per_strategy_pnl() {
         cols.iter()
             .any(|c| c["key"] == "realized_pnl_cents" && c["cents"] == true),
         "realized PnL is a cents column: {j}"
+    );
+}
+
+// Working Orders board (mission item 3, live side): the daemon-shaped resting-order
+// view serves verbatim, limit flagged `cents`, status a pill. POPULATED-path (two
+// real seeded orders incl. a partial fill), not a vacuous empty board. The shaping
+// itself (from runner.manager().intents()) is proven in fortuna-live/tests/views.rs.
+#[tokio::test]
+async fn working_orders_board_serves_seeded_resting_orders() {
+    let snap = empty_snapshot();
+    {
+        let mut s = snap.write().await;
+        s.views = serde_json::json!({
+            "working_orders": {
+                "title": "Working Orders",
+                "columns": [
+                    {"key":"market","label":"Market"},
+                    {"key":"side","label":"Side"},
+                    {"key":"limit_cents","label":"Limit","cents":true},
+                    {"key":"status","label":"Status","pill":true}
+                ],
+                "rows": [
+                    {"market":"KXNYCHIGH-26JUN13-B65","side":"yes","limit_cents":41,
+                     "qty":50,"filled":0,"status":"acked"},
+                    {"market":"KXNYCHIGH-26JUN13-B70","side":"no","limit_cents":58,
+                     "qty":40,"filled":12,"status":"partially_filled"}
+                ],
+                "summary": {"working":2}
+            }
+        });
+    }
+    let app = rota_router(RotaState::standalone(snap));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/working_orders"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "both resting orders served: {j}");
+    assert_eq!(j["rows"][0]["market"], "KXNYCHIGH-26JUN13-B65");
+    assert_eq!(j["rows"][0]["status"], "acked");
+    // A partial fill is shown honestly (filled < qty), never hidden.
+    assert_eq!(j["rows"][1]["status"], "partially_filled");
+    assert_eq!(j["rows"][1]["filled"], 12, "{j}");
+    assert_eq!(j["summary"]["working"], 2);
+    let cols = j["columns"].as_array().unwrap();
+    assert!(
+        cols.iter()
+            .any(|c| c["key"] == "limit_cents" && c["cents"] == true),
+        "limit is a cents column: {j}"
     );
 }
 

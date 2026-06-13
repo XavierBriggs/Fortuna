@@ -834,6 +834,32 @@ fn representative_views(generated_at: &str) -> Value {
             ],
             "summary": { "strategies": 2, "fills": 4 },
         },
+        // Working orders (mission item 3, live side): the shape views_from produces
+        // from runner.manager().intents() — two arb legs resting at the venue (one
+        // acked, one partially filled) so the board renders the live order book.
+        "working_orders": {
+            "title": "Working Orders",
+            "generated_at": generated_at,
+            "columns": [
+                { "key": "market", "label": "Market" },
+                { "key": "side", "label": "Side" },
+                { "key": "action", "label": "Action" },
+                { "key": "limit_cents", "label": "Limit", "cents": true },
+                { "key": "qty", "label": "Qty" },
+                { "key": "filled", "label": "Filled" },
+                { "key": "status", "label": "Status", "pill": true },
+                { "key": "created_at", "label": "Submitted (UTC)" },
+            ],
+            "rows": [
+                { "market": "KXNYCHIGH-26JUN13-B65", "side": "yes", "action": "buy",
+                  "limit_cents": 41, "qty": 50, "filled": 0, "status": "acked",
+                  "created_at": "2026-06-13T15:58:00.000Z" },
+                { "market": "KXNYCHIGH-26JUN13-B70", "side": "no", "action": "buy",
+                  "limit_cents": 58, "qty": 40, "filled": 12, "status": "partially_filled",
+                  "created_at": "2026-06-13T15:57:30.000Z" },
+            ],
+            "summary": { "working": 2 },
+        },
     })
 }
 

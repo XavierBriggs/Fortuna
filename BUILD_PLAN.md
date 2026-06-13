@@ -615,6 +615,19 @@ Polymarket research+fixtures, spec v0.9 touch-up).
         boards). Degrades honest-unavailable until track-C daemon persist (slice 4)
         writes the tables. Recent-feed + coverage_bps + sparkline + §9.2 /perps are
         follow-ons (GAPS).
+  - [x] Working Orders board (mission item 3, "trades being executed" — live side) —
+        a views_from board (the ROTA seam, fortuna-live): views_from folds
+        runner.manager().intents() filtered by IntentStatus::is_working() (submitted/
+        acked/partially-filled) into snapshot.views["working_orders"] (market, side,
+        action, limit as dollars, qty, filled, status pill, submitted-at) +
+        view_working_orders read_view handler; pure panic-free read (daemon_smoke 15/15
+        unchanged); fortuna-live populated-path test (ack_delay → 3 resting legs) +
+        fortuna-ops handler test; reviewer-clean; screenshot-verified (this commit, 18
+        boards). BATTERY: green for ALL track-B work + the whole workspace EXCEPT one
+        PRE-EXISTING main red (kinetics_dto paired_cycle fixture unclassified, track-C
+        @2c17295 — NOT track-B, fortuna-venues out of ownership; ledgered for verifier).
+        Mission item 3 substantially complete (fills + working orders + strategy P&L);
+        unrealized PnL remains the mark-loop gap.
 
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)

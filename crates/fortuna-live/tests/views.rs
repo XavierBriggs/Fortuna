@@ -440,6 +440,60 @@ async fn strategies_view_carries_per_strategy_pnl_from_the_digest() {
     );
 }
 
+// Mission item 3 (the LIVE side): the Working Orders view lists the intents resting
+// at the venue. POPULATED-path — under an ack-delay fault the three arb legs are
+// PLACED (submitted) and reserve cash but never fill this tick, so they rest as
+// working orders the view must surface with their real order shape.
+#[tokio::test]
+async fn working_orders_view_lists_the_resting_intents() {
+    let mut cfg = runner_config(11);
+    cfg.faults = FaultConfig {
+        ack_delay_pm: 1000,
+        ..FaultConfig::none(11)
+    };
+    let mut r = SimRunner::new(cfg, vec![strategy()], Box::new(NullSink), t0()).unwrap();
+    set_arb_books(&r);
+    r.tick().await.unwrap();
+
+    let v = views_from(&r, GEN);
+    let wo = &v["working_orders"];
+    assert_eq!(wo["title"], "Working Orders");
+    let rows = wo["rows"].as_array().expect("working_orders rows array");
+    assert_eq!(rows.len(), 3, "three arb legs rest as working orders: {wo}");
+    assert_eq!(wo["summary"]["working"], 3, "{wo}");
+    // Every row carries the real order shape (not a stubbed envelope).
+    for row in rows {
+        assert!(row["market"].as_str().is_some(), "market ticker: {row}");
+        assert!(
+            ["submitted", "acked", "partially_filled"].contains(&row["status"].as_str().unwrap()),
+            "a working sub-state (ack-delayed → submitted): {row}"
+        );
+        assert!(row["limit_cents"].is_i64(), "limit in cents: {row}");
+        assert!(row["qty"].as_i64().is_some_and(|q| q > 0), "qty > 0: {row}");
+        assert!(row["filled"].is_i64(), "filled count present: {row}");
+        assert!(
+            ["yes", "no"].contains(&row["side"].as_str().unwrap()),
+            "side token: {row}"
+        );
+        assert!(
+            ["buy", "sell"].contains(&row["action"].as_str().unwrap()),
+            "action token: {row}"
+        );
+    }
+    // The limit is a cents column (rendered as dollars), status a pill.
+    let cols = wo["columns"].as_array().unwrap();
+    assert!(
+        cols.iter()
+            .any(|c| c["key"] == "limit_cents" && c["cents"] == true),
+        "limit is a cents column: {wo}"
+    );
+    assert!(
+        cols.iter()
+            .any(|c| c["key"] == "status" && c["pill"] == true),
+        "status is a pill column: {wo}"
+    );
+}
+
 /// OBS-2c: a representative live ingestion snapshot (one source, one signal, a
 /// funnel) for the merge tests.
 fn sample_telemetry() -> IngestionTelemetry {

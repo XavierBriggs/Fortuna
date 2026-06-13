@@ -70,6 +70,7 @@ pub fn rota_router(state: RotaState) -> Router {
         .route("/api/rota/v1/ingest_funnel", get(view_ingest_funnel))
         .route("/api/rota/v1/fills", get(view_fills))
         .route("/api/rota/v1/strategies", get(view_strategies))
+        .route("/api/rota/v1/working_orders", get(view_working_orders))
         .route("/api/rota/v1/discovery", get(view_discovery))
         .route("/api/rota/v1/personas", get(view_personas))
         .route("/api/rota/v1/analyses", get(view_analyses))
@@ -152,6 +153,16 @@ async fn view_ingest_funnel(State(s): State<RotaState>) -> impl IntoResponse {
 /// mark-loop gap (Money board) — realized only. Absent => unavailable.
 async fn view_strategies(State(s): State<RotaState>) -> impl IntoResponse {
     Json(read_view(&s, "strategies").await)
+}
+
+/// Working orders (mission item 3: "trades being executed" — the LIVE side) — the
+/// intents currently resting at the venue (submitted / acked / partially-filled, not
+/// yet terminal), shaped daemon-side from `runner.manager().intents()` filtered by
+/// `IntentStatus::is_working()` into `snapshot.views["working_orders"]`; the limit
+/// renders as dollars (the `cents` flag) and the status as a pill. Empty when nothing
+/// rests (honest). Absent => unavailable.
+async fn view_working_orders(State(s): State<RotaState>) -> impl IntoResponse {
+    Json(read_view(&s, "working_orders").await)
 }
 
 /// Recent fills — the trades EXECUTED, from the durable `fills` ledger (mission
@@ -1122,6 +1133,7 @@ const ROTA_SHELL: &str = r#"<!doctype html><html lang="en"><head>
   <div class="panel wide"><h2>Live Signal Feed</h2><div id="ingest_feed">…</div></div>
   <div class="panel wide"><h2>Ingest Funnel</h2><div id="ingest_funnel">…</div></div>
   <div class="panel wide"><h2>Recent Fills</h2><div id="fills">…</div></div>
+  <div class="panel wide"><h2>Working Orders</h2><div id="working_orders">…</div></div>
   <div class="panel wide"><h2>Strategy P&amp;L</h2><div id="strategies">…</div></div>
   <div class="panel wide"><h2>Discovery — Events</h2><div id="discovery">…</div></div>
   <div class="panel wide"><h2>Personas</h2><div id="personas">…</div></div>
@@ -1210,6 +1222,7 @@ const R={
  ingest_funnel(j){return boardTable(j);},
  fills(j){return boardTable(j);},
  strategies(j){return boardTable(j);},
+ working_orders(j){return boardTable(j);},
  discovery(j){return boardTable(j);},
  personas(j){return boardTable(j);},
  analyses(j){return boardTable(j);},
@@ -1226,6 +1239,6 @@ async function poll(name){const el=document.getElementById(name);
  }catch(e){el.innerHTML=`<div class="warn">unreachable: ${esc(e)}</div>`;}}
 function every(ms,names){names.forEach(poll);setInterval(()=>names.forEach(poll),ms);}
 every(2000,["health","audit"]);every(5000,["money","gates","ingest_sources","ingest_feed","ingest_funnel"]);
-every(10000,["cognition","settlement","fills","strategies"]);every(15000,["streams","discovery"]);
+every(10000,["cognition","settlement","fills","strategies","working_orders"]);every(15000,["streams","discovery"]);
 every(30000,["db","personas","analyses","forecasts"]);
 </script></body></html>"#;
