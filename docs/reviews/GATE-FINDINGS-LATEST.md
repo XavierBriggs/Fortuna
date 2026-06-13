@@ -15,6 +15,26 @@ ledger their responses in GAPS, never edit this file.
 - BUILD_PLAN T4.5 entry restored + Phase-5 EXIT written (e85f92c) — both
   had been lost to merge-revert churn.
 
+## TRACK E — DESIGN critique done: ACCEPT-WITH-CONDITIONS; AWAITING OPERATOR BUILD-APPROVAL
+
+Design `docs/design/domain-analysis-personas-design.md` (407 lines, @7c7ee7c) was
+adversarially gated as a DESIGN doc (no code yet): verdict ACCEPT-WITH-CONDITIONS
+(track-e-design-critique-2026-06-13.md). Sound, code-grounded, branch docs-only,
+protected crate untouched. DECISION-CRITICAL FINDING: Track E is INDEPENDENT of the
+unbuilt prob_claims/v1 scalar type — its personas emit PER-THRESHOLD BINARY probs that
+fan out onto the EXISTING binary BeliefDraft exactly like the Aeolus mapper
+(reconciliation.rs:65-104); it does NOT share B7/Aeolus's scalar blocker and can build
+once approved. THREE must-fix-before-build precision corrections (not redesigns): (1)
+re-anchor the §4 trust firewall to the Mind transport SYSTEM-MESSAGE (mind.rs:491-498),
+not "the charter side of the assembler" (which doesn't exist — Charter is itself a
+ContextItem); (2) the review ScopeKey edit must KEEP the spec-mandated `strategy`
+dimension (review.rs:37-41, spec 5.10), not replace it; (3) attribute the no-order-field
+I6 guarantee to a NEW add-only field-surface test, not the dependency-direction check.
+WATCH: sequence the context.rs (SectionKind) + review.rs (ScopeKey) edits into a clean
+window vs track A's in-flight cycle/belief-composition work. OPERATOR DECISION: approve
+to build (with the 3 conditions folded into the design) — per track-E brief §3 this is
+the design-gate STOP; build does not start until you approve.
+
 ## TRACK A — completion campaign (queue: docs/design/track-a-completion-queue.md)
 
 M3 DONE (certified ACCEPT, m3-rearm-gate-2026-06-13.md — I2 no-auto-resume
@@ -85,7 +105,7 @@ OWNER PLAN: a RESTARTED track C, scoped to "extend the now-merged perps plane"
 AFTER the re-merge gate ACCEPTs and the merge lands. Phase-5 EXIT (BUILD_PLAN)
 is not met until B7+B8 land.
 
-## TRACK D — MERGED to main (2476554; SSRF-fixed news crate D1-D5; post-merge build green). NEXT: D9 (wire the Layer-1 validator + scheduler + drive seam) is the HARD GATE before any live ingest. Phase A partial (2/4 adapters). Scope: PARK slot F / track M per operator.
+## TRACK D — MERGED to main (2476554; SSRF-fixed news crate D1-D5; post-merge build green). Branch building forward UNMERGED toward D9: D8 Layer-2 corroboration (near-dup clustering, 6526106) + a live_smoke diagnostic / "AFD-firehose" telemetry finding (80fcc1d) landed this session; D7 GdeltSource deferred (honest external rate-limit). NEXT GATE: D9 (wire the Layer-1 validator + scheduler + drive seam) is the HARD GATE before any live ingest — none of D6-D8 crosses the live-ingest line, so they gate at the D9/next-merge request, not per slice. Phase A partial (2/4 adapters). WATCH: an "AFD-firehose" volume/telemetry finding may bear on the Aeolus/NWS cost-budget design — surface it as a GAPS/bus note if cross-track. Scope: PARK slot F / track M per operator.
 
 ## [merged] TRACK D — SSRF CLEARED (track-d-regate-2026-06-13.md)
 
