@@ -35,6 +35,21 @@ ACCURACY NOTE (caught in self-verify): Layer-2 corroboration is BUILT
 were corrected to say so (the live path dedups via `normalize_and_dedup`'s
 UNIQUE index). Docs-only change: no code touched, so no cargo battery applies.
 
+## TRACK D — OBS-3 domain_tags: DONE (SourceTelemetry surface now complete)
+
+OBS-3 (2026-06-13) populated `SourceTelemetry.domain_tags` from the
+`source_registry` admission (it was hard-coded empty in OBS-1). Registry-sourced
+via a `domain_of` resolver on `build_scheduler` (parallel to `tier_of`), threaded
+SourceSchedule → telemetry; build_ingestion_wiring builds the domain map from the
+same rows. No drift (Layer-0 admission is the source of truth, not config).
+Subagent-built, main-loop verified (full-diff review + independent scoped battery
++ the new test is mutation-meaningful). The OBS-1/OBS-2a GAPS notes below that say
+`domain_tags` is empty/deferred are SUPERSEDED — it is now populated. The
+SourceTelemetry struct has no remaining placeholder fields. Scoped battery green
+(fmt; clippy -p fortuna-sources -p fortuna-live --all-targets -D warnings; test
+-p fortuna-sources 119 lib + 5 DST; test -p fortuna-live --lib ingestion 6/6).
+The DB-backed fortuna-live suite is the verifier's merge gate.
+
 ## TRACK D — OBS-2a funnel loop-stages: deferred follow-ups + scoped-battery note
 
 OBS-2a (2026-06-13) completed the telemetry funnel's loop-side stages in

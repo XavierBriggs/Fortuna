@@ -920,6 +920,15 @@ scheduler is shared with D9). The skill/persona layer is a separate session
       reader clone out of main.rs so the metrics renderer + ROTA handlers project
       it (§2 "one writer, many readers"). Touches main.rs — sequence vs track A;
       track B wires the read endpoint.
-- [ ] OBS-3 domain_tags population: carry each source's domain (weather|macro|…)
-      from the source_registry/config admission into `SourceTelemetry.domain_tags`
-      (empty in slice 1). Needs a config/registry field — fold with F10.
+- [x] OBS-3 domain_tags population: carry each source's domain (weather|macro|…)
+      from the `source_registry` admission into `SourceTelemetry.domain_tags` (was
+      hard-coded empty in OBS-1). Registry-sourced via a new `domain_of` resolver
+      on `build_scheduler` (parallel to `tier_of`) → `SourceSchedule.domain_tags`
+      → the telemetry projection; build_ingestion_wiring builds the domain map
+      from the same `source_registry` rows it loads tiers from. No drift (the
+      Layer-0 admission is the source of truth, not config). New test
+      `domain_of_flows_through_to_telemetry`. SourceTelemetry now has no empty
+      placeholder fields. (DONE 2026-06-13 <hash>; scoped battery green — fmt +
+      clippy -p fortuna-sources -p fortuna-live --all-targets -D warnings +
+      test -p fortuna-sources = 119 lib + 5 DST + test -p fortuna-live --lib
+      ingestion 6/6. Subagent-built, main-loop reviewed + verified.)

@@ -241,12 +241,17 @@ pub async fn build_ingestion_wiring(
         .map_err(|e| IngestionBuildError::Registry(e.to_string()))?;
 
     // Build BOTH the tier map (for the factory) and the cognition SourceRegistry
-    // (for the authoritative normalize_and_dedup) from the same rows.
+    // (for the authoritative normalize_and_dedup) from the same rows. The domain
+    // map carries each source's registry-admitted domain tags into the factory
+    // (surfaced in telemetry) — the registry is the source of truth, not config.
     let mut registry = fortuna_cognition::signals::SourceRegistry::new();
     let mut tiers = std::collections::BTreeMap::new();
+    let mut domains: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
     for r in rows {
         let tier = r.trust_tier.clamp(0, 10) as u8;
         tiers.insert(r.source_id.clone(), tier);
+        domains.insert(r.source_id.clone(), r.domain_tags.clone());
         if let Ok(tt) = TrustTier::new(tier) {
             registry.upsert(SourceEntry {
                 source_id: r.source_id,
@@ -267,6 +272,7 @@ pub async fn build_ingestion_wiring(
         &sources_cfg,
         &factory_cfg,
         |id| tiers.get(id).copied(),
+        |id| domains.get(id).cloned().unwrap_or_default(),
         // The binary owns env access (the lib never reads env): resolve a
         // source's `auth_env` name (e.g. AEOLUS_API_TOKEN) to its secret here.
         |name| std::env::var(name).ok(),

@@ -63,6 +63,10 @@ default — merged code activates zero ingestion until an operator opts in (see
   expose `telemetry(now)`, so the funnel is complete end to end (those stages
   read 0 in OBS-1). The `Arc<RwLock>` publish that exposes the snapshot to ROTA
   is OBS-2b (deferred).
+- OBS-3 `SourceTelemetry.domain_tags` — populated from the `source_registry`
+  admission via a new `domain_of` resolver on `build_scheduler` (parallel to
+  `tier_of`), so the per-source telemetry carries its domain (weather|macro|…).
+  No more empty placeholder fields in the telemetry surface.
 - Design docs: `docs/design/aeolus-fortuna-source-contract.md` (rev 3,
   reconciled with the Aeolus producer handoff) and
   `docs/design/ingestion-observability-contract.md` (telemetry + ROTA-views

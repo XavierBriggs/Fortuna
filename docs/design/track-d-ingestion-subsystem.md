@@ -115,8 +115,11 @@ observability data surface: per-source `SourceTelemetry` (health + the
 `FunnelCounts`, and a bounded-256 newest-first `recent` feed of redacted
 `SignalRecord`s. A pure projection — `generated_at` is the injected Clock, never
 wall-time; summaries/errors are redacted and truncated. The loop-side funnel
-stages (`normalized` / `deduped` / `persisted`) are OBS-2 and stay 0 in this
-snapshot. Contract: [ingestion-observability-contract.md](ingestion-observability-contract.md).
+stages are filled by `IngestionWiring::telemetry` (OBS-2a: `normalized` /
+`deduped` from the core, `persisted` / `persist_failures` from the wiring), and
+`domain_tags` is populated from the registry admission (OBS-3). The remaining
+step is OBS-2b — publishing the snapshot behind `Arc<RwLock>` for ROTA. Contract:
+[ingestion-observability-contract.md](ingestion-observability-contract.md).
 
 ## Safety notes
 
@@ -137,9 +140,9 @@ snapshot. Contract: [ingestion-observability-contract.md](ingestion-observabilit
 
 - **D7** `GdeltSource` — external IP rate-limit; interim = `rss` against
   `format=rss`.
-- **OBS-2** — the loop-side funnel stages (`normalized` / `deduped` /
-  `persisted` / `persist_failures`) + the `Arc<RwLock>` snapshot publish in
-  fortuna-live. **OBS-3** — `domain_tags` from the registry on `SourceTelemetry`.
+- **OBS-2b** — publish the `IngestionWiring::telemetry()` snapshot behind an
+  `Arc<RwLock>` + a main.rs reader so ROTA/metrics can project it. (OBS-2a, the
+  funnel loop-stages, and OBS-3, registry `domain_tags`, are DONE.)
 - **F4b** — release-aware cadence (consume `next_run_at` + the GEFS release
   pattern instead of static event windows).
 - **F10** — Aeolus `source_registry` row + dossier finalization + v1→v2 fixture
