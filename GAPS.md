@@ -18,6 +18,23 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK D — documentation pass (operator-directed 2026-06-13): shared-doc edit ledgered
+
+The operator directed every track to maintain its own docs + keep shared docs
+fresh with TARGETED edits (and a changelog). Track-D docs landed this iteration:
+- NEW (mine): `CHANGELOG.md` (project changelog, per-subsystem sections to avoid
+  cross-track collision), `docs/runbooks/ingestion-ops.md` (operator runbook),
+  `docs/design/track-d-ingestion-subsystem.md` (the subsystem map / living index).
+- SHARED, TARGETED (operator-authorized; ledgered here per the touch-a-non-owned-
+  file rule): `docs/architecture.md` §3 crate map — added the `fortuna-sources`
+  entry (it was MISSING), bumped "Fifteen→Sixteen crates", and clarified that the
+  `Source` adapters/scheduler moved out of fortuna-cognition. Three surgical
+  Edits, no other crate entry touched.
+ACCURACY NOTE (caught in self-verify): Layer-2 corroboration is BUILT
+(`corroborate()`) but NOT yet wired into the live `IngestionCore` tick — the docs
+were corrected to say so (the live path dedups via `normalize_and_dedup`'s
+UNIQUE index). Docs-only change: no code touched, so no cargo battery applies.
+
 ## TRACK D — OBS-1 telemetry data surface (slice 1): deferred follow-ups + scoped-battery note
 
 OBS-1 (2026-06-13) added the live `IngestionTelemetry` snapshot to the scheduler
