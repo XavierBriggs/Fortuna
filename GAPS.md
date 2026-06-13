@@ -82,6 +82,37 @@ FORTUNA_KILLSWITCH_KALSHI_* (incl. _BASE_URL) + a demo key and run the live free
 money-model design call; (5) start the soak. The venue-wiring tranche that lands the
 composition-root guard rides on (1).
 
+## POST-STOP (operator-directed 2026-06-13): live WS handshake DRIVEN on demo — found+fixed a real handshake bug
+
+After the RALPH STOP, the operator set the demo creds (in the main checkout's
+gitignored `.env`) and directed the live Kalshi WS handshake ("drive the
+handshake"). Driving it surfaced — and we fixed — a REAL production defect that
+unit tests could not catch (the live socket round-trip was the one untested seam):
+
+- **BUG (live WS handshake never connected):** `KalshiWsTransport::signed_request`
+  hand-built the upgrade `Request<()>` with ONLY the three KALSHI-ACCESS-* auth
+  headers and relied on a mistaken belief that tungstenite would add the standard
+  WS upgrade headers. tungstenite does NOT synthesize `Sec-WebSocket-Key/Version`,
+  `Upgrade`, `Connection` for a PRE-BUILT request — so `connect_async` always
+  failed `Protocol(InvalidHeader("sec-websocket-key"))`. Masked because "no live
+  socket in tests" and the unit test only checked the auth headers.
+- **FIX:** `signed_request` now starts from `ws_url.into_client_request()` (which
+  generates the mandatory upgrade headers + Host) and layers the auth headers on
+  top. Tests-first regression added (`signed_request_carries_the_mandatory_
+  websocket_upgrade_headers`); existing auth-header test unchanged.
+- **LIVE-PROVEN (demo, READ-ONLY):** the signed handshake now returns
+  "OK — 101 upgrade, authenticated" against
+  `wss://external-api-ws.demo.kalshi.co/trade-api/ws/v2`. New operator-run tool
+  `crates/fortuna-venues/examples/kalshi_ws_handshake.rs` (demo-only hard-coded,
+  read-only: GET /markets + orderbook subscribe, no orders, secrets never printed).
+- RESIDUAL (not a blocker): the subscribe read 0 book frames in-window because the
+  only open demo markets were FUTURE-dated (26JUN14, not yet trading) — no live
+  book to stream. The handshake + subscribe path themselves work. To exercise
+  streamed frames, re-run when a demo market with a live book is open.
+- STILL operator-gated: a PROD handshake (separate creds + clearance-signed
+  venue=kalshi un-refuse) and live order/exec round-trips. This exercise was demo
+  market-data only.
+
 ## TRACK A — T4.5 ROTA: buildable surface COMPLETE (audit-recents + gate-verdict badge); 2 pieces operator-BLOCKED
 
 T4.5 (deferred ROTA trading-side panels) — the BUILDABLE-WITHOUT-OPERATOR surface is DONE:

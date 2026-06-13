@@ -206,6 +206,34 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-13 — Kalshi WS handshake: fix missing upgrade headers; LIVE-PROVEN on demo
+
+**Fixed (live WS path).** `KalshiWsTransport::signed_request`
+(`crates/fortuna-venues/src/kalshi/ws_transport.rs`) hand-built the upgrade
+`Request<()>` with only the three KALSHI-ACCESS-* auth headers, relying on the
+false belief that tungstenite adds the standard WS upgrade headers. It does NOT
+for a pre-built request, so `connect_async` always failed
+`Protocol(InvalidHeader("sec-websocket-key"))` — the live socket never connected.
+Now `signed_request` starts from `ws_url.into_client_request()` (which generates
+`Sec-WebSocket-Key/Version`, `Upgrade`, `Connection`, `Host`) and layers the auth
+headers on top. This was invisible to unit tests ("no live socket in tests"); the
+operator-directed FIRST LIVE EXERCISE surfaced it.
+
+**Why.** Operator set the demo creds and directed the live handshake. Driving it
+caught a real defect that blocked every live WS connection.
+
+**Tests-first.** New regression `signed_request_carries_the_mandatory_websocket_
+upgrade_headers` (RED before the fix, GREEN after); the existing auth-header test
+is unchanged (not weakened). Protected crate untouched.
+
+**Live-proven (demo, READ-ONLY).** The signed handshake now returns "OK — 101
+upgrade, authenticated" against `wss://external-api-ws.demo.kalshi.co`. New
+operator-run tool `crates/fortuna-venues/examples/kalshi_ws_handshake.rs` —
+demo-only (hard-coded endpoints + a `contains("demo")` guard), read-only
+(`GET /markets` + orderbook subscribe, NO orders), secrets never printed. Residual:
+0 streamed frames in-window (only future-dated demo markets were open — no live
+book yet); the handshake + subscribe paths themselves work.
+
 ### 2026-06-13 — F16a: Kalshi cancel-reconcile hardened via the order list
 
 **Changed.** `KalshiVenue::cancel` (`crates/fortuna-venues/src/kalshi/adapter.rs`).
