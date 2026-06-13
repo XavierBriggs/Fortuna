@@ -18,6 +18,69 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## RALPH STOP 2026-06-13T01:16:26Z (Track A — queue exhausted; loop ends clean)
+
+Per implementer-loop.md rule 6 (every priority item blocked/exhausted; idle-and-
+stopped beats bloat; do NOT invent work), this Track-A loop stops. The daemon is
+SOAK-READY and gate-ACCEPTED (SOAK: GO — 7923255 / soak-go-gate-2026-06-12.md).
+
+DELIVERED this session (each gate-clean — the FULL workspace battery
+fmt/clippy --workspace --all-targets/cargo test --workspace/run-dst.sh 10000 ran
+green, real exit codes, on every commit):
+- 1e5ff71 — ROTA gates view carries the real 1-based spec gate number (R5-slice
+  #3); removed the false "a gate number would be a guess" rationale.
+- 5120db8 — operator runbook for the Phase-4 EXIT soak (FINAL_REPORT §5) — SOAK-GO
+  re-pointed queue item 1; grounded in code (env contract, fortuna CLI, SIGTERM,
+  rearm-requires-restart).
+- ed17a81 — annotated the two stale M2-disclosure sites RESOLVED-visibly — queue
+  item 3.
+
+SOAK-GO RE-POINTED QUEUE (1-4) FINAL STATE:
+- item 1 (runbook) DONE (5120db8); item 3 (M2 annotations) DONE (ed17a81).
+- item 2 (M3 rearm notices) — BOUNDARY-BLOCKED for Track A. Both surfaces are
+  track-B files: the CLI "pending restart" line is fortuna-cli (T4.4) and the
+  ROTA health render is fortuna-ops/rota.rs:513-514 (FIELD-SPECIFIC, so a
+  views.rs-only field is invisible = bloat). The loop-doc boundary holds even
+  over the GATE-FINDINGS re-pointing → needs a track-B owner or an operator
+  boundary-waiver. Behavior is already I2-compliant (gate C4 PASS); M3 is the
+  operator-VISIBILITY layer only.
+- item 4 (T4.2 post-fixture tranche) — operator-blocked (Kalshi fixture session).
+
+BACKLOG #2 (distinct reader/writer-pool boot assertion) — DEFERRED WITH RATIONALE
+(supersedes a prior over-optimistic "fully buildable" claim). The wiring is
+CURRENTLY CORRECT (main.rs:66 writer max=8; :125 connect_readonly_pool reader
+max=2 + 3s timeouts; :138 into RotaState) and the R5 isolation BEHAVIOR is
+handler-tested; only main()'s wiring CHOICE is untested. A distinctness assertion
+is technically available (sqlx 0.8.6 PgPool::options().get_max_connections()), but
+closing it means extracting main()'s pool-pairing into a tested seam — refactoring
+the composition root of a SOAK-READY, ACCEPTED daemon to guard a currently-correct
+wiring against a hypothetical (poor risk/reward). DISPOSITION: ride with the next
+substantive main.rs change (the T4.2 venue-wiring tranche reworks this region),
+not a standalone refactor of accepted code.
+
+WHY NO OTHER WORK: perps re-merge + 2x leverage cap + T5.B = track C; T4.3 ROTA
+render + T4.4 CLI = track B; the SOAK-GO [Info] items are not non-vacuously
+testable now (lessons ORDER BY is counts-only consumption) or are "eventually"
+doc notes. Filling iterations with these would violate rule 6.
+
+COORDINATION NOTES FOR THE OPERATOR:
+- A concurrent DOCS session is producing a full doc suite (README, AGENTS.md,
+  docs/{quickstart,architecture,operations,verification}.md, docs/runbooks/*.md
+  ×8 incl. soak-start.md which OVERLAPS FINAL_REPORT §5) — currently BLOCK on its
+  OWN gate (docs/reviews/2026-06-12-docs-gate.md). DEDUP needed: FINAL_REPORT §5
+  vs docs/runbooks/soak-start.md (likely §5 → a pointer once the canonical
+  runbook lands).
+- Concurrent design commits (cc099b4, db0ce00) scope a news-aggregation subsystem
+  (spec-only; the docs-gate confirms zero source drift).
+- HAZARD: a concurrent git operation WIPED an uncommitted GAPS edit of mine mid-
+  iteration. Multiple sessions committing/resetting the SAME working tree is
+  unsafe for uncommitted work — a further reason this loop stops rather than keep
+  churning docs against an actively-mutated tree.
+
+RE-ENGAGE TRIGGER: if the perps re-merge re-gate surfaces a NEW Track-A exec
+finding (as the client-id one did → c25b368), it lands in GATE-FINDINGS-LATEST.md
+— restart this loop, or route it to an active Track-A session, to address it.
+
 ## TRACK A — SOAK: GO received (7923255); verifier re-pointed the queue — item 1 (operator runbook) CLOSED
 
 The verifier's first UNCONDITIONAL ACCEPT (docs/reviews/soak-go-gate-2026-06-12.md;
