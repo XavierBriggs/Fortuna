@@ -509,6 +509,17 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       A6 deferral stands: status Section 3 (metrics poll) awaits ROTA.
       Verifier gate pending as with every batch.
 
+- [ ] T4.5 ROTA v1.1 — deferred panels (RESTORED 2026-06-13; the original
+      entry was lost in the perps merge-revert churn — completion-audit
+      finding). Scope: the two ledger queries (shadow cross-join for triage
+      recall/precision; Tradability/Edges discovery join) + their panels;
+      the gate-verdict badge (header parser pinned against existing verdict
+      files, parse failure renders "unknown"); WS gap/resync counters flip
+      live (post-T4.2); PLUS re-scoped from T4.3 per the completion audit:
+      the full s5 money model (mark-loop floating source) and audit-recents
+      queries. TEST RULE: populated-path seeds; a test green under a
+      stubbed-empty source does not count. Verifier-gated.
+
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)
 with the Anthropic mind active under budgets, ROTA up locally, and the perps
@@ -583,3 +594,15 @@ code.
       fees activate; promo-$0 never justifies GO. I7 unchanged.
 - [ ] T5.B8 Ops: kill-switch perps flatten (reduce_only IOC + cancel-all),
       margin/funding telemetry, funding-regime dashboard panel.
+
+PHASE 5 EXIT (written 2026-06-13, completion-audit finding — no EXIT existed):
+the perps plane merged to main gate-clean (re-merge package: client-id test
+fix + the operator-confirmed 2x leverage cap + full 10k re-gate + post-merge
+integration incl. the kinetics adapter test); T5.B7 rung-0 strategies run in
+Sim under the fee-trap rule with promo-$0 never justifying GO; T5.B8 ops
+landed (kill-switch perps flatten, margin/funding telemetry, ROTA panel);
+perp DST arms in every battery; zero changes to the invariant middle
+(additions under signed waives only). Live perps trading remains behind the
+I7 ladder and the operator's Kinetics PROD parity sweep — out of scope for
+the EXIT.
+
