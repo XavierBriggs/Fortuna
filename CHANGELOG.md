@@ -257,6 +257,15 @@ with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
   STRUCTURAL METADATA ONLY — the `findings` / `signal_manifest` JSONB (untrusted
   model/signal output) are not selected or exposed; the per-artifact expander (where
   the esc/JSON-encode discipline applies) is a §20.2 follow-on (GAPS).
+- **Forecasts scorecard** (`GET /api/rota/v1/forecasts`, track-C §9.1 "the outcomes
+  of the whole process") — the scalar-forecast calibration headline: per (producer,
+  scoring rule) the mean score (CRPS, lower=better) over RESOLVED forecasts, the
+  resolved count, and the unit, with a `{producers, rules, scored}` summary. A
+  `scalar_beliefs ⋈ belief_scores` runtime-sqlx aggregate (audit-tail pattern).
+  SCORE METADATA ONLY — the untrusted `quantiles`/`provenance` JSONB are not selected
+  or exposed; the recent-forecast feed + `coverage_bps` + sparkline are §9.1 follow-
+  ons (GAPS). Degrades honest-`unavailable` until track-C's daemon persist (slice 4)
+  writes the tables — never a fabricated score.
 - **Strategy P&L board** (`GET /api/rota/v1/strategies`, mission item 3 "realized
   PnL per strategy") — per-strategy realized PnL / fees / fills / open exposure,
   shaped daemon-side from `runner.digest_snapshot()` (the same attribution the

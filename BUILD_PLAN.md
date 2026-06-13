@@ -604,6 +604,17 @@ Polymarket research+fixtures, spec v0.9 touch-up).
         screenshot-verified (this commit, 16 boards). The per-artifact expander
         (findings/manifest/beliefs-fanout, esc'd) + §20.3 cognition persona-provenance
         + §20.1 scorecard are the remaining E slices (GAPS).
+  - [x] Forecasts scorecard (track-C §9.1, "the outcomes of the whole process") —
+        forecast_scorecard runtime-sqlx (scalar_beliefs ⋈ belief_scores, resolved
+        only, GROUP BY producer,rule_id → mean CRPS lower=better + resolved_n + unit)
+        + view_forecasts handler + {producers,rules,scored} summary via boardTable;
+        untrusted quantiles/provenance NOT exposed (reviewer-confirmed); fortuna-ops
+        only; DB-backed populated test (producer ordering + mean CRPS + resolved
+        counts + unit, f64-tolerance); reviewer-clean; FULL-WORKSPACE battery green
+        (fmt+clippy+test 1266/0+run-dst exit 0); screenshot-verified (this commit, 17
+        boards). Degrades honest-unavailable until track-C daemon persist (slice 4)
+        writes the tables. Recent-feed + coverage_bps + sparkline + §9.2 /perps are
+        follow-ons (GAPS).
 
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)

@@ -763,6 +763,32 @@ Until those land, the new boards ship as read-only frontend + honest-degraded
 (`available:false`) handlers — the discipline all three contracts specify
 ("build the panels now; they light up when the data lands").
 
+### FORECASTS SCORECARD DONE (2026-06-13) — track-C §9.1 (forecast outcomes/calibration)
+Built the Forecasts board (`/api/rota/v1/forecasts`, track-C §9.1 CALIBRATION half):
+`forecast_scorecard(pool)` runtime-sqlx — `scalar_beliefs ⋈ belief_scores` aggregate over
+RESOLVED forecasts (`WHERE realized_value IS NOT NULL`), `GROUP BY producer, rule_id`: per
+(producer, scoring rule) the mean score (CRPS, LOWER=better, rounded 6dp), the resolved count,
+and the unit (so the CRPS scale reads). + view_forecasts handler (degrades unavailable HTTP 200,
+no leak) via boardTable with a `{producers, rules, scored}` summary. fortuna-ops ONLY (audit-tail
+precedent; the repos expose recent/scores_for_rule but no AVG-GROUP-BY accessor, so a runtime
+aggregate). SCORE METADATA ONLY — the untrusted `quantiles`/`provenance` JSONB (model output) are
+NOT selected/exposed (reviewer-confirmed); the recent-forecast FEED (quantile fans + realized),
+`coverage_bps` (0.1–0.9 band calibration), and the sparkline are §9.1 follow-ons. PATHS[19] +
+degraded-loop + harness seed (funding_forecast ×2 rate + aeolus_weather ×1 celsius, resolved +
+crps_pinball-scored). DB-backed populated-path test (asserts the producer-ASC ordering, the per-
+producer mean CRPS via f64 tolerance, the resolved counts, the unit, and the summary). Reviewer RAN
+(feature-dev:code-reviewer) — CLEAN: untrusted columns not exposed, AVG(double)→f64 / COUNT→i64 /
+MIN(text)→String decode correct, no unwrap/panic in the handler, genuine populated-path test with
+float tolerance, seeding matches repo signatures. FULL-WORKSPACE BATTERY GREEN: fmt + clippy
+--workspace --all-targets -D warnings + `cargo test --workspace` 1266 passed/0 failed + run-dst.sh
+exit 0. Screenshot-verified (17 boards; Forecasts shows producers 2 / scored 3 — aeolus_weather
+celsius CRPS 1.2 / funding_forecast rate CRPS 0.00004). DATA NOTE: `scalar_beliefs`/`belief_scores`
+are on main (track-C) but the daemon PERSIST path (funding_forecast → ScalarBeliefsRepo, track-C
+SLICE 4) is NOT wired yet, so the board degrades honest-`unavailable` in prod until that lands —
+exactly the contract posture (build the query+frontend now, it lights up with the producer). FOLLOW-
+ONS (ledgered): the recent-feed + coverage_bps + sparkline (§9.1); the §9.2 `/perps` regime/basis
+board (funding-regime data).
+
 ### ANALYSES BROWSER DONE (2026-06-13) — mission item 1 / §20.2 (the artifact ledger)
 Built the Domain Analyses board (`/api/rota/v1/analyses`, track-E §20.2): `recent_analyses(pool, limit)`
 runtime-sqlx over `domain_analyses` — the artifact ledger newest-first (ORDER BY

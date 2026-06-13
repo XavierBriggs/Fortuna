@@ -31,8 +31,9 @@
 
 use fortuna_core::clock::{SimClock, UtcTimestamp};
 use fortuna_ledger::{
-    connect, connect_readonly_pool, AuditWriter, BeliefsRepo, CalibrationParamsRepo,
-    DomainAnalysesRepo, EventsRepo, LedgerError, PersonasRepo, PgPool,
+    connect, connect_readonly_pool, AuditWriter, BeliefScoresRepo, BeliefsRepo,
+    CalibrationParamsRepo, DomainAnalysesRepo, EventsRepo, LedgerError, PersonasRepo, PgPool,
+    ScalarBeliefsRepo,
 };
 use fortuna_ops::dashboard::{serve_dashboard, DashboardSnapshot};
 use fortuna_ops::rota::RotaState;
@@ -436,6 +437,72 @@ async fn seed(pool: &PgPool) -> Result<(), BoxErr> {
             )
             .await,
     );
+
+    // Scalar forecasts + CRPS scores (track-C §9.1) — two producers' resolved +
+    // scored forecasts so the Forecasts scorecard shows per-producer mean CRPS
+    // (funding_forecast over two rate forecasts; aeolus_weather over one celsius).
+    let scalars = ScalarBeliefsRepo::new(pool.clone());
+    let scores = BeliefScoresRepo::new(pool.clone());
+    for (i, (id, producer, unit, realized, score)) in [
+        (
+            "01J0SB00000000000FF1",
+            "funding_forecast",
+            "rate",
+            0.00012,
+            0.00003,
+        ),
+        (
+            "01J0SB00000000000FF2",
+            "funding_forecast",
+            "rate",
+            0.00015,
+            0.00005,
+        ),
+        (
+            "01J0SB00000000000AW1",
+            "aeolus_weather",
+            "celsius",
+            30.0,
+            1.2,
+        ),
+    ]
+    .iter()
+    .enumerate()
+    {
+        warn_seed(
+            "scalar.belief",
+            scalars
+                .insert(
+                    id,
+                    producer,
+                    "ev-key",
+                    &json!([{"q":0.1,"v":0.0},{"q":0.5,"v":0.0001},{"q":0.9,"v":0.0003}]),
+                    unit,
+                    "2026-06-13T16:00:00.000Z",
+                    &json!({"strategy": producer}),
+                    "2026-06-13T15:00:00.000Z",
+                )
+                .await,
+        );
+        warn_seed(
+            "scalar.resolve",
+            scalars
+                .resolve(id, *realized, "2026-06-13T16:00:01.000Z")
+                .await,
+        );
+        warn_seed(
+            "scalar.score",
+            scores
+                .insert(
+                    &format!("01J0SCORE000000000{i:03}"),
+                    id,
+                    "crps_pinball",
+                    *score,
+                    "2026-06-13T16:00:02.000Z",
+                )
+                .await,
+        );
+    }
 
     // A few executed fills for the Recent Fills board (raw INSERT — the fills
     // table is a plain append-only row table; the dashboard reads it read-only).

@@ -73,6 +73,7 @@ pub fn rota_router(state: RotaState) -> Router {
         .route("/api/rota/v1/discovery", get(view_discovery))
         .route("/api/rota/v1/personas", get(view_personas))
         .route("/api/rota/v1/analyses", get(view_analyses))
+        .route("/api/rota/v1/forecasts", get(view_forecasts))
         .route("/api/rota/v1/db", get(view_db))
         .route("/api/rota/v1/audit", get(audit_tail))
         .with_state(state)
@@ -483,6 +484,93 @@ pub async fn recent_analyses(
          ORDER BY produced_at DESC LIMIT $1",
     )
     .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
+/// Forecasts scorecard (track-C §9.1: "the outcomes of the whole process" — how
+/// well-calibrated each scalar-forecast PRODUCER is). The calibration headline: per
+/// (producer, scoring rule), the mean score (CRPS — LOWER is better) over the
+/// RESOLVED forecasts, and how many resolved, with the unit so the CRPS scale reads.
+/// A `scalar_beliefs ⋈ belief_scores` aggregate (realized only). SCORE METADATA ONLY
+/// — the untrusted `quantiles`/`provenance` JSONB (model output) are NOT selected
+/// here; the recent-forecast feed (quantile fans + realized), coverage_bps, and the
+/// sparkline are §9.1 follow-ons (ledgered). Runtime sqlx (audit-tail precedent).
+/// Empty until track-C's daemon persist (slice 4) lands → honest unavailable, never
+/// a fabricated score.
+async fn view_forecasts(State(s): State<RotaState>) -> impl IntoResponse {
+    let Some(pool) = s.pool.clone() else {
+        return Json(json!({
+            "status": "unavailable",
+            "detail": "postgres capability absent (standalone ROTA)",
+        }));
+    };
+    match forecast_scorecard(&pool).await {
+        Ok(rows) => {
+            let generated_at = { s.snapshot.read().await.generated_at.clone() }; // R8
+            let scored: i64 = rows.iter().map(|r| r.4).sum();
+            let mut producers: Vec<&str> = rows.iter().map(|r| r.0.as_str()).collect();
+            producers.sort_unstable();
+            producers.dedup();
+            let n_producers = producers.len();
+            let mut rules: Vec<&str> = rows.iter().map(|r| r.2.as_str()).collect();
+            rules.sort_unstable();
+            rules.dedup();
+            let n_rules = rules.len();
+            let json_rows: Vec<Value> = rows
+                .into_iter()
+                .map(|(producer, unit, rule_id, mean, resolved_n)| {
+                    // CRPS rounded to 6dp for display (lower is better); the raw f64
+                    // stays the honest source — this only trims display noise.
+                    let mean_crps = (mean * 1_000_000.0).round() / 1_000_000.0;
+                    json!({
+                        "producer": producer, "unit": unit, "rule_id": rule_id,
+                        "mean_crps": mean_crps, "resolved_n": resolved_n,
+                    })
+                })
+                .collect();
+            Json(json!({
+                "title": "Forecasts",
+                "generated_at": generated_at,
+                "columns": [
+                    {"key":"producer","label":"Producer"},
+                    {"key":"unit","label":"Unit"},
+                    {"key":"rule_id","label":"Scorer"},
+                    {"key":"mean_crps","label":"Mean CRPS (lower=better)"},
+                    {"key":"resolved_n","label":"Resolved"},
+                ],
+                "rows": json_rows,
+                "summary": {"producers": n_producers, "rules": n_rules, "scored": scored},
+            }))
+        }
+        Err(e) => {
+            eprintln!("rota: forecasts read degraded: {e}");
+            Json(json!({
+                "status": "unavailable",
+                "detail": "forecasts read unavailable (dashboard pool degraded)",
+            }))
+        }
+    }
+}
+
+/// One forecast-scorecard row: (producer, unit, rule_id, mean_score CRPS, resolved_n).
+type ForecastRowTuple = (String, String, String, f64, i64);
+
+/// Per-(producer, scoring rule) calibration over RESOLVED scalar forecasts: mean
+/// score (CRPS, lower-better) and the resolved count, plus the unit (a producer's
+/// forecasts share one). `scalar_beliefs ⋈ belief_scores`, realized only, grouped +
+/// ordered by producer then rule. The untrusted JSONB columns (quantiles/provenance)
+/// are NOT selected. Runtime sqlx (audit-tail precedent).
+pub async fn forecast_scorecard(pool: &PgPool) -> Result<Vec<ForecastRowTuple>, sqlx::Error> {
+    sqlx::query_as::<_, ForecastRowTuple>(
+        "SELECT sb.producer, MIN(sb.unit) AS unit, bs.rule_id, \
+                AVG(bs.score) AS mean_score, COUNT(*) AS resolved_n \
+         FROM scalar_beliefs sb \
+         JOIN belief_scores bs ON bs.belief_id = sb.belief_id \
+         WHERE sb.realized_value IS NOT NULL \
+         GROUP BY sb.producer, bs.rule_id \
+         ORDER BY sb.producer ASC, bs.rule_id ASC",
+    )
     .fetch_all(pool)
     .await
 }
@@ -1038,6 +1126,7 @@ const ROTA_SHELL: &str = r#"<!doctype html><html lang="en"><head>
   <div class="panel wide"><h2>Discovery — Events</h2><div id="discovery">…</div></div>
   <div class="panel wide"><h2>Personas</h2><div id="personas">…</div></div>
   <div class="panel wide"><h2>Domain Analyses</h2><div id="analyses">…</div></div>
+  <div class="panel wide"><h2>Forecasts</h2><div id="forecasts">…</div></div>
   <div class="panel wide"><h2>Database</h2><div id="db">…</div></div>
   <div class="panel"><h2>Audit tail</h2><div id="audit">…</div></div>
 </div>
@@ -1124,6 +1213,7 @@ const R={
  discovery(j){return boardTable(j);},
  personas(j){return boardTable(j);},
  analyses(j){return boardTable(j);},
+ forecasts(j){return boardTable(j);},
  db(j){return boardTable(j);},
  audit(j){if(!j.available)return `<div class="warn">${esc(j.detail||"unavailable")}</div>`;
   let h="";j.rows.slice(-12).forEach(r=>h+=`<div class="row">${esc(r.at)} UTC ${esc(r.kind)}${r.actor?" · "+esc(r.actor):""}</div>`);
@@ -1137,5 +1227,5 @@ async function poll(name){const el=document.getElementById(name);
 function every(ms,names){names.forEach(poll);setInterval(()=>names.forEach(poll),ms);}
 every(2000,["health","audit"]);every(5000,["money","gates","ingest_sources","ingest_feed","ingest_funnel"]);
 every(10000,["cognition","settlement","fills","strategies"]);every(15000,["streams","discovery"]);
-every(30000,["db","personas","analyses"]);
+every(30000,["db","personas","analyses","forecasts"]);
 </script></body></html>"#;

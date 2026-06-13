@@ -66,7 +66,7 @@ async fn serve() -> (String, tokio::task::JoinHandle<()>) {
     (format!("http://{addr}"), handle)
 }
 
-const PATHS: [&str; 18] = [
+const PATHS: [&str; 19] = [
     "/rota",
     "/assets/rota/logo.svg",
     "/api/rota/v1/health",
@@ -83,6 +83,7 @@ const PATHS: [&str; 18] = [
     "/api/rota/v1/discovery",
     "/api/rota/v1/personas",
     "/api/rota/v1/analyses",
+    "/api/rota/v1/forecasts",
     "/api/rota/v1/db",
     "/api/rota/v1/audit",
 ];
@@ -139,6 +140,7 @@ async fn degraded_surfaces_are_200_with_explicit_unavailable() {
         "discovery",
         "personas",
         "analyses",
+        "forecasts",
         "db",
     ] {
         let j: serde_json::Value = client
@@ -1571,4 +1573,106 @@ async fn analyses_board_serves_artifacts_newest_first_with_supersession(pool: sq
         j["rows"][1]["status"], "superseded",
         "the earlier analysis renders honestly as superseded: {j}"
     );
+}
+
+// Track-C §9.1 ("the outcomes of the whole process"): the Forecasts scorecard
+// aggregates RESOLVED scalar forecasts per (producer, scoring rule) into the mean
+// CRPS (lower = better) and resolved count. Seeds two producers — funding_forecast
+// (two resolved rate forecasts) and aeolus_weather (one resolved celsius forecast),
+// each scored under crps_pinball — and asserts the producer-ASC ordering, the mean
+// CRPS per producer, the resolved counts, the unit, and the {producers,rules,scored}
+// summary. (The untrusted quantiles/provenance are never selected; the recent feed +
+// coverage are §9.1 follow-ons.)
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn forecasts_scorecard_aggregates_resolved_scores_per_producer(pool: sqlx::PgPool) {
+    use fortuna_ledger::{BeliefScoresRepo, ScalarBeliefsRepo};
+    let sb = ScalarBeliefsRepo::new(pool.clone());
+    let bs = BeliefScoresRepo::new(pool.clone());
+    // (belief_id, producer, unit, realized, crps_score)
+    let seeds = [
+        (
+            "01SBROTA000000000000FF1",
+            "funding_forecast",
+            "rate",
+            0.00012,
+            0.00003,
+        ),
+        (
+            "01SBROTA000000000000FF2",
+            "funding_forecast",
+            "rate",
+            0.00015,
+            0.00005,
+        ),
+        (
+            "01SBROTA000000000000AW1",
+            "aeolus_weather",
+            "celsius",
+            30.0,
+            1.2,
+        ),
+    ];
+    for (i, (id, producer, unit, realized, score)) in seeds.iter().enumerate() {
+        sb.insert(
+            id,
+            producer,
+            "ev-key",
+            &serde_json::json!([{"q":0.1,"v":0.0},{"q":0.5,"v":0.0001},{"q":0.9,"v":0.0003}]),
+            unit,
+            "2026-06-13T16:00:00.000Z",
+            &serde_json::json!({"strategy": producer}),
+            "2026-06-13T15:00:00.000Z",
+        )
+        .await
+        .unwrap();
+        sb.resolve(id, *realized, "2026-06-13T16:00:01.000Z")
+            .await
+            .unwrap();
+        bs.insert(
+            &format!("01SCOREROTA00000000000{i:03}"),
+            id,
+            "crps_pinball",
+            *score,
+            "2026-06-13T16:00:02.000Z",
+        )
+        .await
+        .unwrap();
+    }
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+    };
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/forecasts"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "one row per (producer, rule): {j}");
+    // producer ASC: aeolus_weather, then funding_forecast.
+    assert_eq!(j["rows"][0]["producer"], "aeolus_weather");
+    assert_eq!(j["rows"][0]["unit"], "celsius");
+    assert_eq!(j["rows"][0]["rule_id"], "crps_pinball");
+    assert_eq!(j["rows"][0]["resolved_n"], 1);
+    let aw_mean = j["rows"][0]["mean_crps"].as_f64().unwrap();
+    assert!((aw_mean - 1.2).abs() < 1e-9, "aeolus mean CRPS: {j}");
+    assert_eq!(j["rows"][1]["producer"], "funding_forecast");
+    assert_eq!(j["rows"][1]["unit"], "rate");
+    assert_eq!(j["rows"][1]["resolved_n"], 2, "two resolved forecasts: {j}");
+    let ff_mean = j["rows"][1]["mean_crps"].as_f64().unwrap();
+    assert!(
+        (ff_mean - 0.00004).abs() < 1e-9,
+        "funding_forecast mean CRPS = (0.00003+0.00005)/2: {j}"
+    );
+    assert_eq!(j["summary"]["producers"], 2);
+    assert_eq!(j["summary"]["rules"], 1);
+    assert_eq!(j["summary"]["scored"], 3);
 }
