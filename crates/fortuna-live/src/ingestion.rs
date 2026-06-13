@@ -22,7 +22,7 @@ use fortuna_cognition::signals::{
 use fortuna_core::clock::UtcTimestamp;
 use fortuna_ledger::SignalsRepo;
 use fortuna_ops::{MessageKind, SlackRouter};
-use fortuna_sources::{Alert, Dropped, IngestionScheduler};
+use fortuna_sources::{Alert, Dropped, IngestionScheduler, IngestionTelemetry};
 
 /// What one tick produced (pre-persistence).
 #[derive(Debug, Default)]
@@ -40,6 +40,10 @@ pub struct IngestionCore {
     scheduler: IngestionScheduler,
     registry: SourceRegistry,
     dedup: DedupIndex,
+    /// Running funnel totals this core owns (the stages it performs): items that
+    /// became envelopes, and items dropped by the authoritative dedup.
+    funnel_normalized: u64,
+    funnel_deduped: u64,
 }
 
 impl IngestionCore {
@@ -48,6 +52,8 @@ impl IngestionCore {
             scheduler,
             registry,
             dedup: DedupIndex::default(),
+            funnel_normalized: 0,
+            funnel_deduped: 0,
         }
     }
 
@@ -85,7 +91,22 @@ impl IngestionCore {
                 }
             }
         }
+        self.funnel_normalized += result.envelopes.len() as u64;
+        self.funnel_deduped += result.duplicates as u64;
         result
+    }
+
+    /// The live telemetry snapshot: the scheduler's OBS-1 surface (per-source
+    /// health/counters + the validate-stage funnel + the recent feed) plus the
+    /// loop-side funnel stages THIS core performs — `normalized` (items that
+    /// became `SignalEnvelope`s) and `deduped` (dropped by the authoritative
+    /// dedup). `persisted` / `persist_failures` are added by
+    /// [`IngestionWiring::telemetry`] (only it sees the store).
+    pub fn telemetry(&self, now: UtcTimestamp) -> IngestionTelemetry {
+        let mut t = self.scheduler.telemetry(now);
+        t.funnel.normalized = self.funnel_normalized;
+        t.funnel.deduped = self.funnel_deduped;
+        t
     }
 
     /// Operator re-enable of a quarantined source (CLI/ops surface in D10's
@@ -115,6 +136,9 @@ pub struct IngestionWiring {
     core: IngestionCore,
     signals: SignalsRepo,
     slack: Option<SlackRouter>,
+    /// Running funnel totals this layer owns (the persistence stage).
+    persisted_total: u64,
+    persist_failures_total: u64,
 }
 
 impl IngestionWiring {
@@ -127,6 +151,8 @@ impl IngestionWiring {
             core,
             signals,
             slack,
+            persisted_total: 0,
+            persist_failures_total: 0,
         }
     }
 
@@ -159,6 +185,8 @@ impl IngestionWiring {
                 Err(_) => stats.persist_failures += 1,
             }
         }
+        self.persisted_total += stats.persisted as u64;
+        self.persist_failures_total += stats.persist_failures as u64;
         if let Some(slack) = &self.slack {
             for alert in &result.alerts {
                 if let Alert::Quarantined { source, reason } = alert {
@@ -176,6 +204,17 @@ impl IngestionWiring {
 
     pub fn rearm(&mut self, source_id: &str) -> bool {
         self.core.rearm(source_id)
+    }
+
+    /// The full live telemetry snapshot (OBS-2): the core's scheduler + normalize
+    /// funnel plus this layer's persistence stages. This is the single read
+    /// surface ROTA / the metrics renderer project from (the `Arc<RwLock>`
+    /// publish that exposes it to those readers is a later slice).
+    pub fn telemetry(&self, now: UtcTimestamp) -> IngestionTelemetry {
+        let mut t = self.core.telemetry(now);
+        t.funnel.persisted = self.persisted_total;
+        t.funnel.persist_failures = self.persist_failures_total;
+        t
     }
 }
 
@@ -389,5 +428,96 @@ mod tests {
         let r = core.tick(ts(0)).await;
         assert!(r.envelopes.is_empty());
         assert_eq!(r.refused_sources, vec!["ghost"]);
+    }
+
+    // --- OBS-2: the loop-side funnel stages (normalized / deduped) ----------
+
+    /// A source that yields a scripted batch per fetch (one per tick).
+    struct ScriptedQueue {
+        id: String,
+        q: Mutex<std::collections::VecDeque<Vec<RawSignal>>>,
+    }
+    #[async_trait]
+    impl Source for ScriptedQueue {
+        fn id(&self) -> &str {
+            &self.id
+        }
+        async fn fetch(&mut self) -> Result<Vec<RawSignal>, SignalError> {
+            Ok(self.q.lock().unwrap().pop_front().unwrap_or_default())
+        }
+    }
+
+    fn core_with_queue(batches: Vec<Vec<RawSignal>>) -> IngestionCore {
+        let mut sched = IngestionScheduler::new();
+        sched.register(
+            "src",
+            Box::new(ScriptedQueue {
+                id: "src".into(),
+                q: Mutex::new(batches.into()),
+            }),
+            SourceSchedule::steady(Duration::from_secs(60), 9, 5),
+            claimed,
+            StructuralConfig::default(),
+        );
+        IngestionCore::new(sched, registry_with("src", 9))
+    }
+
+    #[tokio::test]
+    async fn core_telemetry_reflects_scheduler_funnel_and_normalized() {
+        let mut core = core_with(vec![raw("a", None), raw("b", None)]);
+        core.tick(ts(1_000_000)).await;
+        let t = core.telemetry(ts(1_000_000));
+        // Scheduler-side validate funnel.
+        assert_eq!(t.funnel.fetched, 2);
+        assert_eq!(t.funnel.validated_accepted, 2);
+        assert_eq!(t.funnel.validated_dropped, 0);
+        // Loop-side stages this core performs.
+        assert_eq!(t.funnel.normalized, 2);
+        assert_eq!(t.funnel.deduped, 0);
+        // The persistence stages are the wiring layer's — 0 at the core.
+        assert_eq!(t.funnel.persisted, 0);
+        assert_eq!(t.funnel.persist_failures, 0);
+    }
+
+    #[tokio::test]
+    async fn core_telemetry_normalized_accumulates_across_ticks() {
+        // 2 distinct items tick 1, 1 more tick 2 (advance now so the 60s source
+        // is due again). All distinct hashes -> no dedup; normalized = 3.
+        let mut core = core_with_queue(vec![
+            vec![raw("a", None), raw("b", None)],
+            vec![raw("c", None)],
+        ]);
+        core.tick(ts(0)).await;
+        core.tick(ts(60_000)).await;
+        let t = core.telemetry(ts(60_000));
+        assert_eq!(t.funnel.normalized, 3);
+        assert_eq!(t.funnel.fetched, 3);
+        assert_eq!(t.funnel.deduped, 0);
+    }
+
+    #[tokio::test]
+    async fn core_telemetry_a_cross_tick_exact_duplicate_is_caught_by_the_validator() {
+        // The SAME payload on two ticks. The Layer-1 validator's recent-hash
+        // memory PERSISTS across ticks (republication spans polls), so the 2nd
+        // identical item is RejectRepublished at the validator — it never reaches
+        // normalize. So it shows in `validated_dropped`, NOT `deduped`; only one
+        // envelope is ever produced. (`deduped` counts duplicates that slip past
+        // the validator's bounded window and the authoritative dedup catches.)
+        let mut core = core_with_queue(vec![vec![raw("dup", None)], vec![raw("dup", None)]]);
+        core.tick(ts(0)).await;
+        core.tick(ts(60_000)).await;
+        let t = core.telemetry(ts(60_000));
+        assert_eq!(
+            t.funnel.normalized, 1,
+            "the duplicate never became a 2nd envelope"
+        );
+        assert_eq!(
+            t.funnel.deduped, 0,
+            "the validator caught it before the dedup stage"
+        );
+        assert_eq!(
+            t.funnel.validated_dropped, 1,
+            "counted as a republished drop"
+        );
     }
 }

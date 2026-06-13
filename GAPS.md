@@ -35,6 +35,39 @@ ACCURACY NOTE (caught in self-verify): Layer-2 corroboration is BUILT
 were corrected to say so (the live path dedups via `normalize_and_dedup`'s
 UNIQUE index). Docs-only change: no code touched, so no cargo battery applies.
 
+## TRACK D — OBS-2a funnel loop-stages: deferred follow-ups + scoped-battery note
+
+OBS-2a (2026-06-13) completed the telemetry funnel's loop-side stages in
+fortuna-live ingestion.rs (IngestionCore: normalized/deduped; IngestionWiring:
+persisted/persist_failures), each via `telemetry(now)`. Contained to ingestion.rs
+(no main.rs/boot.rs) → zero track-A collision.
+
+ACCURACY NOTE (caught in self-verify): `deduped` (the authoritative DedupIndex)
+is RARELY hit because the Layer-1 validator's recent-hash set PERSISTS across
+ticks (validate.rs:118 — "republication spans polls"), so an exact cross-tick
+duplicate is `RejectRepublished` at the validator and counts as
+`validated_dropped`, never reaching the dedup stage. `deduped` only fires for
+duplicates that slipped past the validator's bounded recent window. The tests
+assert this real behavior (my first-draft test asserted the wrong path; corrected
+before commit).
+
+DEFERRED:
+- OBS-2b — publish `IngestionWiring::telemetry()` into an
+  `Arc<RwLock<IngestionTelemetry>>` each tick + expose a reader from main.rs (so
+  ROTA/metrics can project it). Touches main.rs → sequence vs track A; track B
+  wires the read endpoint. Until OBS-2b lands, telemetry() is computed but not
+  yet published to any reader.
+- The IngestionWiring persisted/persist_failures accumulation is
+  integration-covered, not unit-tested (it needs a Postgres-backed
+  tick_and_persist; the accumulation `+= stats.persisted` is trivially correct
+  over the already-tested IngestStats). The 3 new tests cover the CORE funnel
+  (normalized/deduped) with no DB.
+
+BATTERY: scoped green (fmt --check; clippy -p fortuna-live --all-targets
+-D warnings; test -p fortuna-live --lib ingestion = 6/6). The DB-backed
+fortuna-live suite (daemon_smoke etc.) is unaffected (no schema/query change) and
+is the verifier's merge gate (disk + concurrent cross-track batteries).
+
 ## TRACK D — OBS-1 telemetry data surface (slice 1): deferred follow-ups + scoped-battery note
 
 OBS-1 (2026-06-13) added the live `IngestionTelemetry` snapshot to the scheduler

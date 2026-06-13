@@ -901,11 +901,25 @@ scheduler is shared with D9). The skill/persona layer is a separate session
       fortuna-sources --all-targets -D warnings + test -p fortuna-sources = 118
       lib + 5 ingest_dst; full-workspace battery is the verifier's merge gate,
       see GAPS "TRACK D — OBS-1".)
-- [ ] OBS-2 funnel loop-stages + snapshot wiring (fortuna-live): the ingestion
-      loop sets `normalized`/`deduped`/`persisted`/`persist_failures` on the
-      funnel and publishes the snapshot behind `Arc<RwLock<IngestionTelemetry>>`
-      for the metrics renderer + ROTA handlers (§2 "one writer, many readers").
-      Touches fortuna-live (the drive() seam slice) — sequence vs track A.
+- [x] OBS-2a funnel loop-stages (fortuna-live ingestion.rs). IngestionCore now
+      accumulates `normalized` (items that became SignalEnvelopes) + `deduped`
+      (authoritative-dedup drops); IngestionWiring accumulates `persisted` +
+      `persist_failures`. Both expose `telemetry(now) -> IngestionTelemetry` (the
+      core fills the normalize stages, the wiring overlays persistence) — so the
+      funnel is complete end-to-end (it read 0 for these in OBS-1). Contained to
+      ingestion.rs (no main.rs/boot.rs → zero track-A collision). 3 core tests
+      (no DB): funnel projection, normalized accumulation across ticks, and that a
+      cross-tick exact duplicate is caught by the validator's persistent
+      recent-set (counts as `validated_dropped`, NOT `deduped` — `deduped` only
+      fires for dups past the validator's window). (DONE 2026-06-13 <hash>; scoped
+      battery green — fmt + clippy -p fortuna-live --all-targets -D warnings +
+      test -p fortuna-live --lib ingestion = 6/6; the DB-backed fortuna-live
+      suite is the verifier's merge gate.)
+- [ ] OBS-2b snapshot publish: write `IngestionWiring::telemetry()` into an
+      `Arc<RwLock<IngestionTelemetry>>` each tick in run_ingestion_loop + hand a
+      reader clone out of main.rs so the metrics renderer + ROTA handlers project
+      it (§2 "one writer, many readers"). Touches main.rs — sequence vs track A;
+      track B wires the read endpoint.
 - [ ] OBS-3 domain_tags population: carry each source's domain (weather|macro|…)
       from the source_registry/config admission into `SourceTelemetry.domain_tags`
       (empty in slice 1). Needs a config/registry field — fold with F10.

@@ -58,6 +58,11 @@ default — merged code activates zero ingestion until an operator opts in (see
   `SourceTelemetry`, process-wide `FunnelCounts`, and a bounded (256), newest-
   first `recent` feed of redacted `SignalRecord`s — the observability
   contract §2 snapshot.
+- OBS-2a funnel loop-stages — `IngestionCore` / `IngestionWiring` now fill the
+  funnel's `normalized` / `deduped` / `persisted` / `persist_failures` stages and
+  expose `telemetry(now)`, so the funnel is complete end to end (those stages
+  read 0 in OBS-1). The `Arc<RwLock>` publish that exposes the snapshot to ROTA
+  is OBS-2b (deferred).
 - Design docs: `docs/design/aeolus-fortuna-source-contract.md` (rev 3,
   reconciled with the Aeolus producer handoff) and
   `docs/design/ingestion-observability-contract.md` (telemetry + ROTA-views
