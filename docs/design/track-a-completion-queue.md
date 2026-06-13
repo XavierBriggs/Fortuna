@@ -43,8 +43,13 @@ verifier amends as gates land. All standard loop rules apply unchanged.
           FIRST recorded-fixture adapter tests; PASS items 1,7,8,9,10,13,14,16,
           17,18,20,21. Clearance record docs/design/track-a-kalshi-paper-
           clearance.md (UNSIGNED). Exposed 2 adapter gaps — G1 nested-error
-          extraction RESOLVED (b2087fc), G2 exchange-status DTO pending. Clusters 2
-          (transport round-trips) + 3 (auth-skew/WS handshake) PENDING.
+          extraction RESOLVED (b2087fc), G2 exchange-status DTO pending.
+       >> CLUSTER 2 CORE DONE 811e383 (2026-06-13): kalshi_recorded_roundtrip.rs
+          (4 tests) — place→201→id, place→400→Rejected (G1 e2e), cancel stale-read
+          race→Timeout (F16, no false success), fills round-trip. PASS items 6,
+          8-routing, 15, 19-roundtrip. REMAINING C2: 409-dup-resolve routing (7),
+          unauth GET (5), legacy orders (12); then Cluster 3 (auth-skew/WS).
+          Cancel-hardening (poll-until-terminal/recancel-404) ledgered in GAPS.
    (iv) Kill-switch KalshiVenue plug: FORTUNA_KILLSWITCH_* credential
        pair, freeze --venue kalshi wiring + tests (mock transport); I4
        dependency rules absolute (no new killswitch deps); live exercise

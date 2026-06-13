@@ -122,6 +122,28 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-13 — T4.2 (iii) Cluster 2: Kalshi exec round-trips — `811e383`
+
+**What.** `crates/fortuna-venues/tests/kalshi_recorded_roundtrip.rs` (4 tests;
+test-only) — transport round-trips driving place/cancel/fills through a scripted
+`MockKalshiTransport` over the operator-recorded response bodies.
+
+**Asserts.** place()→recorded 201→VenueOrderId; place()→recorded nested 400→
+Rejected with the venue code structure-carried (G1 e2e); the cancel STALE-READ
+RACE (F16)→Timeout, never a false success off the lagged reconcile GET;
+fills_since round-trips the recorded fills (taker yes/52c/fee 2c, coid resolved
+via GET order).
+
+**Verdicts.** Clearance items 6, 8-routing, 15, 19-roundtrip → PASS. REMAINING C2:
+409-dup-resolve routing, unauth GET, legacy order family; then Cluster 3.
+
+**Ledgered.** Cancel-hardening follow-up (poll-until-terminal + recancel-404-as-
+canceled) — safe today (Timeout → caller reconciles); see GAPS.
+
+**Battery.** fmt; clippy --workspace --all-targets; cargo test --workspace (131
+targets, 0 failed); run-dst.sh 200 (0 violations; daemon_smoke 15/15).
+code-reviewer ACCEPT. Protected crate untouched.
+
 ### 2026-06-13 — G1 fix: Kalshi error_reason nested-object extraction — `b2087fc`
 
 **What.** `crates/fortuna-venues/src/kalshi/dto.rs` — `error_reason` now

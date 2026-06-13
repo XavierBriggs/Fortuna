@@ -404,8 +404,10 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       clearance Cluster 1 DONE (f7206a4, kalshi_recorded.rs 18 tests + clearance
       record docs/design/track-a-kalshi-paper-clearance.md) — first recorded-fixture
       adapter tests; exposed 2 adapter gaps — G1 nested-error extraction RESOLVED
-      (b2087fc), G2 exchange-status DTO pending; Clusters 2 (transport) + 3
-      (auth/WS) pending. Remaining: (iv) kill-switch Kalshi plug, (v) Slack listener.
+      (b2087fc), G2 exchange-status DTO pending; Cluster 2 CORE DONE (811e383,
+      kalshi_recorded_roundtrip.rs: place/place-400/cancel-race/fills) — remaining
+      C2 (409-resolve/unauth/legacy) + Cluster 3 (auth/WS) pending. Remaining:
+      (iv) kill-switch Kalshi plug, (v) Slack listener.
 - [ ] T4.3 ROTA — the operator dashboard (operator-directed 2026-06-11; design
       AUTHORITATIVE at docs/design/rota-dashboard.md INCLUDING its amendments
       section): read-only gold/black operator console — server-rendered Rust

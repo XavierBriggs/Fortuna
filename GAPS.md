@@ -18,6 +18,32 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK A — T4.2 item 2(iii) Cluster 2: Kalshi exec round-trips DONE (811e383)
+
+Transport round-trips over the recorded fixtures via MockKalshiTransport
+(crates/fortuna-venues/tests/kalshi_recorded_roundtrip.rs, 4 tests; test-only):
+place→201→VenueOrderId (orders__create_v2_taker_ioc); place→recorded-nested-400→
+Rejected with the venue code structure-carried (orders__insufficient_balance —
+G1 validated END-TO-END through place(), not just error_reason); the CANCEL
+STALE-READ RACE (F16/F3) → Timeout (orders__cancel_v2 DELETE acks reduced_by 1.00
+but orders__get_after_cancel reconcile GET reads resting → effect-unknown, NO
+false success off the lagged read surface); fills_since round-trip maps the
+recorded taker fill (fills__after_taker: yes/buy/52c/fee 2c, coid resolved via GET
+order). Clearance items 6, 8-routing, 15, 19-roundtrip → PASS. code-reviewer
+ACCEPT; full battery green (131 targets 0-failed; run-dst 200 0-violations;
+daemon_smoke 15/15). Protected crate untouched.
+
+REMAINING C2 (next): 409-dup-resolve routing (item 7), unauth GET (item 5),
+legacy order family (item 12) round-trips; then Cluster 3 (auth-skew + WS).
+
+CANCEL-HARDENING FOLLOW-UP (ledgered; NOT a gap this slice): cancel() does DELETE
++ ONE reconcile GET → Timeout if still resting (the SAFE outcome — Timeout
+propagates to caller reconciliation). The full F16 doctrine ("poll until terminal
+with bounded backoff; treat a recancel-404 as proof-of-canceled") is a future
+cancel-hardening item: today a recancel-404 maps to NotFound, so a caller cannot
+yet distinguish never-existed from already-canceled. Not unsafe, but worth
+hardening before heavy live cancel traffic.
+
 ## RALPH STOP 2026-06-13T13:21:39Z (Track D — Phase-A queue exhausted; loop ends clean)
 
 Track D's cleanly-owned, in-scope (Phase A), valuable queue is EXHAUSTED. Stopping
