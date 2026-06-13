@@ -38,6 +38,7 @@
 //!     never a fabricated age.
 
 use fortuna_exec::IntentJournal;
+use fortuna_gates::GateCheck;
 use fortuna_runner::SimRunner;
 use serde_json::{json, Value};
 
@@ -72,12 +73,22 @@ pub fn views_from<J: IntentJournal + Send>(runner: &SimRunner<J>, generated_at: 
     let overdue = ops["settlements_overdue"].as_u64().unwrap_or(0);
 
     // The per-check gate-rejection breakdown (sorted by check name; counts sum
-    // to total_rejections). §5's "number" field is omitted: the runner keys by
-    // check NAME only, so a fabricated gate number would be a guess.
+    // to total_rejections). §5's "number" is the 1-based spec position: the
+    // runner keys rejections by the GateCheck Debug name, so we recover the
+    // number by matching that name back to its GateCheck and reading `index()`
+    // — NOT a guess (both sides derive from the SAME Debug impl, so they stay
+    // in lockstep). An unrecognised key — never produced by the runner — would
+    // degrade to a null number rather than a fabricated one.
     let rejections_by_check: Vec<Value> = runner
         .rejections_by_check()
         .into_iter()
-        .map(|(check, count)| json!({ "check": check, "count": count }))
+        .map(|(check, count)| {
+            let number = GateCheck::ALL
+                .iter()
+                .find(|g| format!("{g:?}") == check)
+                .map(|g| g.index());
+            json!({ "check": check, "count": count, "number": number })
+        })
         .collect();
 
     // SIM-ONLY money account (R6): settled = cash, committed = reserved (both

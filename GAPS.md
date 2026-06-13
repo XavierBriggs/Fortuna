@@ -18,7 +18,32 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
-## TRACK A — T4.1/M2 COMPLETE; buildable valuable work EXHAUSTED (holding, not hard-stopped)
+## TRACK A — T4.1/M2 COMPLETE; "EXHAUSTED" was PREMATURE — two missed ROTA-slice follow-ups taken back (#3 CLOSED, #2 next)
+
+CORRECTION (2026-06-12, this commit): the "buildable valuable work EXHAUSTED"
+claim below was a FALSE ledger claim. A fresh priority-(b) sweep found two
+genuinely-open, non-blocked, Track-A follow-ups I had skated past — the
+"STILL OPEN — TRACK A follow-ups" bullet under the r5test-slice6 gate section
+(views.rs + main.rs, owned by Track A, NOT track B/C, NOT operator-blocked):
+- **#3 (gate spec-number in the ROTA gates view): CLOSED this commit.** The old
+  views.rs rationale "a fabricated gate number would be a guess" was FALSE:
+  the runner keys `rejections_by_check` on the GateCheck Debug name, and
+  `GateCheck::ALL`/`index()` (both already pub in fortuna-gates) recover the
+  exact 1-based spec position from that name — no guess. views_from now emits
+  `"number"` per entry (EdgeFloor→6); an unrecognised key (never produced by
+  the runner) degrades to null, never a fabricated number. RED-first:
+  gates_rejection_view_carries_the_spec_gate_number failed on the absent field
+  ({"check":"EdgeFloor","count":1}), passes now. fortuna-gates moved dev-dep→
+  dep in fortuna-live (already transitive via fortuna-runner; no cycle). FULL
+  battery green (fmt/clippy --workspace --all-targets/cargo test --workspace/
+  run-dst.sh 10000 — all exit 0, zero invariant violations).
+- **#2 (distinct reader/writer pool boot assertion): STILL OPEN, sequenced next.**
+  No test pins that main.rs wires `connect_readonly_pool` (reader) ≠ `connect`
+  (writer) — a wiring merge would fail no test (the R5 handler test self-
+  constructs its pools). Deferred-not-blocked: the clean fix needs the binary's
+  pool-wiring extracted into a testable seam (PgPool exposes no identity/options
+  to compare directly), so it is a larger slice than #3 — taking it as its own
+  iteration rather than rushing it onto #3's battery.
 
 Overnight 2026-06-12→13: Track A's buildable, valuable T4.1 surface is DONE and
 gate-clean (the FULL workspace battery — fmt/clippy --workspace --all-targets/
@@ -41,13 +66,16 @@ REMAINING Track-A items are ALL blocked or other-track: T4.2 (operator Kalshi
 fixture-recording session — boot.rs refuses venue=kalshi until clearance), M3
 (track-B rearm CLI/ROTA notices — the loop-doc boundary "do not touch track B's
 files" holds over the pool offer), the perps re-merge + the operator-confirmed
-2x leverage cap (track-C). No buildable VALUABLE Track-A work remains without
-inventing bloat — and idle-and-stopped beats bloat.
-STANCE: NOT hard-cancelled. The perps re-merge re-gate MIGHT surface a new
-Track-A finding (as the client-id one did) — so each re-fire I re-check
-priority (a) (GATE-FINDINGS + GAPS) and address anything new; absent a finding I
-yield WITHOUT manufacturing low-value work. The operator may cancel the loop in
-the morning if no further Track-A work materializes.
+2x leverage cap (track-C). SUPERSEDED by the CORRECTION above: ONE buildable
+Track-A item remains (#2 distinct-pools boot assertion); the rest of this list
+holds. The original "No buildable VALUABLE Track-A work remains" was wrong —
+the lesson is that "exhausted" must be re-derived from a fresh GAPS sweep each
+iteration, not inherited.
+STANCE: NOT hard-cancelled. Next buildable item is #2 (above). Each re-fire I
+re-check priority (a) (GATE-FINDINGS + GAPS) first — a BLOCK or perps re-merge
+finding preempts — then take #2 when its testable-seam slice is ready; absent
+either I yield WITHOUT manufacturing low-value work. The operator may cancel the
+loop in the morning if no further Track-A work materializes.
 
 ## TRACK A — perps-revert client-id finding: ADJUDICATED (core idempotency is UPGRADE-SAFE)
 
@@ -1110,6 +1138,13 @@ fabricated/zeroed panel). Fix list:
   (EdgeFloor=6); include the number per §5 OR correct the rationale. Operator
   also slotted BUILD_PLAN T4.5 (ROTA v1.1 deferred panels), after T4.2; its
   TEST RULE bakes in the populated-path-seed lesson.
+  - STATUS (2026-06-12, this commit): **#3 CLOSED** — views_from now emits the
+    real 1-based spec number per rejection entry (reverse-mapped via
+    GateCheck::ALL/index(), no guess); the false rationale is removed; RED-first
+    test gates_rejection_view_carries_the_spec_gate_number. Full picture in the
+    "EXHAUSTED was PREMATURE" correction at the top of this file. **#2 STILL
+    OPEN**, next Track-A iteration (needs a testable pool-wiring seam in the
+    fortuna-live binary).
 
 ## POST-STOP CONTINUATION (operator-directed, 2026-06-12 ~10:40Z): orphaned minors F-1 + F-2 taken back
 

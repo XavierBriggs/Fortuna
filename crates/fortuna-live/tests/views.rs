@@ -212,6 +212,72 @@ async fn gates_rejections_by_check_is_non_vacuous_on_a_rejecting_run() {
 }
 
 #[tokio::test]
+async fn gates_rejection_view_carries_the_spec_gate_number() {
+    // r5test-slice6 gate finding #3: the old rationale claimed §5's "number"
+    // field "would be a guess" because the runner keys rejections by check NAME.
+    // That is FALSE — the names ARE the GateCheck Debug variants and
+    // GateCheck::index() gives the exact 1-based spec position, so the number is
+    // RECOVERABLE, never guessed. An unreachable net-edge floor rejects at the
+    // EdgeFloor gate (spec position 6); assert the view carries that number.
+    let mut cfg = runner_config(20);
+    cfg.gate_config = toml::from_str(
+        "[global]\n\
+         max_total_exposure_cents = 800000\n\
+         max_daily_loss_cents = 50000\n\
+         min_order_contracts = 1\n\
+         max_order_contracts = 1000\n\
+         price_band_cents = 45\n\
+         max_cross_cents = 10\n\
+         per_market_exposure_cents = 100000\n\
+         per_event_exposure_cents = 150000\n\
+         require_event_mapping = false\n\
+         [per_strategy.mech_structural]\n\
+         max_exposure_cents = 200000\n\
+         max_order_notional_cents = 10000\n\
+         min_net_edge_bps = 100000\n\
+         [rate.sim]\n\
+         burst = 100\n\
+         sustained_per_min = 600\n\
+         market_burst = 50\n\
+         market_sustained_per_min = 300\n",
+    )
+    .unwrap();
+    let mut r = SimRunner::new(cfg, vec![strategy()], Box::new(NullSink), t0()).unwrap();
+    set_arb_books(&r);
+    for _ in 0..3 {
+        r.tick().await.unwrap();
+    }
+
+    let v = views_from(&r, GEN);
+    let by_check = v["gates"]["rejections_by_check"].as_array().unwrap();
+    assert!(
+        !by_check.is_empty(),
+        "a rejecting run must populate the breakdown: {v}"
+    );
+    // EVERY entry carries its real 1-based spec position (1..=10) — never null,
+    // never a fabricated guess.
+    for e in by_check {
+        let n = e["number"]
+            .as_u64()
+            .unwrap_or_else(|| panic!("rejection entry is missing its spec gate number: {e}"));
+        assert!(
+            (1..=10).contains(&n),
+            "spec gate number must be 1..=10: {e}"
+        );
+    }
+    // The unreachable net-edge floor rejects at EdgeFloor — spec gate 6.
+    let edge = by_check
+        .iter()
+        .find(|e| e["check"] == "EdgeFloor")
+        .unwrap_or_else(|| panic!("expected an EdgeFloor rejection on this run: {v}"));
+    assert_eq!(
+        edge["number"].as_u64().unwrap(),
+        6,
+        "EdgeFloor is spec gate 6: {edge}"
+    );
+}
+
+#[tokio::test]
 async fn money_view_is_the_sim_only_account_subset() {
     // R6 + the r5-pool gate's verifier-endorsed unblock: ship the SIM-ONLY
     // money subset rather than fake the §5 floating/total. settled = venue

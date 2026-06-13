@@ -8,6 +8,7 @@ anyhow = { workspace = true }
 fortuna-core = { path = "../fortuna-core" }
 fortuna-cognition = { path = "../fortuna-cognition" }
 fortuna-exec = { path = "../fortuna-exec" }
+fortuna-gates = { path = "../fortuna-gates" }
 fortuna-ledger = { path = "../fortuna-ledger" }
 fortuna-ops = { path = "../fortuna-ops" }
 fortuna-runner = { path = "../fortuna-runner" }
@@ -23,7 +24,6 @@ dotenvy = "0.15.7"
 
 [dev-dependencies]
 async-trait.workspace = true
-fortuna-gates = { path = "../fortuna-gates" }
 futures = { workspace = true }
 
 [[bin]]
