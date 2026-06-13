@@ -28,7 +28,7 @@ ledger their responses in GAPS, never edit this file.
   the daemon `[ingestion]` seam — all gated ACCEPT (D9 hard gate, D10/2 live-
   exposure gate, both mutation-proven), default-OFF, operator-opt-in. See TRACK D.
 
-## TRACK E — DESIGN critique done: ACCEPT-WITH-CONDITIONS; AWAITING OPERATOR BUILD-APPROVAL
+## TRACK E — OPERATOR APPROVED (b4eaae3, 2026-06-13); BUILD PHASE ARMED — verifier gates build slices
 
 Design `docs/design/domain-analysis-personas-design.md` (407 lines, @7c7ee7c) was
 adversarially gated as a DESIGN doc (no code yet): verdict ACCEPT-WITH-CONDITIONS
@@ -44,9 +44,12 @@ ContextItem); (2) the review ScopeKey edit must KEEP the spec-mandated `strategy
 dimension (review.rs:37-41, spec 5.10), not replace it; (3) attribute the no-order-field
 I6 guarantee to a NEW add-only field-surface test, not the dependency-direction check.
 WATCH: sequence the context.rs (SectionKind) + review.rs (ScopeKey) edits into a clean
-window vs track A's in-flight cycle/belief-composition work. OPERATOR DECISION: approve
-to build (with the 3 conditions folded into the design) — per track-E brief §3 this is
-the design-gate STOP; build does not start until you approve.
+window vs track A's in-flight cycle/belief-composition work. STATUS: OPERATOR APPROVED
+2026-06-13 (b4eaae3, loop armed for build); the 3 conditions were applied to the design
+(c8f97f1). VERIFIER NOW GATES build slices as they land (slice plan §18: ledger ->
+persona registry -> runner+triggers+budget -> belief consumption -> scoring -> e2e
+meteorologist; each tests-first, full battery, invariant crate untouched, the
+trusted/untrusted separation + binary-fan-out the headline checks).
 
 ## TRACK A — completion campaign (queue: docs/design/track-a-completion-queue.md)
 
@@ -148,8 +151,19 @@ by never-invent + fixtures-first, so they are verifier calls, not operator taste
    no keys). OPERATOR/RECORDER ACTION — added to the operator queue.
 
 NET: funding_forecast (scalar belief + CRPS) is fully buildable+testable now and is the
-prob_claims/v1 proving vehicle; perp_event_basis is buildable-but-fixture-gated. The basis
-MODEL (worker's Section 3) is still to be presented — gate it on arrival.
+prob_claims/v1 proving vehicle; perp_event_basis is buildable-but-fixture-gated.
+
+DESIGN LANDED + CRITIQUED (41e94be -> track-c-scalar-claims-design-critique-2026-06-13.md):
+the full `perp-strategies-and-scalar-claims.md` design = ACCEPT-WITH-CONDITIONS. Strong,
+code-grounded (PerpTick bus variant, on_event seam, binary path untouched all CONFIRMED),
+scoring math correct (pinball=proper, mean=discretized CRPS), invariant-structural,
+fixture-grounded (matches the adjudication above). ONE MUST-FIX before build: the doc says
+scalar beliefs egress via `drain_beliefs()` but that returns BINARY-only BeliefDraft
+(beliefs.rs:51-85) — needs a NEW parallel `drain_scalar_beliefs()` seam (a 2nd shared
+fortuna-runner Strategy-trait touch w/ track A, beyond daemon registration). STATUS FLAG:
+the doc header "OPERATOR-APPROVED / Build authorized" is NOT substantiated (BUILD_PLAN T5.B7
+unchecked, no approval artifact) — like track E pre-approval, this is a DESIGN-GATE STOP;
+OPERATOR must confirm build-authorization + the must-fix before slices 2-4 build.
 
 ## T5.B7 / T5.B8 — ORPHANED, post-re-merge (ledgered 2026-06-13 so they don't vanish)
 
