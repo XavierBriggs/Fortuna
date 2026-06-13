@@ -199,3 +199,44 @@ main @2668291, 2026-06-13. No model action is ever execution — personas propos
 ### Trading core, venues & exec
 
 _Owned by Tracks A / C / E — see their entries. Not maintained here._
+
+### ROTA observability console (fortuna-ops, Track B)
+
+The read-only operator single pane of glass (`crates/fortuna-ops/src/rota.rs`,
+`assets/rota/`). Mission 2: total observability. Read-only doctrine absolute (zero
+mutating endpoints), gold-on-black, honest nulls; every board screenshot-verified
+with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
+`docs/design/rota-observability.md`.
+
+#### Added
+
+- Local bringup harness (`crates/fortuna-ops/examples/rota_local.rs`): seeds a
+  GUARDED throwaway Postgres (`ROTA_LOCAL_DATABASE_URL` only, never the operator's
+  DB) + a representative snapshot, serves the console — the reusable screenshot
+  rig. The 7 original boards (health/money/gates/cognition/settlement/streams/audit)
+  screenshot-verified with real rows.
+- Generic `boardTable` renderer for the D-contract `{title, columns, rows, summary}`
+  envelope, with a data-driven `pill` column flag — reused by every ingestion board.
+- **V2 Sources Health** (`GET /api/rota/v1/ingest_sources`) — per-source health /
+  polls / accepted / drop-by-reason / 304-rate / quarantines; surfaces the
+  AFD-firehose.
+- **V1 Live Signal Feed** (`GET /api/rota/v1/ingest_feed`) — recent signals
+  newest-first with their (redacted, esc()'d) data + accept/drop status pills.
+- **V3 Ingest Funnel** (`GET /api/rota/v1/ingest_funnel`) — the pipeline as a stage
+  table (fetched → validated → normalized → persisted) with retention % + drop-offs.
+- Cognition board **belief lifecycle** — status distribution (open/resolved/
+  superseded/abandoned) + the resolved beliefs' calibration outcome (mean Brier/CLV)
+  via a real `GROUP BY`/`AVG` (runtime sqlx).
+- Loop-file rule 6 — the operator doc-discipline directive (own docs + targeted
+  shared-doc edits + this changelog; no staleness), part of DoD.
+
+#### Deferred / blocked (ledgered in GAPS)
+
+- **OBS-2c (next):** track-D's OBS-2b now publishes the `IngestionTelemetryHandle`
+  (`Arc<RwLock<IngestionTelemetry>>`) on main; wiring it into the ROTA read path so
+  V1/V2/V3 render LIVE daemon data is track B's remaining step. Until then the
+  ingestion boards render honest-degraded.
+- **D V6** full belief→strategy→PnL — schema-blocked (no belief→trade link); ROTA
+  surfaces the calibration edge proxy (CLV), never a fabricated dollar PnL.
+- **C** `/forecasts`,`/perps` and **E** `/personas`,`/analyses`,`/persona_pipeline`
+  — built as their tables/data land.
