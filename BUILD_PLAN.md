@@ -681,7 +681,18 @@ crates/fortuna-sources + fixtures/sources/ + one flagged drive() seam.
       iteration.)
       (Each of D4–D7 below ALSO lands its source's Layer-0 dossier from the
       TEMPLATE, grounded in research, with that source's fixtures.)
-- [ ] D4 NwsSource (fixtures first: fixtures/sources/nws/; + NWS dossier).
+- [x] D4 NwsSource (impl cognition Source trait): fetches one configured NWS
+      endpoint via FetchClient; parses the two REAL response shapes —
+      `/alerts/active` FeatureCollection → `nws.alert` signals,
+      `/products?type=AFD` `@graph` → `nws.afd` signals; conditional-GET
+      validators carried across polls (304 → no signals); error envelopes &
+      non-JSON → SignalError, never emitted as signal; `nws_claimed_time`
+      extracts the Layer-1 future-check time (alert.sent / afd.issuanceTime).
+      Dumb adapter (no dedup/trust/trigger — those are downstream). Fixtures
+      under fixtures/sources/nws/ are REAL captures (2026-06-13, README has
+      provenance + re-record cmds). Research-grounded dossier at
+      docs/research/sources/nws/dossier.md (admitted tier 9). 9 tests.
+      (DONE 2026-06-13, full battery green; hash next iteration.)
 - [ ] D5 RssSource via feed-rs (fixtures first: fixtures/sources/rss/,
       including malformed documents).
 - [ ] D6 CalendarSource — BLS/Fed/FRED release calendars; emits

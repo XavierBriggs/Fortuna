@@ -2174,6 +2174,21 @@ rebased on main f4b4a54-era; all work committed, nothing pushed.
 
 ## Track D — news-aggregation Phase A
 
+- **D4 NWS AFD full-text is a deferred second hop.** NwsSource emits the AFD
+  product SUMMARY (id, office, issuanceTime, code) from the `/products?type=AFD`
+  list. Attaching the full `productText` requires a second hop
+  `GET /products/{id}` (shape captured in fixtures/sources/nws/afd_product.json).
+  The summary already dedups and drives a "new AFD issued" trigger; the text
+  hop is enrichment, not a blocker. Follow-up for a later iteration (would add
+  a two-hop mode to NwsSource or a dedicated AFD-text source).
+
+- **D4 NWS scheduler-side wiring pending D9.** The adapter exposes
+  `nws_claimed_time` for the Layer-1 future-dated check, but the scheduler
+  (D9) is what calls StructuralValidator with the extracted claimed_time and
+  builds Candidates from RawSignals. D4 ships the adapter + the extractor;
+  D9 connects them. Registry row + `[sources.nws_*]` config entries are also
+  created at scheduler-wiring time (dossier admitted the source at tier 9).
+
 - **Layer-4 consumption floors are only half-enforceable from this track.**
   The trigger floor can be enforced at the drive() seam (filter which signals
   are offered to TriggerEngine); the resolution-source floor is consumed

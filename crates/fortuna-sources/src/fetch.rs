@@ -324,6 +324,12 @@ impl<T: FetchTransport> FetchClient<T> {
     pub fn pin(&self) -> &HostPin {
         &self.pin
     }
+
+    /// Borrow the underlying transport (adapters inspect it in tests; the
+    /// production path only calls `fetch`).
+    pub fn transport(&self) -> &T {
+        &self.transport
+    }
 }
 
 /// The real transport: one reqwest client with auto-redirect DISABLED (the

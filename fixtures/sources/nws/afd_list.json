@@ -1,0 +1,26 @@
+{
+    "@context": {
+        "@version": "1.1",
+        "@vocab": "https://api.weather.gov/ontology#"
+    },
+    "@graph": [
+        {
+            "@id": "https://api.weather.gov/products/331518f5-c5b4-4d41-8037-db5dc92c48ca",
+            "id": "331518f5-c5b4-4d41-8037-db5dc92c48ca",
+            "wmoCollectiveId": "FXUS64",
+            "issuingOffice": "KLUB",
+            "issuanceTime": "2026-06-13T03:30:00+00:00",
+            "productCode": "AFD",
+            "productName": "Area Forecast Discussion"
+        },
+        {
+            "@id": "https://api.weather.gov/products/54f8f77f-d34c-415f-944d-f8f9c719cc50",
+            "id": "54f8f77f-d34c-415f-944d-f8f9c719cc50",
+            "wmoCollectiveId": "FXUS61",
+            "issuingOffice": "KOKX",
+            "issuanceTime": "2026-06-13T03:15:00+00:00",
+            "productCode": "AFD",
+            "productName": "Area Forecast Discussion"
+        }
+    ]
+}

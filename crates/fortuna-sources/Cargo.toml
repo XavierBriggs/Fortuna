@@ -5,8 +5,10 @@ edition = "2021"
 
 [dependencies]
 fortuna-core = { path = "../fortuna-core" }
+fortuna-cognition = { path = "../fortuna-cognition" }
 thiserror = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 toml = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
