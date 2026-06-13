@@ -395,6 +395,14 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       strategies, kalshi adapter paper/live clearance vs fixtures, kill-switch
       KalshiVenue plug (FORTUNA_KILLSWITCH_* creds), Slack Socket Mode listener
       (app token; kill REQUESTS only, re-arms stay CLI-only).
+      PROGRESS (box stays unticked — slices remain): (i) Kalshi WS dial slices
+      1-2 + 4-5 + concrete transport CERTIFIED (t42-wsdial/redial/wsdial-transport
+      gates 2026-06-13; live socket round-trip is operator-run first); (ii) book-
+      driven recorded-stream replay into PaperVenue under both mech strategies DONE
+      (fc5bd64, recorded_replay.rs) — trade-through + multi-market-bracket replay
+      stay fixture-blocked (ledgered GAPS, never fabricated). Remaining: (iii)
+      27-item paper-clearance record, (iv) kill-switch Kalshi plug, (v) Slack
+      listener.
 - [ ] T4.3 ROTA — the operator dashboard (operator-directed 2026-06-11; design
       AUTHORITATIVE at docs/design/rota-dashboard.md INCLUDING its amendments
       section): read-only gold/black operator console — server-rendered Rust

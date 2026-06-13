@@ -223,6 +223,43 @@ gate runs the full battery + the executed mutation check). Predicted mutation:
 neutralize the (Nws,"climate") arm => wires_the_climate_grader_and_aeolus reds
 (unwrap on the Err arm). Not operator-blocked; verifier-gated on merge.
 
+## TRACK A — T4.2 item 2(ii) book-driven PaperVenue replay DONE (fc5bd64)
+
+Queue item 2(ii): venue-generic recorded-stream replay into PaperVenue for both
+mech strategies. NO production change — a new integration test
+(crates/fortuna-runner/tests/recorded_replay.rs, 7 tests) drives the SAME
+production seam the live dial uses (KalshiWsParser -> BookAssembler ->
+fortuna_paper::feed_stream_event -> PaperVenue) over the OPERATOR-RECORDED WS
+fixtures (fixtures/kalshi/ws__orderbook_trade_{yes,noleg}.jsonl), exercised as if
+live (not doc-derived/synthetic):
+- both fixtures parse fully-typed + GAPLESS, with ZERO trade frames (quiet market);
+- snapshot+deltas assemble into the EXACT book in PaperVenue (yes 47x3/52x2;
+  noleg 47x3/48x1, incl. a transient empty book that replays clean);
+- BOOK-ONLY replay yields NO fills (a resting maker order is untouched);
+- both mech strategies consume the replayed recorded book and abstain correctly,
+  with liveness controls proving each FIRES on a qualifying input.
+Battery green: fmt + clippy --workspace --all-targets -D warnings + test
+--workspace (126 targets, 0 failed) + run-dst.sh 200 (4 corpus + 200 seeds, 0
+violations; daemon_smoke 15/15; ingest_dst 5/5). code-reviewer pass folded in
+(M1 liveness controls; m1 gated() note). Protected crate untouched.
+
+TWO fixture-blocked dependencies precisely ledgered (NEVER fabricate a trade/
+bracket fixture; both ride an operator/recorder capture):
+1. TRADE-THROUGH replay — the public WS `trade` frame was never captured (quiet
+   market); paper maker fills are trade-driven (spec 11), so trade-through fills
+   cannot be asserted from book-only data. The book-driven replay is built and
+   asserts what the book supports; trade-through stays RED until the busy-market
+   trade-frame capture lands (already in the operator queue, item 3).
+2. STRUCTURAL-ARB replay (NEW) — the recording captured ONE market, so a bracket
+   (>=2 mutually-exclusive markets) cannot be completed from it; mech_structural
+   correctly abstains. A positive structural-arb replay against recorded data
+   needs a MULTI-MARKET BRACKET fixture (>=2 co-recorded bracket members under
+   one event) — a NEW operator/recorder capture (verifier to fold into the
+   operator queue; market data only, no keys).
+
+NEXT (queue order): 2(iii) the 27-item paper-clearance record, 2(iv) kill-switch
+Kalshi plug, 2(v) Slack Socket listener.
+
 ## TRACK A — T4.2 item 2(i) WS dial COMPLETE: full KalshiWsTransport built (operator runs the first live exercise)
 ## TRACK E — BUILD PHASE (operator-approved 2026-06-13); E.1 + E.2 + E.3a DONE
 

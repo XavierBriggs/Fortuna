@@ -27,6 +27,12 @@ verifier amends as gates land. All standard loop rules apply unchanged.
        recovery) — build the book-driven replay now, assert what book
        evidence supports, and LEDGER the trade-frame dependency precisely
        (no fabricated trade fixtures, ever).
+       >> DONE fc5bd64 (2026-06-13): recorded_replay.rs (7 tests) — gapless
+          fully-typed parse of both recorded fixtures, EXACT assembled book in
+          PaperVenue, book-only replay = no fills, both mech strategies composed
+          (abstain on the recorded book + liveness controls). Trade-through and
+          a multi-market-bracket fixture ledgered in GAPS (never fabricated).
+          Full battery green.
    (iii) Adapter paper-clearance VALIDATION: work the 27-item checklist
        (docs/research/venue/kalshi-api-2026-06-10/research.md) against
        fixtures/kalshi/ — each item PASS/FAIL/UNCOVERABLE with the
