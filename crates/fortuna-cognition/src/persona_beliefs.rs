@@ -146,6 +146,34 @@ pub fn map_persona_analysis(
     Ok(drafts)
 }
 
+/// Derive the belief resolution `horizon` for an analysis from its `region_key`:
+/// the end of the UTC day (`T23:59:59.999Z`) of the `YYYY-MM-DD` segment embedded
+/// in the key. Both shipped persona region_keys carry a date
+/// (`weather:KNYC:tmax:2026-06-12`, `macro:US-CPI-MoM:2026-06-12`) — the
+/// date-resolving-market convention (design §11: weather's daily resolution, the
+/// macro release date). Returns `None` when the key has no parseable date; the
+/// daemon then persists the artifact but SKIPS belief fan-out (only beliefs need a
+/// horizon). A per-domain refinement (intraday prints, local-vs-UTC day edges) is a
+/// documented future tweak — this is the conservative first cut. PURE; never panics.
+pub fn belief_horizon(region_key: &str) -> Option<UtcTimestamp> {
+    let date = region_key.split(':').find(|seg| is_iso_date(seg))?;
+    UtcTimestamp::parse_iso8601(&format!("{date}T23:59:59.999Z")).ok()
+}
+
+/// A `YYYY-MM-DD`-SHAPED, ASCII, 10-char segment. Calendar-range validity (e.g.
+/// month ≤ 12) is left to the timestamp parse, which rejects an impossible date.
+/// Char-iterated, never indexed → no panic.
+fn is_iso_date(seg: &str) -> bool {
+    seg.len() == 10
+        && seg.char_indices().all(|(i, c)| {
+            if i == 4 || i == 7 {
+                c == '-'
+            } else {
+                c.is_ascii_digit()
+            }
+        })
+}
+
 fn number_p(entry: &Value, index: usize) -> Result<f64, PersonaBeliefError> {
     entry
         .get("p")
@@ -233,5 +261,59 @@ pub fn domain_analysis_context_item(
         content_hash: content_hash_of(&body),
         body,
         at,
+    }
+}
+
+#[cfg(test)]
+mod horizon_tests {
+    use super::belief_horizon;
+    use fortuna_core::clock::UtcTimestamp;
+
+    fn end_of(date: &str) -> Option<UtcTimestamp> {
+        UtcTimestamp::parse_iso8601(&format!("{date}T23:59:59.999Z")).ok()
+    }
+
+    #[test]
+    fn weather_region_key_resolves_to_end_of_its_date() {
+        assert_eq!(
+            belief_horizon("weather:KNYC:tmax:2026-06-12"),
+            end_of("2026-06-12")
+        );
+    }
+
+    #[test]
+    fn macro_region_key_resolves_to_end_of_its_date() {
+        assert_eq!(
+            belief_horizon("macro:US-CPI-MoM:2026-06-12"),
+            end_of("2026-06-12")
+        );
+    }
+
+    #[test]
+    fn a_date_segment_anywhere_in_the_key_is_found() {
+        assert_eq!(
+            belief_horizon("2026-06-12:extra:segment"),
+            end_of("2026-06-12")
+        );
+    }
+
+    #[test]
+    fn no_date_segment_yields_none() {
+        assert!(belief_horizon("weather:KNYC:tmax").is_none());
+        assert!(belief_horizon("macro").is_none());
+        assert!(belief_horizon("").is_none());
+    }
+
+    #[test]
+    fn date_shaped_but_impossible_calendar_date_is_none() {
+        // Passes the shape check; the timestamp parse rejects month 13 / day 99.
+        assert!(belief_horizon("x:2026-13-99").is_none());
+    }
+
+    #[test]
+    fn wrong_shape_is_not_mistaken_for_a_date() {
+        assert!(belief_horizon("x:2026/06/12").is_none()); // slashes, not dashes
+        assert!(belief_horizon("x:26-06-12").is_none()); // 8 chars, not 10
+        assert!(belief_horizon("x:2026-6-12").is_none()); // not zero-padded
     }
 }

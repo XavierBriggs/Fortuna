@@ -10,6 +10,141 @@ commit gate, `fortuna-invariants` untouched except at E.3 (operator-waive-flagge
 
 ---
 
+## [Post-merge integration] ledger: `BeliefsRepo::resolved_persona_stats` — the persona-scoring data source (this commit)
+
+Operator-directed ("complete this" — the open-offer query). The clean data source that unblocks
+Slice 3's review folding AND the §20.1 ROTA personas-view. New
+`BeliefsRepo::resolved_persona_stats(persona_id, version) -> ResolvedPersonaStats { persona_id,
+persona_version, samples: Vec<(p,outcome)>, clv_bps: Vec<f64> }`: the scope's resolved beliefs
+grouped by the fan-out provenance `{persona_id, persona_version}`, over SCOREABLE events, in
+`created_at` order — mirrors `resolved_stats` but keyed on provenance instead of category.
+Ledger-native (the repo layer holds no `fortuna-cognition` types — the dep is test/build-only); the
+daemon does the one-line wrap into `persona_scoring::PersonaScopeRecord`. The handoff §8 was updated
+to consume it (placeholder → the real query + wrap).
+
+Verified: new `#[sqlx::test] resolved_persona_stats_groups_resolved_beliefs_by_provenance_scope`
+green (live sqlx macro-check) — proves open/other-version/other-persona/non-persona beliefs are all
+excluded, ordering by `created_at`, measurable-CLV-only, empty-scope-not-an-error. Offline cache
+regenerated per-crate (one new `.sqlx` file, root untouched); offline build + fmt + `clippy
+--workspace --all-targets -D warnings` clean; full workspace test green except the pre-existing
+Track-C `kinetics_dto` red.
+
+Shared-doc touches: handoff §8 (this track's own doc).
+
+## [Post-merge integration] Slice 3 ADDED to the Track-A handoff (operator-directed, doc-only) (commit 927ecbd)
+
+Per operator ("add slice 3 to the track-a handoff"), `persona-live-wiring-handoff.md` gains §8: how
+Track A folds persona promote/retire verdicts into its weekly review. Documented, not built —
+consistent with §21's decision that persona scoring is an **additive parallel layer** (it does NOT
+extend `review::ScopeKey`, whose struct literal is Track A's at `daemon.rs:1024`). The section gives
+the exact `score_persona`/`propose_promotion` API (already built + tested), the recommendation-only
+routing to `#fortuna-review` (I7), and honestly flags the one data dependency — gathering resolved
+beliefs grouped by the provenance `{persona_id, persona_version}` — with two paths (filter the
+existing `BeliefsRepo::recent` scoreboard, or a dedicated `resolved_persona_stats` query Track E will
+add on request, which the §20.1 ROTA personas-view also needs). Doc-only; no code, no battery.
+
+## [Post-merge integration] Slice 2c — belief `horizon` helper + the Track-A wiring handoff (commit fa9e8ee)
+
+The last building block + the handoff that completes Track E's "expose; Track A wires" obligation.
+
+- **`persona_beliefs::belief_horizon(region_key) -> Option<UtcTimestamp>`** — derives the belief
+  resolution horizon for the live fan-out (the tests passed it by hand): the end of the UTC day
+  (`T23:59:59.999Z`) of the `YYYY-MM-DD` segment in the region_key. Works for both shipped personas
+  (`weather:…:2026-06-12`, `macro:…:2026-06-12`); `None` (→ daemon persists the artifact, skips
+  beliefs) when there's no parseable date. Panic-free (char-iterated, no indexing); calendar-range
+  validity is delegated to the timestamp parse. 6 unit tests (operator-chosen approach: a tested
+  helper from the region_key date, over doc-only or a frontmatter field).
+- **`docs/design/persona-live-wiring-handoff.md`** — the paste-ready Track-A prompt: the
+  `[personas]` config section (opt-in, default-off), boot-time load + registry hash-validation, and
+  the ~15-line `drive()` step (read signals via `recent_by_kind` → `SignalEnvelope` → `run_due_personas`
+  → persist `domain_analyses` + `belief_horizon` + `map_persona_analysis` + `persist_beliefs` → alert
+  defects), with the two integration decisions that are Track A's (the persona `StrategyId`; ULID
+  minting). Every API signature in it was verified against the code (the `validate_against`/
+  `RegistryHead` pattern corrected to match `persona_e2e.rs`).
+
+With this, the persona library is fully exposed for the live loop: nothing further is Track-E code
+for personas to run — only Track A's `drive()` glue remains (the handoff). Verified: 6 horizon unit
+tests green; `fmt` + `clippy --workspace --all-targets -D warnings` clean; full workspace test green
+except the pre-existing Track-C `kinetics_dto` red. No new DST arm (the helper is pure + unit-tested;
+the 2b corpus is unaffected).
+
+Shared-doc touches: none (new Track-E-owned design doc + code only).
+
+## [Post-merge integration] Slice 2b — cognition: `run_due_personas` orchestrator (the live-loop brain) (commit b77cbe9)
+
+The DB-free per-tick orchestrator that decides WHICH `(persona, region_key)` runs fire and
+executes them — the piece that makes personas actually run live. New
+`crates/fortuna-cognition/src/persona_orchestrator.rs`: `run_due_personas(now, schedules,
+signals, state, mind, budget) -> Vec<PersonaRunResult>`. A `(persona, region_key)` is due by a
+fresh signal it reads (coalesced via `PersonaTriggerGate`) OR a due cadence (`CadenceScheduler`);
+each runs once via the existing `run_persona_analysis` (so the §4 firewall, budget throttle,
+schema validation, and degrade-to-defects are all inherited). `region_key` is derived by
+substituting the persona's `{field}` template from the triggering signal's payload
+(`fill_region_key`); a signal missing a field is skipped, never a crash. DB-free: returns
+`PersonaRunResult`s; the daemon mints the analysis id, persists `domain_analyses`, derives the
+belief `horizon`, fans out via `map_persona_analysis`, and persists beliefs (the 2c handoff).
+
+Built by a subagent (tests-first), then verified + reviewed by the main loop. Reviewer
+(feature-dev:code-reviewer) cleared the hard questions (UTF-8 slicing safety, coalescing,
+determinism, DB-free, no-panic) and raised two sub-bar items I fixed: the gate's `complete()`
+count is now an explicit reasoned discard (always 0 in the serial-tick model) rather than silent;
+the `render_signal_body` determinism unit test now uses two independent constructions + a
+serde_json key-order canary (was vacuous). 14 integration tests (signal/cadence/coalescing/
+budget-throttle/unread-kind/firewall-injection/determinism) + a seeded DST arm
+(`persona_orchestrator_dst`, wired into `scripts/run-dst.sh`, run at 500 scenarios clean).
+
+Verified: `cargo test -p fortuna-cognition` all green (orchestrator 14 + DST + every existing
+suite); `fmt` + `clippy --workspace --all-targets -D warnings` clean; full workspace test green
+except the pre-existing Track-C `kinetics_dto` red; DST corpus green.
+
+Shared-doc touches: none (code only; `scripts/run-dst.sh` gains the orchestrator arm).
+
+## [Post-merge integration] Slice 2a — ledger: `SignalsRepo::recent_by_kind` (the daemon's signal read-back) (commit 0cc6bf9)
+
+The live daemon could not read signals back (`SignalsRepo` had only insert/count/dedup), so a
+persona had no way to assemble its untrusted `<context-item>` blocks in the live loop. Added
+`SignalsRepo::recent_by_kind(kinds, received_after, limit) -> Vec<RecentSignalRow>` (newest-first,
+inclusive window, empty-kinds → empty) + the `RecentSignalRow` row type (re-exported from
+`fortuna_ledger`). Pure read on the append-only table; the SIGNAL stream stays data, never
+instructions (spec 5.11 / design §4). The orchestrator (2b) will pass these rows to
+`run_persona_analysis`; the daemon (Track A) calls this query.
+
+Design note (decided 2026-06-13): `fortuna-cognition` has NO `fortuna-ledger` dep, so the
+orchestrator RETURNS drafts and the daemon PERSISTS (the house pattern). Per operator: **Track E
+exposes the building blocks; Track A wires `drive()`** — so this query + the 2b orchestrator are
+mine, the `drive()` call-site is Track A's (handoff doc to follow).
+
+Verified: new `#[sqlx::test] recent_by_kind_filters_by_kind_and_window_newest_first` green (live
+sqlx macro-check against Postgres); offline cache regenerated PER-CRATE (`cd crates/fortuna-ledger
+&& cargo sqlx prepare` → one new `.sqlx/query-*.json`, root `.sqlx/` untouched); `SQLX_OFFLINE=true`
+build green; `fmt` + `clippy --workspace --all-targets -D warnings` clean; full workspace test =
+green except the pre-existing Track-C `kinetics_dto` red (GAPS "GATE FINDING 2026-06-13").
+
+Shared-doc touches: none (code + ledger only).
+
+## [Post-merge integration] Slice 1 — §15 I6 persona field-surface invariant pin (operator-approved waive) (commit 76a748f)
+
+Context: Track E was merged to `main` (verifier GATE ACCEPT @2668291); `main` has since advanced
+93 commits (Track A's `fortuna-live` daemon, perps, …). The operator approved (2026-06-13)
+building the remaining gated items — the §15 invariant pin (now), then the live-daemon wiring +
+§10 review folding. Work continues on branch `persona-live-integration` (off current `main`), NOT
+the stale `track-e`.
+
+Added `crates/fortuna-invariants/tests/i6_persona_propose_only.rs` (ADD-only; the protected
+crate's first persona-facet pin — **the operator waived the `fortuna-invariants` touch**). Two
+assertions, mirroring the existing `ProposalDraft`/`MindOutput` field-set pin (design §15):
+`PersonaOutcome`'s exact serialized key set is the 12 data-only fields (any order/size/price field
+breaks the test — the persona artifact carries no execution intent), and the `domain_analyses`
+table carries no order/size/price column (migration scan). Existing I6 assertions untouched.
+
+Reviewed by feature-dev:code-reviewer — one finding fixed (`size` added to the migration deny-list
+for symmetry with the in-memory list). Verified: targeted 2/2 green; FULL
+`cargo test --workspace --no-fail-fast` = 144 suites green + 1 PRE-EXISTING unrelated red
+(`fortuna-venues::kinetics_dto`, a Track-C fixture-classification gap — see GAPS "GATE FINDING
+2026-06-13"); `fmt` + `clippy --workspace --all-targets -D warnings` clean.
+
+Shared-doc touches: none (code + ledger only).
+
 ## Persona authoring/promotion runbook (loop §8) — the operator manual (this commit)
 
 New `docs/runbooks/persona-authoring.md` — the operator-facing manual for the persona

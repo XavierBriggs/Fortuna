@@ -205,6 +205,34 @@ async fn main() -> Result<()> {
     // BEFORE `pool` moves into the halt poller. Absent [synthesis] => None =>
     // the loop never reloads (a mechanically-only daemon).
     let synthesis_refresh = dcfg.synthesis.clone().map(|syn| (pool.clone(), syn));
+    // slice-4d: hand drive() a pool for SCALAR-belief persistence exactly when a
+    // scalar producer is composed. funding_forecast is the only scalar producer
+    // today (perp_event_basis trades but drafts no scalar belief — trait default
+    // is empty); the perp_event_basis arm is included so a future scalar
+    // producer behind it persists with no further wiring, and draining an empty
+    // buffer is a cheap no-op. Absent both => None => fail closed (no persist).
+    // Built BEFORE `pool` moves into the halt poller below.
+    let scalar_belief_persist =
+        if dcfg.funding_forecast.is_some() || dcfg.perp_event_basis.is_some() {
+            Some(pool.clone())
+        } else {
+            None
+        };
+    // slice-4e: the Sim-soak PerpTick feed. When [funding_forecast] carries a
+    // `ticker_feed_jsonl`, load the RECORDED kinetics ticker frames so the perp
+    // producers FIRE each segment (the Sim loop only sources BookSnapshots);
+    // absent => None (the producers compose but stay idle until a real feed).
+    let perp_tick_feed = match dcfg
+        .funding_forecast
+        .as_ref()
+        .and_then(|f| f.ticker_feed_jsonl.as_deref())
+    {
+        Some(path) => Some(
+            fortuna_live::perp_feed::PerpTickFeed::from_ws_ticker_jsonl(path)
+                .context("load slice-4e Sim-soak perp tick feed")?,
+        ),
+        None => None,
+    };
     // T4.1/M2 (spec 5.8): the daily reconciliation reuses the SAME synthesis
     // mind (one build, not a second) — a stub mind self-skips. Built BEFORE
     // `pool` moves into the halt poller below.
@@ -340,8 +368,10 @@ async fn main() -> Result<()> {
         slack_router.as_ref(),
         &mut daily,
         synthesis_refresh,
+        scalar_belief_persist,
         reconciliation,
         reviews,
+        perp_tick_feed,
     )
     .await
     .context("daemon loop")?;

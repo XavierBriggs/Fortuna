@@ -75,8 +75,10 @@ use fortuna_core::money::Cents;
 use fortuna_ledger::{BeliefsRepo, CalibrationParamsRepo, HaltsRepo, PgIntentJournal};
 use fortuna_ops::alerts::DegradeThresholds;
 use fortuna_ops::FortunaConfig;
+use fortuna_runner::funding_forecast::FundingForecast;
 use fortuna_runner::mech_extremes::{MechExtremes, MechExtremesConfig};
 use fortuna_runner::mech_structural::{MechStructural, MechStructuralConfig};
+use fortuna_runner::perp_event_basis::PerpEventBasis;
 use fortuna_runner::synthesis::{SynthesisConfig, SynthesisStrategy};
 use fortuna_runner::{RunnerConfig, RunnerError, SimRunner, Stage, Strategy};
 use fortuna_state::MarkPolicy;
@@ -324,6 +326,35 @@ pub async fn compose_runner(
         strategies.push(Box::new(strat));
     }
 
+    // slice 4c: the two OPT-IN perp strategies, composed ALONGSIDE the
+    // mechanical/synthesis arms (I1: same gate/exec path). Both fire only on
+    // `EventPayload::PerpTick`s, so — exactly like mech_extremes is inert in
+    // pure-sim until real markets arrive — these are INERT until a producer
+    // injects PerpTicks (the live kinetics feed, a later sub-slice). Neither is
+    // veto-enrolled: funding_forecast proposes NOTHING (zero-capital belief
+    // producer), and leaving perp_event_basis out of the veto avoids requiring a
+    // veto mind (a veto-enrolled strategy with no veto mind FAILS to boot,
+    // runner.rs). The composition (registration) is the deliverable.
+    if dcfg.funding_forecast.is_some() {
+        strategies.push(Box::new(FundingForecast::new().map_err(|e| {
+            DaemonError::Compose {
+                reason: format!("funding_forecast rejected its config: {e}"),
+            }
+        })?));
+    }
+    if let Some(peb) = &dcfg.perp_event_basis {
+        let cfg = crate::compose::build_perp_event_basis_config(peb).map_err(|e| {
+            DaemonError::Compose {
+                reason: format!("perp_event_basis ladder invalid: {e}"),
+            }
+        })?;
+        strategies.push(Box::new(PerpEventBasis::new(cfg).map_err(|e| {
+            DaemonError::Compose {
+                reason: format!("perp_event_basis rejected its config: {e}"),
+            }
+        })?));
+    }
+
     let envelopes = full
         .envelopes
         .iter()
@@ -454,6 +485,13 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     // every smoke that does not exercise refresh) — the loop then never
     // reloads.
     synthesis_refresh: Option<(PgPool, SynthesisSection)>,
+    // slice-4d: the SCALAR-belief persist pool. `Some(pool)` when a scalar
+    // producer (funding_forecast) is composed; `None` otherwise (fail closed: no
+    // persist). UNLIKE `synthesis_refresh`, the scalar drain+persist runs EVERY
+    // segment regardless of synthesis — funding_forecast is independent of the
+    // synth arm (it drafts a scalar belief each PerpTick, not gated on an edge
+    // set), so its drain lives OUTSIDE the `synthesis_refresh` block below.
+    scalar_belief_persist: Option<PgPool>,
     // T4.1/M2 (spec 5.8): the daily-reconciliation pool + mind. Some => the
     // daily boundary runs run_daily_reconciliation (reads the day, writes the
     // journal, places NO orders); None => no reconciliation (smokes that do not
@@ -464,6 +502,12 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     // runs the calibration audit + GO/NO-GO recs (recs only, I7) and routes them;
     // None => no review fires (the smokes that do not exercise it).
     mut reviews: Option<ReviewWiring>,
+    // slice-4e (Sim soak): a recorded PerpTick feed. `Some` => one recorded
+    // PerpTick is injected (via the slice-4b seam) at the head of EACH segment so
+    // the perp producers (funding_forecast, perp_event_basis) FIRE — the Sim loop
+    // only sources BookSnapshots, so they are otherwise inert. `None` => no feed
+    // (the producers compose but stay idle). RECORDED data only; never fabricated.
+    mut perp_tick_feed: Option<crate::perp_feed::PerpTickFeed>,
 ) -> Result<(LoopStats, fortuna_runner::ShutdownReport), DaemonError> {
     let mut total = LoopStats::default();
     // Dedup state OWNED ACROSS SEGMENTS (gate finding 2026-06-11: keeping
@@ -484,7 +528,20 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     // per-persist increment keeps them unique WITHIN a run. (A full ULID is the
     // ledgered req-6 refinement; persist_beliefs documents the same.)
     let mut belief_id_base = Clock::now(runner.clock.as_ref()).epoch_millis().max(0) as u64;
+    // slice-4d: the SCALAR-belief id monotonic base, seeded identically to
+    // `belief_id_base` (drive-start epoch — unique across runs; the per-persist
+    // increment keeps them unique within a run). Its OWN counter so the scalar
+    // ("01SCB") and binary ("01BLF") id spaces advance independently.
+    let mut scalar_belief_id_base = belief_id_base;
     loop {
+        // slice-4e: feed one recorded PerpTick at the head of the segment so the
+        // perp producers fire during this segment's ticks (EventOrigin::External,
+        // dispatched by the next tick — replay-safe, tick() untouched). Looping
+        // keeps the soak continuously fed; `None` => no feed (producers idle).
+        if let Some(feed) = &mut perp_tick_feed {
+            let (venue, market, marks, funding) = feed.next_tick();
+            runner.inject_perp_tick(venue, market, marks, funding);
+        }
         let stats = run_loop(
             runner,
             cadence,
@@ -570,6 +627,40 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                         format!(
                             "belief persist FAILED — {} draft(s) lost this segment: {e}",
                             drained.len()
+                        ),
+                    )),
+                }
+            }
+        }
+
+        // slice-4d: drain + persist the SCALAR belief drafts per segment. This
+        // runs OUTSIDE the `synthesis_refresh` block on purpose — funding_forecast
+        // (the scalar producer) is independent of the synthesis arm: it drafts a
+        // scalar belief on every PerpTick, with or without a [synthesis] section,
+        // so gating this on synthesis_refresh-Some would silently drop the perp
+        // beliefs whenever synthesis is absent. Mirrors the binary path's failure
+        // posture: a persist FAILURE alerts + counts but never crashes (beliefs are
+        // the calibration substrate, not the money path); the drained set is lost
+        // on failure (re-buffering is the same ledgered refinement). `None` =>
+        // no scalar producer composed => nothing to drain (fail closed).
+        if let Some(spool) = &scalar_belief_persist {
+            let scalar_drained = runner.drain_pending_scalar_beliefs();
+            if !scalar_drained.is_empty() {
+                let now_iso = Clock::now(runner.clock.as_ref()).to_iso8601();
+                match persist_scalar_beliefs(
+                    spool,
+                    &scalar_drained,
+                    &now_iso,
+                    scalar_belief_id_base,
+                )
+                .await
+                {
+                    Ok(persisted) => scalar_belief_id_base += persisted as u64,
+                    Err(e) => alerts.push((
+                        fortuna_ops::MessageKind::Ops,
+                        format!(
+                            "scalar belief persist FAILED — {} draft(s) lost this segment: {e}",
+                            scalar_drained.len()
                         ),
                     )),
                 }
@@ -851,6 +942,87 @@ pub async fn persist_beliefs(
             .await
             .map_err(|e| DaemonError::Compose {
                 reason: format!("belief insert for {}: {e}", draft.event_id),
+            })?;
+        n += 1;
+    }
+    Ok(n)
+}
+
+/// Persist drained SCALAR belief drafts to the `scalar_beliefs` ledger
+/// (slice-4d) — the scalar mirror of [`persist_beliefs`]. funding_forecast
+/// (composed by slice-4c) drafts these each PerpTick; the runner buffers them
+/// and `drain_pending_scalar_beliefs` hands them here. Returns the count
+/// persisted.
+///
+/// UNLIKE the binary path, `scalar_beliefs` has NO `events` FK — `event_key`
+/// is free-form at rung-0 (migration 20260613000002_scalar_beliefs.sql:21,25),
+/// so there is NO event-existence/create step: the scalar belief row IS the
+/// persistence record. The append-only `scalar_beliefs` table is itself the
+/// auditable substrate (mirrors the binary note; the DB trigger blocks any
+/// mutation/DELETE). Belief ids are unique sortable TEXT PKs from the caller-
+/// monotonic `id_base` + index (NOT full ULIDs — the daemon does not thread the
+/// runner's IdGen; uniqueness + sort order is all the PK needs; ledgered, same
+/// as `persist_beliefs`).
+///
+/// `predictive` MUST be `PredictiveDistribution::Scalar { quantiles, unit }`
+/// (funding_forecast only emits Scalar; the harness/persist boundary validates
+/// the shape). A draft that is somehow NOT Scalar is SKIPPED (not an error for
+/// the whole batch) — defensive, never silently coercing a non-scalar claim
+/// into the scalar table.
+pub async fn persist_scalar_beliefs(
+    pool: &PgPool,
+    drafts: &[(
+        fortuna_core::market::StrategyId,
+        fortuna_cognition::scalar_beliefs::ScalarBeliefDraft,
+    )],
+    now_iso: &str,
+    id_base: u64,
+) -> Result<usize, DaemonError> {
+    use fortuna_cognition::scoring::PredictiveDistribution;
+    use fortuna_ledger::ScalarBeliefsRepo;
+    let beliefs = ScalarBeliefsRepo::new(pool.clone());
+    let mut n = 0usize;
+    for (i, (strategy, draft)) in drafts.iter().enumerate() {
+        // Defensive: only the Scalar variant lands in scalar_beliefs. A
+        // non-Scalar draft (funding_forecast never emits one) is skipped, not
+        // an error — never coerce a binary/categorical claim into this table.
+        let PredictiveDistribution::Scalar { quantiles, unit } = &draft.predictive else {
+            continue;
+        };
+        // quantiles ride as JSONB (the prob_claims/v1 quantile fan); the table
+        // stores them as a serde_json::Value, the cognition type is dev-only in
+        // the ledger crate.
+        let quantiles_json = serde_json::to_value(quantiles).map_err(|e| DaemonError::Compose {
+            reason: format!(
+                "scalar belief quantiles serialize for {}: {e}",
+                draft.event_key
+            ),
+        })?;
+        // The row carries ONE provenance JSONB (no separate evidence column —
+        // migration 20260613000002_scalar_beliefs.sql), so fold the draft's
+        // provenance + evidence into it (both are DATA, spec 5.11), mirroring
+        // how the run_reconciliation journal nests its sub-objects.
+        let provenance_json = serde_json::json!({
+            "provenance": draft.provenance,
+            "evidence": draft.evidence,
+        });
+        // Unique sortable TEXT PK from the caller-MONOTONIC base — distinct
+        // prefix from the binary "01BLF" so the two id spaces never collide.
+        let belief_id = format!("01SCB{:021}", id_base + i as u64);
+        beliefs
+            .insert(
+                &belief_id,
+                strategy.as_str(),
+                &draft.event_key,
+                &quantiles_json,
+                unit,
+                &draft.horizon.to_iso8601(),
+                &provenance_json,
+                now_iso,
+            )
+            .await
+            .map_err(|e| DaemonError::Compose {
+                reason: format!("scalar belief insert for {}: {e}", draft.event_key),
             })?;
         n += 1;
     }

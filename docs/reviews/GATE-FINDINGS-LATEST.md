@@ -13,6 +13,71 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-13, cont'd — verifier loop pass)
 
+- **PERSONA-LIVE-INTEGRATION (5 slices: persona live-loop wiring + I6 persona pin)
+  MERGED → main @ f236b6a = GATE ACCEPT.** The persona producer's live-loop
+  (run_due_personas orchestrator emitting order-free PersonaOutcome DRAFTs;
+  SignalsRepo::recent_by_kind read-back; belief_horizon; weekly-review verdict
+  folding). **PROTECTED-CRATE ADDITION (legal):** new i6_persona_propose_only.rs
+  ONLY (+141/0 del, no existing invariant test touched — verified) pins the
+  PersonaOutcome surface AND domain_analyses table to an exact ORDER-FREE field
+  set. MUTATION-PROVEN (serialize cost_cents as forbidden max_price_cents → the
+  surface test reds). persona_runner 12; ledger SignalsRepo 28+ + persona_e2e +
+  scalar_beliefs green; i1+i6(mind+persona)+i7 green. 3-way preserved the perp
+  pipeline. (Merged committed tip 927ecbd; wt-e's uncommitted ledger WIP excluded.)
+
+- **🎯 TRACK C SLICE-4d+4e (belief PERSISTENCE + Sim-soak PerpTick FEED) MERGED →
+  main @ 95799cc = GATE ACCEPT. THE belief-production path is now on main.** A
+  RECORDED perp tick drives a producer to emit a scalar belief that PERSISTS to
+  Postgres. 4d: drive() drains pending scalar beliefs → persist_scalar_beliefs →
+  append-only scalar_beliefs (FK-correct, monotonic; persist-fail alerts non-fatal;
+  binary path byte-unchanged A3). 4e: perp_feed::PerpTickFeed replays the RECORDED
+  92KB kinetics capture (ws__public_orderbook_ticker.jsonl) — RECORDED DATA ONLY,
+  malformed frame = hard error, never fabricated. daemon_smoke 17 incl. the e2e
+  (recorded PerpTick → funding_forecast → drain → persisted row); MUTATION-PROVEN
+  (skip the persist → e2e reds "got 0"). Clock-injected, I6 intact, post-merge
+  check --workspace clean. >> TO ACTIVATE A PRODUCING SOAK: operator enables
+  [funding_forecast] with ticker_feed_jsonl (the fixture or live recorder
+  captures) + restarts the daemon → beliefs persist + ROTA cognition lights.
+
+- **TRACK C SLICE-4c (register perp producers into the daemon) MERGED → main @
+  72adb7a = GATE ACCEPT.** opt-in [funding_forecast]/[perp_event_basis] sections
+  compose the two perp strategies into compose_runner (additive, same gate path
+  I1). FAIL-CLOSED + additive MUTATION-PROVEN (force always-register → composes_
+  perp_strategies_only_when_configured reds); sim byte-unchanged when absent. I6
+  intact (funding_forecast proposes nothing; perp_event_basis propose-only).
+  boot 14 + daemon_smoke 16; post-merge check --workspace clean.
+  ⚠️ **HONEST: this is the COMPOSITION, not the data feed — both strategies are
+  INERT in pure-sim until PerpTicks are injected (4b seam) + a real market catalog
+  (4e). It does NOT by itself make the soak produce beliefs.** The PERP-FEED
+  sub-slice (recorder captures → inject_perp_tick) is what lights them up and is
+  the #1 priority for a PRODUCING soak — the running soak (3690 ticks, healthy)
+  is still belief-empty (events/edges/calibration all 0; ingestion off). For C.
+
+- **TRACK A VENUE/EXEC (kill-switch I4 Kalshi plug + Slack listener) MERGED → main
+  @ 62d4ce4 = GATE ACCEPT.** The last + most safety-critical tranche (track-a
+  RALPH-STOPPED). I4: `freeze --venue kalshi` on a self-spun reactor (own
+  FORTUNA_KILLSWITCH_* creds, NOT the daemon loop); i4_killswitch_independence
+  PASSES (structural dep-graph clean — tokio added but NOT in the forbidden
+  postgres/ledger/cognition set; behavioral freeze with DATABASE_URL gone +
+  runtime killed). kalshi_freeze 1 + kalshi_live_wiring 9. **PROTECTED crate
+  fortuna-invariants UNTOUCHED — the I4 test was NOT weakened to admit tokio
+  (verified by empty diff).** I2: re-arm over Slack REFUSED BY CONSTRUCTION (the
+  HaltRequestSink trait has only request_halt, no rearm/clear — a compromised
+  token can halt but never un-halt); allow-list fail-closed, MUTATION-PROVEN
+  (bypass user_allowed → unauthorized + fail_closed tests red). socket 14 +
+  socket_loop 12 + rota 43. Sim/demo only. >> **ALL FOUR ACTIVE TRACKS' WORK NOW
+  ON MAIN** — producers + first trader + dashboard + kill-switch/listener.
+
+- **TRACK C PERP PIPELINE (perp_event_basis STRATEGY + slice-4 composition) MERGED
+  → main @ 9c4026e = GATE ACCEPT.** The FIRST perp trader + its Sim ingestion seam.
+  I6: the strategy emits ONE UNSIZED maker leg (no qty — the harness sizes; never
+  sizes/execs/mutates). I7: Mechanical + Stage::Sim. I1: returns a Proposal (rides
+  the universal gate, no bypass). Money: limit/fair in Cents, f64 forecast-domain
+  only, no panic. perp_event_basis 14 + DST 2; full fortuna-runner suite green
+  (slice-4 inject_perp_tick replay-safe, tick() untouched). MUTATION-PROVEN:
+  disable the fee-trap → non_tradeable_basis_emits_nothing + fee_trap_is_strict
+  red. Live-orderbook trade-through stays fixture/operator-gated (Sim only).
+
 - **TRACK B ROTA DASHBOARD (TOTAL OBSERVABILITY) MERGED → main @ 04d2f5d = GATE
   ACCEPT.** The operator's single pane of glass — all 6 mission areas + producer
   scorecards (forecasts CLV/CRPS + persona) + ingestion triad. Clean merge.

@@ -165,6 +165,63 @@ fn review_section_parses_from_the_committed_example_and_is_optional() {
 }
 
 #[test]
+fn perp_sections_are_optional_and_parse_through_to_daemon_toml() {
+    // slice 4c opt-in: the [funding_forecast] + [perp_event_basis] sections'
+    // PRESENCE composes the two perp strategies (wired at compose_runner);
+    // ABSENT => not composed (fail closed). The committed example ships them
+    // COMMENTED OUT, so the bare example leaves both None.
+    let example = include_str!("../../../config/fortuna.example.toml");
+    let without = DaemonToml::parse(example).expect("parse ok");
+    assert!(
+        without.funding_forecast.is_none(),
+        "no [funding_forecast] => not composed"
+    );
+    assert!(
+        without.perp_event_basis.is_none(),
+        "no [perp_event_basis] => not composed"
+    );
+
+    // Present: a full config string with BOTH sections (a 3-rung less/between/
+    // greater ladder) parses RawToml -> DaemonToml with both Some, the ladder
+    // and scalars carried through verbatim (NON-VACUOUS values).
+    let with = format!(
+        "{example}\n\
+         [funding_forecast]\n\
+         [perp_event_basis]\n\
+         perp_market = \"KXBTCPERP\"\n\
+         fee_floor_dollars = 4.0\n\
+         min_basis_dollars = 1.0\n\
+         edge_premium_cents = 2\n\
+         [perp_event_basis.ladder.\"KXBTC-LO\"]\n\
+         kind = \"less\"\n\
+         cap_dollars = 60000.0\n\
+         [perp_event_basis.ladder.\"KXBTC-MID\"]\n\
+         kind = \"between\"\n\
+         floor_dollars = 60000.0\n\
+         cap_dollars = 70000.0\n\
+         [perp_event_basis.ladder.\"KXBTC-HI\"]\n\
+         kind = \"greater\"\n\
+         floor_dollars = 70000.0\n"
+    );
+    let cfg = DaemonToml::parse(&with).expect("parse with both perp sections ok");
+    assert!(
+        cfg.funding_forecast.is_some(),
+        "[funding_forecast] present => Some"
+    );
+    let peb = cfg
+        .perp_event_basis
+        .expect("the [perp_event_basis] section is present");
+    assert_eq!(peb.perp_market, "KXBTCPERP");
+    assert_eq!(peb.fee_floor_dollars, 4.0);
+    assert_eq!(peb.min_basis_dollars, 1.0);
+    assert_eq!(peb.edge_premium_cents, 2);
+    assert_eq!(peb.ladder.len(), 3);
+    assert_eq!(peb.ladder["KXBTC-MID"].kind, "between");
+    assert_eq!(peb.ladder["KXBTC-MID"].floor_dollars, Some(60000.0));
+    assert_eq!(peb.ladder["KXBTC-MID"].cap_dollars, Some(70000.0));
+}
+
+#[test]
 fn venue_kalshi_refuses_until_fixture_clearance() {
     // Kickoff hard requirement 7 / GAPS: sim is the only bootable venue
     // in T4.1; kalshi refuses WITH the reason.

@@ -808,6 +808,40 @@ code.
       Strategy/Proposal/runner impedance, the missing perp execution path,
       the prob_claims/v1 scalar dependency, funding_carry data-only) +
       remaining slices ledgered in GAPS "T5.B7 fit-validation".
+      SLICE 3+3b (track C): perp_event_basis basis KERNEL done — kernel 70f333a
+      (merged 4db8764), refined 5fccd5f to the live 3-strike-type ladder
+      (BracketStrike enum, open-tail None, zero money-touch) + real-data e2e on
+      the committed paired-cycle fixture (median $63,961.53 / perp $63,906 /
+      basis −$55.53). Composite fixture lives in fixtures/perp-basis/ (OUT of
+      fixtures/kinetics-perps/ so the venue DTO-coverage tripwire is not tripped;
+      operator-directed; see GAPS).
+      SLICE 3b-STRATEGY (track C): perp_event_basis STRATEGY DONE — propose-only
+      maker-only UNSIZED Cents bracket leg on the bin containing the perp forecast
+      (fortuna-runner, additive; holds its own catalog, no venue-DTO change). A
+      verification pass caught + fixed a bin_prob bug (one-sided bins were dropped
+      to 0, breaking the validated basis); 14 tests + DST oracle. DEMO-ENV
+      validated on a fresh live cycle (perp/ladder agree <0.1%, both basis signs).
+      SLICE 4 (daemon composition) SCOPED: found that EventPayload::PerpTick has
+      NO PRODUCER (only consumers) — registering the strategies alone leaves them
+      inert; slice 4 must build the perp ingestion→PerpTick path. Decomposed 4a-4e
+      (see GAPS). 4a DONE: KineticsPerpObservation::from_ws_ticker (fortuna-venues
+      kinetics, bus-free, verbatim WS-ticker→perp-domain, 4 tests). 4b DONE:
+      SimRunner::inject_perp_tick (the ingestion seam; tick() UNTOUCHED → DST
+      corpus re-ran green; Sim-soak proves the real funding_forecast fires on an
+      injected PerpTick). 4c DONE: registered both perp strategies into
+      compose_runner via opt-in [funding_forecast]/[perp_event_basis] sections
+      (config-supplied bracket ladder, strictly validated; no veto-enrollment;
+      additive 489/0; 11 tests incl. a compose_runner boot test). 4d DONE: the
+      scalar egress — drain_pending_scalar_beliefs wired into drive(), persisted
+      to scalar_beliefs (gated on a composed scalar producer; synth-independent;
+      own 01SCB id space; binary path + tick() byte-unchanged). 4e DONE: the
+      Sim-soak PerpTickFeed (replays recorded kinetics ticker frames via
+      [funding_forecast].ticker_feed_jsonl, one PerpTick/segment through the 4b
+      seam) — funding_forecast now fires + PERSISTS in a soak. PROVEN end-to-end
+      by a #[sqlx::test] (recorded PerpTick → scalar_beliefs row, MUTATION-PROVEN);
+      5 new tests, all 8 drive() smokes at the 15-arg sig. Inert-producer finding
+      CLOSED. Remaining for T5.B7: live wt-c daemon-run proof + perp_event_basis
+      live-market catalog (folded into the Kalshi demo-flip).
 - [ ] T5.B8 Ops: kill-switch perps flatten (reduce_only IOC + cancel-all),
       margin/funding telemetry, funding-regime dashboard panel.
 

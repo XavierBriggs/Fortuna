@@ -163,8 +163,10 @@ async fn daemon_smoke_boot_ticks_signal_shutdown(pool: PgPool) {
         None,
         &mut daily,
         None, // S4: no per-segment edge refresh in this smoke
+        None, // slice-4d: no scalar producer in this smoke
         None, // M2: no reconciliation in this smoke
         None, // M2: no reviews in this smoke
+        None, // slice-4e: no perp feed in this smoke
     )
     .await
     .expect("daemon drive");
@@ -256,8 +258,10 @@ async fn signal_with_working_orders_cancels_them_and_audits(pool: PgPool) {
         None,
         &mut daily,
         None, // S4: no per-segment edge refresh in this smoke
+        None, // slice-4d: no scalar producer in this smoke
         None, // M2: no reconciliation in this smoke
         None, // M2: no reviews in this smoke
+        None, // slice-4e: no perp feed in this smoke
     )
     .await
     .expect("daemon drive");
@@ -458,8 +462,10 @@ async fn per_segment_refresh_picks_up_a_newly_confirmed_edge(pool: PgPool) {
         None,
         &mut daily,
         synthesis_refresh,
+        None, // slice-4d: no scalar producer in this smoke
         None, // M2: no reconciliation in this smoke
         None, // M2: no reviews in this smoke
+        None, // slice-4e: no perp feed in this smoke
     )
     .await
     .expect("daemon drive");
@@ -587,8 +593,10 @@ async fn refresh_failure_keeps_last_known_edges_alerts_and_survives(pool: PgPool
         None,
         &mut daily,
         Some((broken, syn)),
+        None, // slice-4d: no scalar producer in this smoke
         None, // M2: no reconciliation in this smoke
         None, // M2: no reviews in this smoke
+        None, // slice-4e: no perp feed in this smoke
     )
     .await
     .expect("the loop must SURVIVE a failing refresh");
@@ -661,6 +669,82 @@ async fn compose_runner_composes_mech_extremes_with_veto_only_when_configured(po
     assert!(
         !ids2.iter().any(|i| i == "mech_extremes"),
         "no [mech_extremes] => not composed: {ids2:?}"
+    );
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn compose_runner_composes_perp_strategies_only_when_configured(pool: PgPool) {
+    // slice 4c: a [funding_forecast] section composes the zero-capital funding
+    // belief producer, and a [perp_event_basis] section (with a valid ladder)
+    // composes the propose-only basis strategy — both ALONGSIDE mech_structural,
+    // NEITHER veto-enrolled (so no veto mind is required). Their absence leaves
+    // them out (fail closed). NON-VACUOUS: WITH the sections the runner BOOTS and
+    // strategy_ids contains both perp ids; WITHOUT them, neither holds.
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let full = FortunaConfig::load_file(example_path).unwrap();
+
+    // WITH both perp sections (a 3-rung less/between/greater ladder): composed,
+    // and the runner boots clean (no veto mind needed — neither is enrolled).
+    let dcfg_with = DaemonToml::parse(&format!(
+        "{text}\n\
+         [funding_forecast]\n\
+         [perp_event_basis]\n\
+         perp_market = \"KXBTCPERP\"\n\
+         fee_floor_dollars = 4.0\n\
+         min_basis_dollars = 1.0\n\
+         edge_premium_cents = 2\n\
+         [perp_event_basis.ladder.\"KXBTC-LO\"]\n\
+         kind = \"less\"\n\
+         cap_dollars = 60000.0\n\
+         [perp_event_basis.ladder.\"KXBTC-MID\"]\n\
+         kind = \"between\"\n\
+         floor_dollars = 60000.0\n\
+         cap_dollars = 70000.0\n\
+         [perp_event_basis.ladder.\"KXBTC-HI\"]\n\
+         kind = \"greater\"\n\
+         floor_dollars = 70000.0\n"
+    ))
+    .unwrap();
+    let runner = compose_runner(pool.clone(), &full, &dcfg_with, t0(), 1, stub_mind())
+        .await
+        .expect("boots with both perp strategies composed (neither veto-enrolled)");
+    let ids: Vec<String> = runner
+        .strategy_ids()
+        .iter()
+        .map(|i| i.to_string())
+        .collect();
+    assert!(
+        ids.iter().any(|i| i == "funding_forecast"),
+        "[funding_forecast] present => composed: {ids:?}"
+    );
+    assert!(
+        ids.iter().any(|i| i == "perp_event_basis"),
+        "[perp_event_basis] present => composed: {ids:?}"
+    );
+    assert!(
+        ids.iter().any(|i| i == "mech_structural"),
+        "mech_structural still composed alongside: {ids:?}"
+    );
+
+    // WITHOUT the perp sections: neither composed (fail closed).
+    let dcfg_without = DaemonToml::parse(&text).unwrap();
+    let runner2 = compose_runner(pool, &full, &dcfg_without, t0(), 2, stub_mind())
+        .await
+        .unwrap();
+    let ids2: Vec<String> = runner2
+        .strategy_ids()
+        .iter()
+        .map(|i| i.to_string())
+        .collect();
+    assert!(
+        !ids2
+            .iter()
+            .any(|i| i == "funding_forecast" || i == "perp_event_basis"),
+        "no perp sections => neither composed: {ids2:?}"
     );
 }
 
@@ -949,8 +1033,10 @@ async fn drive_drains_and_persists_the_synthesis_arms_beliefs(pool: PgPool) {
         None,
         &mut daily,
         synthesis_refresh,
+        None, // slice-4d: no scalar producer in this smoke
         None, // M2: no reconciliation in this smoke
         None, // M2: no reviews in this smoke
+        None, // slice-4e: no perp feed in this smoke
     )
     .await
     .expect("daemon drive");
@@ -962,6 +1048,128 @@ async fn drive_drains_and_persists_the_synthesis_arms_beliefs(pool: PgPool) {
     assert!(
         after >= 1,
         "the synth arm's belief drafted during the segment was drained + persisted (got {after})"
+    );
+}
+
+/// slice-4d+4e (operator directive 2026-06-11): the SCALAR-belief egress wired
+/// end-to-end — a RECORDED PerpTick feed fires `funding_forecast`, whose scalar
+/// drafts the per-segment drain PERSISTS to `scalar_beliefs` (the table ROTA
+/// §9.1 groups by `producer`). This is the gate the operator named: the soak
+/// must PRODUCE beliefs; a daemon that ticks but persists 0 is NOT done. It
+/// proves the WHOLE chain: a recorded `ticker` frame -> from_ws_ticker (4a) ->
+/// PerpTickFeed (4e) -> inject_perp_tick (the 4b seam) -> funding_forecast draft
+/// -> drain_pending_scalar_beliefs -> persist_scalar_beliefs (4d).
+///
+/// NON-VACUOUS + MUTATION-PROOF BY CONSTRUCTION: `scalar_beliefs` is empty
+/// before drive; the ONLY writer is the slice-4d drain+persist block, which
+/// fires ONLY when `scalar_belief_persist` is Some AND a PerpTick was fed.
+/// Break the egress (pass `None` for `scalar_belief_persist`) and the post-drive
+/// count stays 0 -> this reds. Drop the `perp_tick_feed` (no PerpTick) and
+/// funding_forecast never drafts -> also 0. (Both mutations verified RED in dev.)
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn drive_drains_and_persists_funding_forecast_scalar_beliefs(pool: PgPool) {
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let full = FortunaConfig::load_file(example_path).unwrap();
+
+    // [funding_forecast] composes the zero-capital scalar producer ALONGSIDE
+    // mech_structural (not veto-enrolled, so no veto mind). It needs no other
+    // config — the PerpTicks arrive via the feed below, not the sim venue.
+    let dcfg = DaemonToml::parse(&format!("{text}\n[funding_forecast]\n")).unwrap();
+    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 70, stub_mind())
+        .await
+        .expect("composition with funding_forecast");
+
+    // The recorded kinetics capture (NEVER fabricated) -> a replayable PerpTick
+    // feed. drive() injects one recorded PerpTick at the head of EACH segment
+    // (the 4b seam), so funding_forecast drafts a scalar belief per segment.
+    let feed = fortuna_live::perp_feed::PerpTickFeed::from_ws_ticker_jsonl(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/kinetics-perps/ws__public_orderbook_ticker.jsonl"
+    ))
+    .expect("recorded ticker fixture parses");
+
+    let before: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM scalar_beliefs WHERE producer = 'funding_forecast'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(before, 0, "no scalar beliefs before drive");
+
+    let (tx, mut stop) = tokio::sync::oneshot::channel::<()>();
+    let mut cadence = StopAtCadence {
+        clock: runner.clock.clone(),
+        sleeps: 0,
+        fire_at: 6, // one full 4-wake segment injects + drains + persists first
+        tx: Some(tx),
+    };
+    let mut poller = NeverHalted;
+    let loop_cfg = LoopConfig {
+        tick_interval_ms: 1000,
+        halt_poll_ms: 500,
+    };
+    let mut scrape = DegradeScrape::new(default_degrade_thresholds());
+    let mut daily = fortuna_live::daemon::DailyScheduler::new();
+
+    let (_stats, _shutdown) = drive(
+        &mut runner,
+        &mut cadence,
+        &mut poller,
+        &loop_cfg,
+        4,
+        &mut stop,
+        |_r, _s| {},
+        &mut scrape,
+        None,
+        &mut daily,
+        None,               // synthesis_refresh: no synth arm in this smoke
+        Some(pool.clone()), // slice-4d: the scalar producer IS composed -> persist
+        None,               // M2: no reconciliation in this smoke
+        None,               // M2: no reviews in this smoke
+        Some(feed),         // slice-4e: recorded PerpTicks so the producer fires
+    )
+    .await
+    .expect("daemon drive");
+
+    let after: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM scalar_beliefs WHERE producer = 'funding_forecast'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        after >= 1,
+        "funding_forecast's scalar belief, fed by a recorded PerpTick, was drained + persisted (got {after})"
+    );
+
+    // The persisted row is a well-formed prob_claims/v1 scalar claim, not an
+    // empty husk: unit "rate" (funding_forecast's domain) + the {0.1,0.5,0.9}
+    // quantile fan. Asserting SHAPE proves the drain carried the real draft.
+    let unit: String = sqlx::query_scalar(
+        "SELECT unit FROM scalar_beliefs WHERE producer = 'funding_forecast' \
+         ORDER BY created_at LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        unit, "rate",
+        "funding_forecast persists a funding-rate claim"
+    );
+    let qlen: i32 = sqlx::query_scalar(
+        "SELECT jsonb_array_length(quantiles) FROM scalar_beliefs \
+         WHERE producer = 'funding_forecast' ORDER BY created_at LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        qlen, 3,
+        "the persisted quantile fan is the {{0.1,0.5,0.9}} forecast"
     );
 }
 
@@ -1152,8 +1360,10 @@ async fn drive_runs_daily_reconciliation_at_the_utc_day_boundary(pool: PgPool) {
         None,
         &mut daily,
         None,                                                               // synthesis_refresh
+        None, // slice-4d: no scalar producer in this e2e
         Some((pool.clone(), journaling_mind("EOD: flat; tomorrow hold."))), // reconciliation
         None, // M2: no reviews in this e2e
+        None, // slice-4e: no perp feed in this e2e
     )
     .await
     .expect("daemon drive");
@@ -1362,8 +1572,10 @@ async fn drive_runs_the_weekly_review_at_the_week_boundary(pool: PgPool) {
         None,
         &mut daily,
         None,    // synthesis_refresh
+        None,    // slice-4d: no scalar producer in this smoke
         None,    // reconciliation
         reviews, // M2: weekly review wiring
+        None,    // slice-4e: no perp feed in this smoke
     )
     .await
     .expect("daemon drive");
@@ -1507,8 +1719,10 @@ async fn drive_runs_the_monthly_review_at_the_month_boundary(pool: PgPool) {
         None,
         &mut daily,
         None,    // synthesis_refresh
+        None,    // slice-4d: no scalar producer in this smoke
         None,    // reconciliation
         reviews, // M2: weekly + monthly review wiring
+        None,    // slice-4e: no perp feed in this smoke
     )
     .await
     .expect("daemon drive");

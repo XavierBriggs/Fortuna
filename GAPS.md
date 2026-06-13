@@ -18,6 +18,124 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK C — slice 4 (daemon composition) SCOPED + the PerpTick-PRODUCER GAP found + sub-slice 4a (KineticsPerpObservation) DONE (2026-06-13)
+
+ARCHITECTURAL FINDING (slice-4 scoping): `EventPayload::PerpTick` has NO PRODUCER anywhere outside tests —
+it is referenced only by the bus definition (fortuna-core) and the two CONSUMER strategies
+(funding_forecast, perp_event_basis). The daemon's event source is INLINE in `SimRunner::tick()`
+(runner.rs:~657): it polls `SimVenue` for books and publishes `BookSnapshot` events; nothing converts
+venue/recorder perp data into `PerpTick`. So merely REGISTERING the perp strategies into the daemon would
+leave them INERT (they ignore every non-PerpTick event). Slice 4's real scope = build the perp ingestion →
+PerpTick path, which the design §5 "register + confirm Sim soak" step did not account for. DECOMPOSITION
+(dependency-ordered, by ownership cleanness):
+  - 4a (DONE, this commit — pure track-C, no coordination): `KineticsPerpObservation::from_ws_ticker`
+    (crates/fortuna-venues/src/kinetics/perp_observation.rs) — builds the perp-DOMAIN half of a PerpTick
+    (MarketId + PerpMarks + FundingObservation) VERBATIM from a WS `ticker` frame; the venue crate stays
+    BUS-FREE (the producer adds the `venue` id to make the bus event). 4 tests (synthetic exact-mapping +
+    field-swap guards, recorded-frame re-derivation, malformed→Err). Foundation for every producer.
+  - 4b (DONE — SAFER design than first sketched): `SimRunner::inject_perp_tick(venue, market, marks,
+    funding)` publishes an EventOrigin::External PerpTick onto the bus; the NEXT `tick()` dispatches it via
+    the EXISTING step-2 `new_events` read — so `tick()` itself is UNTOUCHED (NOT a new drain inside the
+    deterministic core, as first sketched). REPLAY-SAFE: existing DST recordings never inject, so they are
+    byte-identical; the full DST corpus re-ran GREEN (proven, not asserted). Sim-soak test
+    (perp_sim_soak.rs): the REAL funding_forecast FIRES on an injected PerpTick (one scalar belief drains,
+    tagged + Scalar + KXBTCPERP-keyed), and produces NOTHING without a tick — closing the inert-strategy
+    gap. perp_event_basis uses the SAME seam; its book-fed soak rides 4c. inject_perp_tick is also the LIVE
+    producer's seam (4e): KineticsPerpObservation (4a) → inject_perp_tick → the strategies.
+  - 4c (DONE — additive, 489 insertions / 0 deletions): registered FundingForecast + PerpEventBasis into
+    compose_runner via opt-in `[funding_forecast]` / `[perp_event_basis]` sections (MechExtremes precedent;
+    same gate/exec path I1). The perp_event_basis bracket ladder is a CONFIG section (TOML key=market ->
+    {kind=between/greater/less, floor_dollars, cap_dollars}, STRICTLY validated by
+    build_perp_event_basis_config) — sidesteps the fortuna_venues::Market strike-metadata gap; the
+    live-market-list catalog is 4e (future). NEITHER is veto-enrolled (funding_forecast proposes nothing;
+    leaving perp_event_basis out avoids requiring a veto mind). INERT in pure-sim until a producer injects
+    PerpTicks (4b seam) — exactly like mech_extremes is inert without real markets; the COMPOSITION is the
+    deliverable. 11 tests incl. a #[sqlx::test] that boots compose_runner and asserts strategy_ids contains
+    both ONLY when the sections are present (fail-closed otherwise). Touched only compose.rs/boot.rs/
+    daemon.rs/config example/fortuna-live tests — no tick(), no runner logic, no other crate.
+  - 4d (DONE — additive on daemon.rs/main.rs): `drain_pending_scalar_beliefs` wired into drive()'s
+    per-segment loop (parallel to drain_pending_beliefs) → `persist_scalar_beliefs` writes
+    funding_forecast's scalar claims to the `scalar_beliefs` ledger. Gated on a composed scalar producer
+    (`scalar_belief_persist: Option<PgPool>` = Some iff `[funding_forecast]`/`[perp_event_basis]`),
+    fail-closed otherwise; runs OUTSIDE the synthesis-refresh block (funding_forecast is synth-independent);
+    own monotonic id base (`01SCB…`, distinct from the binary `01BLF…`). Binary BeliefDraft path + tick()
+    byte-unchanged (A3).
+  - 4e (DONE — additive, new `fortuna-live::perp_feed`): `PerpTickFeed::from_ws_ticker_jsonl` replays
+    RECORDED kinetics `ticker` frames (`[funding_forecast].ticker_feed_jsonl`); drive() injects one PerpTick
+    per segment via the 4b seam so funding_forecast FIRES in a Sim soak (the Sim loop sources only
+    BookSnapshots — producers otherwise inert). Build path = the live producer's: ticker frame →
+    KineticsPerpObservation::from_ws_ticker (4a) → inject_perp_tick. 5 new tests (4 perp_feed parser vs the
+    real 489-frame capture + a #[sqlx::test] e2e that drives a recorded PerpTick → asserts the persisted
+    scalar_beliefs row, unit "rate"/{0.1,0.5,0.9} fan, MUTATION-PROVEN: break the egress → 0 rows → RED,
+    executed); all 8 drive() smokes at the 15-arg signature. (Live-market-list CATALOG population for
+    perp_event_basis is a SEPARATE future concern — now folded into the Kalshi demo-flip, not 4e.)
+COORDINATION: 4b-4e touch track-A HOT files (daemon.rs/compose.rs/boot.rs/main.rs/runner.rs) — ADDITIVE only
+(new opt-in blocks/fields, no existing body changed); re-check bus+rebase immediately before each.
+STATUS 2026-06-13: slice 4 (4a-4e) ALL DONE; the INERT-PRODUCER FINDING is CLOSED — the Sim soak now
+PRODUCES + PERSISTS scalar beliefs (mutation-proven in CI). Remaining: prove against a live wt-c daemon run
+(scalar_beliefs grows + ROTA /api/rota/v1/cognition shows rows), then the Kalshi demo-flip.
+
+## TRACK C — slice 3b-STRATEGY (perp_event_basis) BUILT + bin_prob bug caught + DEMO-ENV validated on a fresh independent cycle (2026-06-13)
+
+The propose-only `perp_event_basis` STRATEGY (fortuna-runner, additive: new `perp_event_basis.rs` + 1-line
+`pub mod`; NO venue-DTO change — the strategy holds its OWN bracket catalog `MarketId → BracketStrike`,
+sidestepping the missing strike metadata on `fortuna_venues::Market`; live catalog-population from the
+Kalshi market list is the slice-4 daemon concern). On a `PerpTick` it reconstructs bins from `core.books`,
+calls the `compute_basis` kernel, and PROPOSES one maker-only (`Urgency::Passive`) unsized `Cents` bracket
+leg (I6 — no qty field) on the bin CONTAINING the perp forecast when the basis clears the fee-trap.
+14 unit/e2e tests + a DST oracle (independently recomputes the verdict; 6 seeds × 150–300 scenarios).
+
+**BUG CAUGHT IN VERIFICATION (delegate-but-verify, the implementer misdiagnosed it as "cent-quantization"):**
+the first draft's `bin_prob` dropped any ONE-SIDED book (empty bid, live ask) to prob 0.0. The live KXBTC
+far tails quote `0 bid / Nc ask` — 32–33 of the 50 active bins — so dropping them discards the whole low
+tail's ask/2 mass, inflating the implied median (~$64,133 vs the validated $63,961.53) and the basis
+(~−$227 vs −$55.53), BREAKING consistency with the GAPS-validated kernel number. ROOT CAUSE is NOT
+quantization — ALL live YES quotes are whole-cent (verified: 0 sub-cent in the fixture AND the fresh
+cycle). FIX: `bin_prob` = `(bid_or_0 + ask_or_0)/2` (an absent quote is the 0c floor; only a both-empty
+book → 0), exactly reproducing the kernel/fixture treatment of a recorded `"0.0000"` bid. The strategy now
+reproduces the validated median/basis; the e2e ASSERTS it (the thesis carries `median $63961` / `signed_basis
+$-55`); the DST oracle was realigned to mirror `bin_prob` in lockstep; tests/basis_live + ASSUMPTIONS
+corrected. `cargo test -p fortuna-runner` 103/0.
+
+**DEMO-ENV VALIDATION (operator directive: "test against demo kalshi env, the keys are there"):** the
+running recorder (PID 79813, up 2d12h, UNTOUCHED) authenticates to `KALSHI_DEMO_BASE_URL` with the demo
+keys (API-key-id + RSA signature) and continuously captures live demo data → so the demo keys + connection
+are PROVEN live. I ran the strategy's exact basis logic on a FRESH cycle (1781160754035) from today's
+`data/perishable/2026-06-13/` capture — INDEPENDENT of the committed fixture cycle (…753775): 48 between +
+1 greater + 1 less, 0 sub-cent quotes, 33 zero-bid bins; perp KXBTCPERP $64,132 vs ladder implied median
+$64,076.92 → basis **+$55.08 (TRADEABLE)**, target = the [64000, 64499.99) bin containing the mark. **Two
+independent price sources agree to 0.086% (<0.1%)** — the SAME cross-source agreement as the fixture cycle
+but the OPPOSITE basis sign, re-confirming the pipeline AND the bin_prob fix on fresh live demo data. (The
+committed e2e tests the actual Rust code on cycle …753775 = −$55.53; this fresh-cycle check is recorded
+evidence, not a committed test — a second committed cycle e2e is a clean future strengthening.)
+
+**SECOND BUG the DST caught — a latent KERNEL non-determinism (basis.rs), fixed at the root.** At full
+2000-seed depth the DST oracle (which iterates a `Vec` catalog) and the strategy (which iterates a
+`BTreeMap` ladder) diverged on ONE seed: identical bin MULTISET, but `bracket_implied_median` reduced
+`sum_p` in the caller's INPUT order BEFORE sorting. Float addition is non-associative, so the two orders'
+`sum_p` differed by one ULP — enough to flip the 0.5 crossing at an exact cum==0.5 tie on the B5/greater
+boundary (strategy saw median $66,000 + proposed; oracle saw the crossing fall in the open tail → None →
+"not tradeable"). FIX (basis.rs): reduce `sum_p` over the SORTED (canonical) bins, so the median is a pure
+function of the ladder MULTISET, INDEPENDENT of caller input order. Pinned deterministically by a new DST
+corpus seed (`perp_event_basis_sum_order_boundary`, seed 16773216064792667114, replays green / reds on
+regression) + a kernel unit test (`median_is_independent_of_input_order`). The GAPS-validated fixture
+median ($63,961.53) is UNCHANGED by the fix (the shift was sub-ULP). Lesson: an independent DST oracle that
+mirrors the production path but feeds inputs in a different container order is a POWERFUL float-determinism
+fuzzer — it found a kernel wrinkle no single-caller test would.
+
+**FIXTURE RELOCATED OUT of kinetics-perps/ (operator-directed, this iteration).** The slice-3b-kernel note
+below relocated the paired-cycle composite to `fixtures/kinetics-perps/derived/` (a non-recursive-glob
+dodge). The operator reviewed and directed the CLEANER fix (their Option 1): the file is basis/cognition
+data, NOT a Kinetics venue DTO, so it belongs OUT of the venue fixtures tree entirely. Moved (git mv) to
+`fixtures/perp-basis/paired_cycle_btc_perp_vs_kxbtc.{json,meta.md}`; updated every reader (basis_live_
+fixture.rs, perp_event_basis.rs e2e, basis.rs doc, the design doc). The `fortuna-venues` DTO-coverage
+tripwire (`every_fixture_parses_into_its_typed_dto`) is UNTOUCHED and its "every fixture there is a
+classified DTO" guarantee is intact — the composite simply no longer lives under the dir it scans. (The
+bus GATE-FINDINGS-LATEST still references the old top-level path as a historical record; not edited — bus
+is verifier-owned.) `cargo test -p fortuna-venues --test kinetics_dto` + the two e2e suites + the full
+workspace battery green at the new path. NOTE for the verifier: main still carries the fixture at the
+2c17295 top-level path until this lands, so main's `cargo test --workspace` stays red there until merge.
+
 ## RALPH STOP 2026-06-13T21:51:05Z (track A — completion-campaign queue exhausted, loop ends clean)
 
 Track A (venue/exec/recovery) has no buildable-without-operator item remaining.
@@ -336,8 +454,50 @@ SLICE 3b-CODE (the remaining build, now fully specified by the real fixture): re
 e2e (the verifier's RED e2e gate flips green on real co-recorded data, not synthetic).
 
 NOTE: main now carries slices 2a (2809aea) + 2b (f949554) GATE-ACCEPTED + MERGED; operator signed off
-the 27-item Kalshi clearance (demo rung unblocked, 77bbca5). track-c is ahead with the slice-3 kernel +
-this fixture; the verifier merge-gates as I land.
+the 27-item Kalshi clearance (demo rung unblocked, 77bbca5). The slice-3 kernel + fixture are MERGED to
+main (4db8764). track-c is rebased onto main; the verifier merge-gates as I land.
+
+## TRACK C — slice 3b KERNEL LANDED + fixture relocation un-reds the workspace battery + cross-slice finding response (2026-06-13)
+
+slice-3b-KERNEL DONE (commit 5fccd5f, rebased onto main): basis.rs refined to the REAL 3 strike_types —
+`BracketStrike::{Between{floor,cap}, Greater{floor}, Less{cap}}` with `BracketBin{kind, prob: f64}`. The
+median INTERPOLATES within the crossing `between` bin and returns `None` when 0.5 crosses in an OPEN tail
+(no finite width; conservative). The dollar-string→probability parse is the CALLER's boundary (kernel
+takes the f64 mid, format-agnostic); `compute_basis` now takes `perp_mark_btc_dollars: f64` — the kernel
+has ZERO money-type touch (the per-contract→BTC ×10000 boundary is the caller's; the merged slice-3
+kernel imported PerpPrice, this removes it). This also FIXES the merged kernel's modeling gap: it handled
+CLOSED `between` bins only, but the real KXBTC ladder has open tails (48 between + 1 greater + 1 less).
+13 mutation-pinned synthetic tests (tests/basis.rs) + a NEW real-data e2e (tests/basis_live_fixture.rs)
+that reproduces the validated numbers EXACTLY off the live fixture: implied median $63,961.53, perp BTC
+$63,906.00, signed basis −$55.53. FULL battery green on the INTEGRATED tree (main + track-E + this):
+fmt clean, clippy --workspace --all-targets -Dwarnings clean, `cargo test --workspace` 1312 ok / 0
+failed (143 suites), run-dst 4 corpus + 2000 random seeds, 0 invariant violations.
+
+FIXTURE RELOCATION = a FIX for a PRE-EXISTING RED on main (verifier confirm requested): the slice-3 merge
+(4db8764) added `fixtures/kinetics-perps/paired_cycle_btc_perp_vs_kxbtc.{json,meta.md}` at the TOP LEVEL,
+but `fortuna-venues/tests/kinetics_dto.rs::every_fixture_parses_into_its_typed_dto` `read_dir`s that
+directory (non-recursive) and FAILS on any unclassified `*.json` (+ asserts seen==table.len()). The
+paired-cycle file is a recorder-DERIVED composite (a KXBTCPERP perp snapshot + a KXBTC ladder), NOT a
+single Kinetics venue API capture, so it must not be required to parse as a Kinetics DTO. Net: main's
+`cargo test --workspace` has been RED since 4db8764 (the slice-3 gate ran the COGNITION suite, not the
+full workspace — a gate-escape across crates). RESOLUTION (touches NO fortuna-venues source — track-A
+owned, off-limits this slice; no test weakened): `git mv` both files into `fixtures/kinetics-perps/
+derived/` — `read_dir` is non-recursive, so the glob no longer sees them; the kernel e2e points at the
+new path. `cargo test --workspace` is GREEN again as of 5fccd5f. OPERATOR/track-A: `derived/` is the
+minimal fix; if a flat layout is later preferred, add a `derived/`-style skip in kinetics_dto.rs — either
+way the composite must never be required to parse as a Kinetics DTO.
+
+CROSS-SLICE FINDING RESPONSE (verifier bus, KXBTCPERP1 vs KXBTCPERP): ACKNOWLEDGED. Two BTC-perp tickers
+are in play — `KXBTCPERP1` (the OLD committed Kinetics funding fixtures, ~3714 refs, used by slice-2b
+funding_forecast) vs `KXBTCPERP` (the live recorder capture, 7384 rows, used by slice-3/3b basis; the
+paired-cycle fixture's perp + ladder are BOTH from the same recorder cycle, so the basis pair is
+internally consistent). The basis KERNEL is instrument-agnostic (it takes an f64 mark + bins), so this is
+NOT a kernel concern — it is a STRATEGY-WIRING concern: when the funding_forecast and perp_event_basis
+STRATEGIES are wired to a concrete venue/instrument (slice-3b-strategy / slice-4 / demo flip), each must
+target the intended ticker, and the KXBTCPERP1→KXBTCPERP mapping (rename of one instrument vs two
+instruments on two venues) must be GROUNDED in the recorder config + docs/research before production
+reliance — NOT guessed here (never-invent-venue-behavior). Deferred to the strategy-wiring slice; logged
+so it is not lost. Does not block slice-3b-kernel.
 
 ## TRACK C — LIVE BRACKET-FORMAT INVESTIGATION (operator-directed: "drive it yourself, demo keys"): the design's bracket series was WRONG (2026-06-13)
 
@@ -1799,6 +1959,81 @@ names. (Interpreted the operator's "perps vendor" as the persona system — this
 and any fortuna-invariants touch is an operator-waive item per the loop — so slice 1 (ledger)
 correctly does NOT touch the protected crate. The `domain_analyses`/`PersonaRow` row types are
 already structurally order-free (review-confirmed).
+
+## POST-APPROVAL INTEGRATION 2026-06-13 (operator approved the gated items — supersedes the RALPH STOP below)
+
+The operator approved building the remaining gated items ("go ahead and start the rest of the
+work I approve", 2026-06-13). Because the verifier had already merged Track E into `main` (GATE
+ACCEPT @2668291) and `main` has since advanced 93 commits (Track A's `fortuna-live` daemon,
+perps, etc.), this work proceeds on a FRESH branch `persona-live-integration` off current `main`
+— NOT the now-stale `track-e`. Slices (each: tests-first, full-workspace battery as the commit
+gate, feature-dev:code-reviewer per slice):
+
+- **Slice 1 — §15 I6 persona field-surface invariant pin — DONE (this commit).** The operator
+  WAIVED the `fortuna-invariants` touch (the only gate on this item). Added (ADD-only)
+  `crates/fortuna-invariants/tests/i6_persona_propose_only.rs`: pins `PersonaOutcome`'s exact
+  serialized key set (12 data-only fields) AND the `domain_analyses` table columns to carry no
+  order/size/price field — same mechanism as the existing `ProposalDraft`/`MindOutput` pin,
+  existing assertions untouched. Reviewer-checked (one finding fixed: `size` added to the
+  migration deny-list). Verified: targeted 2/2; FULL `cargo test --workspace --no-fail-fast` =
+  144 suites green, 1 pre-existing unrelated red (see GATE FINDING); fmt + `clippy --workspace
+  --all-targets -D warnings` clean.
+  OPERATOR DECISION (2026-06-13): for the live wiring, **Track E exposes the building blocks;
+  Track A wires `drive()`** (don't edit their core loop), and the orchestrator supports **both**
+  trigger modes (signal + cadence) from the start.
+- **Slice 2a — ledger `SignalsRepo::recent_by_kind` — DONE (this commit).** The daemon's
+  signal read-back (newest-first, windowed, kind-filtered) + `RecentSignalRow`; the live loop had
+  no way to read signals for persona context. `#[sqlx::test]` green; offline cache regenerated
+  per-crate (one new `.sqlx` file, root untouched); offline build + fmt + clippy --workspace
+  --all-targets green; full workspace test green except the pre-existing `kinetics_dto` red.
+- **Slice 2b — cognition: `run_due_personas` orchestrator — DONE (this commit).** New
+  `persona_orchestrator.rs`: per-tick, DB-free; a `(persona, region_key)` is due by fresh signal
+  (coalesced via `PersonaTriggerGate`) OR cadence (`CadenceScheduler`); each runs once via
+  `run_persona_analysis` (firewall/budget/schema/degrade inherited); `region_key` derived by
+  `{field}`-template substitution from the signal payload (`fill_region_key`; missing field →
+  skip, never crash). Returns `Vec<PersonaRunResult>` for the daemon to persist (cognition has no
+  ledger dep). Subagent-built tests-first; main-loop verified + feature-dev:code-reviewer (2
+  sub-bar fixes applied: explicit-not-silent gate-count discard; de-vacuoused determinism test).
+  14 integration tests + a seeded DST arm (500 scenarios clean, wired into run-dst.sh). Full
+  workspace battery green except the pre-existing `kinetics_dto` red.
+  KNOWN LIMITATION (documented): a "naked" cadence with NO signal for a region is a no-op (regions
+  are only known from signal payloads). Fine for the shipped personas (macro's release-window run
+  still has a calendar signal present); revisit if an operator-supplied region catalog is needed.
+- **Slice 2c — belief `horizon` helper + the Track-A wiring handoff — DONE (this commit).**
+  `persona_beliefs::belief_horizon(region_key)` (end-of-UTC-day of the key's `YYYY-MM-DD`; `None`
+  → skip fan-out; 6 unit tests, panic-free) + `docs/design/persona-live-wiring-handoff.md` (the
+  `[personas]` config + boot load/hash-validate + the ~15-line `drive()` step, every API verified
+  against the code). **This completes Track E's "expose the building blocks" obligation** — the
+  persona library is fully runnable; only Track A's `drive()` glue remains (the handoff).
+  REMAINING FOR PERSONAS TO FIRE LIVE = Track A wires the handoff (their crate, their call).
+- **Slice 3 — review folding — DOCUMENTED in the Track-A handoff §8 (operator-directed; Track A
+  builds it WITH their review wiring).** Per §21 it is an ADDITIVE PARALLEL layer, NOT a
+  `review::ScopeKey` mutation (that literal is Track A's at `daemon.rs:1024`): the daemon's weekly
+  review calls the already-built `score_persona`/`propose_promotion` per `(persona, version)` and
+  routes verdicts to `#fortuna-review` (recommendation-only, I7). persona_scoring runs standalone
+  today, so this only surfaces verdicts in the digest — not a blocker.
+  DATA SOURCE — BUILT (this commit, operator-directed): `BeliefsRepo::resolved_persona_stats(
+  persona_id, version) -> ResolvedPersonaStats` (resolved beliefs grouped by provenance
+  `{persona_id, persona_version}`, scoreable events, created_at order; ledger-native, daemon wraps
+  into `PersonaScopeRecord`). Unblocks Slice 3's clean path AND the §20.1 ROTA personas-view. Handoff
+  §8 consumes it. So Slice 3 is now fully spec'd + data-backed for Track A — only their `drive()`/
+  review call-site remains.
+
+STILL GATED (not Track-E): ROTA panels = Track B (`fortuna-ops/assets/rota/`); macro signal KINDS
+= Track D (`fortuna-sources`, constitution-forbidden for Track E). Surfaced, not built.
+
+### GATE FINDING 2026-06-13 (handed to Track C) — `main`'s full-workspace test is RED
+
+`cargo test --workspace` on current `main` fails ONE suite, pre-existing and unrelated to
+personas: `fortuna-venues::kinetics_dto::every_fixture_parses_into_its_typed_dto` panics
+`paired_cycle_btc_perp_vs_kxbtc: UNCLASSIFIED`. Track C merged
+`fixtures/kinetics-perps/paired_cycle_btc_perp_vs_kxbtc.json` (basis-kernel recording, commit
+`2c17295`) into the dir the tripwire scans (`kinetics_dto::fixtures_dir()` =
+`fixtures/kinetics-perps`), but it isn't a Kinetics API DTO so it has no `Kind`. This blocks the
+§16 full-workspace commit gate for ALL tracks. **Track C to resolve** (classify / relocate out
+of `kinetics-perps/` + update the basis reader / exclude non-DTO fixtures from the scan) — a Track-E
+guess at the `Kind` would corrupt their tripwire. Track-E slices commit with this documented as a
+known pre-existing exception (it cannot be affected by persona code).
 
 ## RALPH STOP 2026-06-13T17:25Z (Track E — build COMPLETE; every remaining item is gated; idle-and-stopped beats bloat)
 
