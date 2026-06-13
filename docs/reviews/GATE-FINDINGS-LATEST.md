@@ -62,29 +62,42 @@ OWNER PLAN: a RESTARTED track C, scoped to "extend the now-merged perps plane"
 AFTER the re-merge gate ACCEPTs and the merge lands. Phase-5 EXIT (BUILD_PLAN)
 is not met until B7+B8 land.
 
-## !!! TRACK D — STOP ALL FEATURE WORK. UNFIXED CRITICAL SSRF. (priority (a), 2026-06-13)
+## TRACK D — SSRF CLEARED, MERGE-APPROVED (pending clean-main window) (track-d-regate-2026-06-13.md)
 
-ESCALATION: D5 (RssSource, 58c5962) was built AFTER the SSRF BLOCK landed, on
-the SAME vulnerable FetchClient — so D5 now INHERITS the hole. `host_of_https`
-is STILL in fetch.rs (lines 73/84/103); the fix was NOT applied. NOTHING in
-fortuna-sources gates or merges — D1 through D5 — until the SSRF is fixed and
-RE-GATED. Stop building adapters. This BLOCK preempts your entire queue
-(implementer-loop rule: a BLOCK naming your track preempts everything). If you
-built D5 mid-iteration before re-reading this bus, fine — but your NEXT
-iteration is THE SSRF FIX, nothing else.
+RE-GATE = ACCEPT / MERGE. The Critical SSRF is FIXED AT ROOT CAUSE
+(host_of_https deleted; pin + connection unified on the WHATWG url parser;
+redirect-off) and cleared by REPRODUCTION-OF-REFUSAL across 29 adversarial
+vectors (169.254.169.254 metadata SSRF, IDN homoglyph, punycode, double-@,
+trailing-dot, IPv6, %-encoded, tab/newline smuggle, content-embedded URL,
+on->off->on redirect chains) — all refuse off-pin; reverting the fix reds the
+regression tests. Battery green (58/58 sources, fmt/clippy, DST core 4+2000).
+Track D self-corrected per priority (a) — its escalation worry was timing only.
 
-THE FIX (root-cause, ~30 min): in crates/fortuna-sources/src/fetch.rs delete
-`host_of_https` entirely; the pin check (currently :73 and :84) MUST use
-`url::Url::parse(url).host_str()` — the SAME WHATWG parser reqwest uses to
-connect — so the authorization decision and the connection resolve the host
-IDENTICALLY (the bug is two parsers disagreeing; a backslash blocklist is NOT
-the fix). Re-validate EVERY redirect hop through that one parser (or disable
-reqwest redirect-follow and handle Location explicitly through it). Regression
-tests: `https://evil.example.com\\@api.weather.gov/x` REFUSED; a
-redirect-to-unpinned Location REFUSED — both through the public
-FetchClient::fetch path. Re-gate the whole D1-D5 unit after.
+MERGE is PENDING A CLEAN-MAIN-TREE WINDOW: track-d is stale vs main (missing
+track A's dial slices) so its merge file-set overlaps kalshi/dial.rs, which
+track A has UNCOMMITTED in the shared main tree. Per the shared-tree hazard
+rule, the verifier merges at track A's next commit (clean tree). The three-way
+merge keeps main's newer dial.rs. Standing-signature merge; post-merge check =
+fortuna-sources build + workspace compile (additive, order-path-free crate).
 
-## TRACK D — original block detail (track-d-nws-gate-2026-06-13.md)
+[MAJOR -> HARD GATE ON D9, the scheduler iteration] The Layer-1 structural
+validator is BUILT + unit-tested but UNWIRED (zero production call sites) — a
+shape-drifted item from a pinned host would ingest verbatim. NON-EXPOSED today
+(the crate is unreachable from the daemon: no scheduler, no drive() seam). D9
+(the ingestion scheduler that wires the validator + the drive() seam) CANNOT
+pass its gate without refuse-and-quarantine live on the ingest path. Phase A is
+PARTIAL: 2 of 4 adapters (NWS+RSS; Calendar/GDELT pending), no scheduler, no
+registry rows yet.
+
+## DISK — MACHINE CONSTRAINT (operator action; the re-gate hit 120Mi mid-run)
+Five build trees (A/C/D/E targets ~9-13GB each) + gate caches + 5GB perishable
+exceed sustainable headroom on this disk; gates have ENOSPC'd twice. The
+verifier reclaims aggressively (done/idle track targets, gate caches) but this
+is structural. Operator options: free machine-wide space; or reduce concurrent
+tracks; or approve a periodic `cargo clean` of idle-track targets. Track-B and
+idle-track-D targets reclaimed this session.
+
+## TRACK D — original block detail## TRACK D — original block detail (track-d-nws-gate-2026-06-13.md)
 
 DO-NOT-MERGE. The gate caught a real vulnerability BEFORE it touched main —
 the discipline working on the exact surface flagged highest-risk. Track D
