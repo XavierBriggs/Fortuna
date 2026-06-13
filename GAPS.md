@@ -18,14 +18,43 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
-## TRACK E — BUILD PHASE (operator-approved 2026-06-13); E.1 ledger + E.2 loader DONE
+## TRACK E — BUILD PHASE (operator-approved 2026-06-13); E.1 + E.2 + E.3a DONE
 
 STATUS 2026-06-13 (SUPERSEDES the design-phase RALPH STOP preserved below): the operator
 APPROVED the design ("looks good, rearm"; commit b4eaae3) and re-armed Track E in worktree
 fortuna-wt-e. BUILD PHASE active — building design §18's six slices, one gate-clean slice
-per iteration.
+per iteration. E.3 is sub-sliced: E.3a (runner core + firewall) this commit; E.3b (triggers §7
++ DST-under-budget) and E.3c (telemetry §19 + the invariant pin) next.
 
-**E.2 (Persona skill-file loader) DONE this commit.** New `fortuna_cognition::persona` module
+**OPERATOR-WAIVE PENDING — the E.3c `fortuna-invariants` touch (design §15).** The
+`PersonaOutcome` I6 field-surface pin (assert the type carries no order/size field, the same
+mechanism as the `ProposalDraft`/`MindOutput` pins) requires ADDING a test to
+crates/fortuna-invariants — which loop §5 treats as an automatic BLOCK pending operator waive.
+`PersonaOutcome` is already `#[derive(Serialize)]` and review-verified order-free TODAY (E.3a
+review, feature-dev:code-reviewer), so the property HOLDS; only the executable pin is deferred.
+UNBLOCK (operator, one action): waive the invariant-crate addition for Track E's §15 pin; then
+E.3c lands it (pure ADD, existing assertions untouched). Until then the order-free guarantee is
+documented (the struct doc + design §15 + this entry), not yet pinned.
+
+**E.3a (Persona runner core + the trusted/untrusted FIREWALL) DONE this commit.** New
+`fortuna_cognition::persona_runner` (design §8): `run_persona_analysis(persona, region_key,
+signals, mind, budget, now) -> PersonaOutcome`. Budget-first (DiscoveryBudget throttle), assembles
+ONLY untrusted signals into the context (the trusted method is the Mind's system charter, NEVER a
+`<context-item>` — THE HEADLINE firewall), one `Mind.decide`, findings from the journal body
+strictly validated against the persona schema.json (config-driven: required keys +
+additionalProperties:false), `content_hash` anchor over {findings, signal_manifest}. PersonaOutcome
+is order-free (mirrors ReconciliationOutcome, I6) — a draft the composition persists (no Postgres
+in cognition). Degrade arms (never crash): budget→throttle, no signals→skip, mind/JSON/schema
+failure→counted defect. Determinism: scripted StubMind→byte-identical artifact+content_hash. 12
+tests incl. the firewall (a planted injection renders AS DATA; the method marker never in context).
+FULL workspace battery green. feature-dev:code-reviewer: one Major (validate_findings skipped the
+unknown-key check when additionalProperties:false + no `properties` → FIXED + regression test) +
+the Critical invariant-pin (deferred to E.3c, operator-waive above). SHARED-DOC TOUCHES this slice:
+docs/architecture.md §3 (cognition crate-map gains the persona-layer paragraph), the NEW
+docs/design/track-e-changelog.md, and docs/design/implementer-loop-track-e.md §8 (the operator's
+documentation-discipline directive added as a standing rule).
+
+**E.2 (Persona skill-file loader) DONE (commit d6e8c23).** New `fortuna_cognition::persona` module
 (design §6): `PersonaDef::parse(persona_md, schema_json)` parses the TOML-frontmatter (`+++`
 fences) + trusted method body, computes `method_hash` = SHA-256 of the WHOLE persona.md
 (reusing `content_hash_of`), loads schema.json; `validate_against(Option<&RegistryHead>)`
@@ -92,9 +121,9 @@ and any fortuna-invariants touch is an operator-waive item per the loop — so s
 correctly does NOT touch the protected crate. The `domain_analyses`/`PersonaRow` row types are
 already structurally order-free (review-confirmed).
 
-NEXT: E.3 (runner loop + triggers + budget + context + findings contract; the trusted/untrusted
-separation tests §4 a–c; DST runner-under-budget; persona telemetry §19; the PersonaOutcome
-no-order/size invariant pin §15 — the first fortuna-invariants touch, operator-waive-flagged).
+NEXT: E.3b (triggers §7 — declarative + schedulable, decoupled from the persona; + the DST
+runner-under-budget arm). Then E.3c (persona telemetry §19 + the PersonaOutcome no-order/size
+invariant pin §15, gated on the operator-waive above). Then E.4 (belief consumption).
 
 --- HISTORICAL (design-phase RALPH STOP — SUPERSEDED by the operator approval above) ---
 

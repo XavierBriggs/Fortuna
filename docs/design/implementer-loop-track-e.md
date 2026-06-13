@@ -95,3 +95,21 @@ EACH ITERATION, do exactly ONE item, then commit and start the next iteration.
    migration per task). NEVER modify crates/fortuna-sources (track D's). NEVER
    break the existing Mind/belief interface track A composes — extend, gated.
    No .env, no secrets, never push.
+
+8. DOCUMENTATION DISCIPLINE (operator directive 2026-06-13; binding every
+   iteration): keep docs CURRENT as you build — stale docs are a defect.
+   - MAINTAIN YOUR OWN track docs: docs/design/track-e-changelog.md gets one
+     entry per gate-clean slice (commit hash, what landed, how verified, which
+     shared docs were touched). The authoritative design doc
+     (domain-analysis-personas-design.md) is amended deliberately when the build
+     teaches something (the §"Fit-validation notes"/§17 mechanism) — never drift
+     silently.
+   - AMEND SHARED DOCS when your slice changes what they describe: docs/
+     architecture.md (the crate map + trust story), docs/runbooks/* (a persona
+     authoring/promotion runbook lands by E.6), docs/operations.md. PREFER
+     TARGETED EDITS — a focused subsection or clause, never a rewrite; shared
+     docs are co-owned by other tracks, so touch the minimum and keep it
+     accurate. If a slice makes a shared-doc line false, fix that line the same
+     iteration.
+   - The doc updates ride in the SAME commit as the slice they describe (so the
+     changelog hash is real), and are listed in the GAPS slice entry.

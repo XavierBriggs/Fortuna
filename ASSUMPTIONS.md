@@ -1605,3 +1605,33 @@ domain-analysis artifact (authoritative design: docs/design/domain-analysis-pers
 - **The shipped meteorologist ships at `version = 1`.** The registry starts empty; the
   first operator promotion is v1. The design's `meteorologist@v3` examples are
   illustrative of a mature persona, not the initial shipped version.
+
+## Track E — E.3a (persona runner core + firewall; design §4/§8)
+
+- **Findings ride in `MindOutput.journal.body` as strict JSON**, reusing discovery's
+  pattern (the journal body is the strict-JSON vehicle). The runner parses it and
+  validates RUNNER-SIDE against the persona's `schema.json`. Transport-level
+  `output_config.format` enforcement (the §12 spike) is a Mind-construction detail
+  (the persona's AnthropicMind can set the findings schema as its output format) —
+  a Track-M / composition concern; the runner-side strict parse is the contract.
+- **`validate_findings` is config-driven and checks PRESENCE + UNKNOWN-KEY only**
+  (required[] present; no key outside properties when additionalProperties:false) —
+  NOT types, enums, or ranges. Conservative reading of §4c ("free prose / unknown
+  fields → counted defect"): the headline failure modes (prose, hallucinated/extra
+  fields, missing fields) are caught; type/enum/range conformance is left to the
+  model's charter + the calibration scoring loop (a bad-but-well-typed finding
+  produces a belief whose Brier degrades the persona naturally). Full JSON-Schema
+  type validation is a later enhancement (would add a `jsonschema` dep).
+- **`content_hash` anchor = SHA-256 of `to_string({findings, signal_manifest})`**,
+  deterministic because the workspace `serde_json` has no `preserve_order` feature
+  (object keys serialize sorted), so identical findings hash identically (the replay
+  anchor, §5).
+- **The firewall is the method-as-system-charter**: the runner assembles only the
+  untrusted signals; the trusted method is the Mind's `system_charter` (set by the
+  composition via `persona_system_charter(persona)`), never a context item (§4).
+- **`PersonaOutcome` is order-free (I6) and `Serialize`** — a draft the composition
+  persists; cognition writes no Postgres (mirrors `ReconciliationOutcome`). The
+  executable I6 field-surface pin is the E.3c `fortuna-invariants` add (operator-waive).
+- **Signals are point-in-time STRICTLY before the trigger** — the assembler excludes
+  any item at-or-after the trigger time as "future" (`context.rs:154`); the runner
+  inherits this. The composition passes already-ingested (earlier) signals.
