@@ -680,6 +680,89 @@ gate runs the full battery + the executed mutation check). Predicted mutation:
 neutralize the (Nws,"climate") arm => wires_the_climate_grader_and_aeolus reds
 (unwrap on the Err arm). Not operator-blocked; verifier-gated on merge.
 
+## TRACK B — RE-MISSIONED 2026-06-13: TOTAL ROTA OBSERVABILITY (operator single pane of glass)
+
+The operator re-activated the Ralph loop and re-missioned track B off the
+(DONE+merged) T4.4 CLI / T4.3 ROTA queue onto TOTAL ROTA OBSERVABILITY: the
+single pane of glass over belief formation, the full pipeline, trades,
+discovery/events, the DB, and telemetry on every layer. Mandate (bus
+GATE-FINDINGS-LATEST lines 19-23 + the loop prompt): consume the C/D/E ROTA
+contracts, SCREENSHOT-VERIFY every board with real rows, read-only + honest
+nulls absolute, FULL-workspace battery as the commit gate, feature-dev subagents.
+This is the iteration-1 VALIDATION record (loop rule 2: validate-before-build);
+build starts next iteration at queue item 0.
+
+### Contracts consumed (deliverable specs; live on track branches, NOT yet on main)
+- D `docs/design/ingestion-observability-contract.md` (track-d @3f65597) — V1-V6
+  ingestion boards + §3 Prometheus. Data = track-D `IngestionTelemetry` struct
+  (in-memory) + `source_reliability`/`signals` tables.
+- C `docs/design/perp-strategies-and-scalar-claims.md` (track-c) §8-9 —
+  `/api/rota/v1/forecasts` scorecard + `/api/rota/v1/perps` regime/basis. Data =
+  `scalar_beliefs`/`belief_scores` tables (track-C slice 1b) + named MetricSamples.
+- E `docs/design/domain-analysis-personas-design.md` (track-e) §14,§19-20 —
+  `/personas`, `/analyses`, `/persona_pipeline`, cognition persona-provenance +
+  persona counters. Data = `personas`/`domain_analyses` tables (track-E slices
+  1-5) + `PersonaCounters` samples.
+
+### Fit-validation (contracts vs current codebase @ track-b)
+Current ROTA = 7 boards (health/money/gates/cognition/settlement/streams/audit);
+`rota.rs` serves `snapshot.views` (daemon-shaped) + its OWN R7 ledger queries
+(`BeliefsRepo::recent`, `CalibrationParamsRepo::scopes`, `audit_tail_page`). The
+12 new views split by SOURCE + OWNERSHIP:
+- LIVE/in-memory boards (D V1-V3 feed/sources/funnel; C funding-regime live; E
+  persona counters) are shaped in `fortuna-live/src/views.rs::views_from` — TRACK
+  A's crate (R2: fortuna-ops must not depend on fortuna-runner). I own the
+  FRONTEND (ROTA_SHELL panel + JS renderer in assets/rota + fortuna-ops) + the
+  degraded handler; the daemon-side shaping is a CROSS-TRACK SEAM.
+- HISTORICAL/DB boards (D V4-V6; C /forecasts,/perps; E /personas,/analyses,
+  /persona_pipeline) are ROTA's OWN R5-pool ledger queries (exactly like
+  `view_cognition`) — MINE to build, BLOCKED until each owning track's migration
+  lands its tables on main (cannot compile queries against absent tables).
+- E §20.3 cognition persona-provenance: ALREADY passes through (`rota.rs:175`
+  serializes `r.provenance` whole) — FRONTEND-ONLY enhancement (render persona
+  fields + header persona counters), buildable now.
+
+### Build queue (sequenced; "screenshot-verify with real rows" governs priority)
+0. [KEYSTONE — buildable NOW, zero cross-track dep] Local bringup harness:
+   `crates/fortuna-ops/examples/rota_local.rs` — seed a LOCAL dev Postgres
+   (audit; beliefs incl. one with persona-shaped provenance JSONB;
+   calibration_params), populate a representative `DashboardSnapshot.views`,
+   serve `rota_router`, and screenshot-verify the 7 existing boards + the
+   cognition persona-provenance render. Delivers the north-star "ROTA up
+   locally" + the mission verb for everything currently buildable; reusable for
+   every later board. LOCAL DB ONLY — NEVER the operator's `DATABASE_URL`.
+1. [frontend-now] E §20.3 cognition persona-provenance + persona-counter header
+   (data already flows; render-only). Screenshot-verified via the #0 seed.
+2. [frontend-now / query-blocked] D V1/V2/V3 ingestion boards — frontend +
+   honest-degraded handler against the §4 board envelope; light up when track A
+   shapes `IngestionTelemetry` into `views_from`.
+3. [frontend-now / query-blocked] C 9.1/9.2 /forecasts + /perps — frontend +
+   degraded; query body lands when `scalar_beliefs`/`belief_scores` merge.
+4. [frontend-now / query-blocked] E 20.1/20.2/20.4 /personas,/analyses,
+   /persona_pipeline — frontend + degraded; query body lands when
+   `personas`/`domain_analyses` merge.
+5. [unblock-as-data-lands] Replace each degraded handler (#2-4) with the real
+   R5-pool query + R7-style populated-path query tests + screenshot-verify with
+   real rows, the iteration a track's tables hit main.
+6. [telemetry] D §3 / C §8 / E §19 Prometheus families into fortuna-ops
+   `MetricsRegistry` (integer-only) — render lines + tests are mine; counter
+   VALUES depend on producers emitting samples (cross-track). After the seams.
+
+### CROSS-TRACK DATA-SEAM REQUESTS (what track B needs to light the boards)
+- TRACK A (fortuna-live): when track-D's `IngestionTelemetry` lands, shape its
+  sources/funnel/recent into `views_from` (or a new snapshot key) under D §4
+  envelope keys so the live ingestion boards render — R2 forbids fortuna-ops
+  shaping runner/ingestion state itself.
+- TRACK D: merge `IngestionTelemetry` (§2) + `source_reliability` to main.
+- TRACK C: merge `scalar_beliefs` + `belief_scores` to main; emit §8 samples.
+- TRACK E: merge `personas` + `domain_analyses` to main; ensure belief provenance
+  JSONB carries `{persona_id,persona_version,analysis_id,analysis_content_hash}`
+  (E §20.3) so item 1 renders real persona rows.
+
+Until those land, the new boards ship as read-only frontend + honest-degraded
+(`available:false`) handlers — the discipline all three contracts specify
+("build the panels now; they light up when the data lands").
+
 ## TRACK A — T4.2 item 2(i) WS dial COMPLETE: full KalshiWsTransport built (operator runs the first live exercise)
 ## TRACK E — BUILD PHASE (operator-approved 2026-06-13); E.1 + E.2 + E.3a DONE
 ## TRACK E — BUILD COMPLETE + GENERALIZED (2 domains); remainder = operator/Track-A-gated + 1 doc
