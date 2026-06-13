@@ -72,6 +72,7 @@ pub fn rota_router(state: RotaState) -> Router {
         .route("/api/rota/v1/strategies", get(view_strategies))
         .route("/api/rota/v1/discovery", get(view_discovery))
         .route("/api/rota/v1/personas", get(view_personas))
+        .route("/api/rota/v1/analyses", get(view_analyses))
         .route("/api/rota/v1/db", get(view_db))
         .route("/api/rota/v1/audit", get(audit_tail))
         .with_state(state)
@@ -388,6 +389,100 @@ pub async fn persona_registry(pool: &PgPool) -> Result<Vec<PersonaRowTuple>, sql
          FROM personas \
          ORDER BY persona_id ASC, version DESC",
     )
+    .fetch_all(pool)
+    .await
+}
+
+/// Domain-analysis artifacts browser (mission item 1 / track-E §20.2: the "whole
+/// process" view — the persisted analyses personas produce that beliefs are built
+/// from). The artifact ledger: which persona analysed which region, when, at what
+/// cost, the content-hash replay anchor, and the supersession status, newest-first.
+/// This view renders STRUCTURAL METADATA ONLY (ids, hashes, region_key, persona,
+/// timestamps, cost, status — all escaped by the renderer); the `findings` /
+/// `signal_manifest` drill-in (which carries UNTRUSTED model output) is the §20.2
+/// expander follow-on, ledgered. Degrades to unavailable (HTTP 200) without the pool.
+async fn view_analyses(State(s): State<RotaState>) -> impl IntoResponse {
+    let Some(pool) = s.pool.clone() else {
+        return Json(json!({
+            "status": "unavailable",
+            "detail": "postgres capability absent (standalone ROTA)",
+        }));
+    };
+    match recent_analyses(&pool, 50).await {
+        Ok(rows) => {
+            let generated_at = { s.snapshot.read().await.generated_at.clone() }; // R8
+            let n = rows.len();
+            let open = rows.iter().filter(|r| r.7 == "open").count();
+            let cost_total: i64 = rows.iter().map(|r| r.5).sum();
+            let json_rows: Vec<Value> = rows
+                .into_iter()
+                .map(
+                    |(
+                        analysis_id,
+                        persona,
+                        domain,
+                        region_key,
+                        produced_at,
+                        cost,
+                        hash,
+                        status,
+                    )| {
+                        json!({
+                            "analysis_id": analysis_id, "persona": persona, "domain": domain,
+                            "region_key": region_key, "produced_at": produced_at,
+                            "cost_cents": cost, "content_hash": hash, "status": status,
+                        })
+                    },
+                )
+                .collect();
+            Json(json!({
+                "title": "Domain Analyses",
+                "generated_at": generated_at,
+                "columns": [
+                    {"key":"persona","label":"Persona"},
+                    {"key":"domain","label":"Domain"},
+                    {"key":"region_key","label":"Region"},
+                    {"key":"produced_at","label":"Produced (UTC)"},
+                    {"key":"cost_cents","label":"Cost","cents":true},
+                    {"key":"content_hash","label":"Hash"},
+                    {"key":"status","label":"Status","pill":true},
+                ],
+                "rows": json_rows,
+                "summary": {"analyses": n, "open": open, "cost_cents": cost_total},
+            }))
+        }
+        Err(e) => {
+            eprintln!("rota: analyses read degraded: {e}");
+            Json(json!({
+                "status": "unavailable",
+                "detail": "analyses read unavailable (dashboard pool degraded)",
+            }))
+        }
+    }
+}
+
+/// One analysis row: (analysis_id, persona "id@version", domain, region_key,
+/// produced_at, cost_cents, content_hash[..8], status).
+type AnalysisRowTuple = (String, String, String, String, String, i64, String, String);
+
+/// Recent domain-analysis artifacts, newest-first. Persona is rendered "id@version";
+/// the content hash is truncated to its 8-char replay-anchor prefix. STRUCTURAL
+/// metadata only — `findings`/`signal_manifest` (untrusted model output) are NOT
+/// selected here (the §20.2 expander is a follow-on). Runtime sqlx (audit-tail
+/// precedent); limit clamped to [1, 200].
+pub async fn recent_analyses(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<Vec<AnalysisRowTuple>, sqlx::Error> {
+    let limit = limit.clamp(1, 200);
+    sqlx::query_as::<_, AnalysisRowTuple>(
+        "SELECT analysis_id, persona_id || '@' || persona_version::text AS persona, domain, \
+                region_key, produced_at, cost_cents, substr(content_hash, 1, 8) AS content_hash, \
+                status \
+         FROM domain_analyses \
+         ORDER BY produced_at DESC LIMIT $1",
+    )
+    .bind(limit)
     .fetch_all(pool)
     .await
 }
@@ -942,6 +1037,7 @@ const ROTA_SHELL: &str = r#"<!doctype html><html lang="en"><head>
   <div class="panel wide"><h2>Strategy P&amp;L</h2><div id="strategies">…</div></div>
   <div class="panel wide"><h2>Discovery — Events</h2><div id="discovery">…</div></div>
   <div class="panel wide"><h2>Personas</h2><div id="personas">…</div></div>
+  <div class="panel wide"><h2>Domain Analyses</h2><div id="analyses">…</div></div>
   <div class="panel wide"><h2>Database</h2><div id="db">…</div></div>
   <div class="panel"><h2>Audit tail</h2><div id="audit">…</div></div>
 </div>
@@ -1027,6 +1123,7 @@ const R={
  strategies(j){return boardTable(j);},
  discovery(j){return boardTable(j);},
  personas(j){return boardTable(j);},
+ analyses(j){return boardTable(j);},
  db(j){return boardTable(j);},
  audit(j){if(!j.available)return `<div class="warn">${esc(j.detail||"unavailable")}</div>`;
   let h="";j.rows.slice(-12).forEach(r=>h+=`<div class="row">${esc(r.at)} UTC ${esc(r.kind)}${r.actor?" · "+esc(r.actor):""}</div>`);
@@ -1040,5 +1137,5 @@ async function poll(name){const el=document.getElementById(name);
 function every(ms,names){names.forEach(poll);setInterval(()=>names.forEach(poll),ms);}
 every(2000,["health","audit"]);every(5000,["money","gates","ingest_sources","ingest_feed","ingest_funnel"]);
 every(10000,["cognition","settlement","fills","strategies"]);every(15000,["streams","discovery"]);
-every(30000,["db","personas"]);
+every(30000,["db","personas","analyses"]);
 </script></body></html>"#;

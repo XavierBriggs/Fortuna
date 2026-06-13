@@ -66,7 +66,7 @@ async fn serve() -> (String, tokio::task::JoinHandle<()>) {
     (format!("http://{addr}"), handle)
 }
 
-const PATHS: [&str; 17] = [
+const PATHS: [&str; 18] = [
     "/rota",
     "/assets/rota/logo.svg",
     "/api/rota/v1/health",
@@ -82,6 +82,7 @@ const PATHS: [&str; 17] = [
     "/api/rota/v1/strategies",
     "/api/rota/v1/discovery",
     "/api/rota/v1/personas",
+    "/api/rota/v1/analyses",
     "/api/rota/v1/db",
     "/api/rota/v1/audit",
 ];
@@ -137,6 +138,7 @@ async fn degraded_surfaces_are_200_with_explicit_unavailable() {
         "strategies",
         "discovery",
         "personas",
+        "analyses",
         "db",
     ] {
         let j: serde_json::Value = client
@@ -1474,4 +1476,99 @@ async fn personas_board_serves_the_registry_grouped_newest_version_first(pool: s
     // Method hash is the 8-char provenance prefix; reads is the joined signal kinds.
     assert_eq!(j["rows"][1]["method"], "abcd1234");
     assert_eq!(j["rows"][1]["reads"], "aeolus.forecast, nws.observed_high");
+}
+
+// Mission item 1 / §20.2 ("the whole process — the analyses beliefs are built
+// from"): the Domain Analyses browser serves the artifact ledger newest-first, with
+// the persona as "id@version", cost as cents (dollars in the UI via the cents flag),
+// the content-hash replay anchor truncated, and the supersession status. Seeds two
+// analyses for one region where the later supersedes the earlier, and asserts the
+// produced_at-DESC ordering, the persona render, the per-row cost + hash prefix, the
+// honest open-vs-superseded status, and the {analyses,open,cost_cents} summary. (The
+// findings/signal_manifest expander — UNTRUSTED model output — is a §20.2 follow-on.)
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn analyses_board_serves_artifacts_newest_first_with_supersession(pool: sqlx::PgPool) {
+    use fortuna_ledger::DomainAnalysesRepo;
+    let repo = DomainAnalysesRepo::new(pool.clone());
+    // A1: the earlier analysis for the region (cost 3¢) — later superseded.
+    repo.insert(
+        "01ANALYSISROTA0000000000A1",
+        "meteorologist",
+        2,
+        "weather",
+        "weather:KNYC:tmax:2026-06-12",
+        "2026-06-12T05:00:00.000Z",
+        &serde_json::json!([{"signal_id": "sig-1", "content_hash": "sh-1"}]),
+        &serde_json::json!({"thresholds": [{"ge": 60, "p": 0.9}]}),
+        "0badc0de11112222",
+        "manifest-a1",
+        3,
+        None,
+        "2026-06-12T05:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    // A2: the later analysis for the SAME region (cost 5¢), superseding A1 → the
+    // repo flips A1 to 'superseded', A2 is 'open'.
+    repo.insert(
+        "01ANALYSISROTA0000000000A2",
+        "meteorologist",
+        2,
+        "weather",
+        "weather:KNYC:tmax:2026-06-12",
+        "2026-06-12T11:00:00.000Z",
+        &serde_json::json!([{"signal_id": "sig-2", "content_hash": "sh-2"}]),
+        &serde_json::json!({"thresholds": [{"ge": 60, "p": 0.95}]}),
+        "feedface33334444",
+        "manifest-a2",
+        5,
+        Some("01ANALYSISROTA0000000000A1"),
+        "2026-06-12T11:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+    };
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/analyses"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "both artifacts served: {j}");
+    // Summary: 2 analyses, 1 still open (A2), total cost 8¢.
+    assert_eq!(j["summary"]["analyses"], 2);
+    assert_eq!(j["summary"]["open"], 1);
+    assert_eq!(j["summary"]["cost_cents"], 8);
+    // produced_at DESC: A2 (later) first, then A1.
+    assert_eq!(
+        j["rows"][0]["persona"], "meteorologist@2",
+        "persona id@version: {j}"
+    );
+    assert_eq!(j["rows"][0]["region_key"], "weather:KNYC:tmax:2026-06-12");
+    assert_eq!(j["rows"][0]["cost_cents"], 5, "per-row cost in cents: {j}");
+    assert_eq!(
+        j["rows"][0]["content_hash"], "feedface",
+        "8-char hash prefix: {j}"
+    );
+    assert_eq!(
+        j["rows"][0]["status"], "open",
+        "the newest analysis is open: {j}"
+    );
+    // A1 is honestly superseded (the repo flipped it on A2's insert).
+    assert_eq!(j["rows"][1]["cost_cents"], 3);
+    assert_eq!(
+        j["rows"][1]["status"], "superseded",
+        "the earlier analysis renders honestly as superseded: {j}"
+    );
 }

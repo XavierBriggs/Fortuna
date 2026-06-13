@@ -763,6 +763,33 @@ Until those land, the new boards ship as read-only frontend + honest-degraded
 (`available:false`) handlers — the discipline all three contracts specify
 ("build the panels now; they light up when the data lands").
 
+### ANALYSES BROWSER DONE (2026-06-13) — mission item 1 / §20.2 (the artifact ledger)
+Built the Domain Analyses board (`/api/rota/v1/analyses`, track-E §20.2): `recent_analyses(pool, limit)`
+runtime-sqlx over `domain_analyses` — the artifact ledger newest-first (ORDER BY
+produced_at DESC), each row = which persona (`persona_id || '@' || persona_version::text`)
+analysed which `region_key`, when, at what `cost_cents` (rendered dollars via the `cents`
+flag), the `content_hash` replay anchor (8-char prefix), and supersession `status` (pill).
++ view_analyses handler (degrades unavailable HTTP 200, no leak) via boardTable with an
+`{analyses, open, cost_cents}` summary. fortuna-ops ONLY (audit-tail precedent; DomainAnalysesRepo
+has no list accessor). UNTRUSTED-DATA BOUNDARY (deliberate): this view selects/renders ONLY
+structural metadata — `findings` + `signal_manifest` (untrusted model/signal output) are NOT
+queried or exposed (reviewer-confirmed the SELECT omits them); the findings/manifest/beliefs-fanout
+EXPANDER is the ledgered §20.2 follow-on (where the esc/JSON-encode discipline applies). PATHS[18]
++ degraded-loop + harness seed (two KNYC analyses, the later superseding the earlier). DB-backed
+populated-path test (asserts produced_at-DESC order, persona id@version, per-row cost + 8-char hash,
+the honest open-vs-superseded status the repo flips on supersession, and the summary). Reviewer RAN
+(feature-dev:code-reviewer): CONFIRMED the untrusted columns are not exposed + all checks clean; it
+flagged the `text||int` concat as a possible PG type error (confidence 85) — VERIFIED FALSE against
+live PG (`'x'||'@'||2` → `x@2`; `||` casts the int when an operand is text), but added the explicit
+`::text` cast anyway for clarity/portability. FULL-WORKSPACE BATTERY GREEN: fmt + clippy --workspace
+--all-targets -D warnings + `cargo test --workspace` 1265 passed/0 failed + run-dst.sh exit 0.
+Screenshot-verified (16 boards; Analyses shows analyses 2 / open 1 / cost 10¢, the KNYC open-over-
+superseded pair); archived rota-analyses-2026-06-13.png. FOLLOW-ONS (ledgered): the §20.2 per-artifact
+EXPANDER (findings JSONB + signal_manifest + beliefs fan-out via `beliefs.provenance ->> 'analysis_id'`,
+untrusted-data-escaped); §20.3 cognition persona-provenance extension; §20.1 persona scorecard (data-
+blocked on scoring). The E ROTA contract is now substantially covered (personas registry + analyses
+browser live; scorecard + expanders + pipeline funnel remain).
+
 ### PERSONAS REGISTRY DONE (2026-06-13) — mission item 1 (the roster of analysts)
 Built the Personas board (`/api/rota/v1/personas`, track-E §20.1 REGISTRY half):
 `persona_registry(pool)` runtime-sqlx over the `personas` table — every

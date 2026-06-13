@@ -31,8 +31,8 @@
 
 use fortuna_core::clock::{SimClock, UtcTimestamp};
 use fortuna_ledger::{
-    connect, connect_readonly_pool, AuditWriter, BeliefsRepo, CalibrationParamsRepo, EventsRepo,
-    LedgerError, PersonasRepo, PgPool,
+    connect, connect_readonly_pool, AuditWriter, BeliefsRepo, CalibrationParamsRepo,
+    DomainAnalysesRepo, EventsRepo, LedgerError, PersonasRepo, PgPool,
 };
 use fortuna_ops::dashboard::{serve_dashboard, DashboardSnapshot};
 use fortuna_ops::rota::RotaState;
@@ -388,6 +388,51 @@ async fn seed(pool: &PgPool) -> Result<(), BoxErr> {
                 None,
                 "2026-06-10T00:00:00.000Z",
                 "2026-06-10T00:00:00.000Z",
+            )
+            .await,
+    );
+
+    // Domain-analysis artifacts (mission item 1 / §20.2) — two analyses of one NYC
+    // region produced by meteorologist@2, where the later supersedes the earlier, so
+    // the Analyses board shows the artifact ledger with an open + a superseded row.
+    let analyses = DomainAnalysesRepo::new(pool.clone());
+    warn_seed(
+        "analysis.knyc.early",
+        analyses
+            .insert(
+                "01J0ANALYSIS000KNYC1",
+                "meteorologist",
+                2,
+                "weather",
+                "weather:KNYC:tmax:2026-06-13",
+                "2026-06-13T05:00:00.000Z",
+                &json!([{"signal_id": "aeolus-1", "content_hash": "h-aeolus-1"}]),
+                &json!({"thresholds": [{"ge": 86, "p": 0.78}], "sigma_trend": "widening"}),
+                "0badc0de5a6b7c8d",
+                "ctx-knyc-early",
+                4,
+                None,
+                "2026-06-13T05:00:00.000Z",
+            )
+            .await,
+    );
+    warn_seed(
+        "analysis.knyc.latest",
+        analyses
+            .insert(
+                "01J0ANALYSIS000KNYC2",
+                "meteorologist",
+                2,
+                "weather",
+                "weather:KNYC:tmax:2026-06-13",
+                "2026-06-13T11:00:00.000Z",
+                &json!([{"signal_id": "aeolus-2", "content_hash": "h-aeolus-2"}]),
+                &json!({"thresholds": [{"ge": 86, "p": 0.91}], "sigma_trend": "tightening"}),
+                "feedface9e8d7c6b",
+                "ctx-knyc-latest",
+                6,
+                Some("01J0ANALYSIS000KNYC1"),
+                "2026-06-13T11:00:00.000Z",
             )
             .await,
     );

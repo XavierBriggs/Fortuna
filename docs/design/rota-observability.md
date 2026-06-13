@@ -42,7 +42,7 @@ telemetry on every layer — consuming the C/D/E observability contracts.
 | Forecasts scorecard (C 9.1) | `/forecasts` | `scalar_beliefs`/`belief_scores` | C | frontend buildable; query BLOCKED on C tables |
 | Perps regime/basis (C 9.2) | `/perps` | `scalar_beliefs`/`belief_scores` | C | "" |
 | Personas (E 20.1) | `/personas` | `personas` | B (query) | **DONE** (registry half) — every (persona_id, version) grouped/versioned with status pill, tier, 8-char method hash, flattened `reads_signal_kinds`, effective date (runtime sqlx); the §20.1 SCORECARD half (Brier/CLV/verdict) is DATA-BLOCKED on track-E persona scoring + persona-dim'd `calibration_params` — surfaced when it lands, never faked |
-| Analyses (E 20.2) | `/analyses` | `domain_analyses` | E | frontend buildable now (tables on main); the artifacts browser + findings/manifest/beliefs-fanout expander is the next E slice |
+| Analyses (E 20.2) | `/analyses` | `domain_analyses` | B (query) | **DONE** (browser) — artifact ledger newest-first (persona `id@version`, region, produced_at, cost in $, content-hash anchor, supersession status); STRUCTURAL METADATA ONLY — untrusted `findings`/`signal_manifest` not exposed (reviewer-confirmed). The per-artifact expander (findings/manifest/beliefs-fanout, esc'd) is a follow-on (GAPS) |
 | Persona pipeline (E 20.4) | `/persona_pipeline` | metrics + ledger | E | "" |
 
 Legend — "BLOCKED on X tables" = ROTA's read-only query needs a table not yet on

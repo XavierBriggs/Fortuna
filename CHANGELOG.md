@@ -248,6 +248,15 @@ with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
   config (not untrusted data). The §20.1 SCORECARD half (per-persona Brier/CLV/
   verdict) is data-blocked on track-E persona scoring — ROTA surfaces it when the
   data lands, never a fabricated score (GAPS).
+- **Domain Analyses board** (`GET /api/rota/v1/analyses`, mission item 1 / track-E
+  §20.2 "the whole process") — the analysis-artifact ledger newest-first: which
+  persona (`id@version`) analysed which `region_key`, when, at what cost (dollars
+  via the `cents` flag), the `content_hash` replay anchor (8-char prefix), and the
+  supersession status, with an `{analyses, open, cost_cents}` summary. A fortuna-ops
+  runtime-sqlx query (audit-tail pattern). UNTRUSTED-DATA BOUNDARY: this view renders
+  STRUCTURAL METADATA ONLY — the `findings` / `signal_manifest` JSONB (untrusted
+  model/signal output) are not selected or exposed; the per-artifact expander (where
+  the esc/JSON-encode discipline applies) is a §20.2 follow-on (GAPS).
 - **Strategy P&L board** (`GET /api/rota/v1/strategies`, mission item 3 "realized
   PnL per strategy") — per-strategy realized PnL / fees / fills / open exposure,
   shaped daemon-side from `runner.digest_snapshot()` (the same attribution the

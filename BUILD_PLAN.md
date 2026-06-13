@@ -592,6 +592,18 @@ Polymarket research+fixtures, spec v0.9 touch-up).
         screenshot-verified (this commit, 15 boards). §20.1 scorecard half
         (Brier/CLV/verdict) data-blocked on track-E persona scoring; §20.2 analyses
         browser + §20.3 cognition persona-provenance are the remaining E slices (GAPS).
+  - [x] Domain Analyses board (mission item 1 / track-E §20.2, "the whole process —
+        the analyses beliefs are built from") — recent_analyses runtime-sqlx over
+        domain_analyses (artifact ledger newest-first: persona id@version, region_key,
+        produced_at, cost as dollars, content_hash prefix, supersession status) +
+        view_analyses handler + {analyses,open,cost_cents} summary via boardTable;
+        UNTRUSTED findings/signal_manifest NOT exposed (metadata only — reviewer-
+        confirmed); fortuna-ops only; DB-backed populated test (produced_at-DESC +
+        persona render + cost + hash + open-vs-superseded supersession); reviewer-clean;
+        FULL-WORKSPACE battery green (fmt+clippy+test 1265/0+run-dst exit 0);
+        screenshot-verified (this commit, 16 boards). The per-artifact expander
+        (findings/manifest/beliefs-fanout, esc'd) + §20.3 cognition persona-provenance
+        + §20.1 scorecard are the remaining E slices (GAPS).
 
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)
