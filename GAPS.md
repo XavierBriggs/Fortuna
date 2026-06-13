@@ -18,17 +18,34 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
-## TRACK E — BUILD PHASE; CORE PIPELINE PROVEN END-TO-END (E.1–E.6); remainder = coordination
+## TRACK E — BUILD COMPLETE (E.1–E.6 + E.4b); remainder = operator/Track-A-gated + 1 generalization slice
 
 STATUS 2026-06-13 (SUPERSEDES the design-phase RALPH STOP preserved below): the operator
 APPROVED the design ("looks good, rearm"; commit b4eaae3) and re-armed Track E in worktree
-fortuna-wt-e. The persona pipeline is now PROVEN END-TO-END in code (E.1–E.6, gate-clean):
+fortuna-wt-e. The persona pipeline is PROVEN END-TO-END in code, all gate-clean:
 E.1 ledger (dfdf3e0) → E.2 loader (d6e8c23) → E.3a runner+firewall (4e8b9e4) → E.3b triggers
 (96cdb79) → E.3c DST (510ee8e) → telemetry (f65fd64) → E.4a belief consumption (c1c1b55) →
-E.5a scoring (1009bb8) → E.6 end-to-end meteorologist proof DONE this commit.
+E.5a scoring (1009bb8) → E.6 e2e meteorologist proof (ccdaeca) → E.4b DomainAnalysis context
+section DONE this commit.
 
-REMAINING = COORDINATION / operator work (no pure Track-E build slice left; the core is done):
-- **E.4b** — SectionKind::DomainAnalysis context-section (the artifact as a high-priority context
+**E.4b (SectionKind::DomainAnalysis context section §9) DONE this commit.** Added the
+`DomainAnalysis` variant to the shared SectionKind enum (just under OpenBeliefs, high priority)
++ `as_str` arm, and `persona_beliefs::domain_analysis_context_item` (builds a high-priority
+DATA context item from a persisted artifact so the synthesis Mind reads the pre-digested findings
+alongside the raw signals; item content_hash = hash of the rendered body per the assembler
+convention, the artifact anchor + analysis_id in the body/id for replay). Shared-enum safety
+verified (no exhaustive match outside as_str, no numeric discriminant cast, serde string-based,
+Ord relative order preserved). 3 tests; full battery green; feature-dev review CLEAN +
+two test-strengthenings applied. fortuna-invariants UNTOUCHED.
+
+REMAINING (no core build slice left; the persona pipeline is complete):
+- **The macro-economist GENERALIZATION proof (§17)** — a SECOND persona def
+  (config/personas/macro-economist/ + a parse/mechanism test) proving one-mechanism-not-per-domain.
+  Track-E-buildable (a config file + a test; reads_signal_kinds declare not-yet-ingested macro kinds,
+  live wiring deferred to Track D). This is the last pure-Track-E slice.
+- **§15 PersonaOutcome invariant pin** — operator-waive (below).
+- **§10 ScopeKey + live daemon wiring** — Track-A coordination (below).
+- (was: E.4b — DONE above) — SectionKind::DomainAnalysis context-section (the artifact as a high-priority context
   item for the synthesis-Mind judgment path; the deterministic fan-out E.4a is the meteorologist's
   belief path and needs no SectionKind). Track-E-buildable but touches the shared SectionKind enum
   (additive variant; daemon match arms may need a case — verify before doing).
@@ -37,7 +54,7 @@ REMAINING = COORDINATION / operator work (no pure Track-E build slice left; the 
 - **Live daemon wiring** — run personas on the real drive() loop (trigger→run→persist→fan-out→
   persist_beliefs) — Track-A coordination; E.6 proves the pieces connect.
 
-**E.6 (end-to-end meteorologist proof) DONE this commit.** New crates/fortuna-ledger/tests/persona_e2e.rs:
+**E.6 (end-to-end meteorologist proof) DONE (commit ccdaeca).** New crates/fortuna-ledger/tests/persona_e2e.rs:
 one #[sqlx::test] wires the WHOLE pipeline on the real DB — register a personas row → load the
 SHIPPED meteorologist def + validate_against the registry head (method_hash binds, DB round-trip) →
 run_persona_analysis (scripted StubMind = §12 spike findings) → persist domain_analyses → fan-out to
@@ -217,13 +234,15 @@ and any fortuna-invariants touch is an operator-waive item per the loop — so s
 correctly does NOT touch the protected crate. The `domain_analyses`/`PersonaRow` row types are
 already structurally order-free (review-confirmed).
 
-NEXT: the core persona pipeline is PROVEN END-TO-END (E.1–E.6). The remaining items are
-coordination/operator work, not pure Track-E build slices (see the REMAINING list in the header):
-E.4b (SectionKind::DomainAnalysis — additive but touches the shared enum; verify the daemon match
-arms first), the §15 invariant pin (operator-waive), and the §10 ScopeKey + live daemon wiring
-(Track-A coordination). A Track-E loop iteration that finds only these is at the "idle-and-stopped
-beats bloat" boundary — do E.4b if cleanly Track-E-buildable, else surface the coordination items
-and yield rather than invent work.
+NEXT: the macro-economist GENERALIZATION proof (§17) — the LAST pure-Track-E slice: ship
+config/personas/macro-economist/{persona.md, schema.json} (a second persona, domain=macro, an
+outcomes[]-shaped findings schema) + a parse/load test (like the meteorologist), proving the
+library is ONE mechanism, not per-domain code (the macro FAN-OUT mechanism is already tested in
+E.4a's macro_outcomes test). reads_signal_kinds declare not-yet-ingested macro kinds — live wiring
+is deferred to Track D (a recorded fixture signal stands in). AFTER that, every remaining item is
+operator/Track-A-gated (§15 invariant pin operator-waive; §10 ScopeKey + live daemon wiring) — a
+Track-E iteration finding only those is at the loop-§6 "idle-and-stopped beats bloat" boundary:
+surface them and RALPH STOP rather than invent work.
 
 --- HISTORICAL (design-phase RALPH STOP — SUPERSEDED by the operator approval above) ---
 

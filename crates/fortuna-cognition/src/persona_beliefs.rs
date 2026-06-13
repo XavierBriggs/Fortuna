@@ -14,6 +14,7 @@
 //! scalar/multi-outcome claim type (design §9).
 
 use crate::beliefs::BeliefDraft;
+use crate::context::{content_hash_of, ContextItem, SectionKind};
 use fortuna_core::clock::UtcTimestamp;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
@@ -198,5 +199,39 @@ fn trim_num(n: f64) -> String {
         format!("{}", n as i64)
     } else {
         format!("{n}")
+    }
+}
+
+/// Build the high-priority `DomainAnalysis` context item for a persisted artifact
+/// (design §9, E.4b) so the synthesis Mind reads the persona's pre-digested findings
+/// as ONE high-value item alongside the raw signals. The item's `content_hash` is
+/// the artifact's replay anchor, so the assembled-context manifest references the
+/// artifact by id + hash (5.7). The body renders the findings as DATA — it is an
+/// untrusted-but-pre-digested context item, NOT the trusted method (which still rides
+/// only in the Mind system message, §4).
+pub fn domain_analysis_context_item(
+    persona_id: &str,
+    persona_version: i32,
+    analysis_id: &str,
+    region_key: &str,
+    findings: &Value,
+    content_hash: &str,
+    at: UtcTimestamp,
+) -> ContextItem {
+    let rendered = serde_json::to_string_pretty(findings).unwrap_or_else(|_| findings.to_string());
+    // The artifact's content_hash rides IN the body (traceability); the ITEM
+    // content_hash follows the assembler convention (hash of the rendered body),
+    // and the item_id is the analysis_id — so the context manifest references the
+    // artifact by id, and the body replays from the persisted findings (5.7).
+    let body = format!(
+        "persona:{persona_id}@{persona_version} domain-analysis for {region_key} \
+         (artifact {content_hash}):\n{rendered}"
+    );
+    ContextItem {
+        item_id: analysis_id.to_string(),
+        section: SectionKind::DomainAnalysis,
+        content_hash: content_hash_of(&body),
+        body,
+        at,
     }
 }

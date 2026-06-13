@@ -1761,3 +1761,21 @@ domain-analysis artifact (authoritative design: docs/design/domain-analysis-pers
 - **E.6 is the build CAPSTONE**: the core persona pipeline is proven end-to-end. The
   remaining items (E.4b SectionKind, the §15 invariant pin, the §10 ScopeKey + live
   daemon wiring) are coordination/operator work, not pure Track-E build slices.
+
+## Track E — E.4b (SectionKind::DomainAnalysis context section; design §9)
+
+- **The `DomainAnalysis` SectionKind variant is inserted just under `OpenBeliefs`**
+  (high priority per §9) in the shared enum. Safe additive change: the only exhaustive
+  match on SectionKind is `as_str` (Track-E's context.rs, updated); no code casts the
+  discriminant numerically; serde is string-based (existing variants' wire form
+  unchanged); the Ord derive preserves every pre-existing variant's relative order.
+- **A `DomainAnalysis` context item's `content_hash` is `content_hash_of(rendered_body)`,
+  NOT the artifact's anchor.** The assembler validates `item.content_hash ==
+  content_hash_of(item.body)` (fail-closed), so the item must follow that convention.
+  The artifact's replay anchor (its content_hash) rides IN the body for traceability,
+  and the item_id is the analysis_id — so the context manifest references the artifact
+  by id, and the body replays from the persisted findings (5.7).
+- **The DomainAnalysis context item carries only DATA** (the findings rendering + the
+  artifact metadata), NEVER the trusted method body (which rides only in the Mind system
+  message, §4). It is a pre-digested-but-untrusted context item, rendered inside the
+  assembler's delimited `<context-item>` block.

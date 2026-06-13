@@ -685,13 +685,15 @@ at E.3 (the PersonaOutcome no-order/size field-surface pin) under operator waive
       PersonaOutcomes → the §19 funnel counters + cost counter + spend_today gauge; samples()
       shape-compatible with MetricSample; accounting identity test-pinned; 10 tests; full battery
       green. REMAINING E.3: ONLY the §15 PersonaOutcome invariant pin (operator-waive, see GAPS).]
-- [ ] E.4 Belief consumption — DomainAnalysis section + evidence/provenance citation; the
+- [x] E.4 Belief consumption — DomainAnalysis section + evidence/provenance citation; the
       μ/σ→p helper in code; `fortuna_persona_beliefs_total` metric.
-      [E.4a DONE this commit: fortuna_cognition::persona_beliefs — normal_cdf/prob_at_least (the
+      [E.4a (commit c1c1b55): fortuna_cognition::persona_beliefs — normal_cdf/prob_at_least (the
       μ/σ→p backbone, clamped) + map_persona_analysis (artifact findings → one binary BeliefDraft
-      per threshold/outcome, evidence + provenance replay anchor, dedup'd event_ids); 12 tests;
-      full battery green. REMAINING E.4: E.4b SectionKind::DomainAnalysis context item +
-      fortuna_persona_beliefs_total (the beliefs metric folds into the §19 counters at wiring).]
+      per threshold/outcome, evidence + provenance replay anchor, dedup'd event_ids).
+      E.4b DONE this commit: SectionKind::DomainAnalysis (shared enum, additive, high priority) +
+      domain_analysis_context_item (the artifact as a high-priority DATA context item for the
+      synthesis Mind); shared-enum safety verified; 3 tests; full battery green. The
+      fortuna_persona_beliefs_total metric folds into the §19 PersonaCounters at the live wiring.]
 - [ ] E.5 Scoring scope extension — ScopeKey + weekly-review promote/retire proposal (baseline +
       market comparison; recommendation-only); resolved_beliefs/clv_bp metrics.
       [E.5a DONE this commit: fortuna_cognition::persona_scoring — PersonaScope + score_persona

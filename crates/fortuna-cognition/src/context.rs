@@ -44,6 +44,10 @@ pub enum SectionKind {
     Charter,
     AccountState,
     OpenBeliefs,
+    /// A persisted domain-analysis artifact (Track E §9). High priority — packed
+    /// just under the open beliefs — so the synthesis Mind reads the persona's
+    /// pre-digested reasoning as one high-value item alongside the raw signals.
+    DomainAnalysis,
     MarketSnapshot,
     FreshSignals,
     Lessons,
@@ -56,6 +60,7 @@ impl SectionKind {
             SectionKind::Charter => "charter",
             SectionKind::AccountState => "account_state",
             SectionKind::OpenBeliefs => "open_beliefs",
+            SectionKind::DomainAnalysis => "domain_analysis",
             SectionKind::MarketSnapshot => "market_snapshot",
             SectionKind::FreshSignals => "fresh_signals",
             SectionKind::Lessons => "lessons",

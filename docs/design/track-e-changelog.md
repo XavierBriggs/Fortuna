@@ -10,7 +10,36 @@ commit gate, `fortuna-invariants` untouched except at E.3 (operator-waive-flagge
 
 ---
 
-## E.6 — end-to-end meteorologist proof (the capstone) (this commit)
+## E.4b — SectionKind::DomainAnalysis context section (§9) (this commit)
+
+Added the `DomainAnalysis` variant to the shared `SectionKind` enum
+(`context.rs`), inserted just under `OpenBeliefs` (high priority, per §9) + its
+`as_str` arm, and `persona_beliefs::domain_analysis_context_item` — builds a
+high-priority context item from a persisted artifact so the synthesis Mind reads
+the persona's pre-digested findings as ONE high-value item alongside the raw
+signals. The item is DATA (the findings rendering + the artifact anchor in the
+body), NOT the trusted method (which still rides only in the Mind system message,
+§4). The item content_hash follows the assembler convention (hash of the rendered
+body), so it passes the assembler's hash-verification; the item_id is the
+analysis_id and the artifact anchor is in the body (replayable, 5.7).
+
+SHARED-ENUM SAFETY (the risk): verified there is NO exhaustive match on SectionKind
+anywhere except `as_str` (updated), NO numeric discriminant cast, serde is
+string-based (existing variants' wire form unchanged), and the Ord insertion
+preserves every pre-existing variant's relative order. The existing `context` test
+still passes. 3 new tests (the Ord priority chain, the item's fields + hash
+convention + anchor-in-body, and that the artifact renders + packs before signals
+via assemble_context). Full battery green. feature-dev:code-reviewer: confirmed all
+shared-enum/content-hash/§4 checks CLEAN; two test-strengthening items (full Ord
+chain incl. Lessons/Episodic + the specific data-wrapping assertion) applied.
+fortuna-invariants UNTOUCHED.
+
+This COMPLETES E.4 (E.4a fan-out + E.4b context section). The Track-E build is now
+done end-to-end; what remains is operator/Track-A-gated (the §15 invariant pin, the
+§10 ScopeKey + live daemon wiring) plus the macro-economist GENERALIZATION proof
+(§17 — a second persona def, Track-E-buildable, proving one-mechanism-not-per-domain).
+
+## E.6 — end-to-end meteorologist proof (the capstone) (commit ccdaeca)
 
 New `crates/fortuna-ledger/tests/persona_e2e.rs` (design §9/§10/§11) — one
 `#[sqlx::test]` wires the WHOLE persona pipeline on the real ledger DB:

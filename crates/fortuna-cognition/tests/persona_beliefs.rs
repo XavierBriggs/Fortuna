@@ -2,8 +2,12 @@
 //! and the artifact→binary-belief fan-out (provenance citing the persona +
 //! artifact, so a belief replays to it).
 
+use fortuna_cognition::context::{
+    assemble_context, content_hash_of, AssemblerConfig, ContextItem, SectionKind,
+};
 use fortuna_cognition::persona_beliefs::{
-    map_persona_analysis, normal_cdf, prob_at_least, PersonaBeliefError,
+    domain_analysis_context_item, map_persona_analysis, normal_cdf, prob_at_least,
+    PersonaBeliefError,
 };
 use fortuna_core::clock::UtcTimestamp;
 use serde_json::json;
@@ -185,4 +189,94 @@ fn duplicate_entries_are_rejected_not_silently_emitted() {
     let findings = json!({"thresholds": [{"ge": 65, "p": 0.4}, {"ge": 65, "p": 0.6}]});
     let err = map_persona_analysis("m", 1, "a", "c", "r", &findings, h()).unwrap_err();
     assert!(matches!(err, PersonaBeliefError::DuplicateEvent { .. }));
+}
+
+// ---- E.4b: the artifact as a high-priority context item (design §9) ----
+
+#[test]
+fn the_domain_analysis_section_is_high_priority_just_under_open_beliefs() {
+    // Packed just under OpenBeliefs, ahead of every lower-priority section.
+    assert!(SectionKind::OpenBeliefs < SectionKind::DomainAnalysis);
+    assert!(SectionKind::DomainAnalysis < SectionKind::MarketSnapshot);
+    assert!(SectionKind::DomainAnalysis < SectionKind::FreshSignals);
+    assert!(SectionKind::DomainAnalysis < SectionKind::Lessons);
+    assert!(SectionKind::DomainAnalysis < SectionKind::Episodic);
+    // The pre-existing high-priority order is preserved by the insertion.
+    assert!(SectionKind::Charter < SectionKind::AccountState);
+    assert!(SectionKind::AccountState < SectionKind::OpenBeliefs);
+}
+
+#[test]
+fn a_domain_analysis_context_item_carries_the_findings_and_the_replay_anchor() {
+    let findings = json!({"thresholds": [{"ge": 65, "p": 0.41}], "regime": "ridge"});
+    let item = domain_analysis_context_item(
+        "meteorologist",
+        3,
+        "01JANALYSIS",
+        "weather:KNYC:tmax:2026-06-12",
+        &findings,
+        "ch-anchor",
+        h(),
+    );
+    assert_eq!(item.section, SectionKind::DomainAnalysis);
+    assert_eq!(item.item_id, "01JANALYSIS");
+    // The item hash follows the assembler convention (hash of the body); the
+    // artifact's replay anchor rides IN the body.
+    assert_eq!(item.content_hash, content_hash_of(&item.body));
+    assert!(
+        item.body.contains("artifact ch-anchor"),
+        "the replay anchor is in the body"
+    );
+    assert!(item.body.contains("persona:meteorologist@3"));
+    assert!(item.body.contains("ridge"));
+}
+
+#[test]
+fn a_domain_analysis_item_renders_as_data_and_packs_before_signals() {
+    let trigger = h();
+    let earlier = UtcTimestamp::parse_iso8601("2026-06-12T22:00:00.000Z").unwrap();
+    let analysis = {
+        let mut it = domain_analysis_context_item(
+            "meteorologist",
+            3,
+            "01JA",
+            "r",
+            &json!({"k": "v"}),
+            "ch",
+            earlier,
+        );
+        it.at = earlier;
+        it
+    };
+    let signal = ContextItem {
+        item_id: "sig".to_string(),
+        section: SectionKind::FreshSignals,
+        body: "raw signal body".to_string(),
+        content_hash: content_hash_of("raw signal body"),
+        at: earlier,
+    };
+    let assembler = AssemblerConfig {
+        budget_chars: 100_000,
+        anonymize: false,
+    };
+    let ctx =
+        assemble_context(&[signal, analysis], trigger, "persona-consume", &assembler).unwrap();
+    // Rendered as a delimited DATA block under its section, BEFORE the raw signals.
+    let da = ctx
+        .rendered
+        .find("domain_analysis")
+        .expect("domain_analysis section");
+    let fs = ctx
+        .rendered
+        .find("fresh_signals")
+        .expect("fresh_signals section");
+    assert!(
+        da < fs,
+        "the domain analysis packs ahead of the raw signals"
+    );
+    // The domain-analysis artifact specifically is wrapped as a delimited DATA
+    // block (injection hygiene, 5.11) — not raw prose.
+    assert!(ctx
+        .rendered
+        .contains("<context-item id=\"01JA\" section=\"domain_analysis\">"));
 }
