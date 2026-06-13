@@ -18,6 +18,70 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## RALPH STOP 2026-06-13T21:51:05Z (track A — completion-campaign queue exhausted, loop ends clean)
+
+Track A (venue/exec/recovery) has no buildable-without-operator item remaining.
+Stopping per implementer-loop.md rule 6 ("every priority item is blocked/exhausted
+— idle-and-stopped beats inventing unrequested work"). This is a CLEAN stop: the
+last battery is GREEN and main is fully integrated.
+
+STATE AT STOP: branch track-a @ f5a1865 (F16a cancel-hardening, this session); 34
+commits ahead of main, main 0 ahead (main @ cbd3860 fully merged in at fd6c386 —
+track-B ROTA dashboard integrated). Working tree clean. Full DoD battery GREEN this
+session at f5a1865: fmt --check clean; clippy --workspace --all-targets -D warnings
+0; cargo test --workspace 1413 passed / 0 failed (151 binaries); run-dst.sh 200 = 4
+corpus + 200 seeds, 0 invariant violations. Protected crate untouched all session.
+
+CAMPAIGN COMPLETE (track-a-completion-queue.md, all (b)-priority items done or blocked):
+- M3 rearm notices — DONE (gated ACCEPT, both surfaces, I2 no-auto-resume).
+- T4.2 (i) WS dial — DONE (gated; live socket round-trip is operator-run).
+  (ii) book-driven PaperVenue replay — DONE e6dd7ec (trade-frame ledgered, never
+  fabricated). (iii) 27-item paper-clearance — DONE bar live-WS-handshake (op-run);
+  clearance signed @77bbca5. (iv) kill-switch Kalshi plug — DONE (machinery 4e3a484
+  + live wiring 7f69b81; I4 green; live exercise op-run). (v) Slack listener A1+A2
+  DONE; sub-slice B operator-gated (xapp- token + real WSS).
+- CANCEL-HARDENING F16a — DONE this session (f5a1865): stale single-GET reconciles
+  via the order LIST (canceled→Ok / executed→Rejected / else→Timeout); README
+  finding-16 "recancel-404-as-canceled" rejected (fill-masking; 404 bodies collide);
+  mutation-proven.
+- T4.5 ROTA — buildable-without-operator surface DONE (audit-recents gates +
+  settlement + gate-verdict badge).
+
+WHY NO BUILDABLE ITEM REMAINS (each verified this iteration, not inherited):
+1. F16b (full multi-attempt bounded-backoff cancel poll) — DEFERRED. Guards a
+   list-ALSO-stale hypothetical with NO recorded basis (the recorded race shows the
+   list IS the fresh surface; F16a handles it), AND needs a Sleeper injected into
+   KalshiVenue::new (a constructor change rippling to every call site). Poor
+   risk/reward + partly synthetic-only; building it = inventing work. Unblock: a
+   recorded multi-stale sequence + operator-authorized Sleeper constructor change.
+2. Composition-root guard (= queue item 4 = BACKLOG #2, the distinct reader/writer
+   pool boot assertion) — DEFERRED WITH RATIONALE (GAPS BACKLOG #2): wiring is
+   CURRENTLY CORRECT (main.rs:66/:125/:138) and R5 isolation is handler-tested
+   (incl. track-B rota.rs:637-700); standalone closure = refactoring the composition
+   root of an ACCEPTED daemon to guard a correct wiring. Rides with the next
+   substantive main.rs change = the OPERATOR-GATED venue-wiring tranche.
+3. T4.2 live exercises — OPERATOR: live WS handshake (venue=kalshi un-refuse + demo
+   key); live freeze exercise (FORTUNA_KILLSWITCH_KALSHI_* env incl. _BASE_URL +
+   demo key); Slack sub-slice B (FORTUNA_SLACK_APP_TOKEN xapp- + WSS).
+4. T4.5 (c) WS gap/resync counters — need the operator-run live dial wired into
+   drive(); (d) full money model — needs an operator/design call (mark-loop
+   AccountView via a SimRunner accessor).
+5. Remaining 27-item clearance PARTIALs — recorder/operator-gated (settlement
+   capture post-close, voided market, series-fee event lookup [needs fixture],
+   maker-mode STP, busy-market WS, empty-book re-capture, cursor stability,
+   prod-parity re-record). NEVER fabricate a fixture.
+6. T5.B7/B8 — TRACK C's (operator reorg 7fa4115 assigned perps/cognition to track C,
+   actively building; the queue's "B7/B8→track A" section is superseded — corrected
+   in track-a-completion-queue.md this session).
+7. Soak start — OPERATOR (runbooks/soak-start.md, bus operator-queue #1).
+
+OPERATOR ACTIONS TO UNBLOCK (all rails built, none simulated): (1) sign the Kalshi
+paper-clearance + flip venue=kalshi for the first live WS handshake; (2) provide
+FORTUNA_KILLSWITCH_KALSHI_* (incl. _BASE_URL) + a demo key and run the live freeze;
+(3) provide FORTUNA_SLACK_APP_TOKEN (xapp-) for Slack sub-slice B; (4) the T4.5 (d)
+money-model design call; (5) start the soak. The venue-wiring tranche that lands the
+composition-root guard rides on (1).
+
 ## TRACK A — T4.5 ROTA: buildable surface COMPLETE (audit-recents + gate-verdict badge); 2 pieces operator-BLOCKED
 
 T4.5 (deferred ROTA trading-side panels) — the BUILDABLE-WITHOUT-OPERATOR surface is DONE:
