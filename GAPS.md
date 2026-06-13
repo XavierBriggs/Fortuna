@@ -35,6 +35,35 @@ ACCURACY NOTE (caught in self-verify): Layer-2 corroboration is BUILT
 were corrected to say so (the live path dedups via `normalize_and_dedup`'s
 UNIQUE index). Docs-only change: no code touched, so no cargo battery applies.
 
+## TRACK D — OBS-2b telemetry publish: DONE + OBS-2c handoff TO TRACK B
+
+OBS-2b (2026-06-13) built the "one writer" side of the observability snapshot:
+`run_ingestion_loop` publishes `wiring.telemetry(now)` into a shared
+`fortuna_live::ingestion::IngestionTelemetryHandle`
+(`Arc<tokio::sync::RwLock<IngestionTelemetry>>`) each tick; `new_telemetry_handle()`
+mints an empty one; `IngestionTelemetry` derives `Default`. The daemon creates the
+handle (inert empty Arc when ingestion is OFF → byte-unchanged; daemon_smoke
+guarantee preserved) and logs the final funnel at shutdown. Contained to
+fortuna-sources + fortuna-live ingestion.rs/main.rs (the D10 seam); NO RotaState
+touch. 1 DB-free test (handle empty → round-trips a published snapshot). Scoped
+battery green (fmt; clippy -p fortuna-sources -p fortuna-live --all-targets
+-D warnings; sources 119+5; live ingestion 7/7).
+
+>>> HANDOFF TO TRACK B (OBS-2c — the read endpoint, per the §2 contract): the
+ROTA "many readers" side is yours. To consume the live snapshot:
+1. Add a reader field to `fortuna_ops::rota::RotaState`, e.g.
+   `ingestion: Option<fortuna_live::ingestion::IngestionTelemetryHandle>` (or
+   re-export the type to avoid the fortuna-live dep — your call).
+2. In main.rs (crates/fortuna-live/src/main.rs, the dashboard `RotaState { … }`
+   construction ~line 138) pass `ingest_telemetry.clone()` — the handle already
+   exists in scope (created before the ingestion match for exactly this).
+3. The V1 Live Feed reads `.read().await.recent`; V2 Sources Health reads
+   `.sources`; V3 Funnel reads `.funnel`. Read-only, snapshot is a pure
+   projection (no DB, cheap every refresh). Empty `generated_at` => ingestion not
+   yet ticked (show "—", don't 500).
+This is a clean writer/reader seam — I intentionally did NOT touch RotaState to
+avoid colliding with your in-flight ROTA harness.
+
 ## TRACK D — OBS-3 domain_tags: DONE (SourceTelemetry surface now complete)
 
 OBS-3 (2026-06-13) populated `SourceTelemetry.domain_tags` from the

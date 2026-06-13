@@ -915,11 +915,25 @@ scheduler is shared with D9). The skill/persona layer is a separate session
       battery green — fmt + clippy -p fortuna-live --all-targets -D warnings +
       test -p fortuna-live --lib ingestion = 6/6; the DB-backed fortuna-live
       suite is the verifier's merge gate.) [2ed28d3]
-- [ ] OBS-2b snapshot publish: write `IngestionWiring::telemetry()` into an
-      `Arc<RwLock<IngestionTelemetry>>` each tick in run_ingestion_loop + hand a
-      reader clone out of main.rs so the metrics renderer + ROTA handlers project
-      it (§2 "one writer, many readers"). Touches main.rs — sequence vs track A;
-      track B wires the read endpoint.
+- [x] OBS-2b snapshot publish: the "one writer" side of §2. New
+      `IngestionTelemetryHandle = Arc<RwLock<IngestionTelemetry>>` +
+      `new_telemetry_handle()`; `run_ingestion_loop` publishes `wiring.telemetry(now)`
+      into it each tick (the projection uses the same `now` as the tick).
+      `IngestionTelemetry` derives `Default` (the empty pre-first-tick snapshot
+      readers see). main.rs creates the handle (inert empty Arc when ingestion is
+      OFF → daemon byte-unchanged), passes the writer to the loop, and logs the
+      final funnel at shutdown. NO RotaState touch (track B owns the read endpoint
+      = OBS-2c). 1 DB-free test (handle starts empty, then round-trips a published
+      snapshot). (DONE 2026-06-13 <hash>; scoped battery green — fmt + clippy
+      -p fortuna-sources -p fortuna-live --all-targets -D warnings + test
+      -p fortuna-sources 119+5 + test -p fortuna-live --lib ingestion 7/7;
+      daemon_smoke unaffected = verifier's merge gate.)
+- [ ] OBS-2c ROTA read wiring (track-B-coordinated): track B adds an
+      `ingestion: Option<IngestionTelemetryHandle>` reader to `RotaState`
+      (fortuna-ops) + the V1/V2/V3 boards project it; main.rs passes
+      `ingest_telemetry.clone()` into the dashboard state. Deferred to land WITH
+      track B's ROTA harness (the bus queue item) so writer+reader stay coherent
+      and we don't both edit RotaState.
 - [x] OBS-3 domain_tags population: carry each source's domain (weather|macro|…)
       from the `source_registry` admission into `SourceTelemetry.domain_tags` (was
       hard-coded empty in OBS-1). Registry-sourced via a new `domain_of` resolver

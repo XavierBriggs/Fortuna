@@ -117,8 +117,11 @@ observability data surface: per-source `SourceTelemetry` (health + the
 wall-time; summaries/errors are redacted and truncated. The loop-side funnel
 stages are filled by `IngestionWiring::telemetry` (OBS-2a: `normalized` /
 `deduped` from the core, `persisted` / `persist_failures` from the wiring), and
-`domain_tags` is populated from the registry admission (OBS-3). The remaining
-step is OBS-2b — publishing the snapshot behind `Arc<RwLock>` for ROTA. Contract:
+`domain_tags` is populated from the registry admission (OBS-3). The loop
+PUBLISHES each tick's snapshot into a shared `IngestionTelemetryHandle`
+(`Arc<RwLock<IngestionTelemetry>>`, OBS-2b — "one writer, many readers"). The
+remaining step is OBS-2c — track B wiring a reader clone into `RotaState` for the
+V1/V2/V3 boards. Contract:
 [ingestion-observability-contract.md](ingestion-observability-contract.md).
 
 ## Safety notes
@@ -140,9 +143,11 @@ step is OBS-2b — publishing the snapshot behind `Arc<RwLock>` for ROTA. Contra
 
 - **D7** `GdeltSource` — external IP rate-limit; interim = `rss` against
   `format=rss`.
-- **OBS-2b** — publish the `IngestionWiring::telemetry()` snapshot behind an
-  `Arc<RwLock>` + a main.rs reader so ROTA/metrics can project it. (OBS-2a, the
-  funnel loop-stages, and OBS-3, registry `domain_tags`, are DONE.)
+- **OBS-2c** — track B wires a reader clone of the published
+  `IngestionTelemetryHandle` into `RotaState` (fortuna-ops) for the V1/V2/V3
+  boards; main.rs passes `ingest_telemetry.clone()` into the dashboard state.
+  (OBS-2a funnel loop-stages, OBS-2b the publish, and OBS-3 registry
+  `domain_tags` are DONE.)
 - **F4b** — release-aware cadence (consume `next_run_at` + the GEFS release
   pattern instead of static event windows).
 - **F10** — Aeolus `source_registry` row + dossier finalization + v1→v2 fixture

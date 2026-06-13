@@ -24,6 +24,16 @@ use fortuna_ledger::SignalsRepo;
 use fortuna_ops::{MessageKind, SlackRouter};
 use fortuna_sources::{Alert, Dropped, IngestionScheduler, IngestionTelemetry};
 
+/// The shared, published telemetry snapshot — ONE writer (the ingestion loop),
+/// many readers (the metrics renderer + the ROTA handlers). Mirrors the daemon's
+/// existing `Arc<RwLock<DashboardSnapshot>>` pattern (observability-contract §2).
+pub type IngestionTelemetryHandle = std::sync::Arc<tokio::sync::RwLock<IngestionTelemetry>>;
+
+/// A fresh, empty published handle (the pre-first-tick state readers see).
+pub fn new_telemetry_handle() -> IngestionTelemetryHandle {
+    std::sync::Arc::new(tokio::sync::RwLock::new(IngestionTelemetry::default()))
+}
+
 /// What one tick produced (pre-persistence).
 #[derive(Debug, Default)]
 pub struct IngestResult {
@@ -305,6 +315,7 @@ pub async fn run_ingestion_loop(
     clock: std::sync::Arc<dyn fortuna_core::clock::Clock>,
     tick_interval: std::time::Duration,
     mut stop: tokio::sync::oneshot::Receiver<()>,
+    telemetry: IngestionTelemetryHandle,
 ) -> IngestStats {
     let mut last = IngestStats::default();
     loop {
@@ -312,7 +323,12 @@ pub async fn run_ingestion_loop(
         if stop.try_recv() != Err(tokio::sync::oneshot::error::TryRecvError::Empty) {
             break;
         }
-        last = wiring.tick_and_persist(clock.now()).await;
+        let now = clock.now();
+        last = wiring.tick_and_persist(now).await;
+        // Publish the snapshot for the readers (OBS-2b, "one writer, many
+        // readers"). The write lock is held only for the move; the projection
+        // was computed against the same `now` as the tick.
+        *telemetry.write().await = wiring.telemetry(now);
         tokio::select! {
             _ = tokio::time::sleep(tick_interval) => {}
             _ = &mut stop => break,
@@ -525,5 +541,29 @@ mod tests {
             t.funnel.validated_dropped, 1,
             "counted as a republished drop"
         );
+    }
+
+    // --- OBS-2b: the published telemetry handle (the read surface for ROTA) ---
+
+    #[tokio::test]
+    async fn telemetry_handle_starts_empty_then_reflects_a_published_snapshot() {
+        // The pre-first-tick state a reader sees: empty, never-generated.
+        let handle = new_telemetry_handle();
+        {
+            let snap = handle.read().await;
+            assert!(snap.generated_at.is_empty(), "not yet generated");
+            assert!(snap.sources.is_empty());
+            assert_eq!(snap.funnel.normalized, 0);
+        }
+        // Simulate the loop's per-tick publish: write a real telemetry snapshot
+        // (the loop publishes `wiring.telemetry(now)`; the core projection is the
+        // representative, DB-free part) and read it back through the handle.
+        let mut core = core_with(vec![raw("a", None), raw("b", None)]);
+        core.tick(ts(1_000)).await;
+        *handle.write().await = core.telemetry(ts(1_000));
+        let snap = handle.read().await;
+        assert!(!snap.generated_at.is_empty());
+        assert_eq!(snap.funnel.normalized, 2);
+        assert_eq!(snap.sources.len(), 1);
     }
 }

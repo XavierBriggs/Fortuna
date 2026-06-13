@@ -207,7 +207,9 @@ pub struct TickTelemetry {
 /// A live ingestion telemetry snapshot. ONE writer (the ingestion loop), many
 /// readers (the Prometheus renderer + ROTA handlers). A pure projection — the
 /// `generated_at` clock is injected by the caller (never wall-clock here).
-#[derive(Debug, Clone)]
+/// `Default` is the empty pre-first-tick snapshot a published handle starts at
+/// (empty `generated_at` => "not yet generated"; readers degrade gracefully).
+#[derive(Debug, Clone, Default)]
 pub struct IngestionTelemetry {
     pub generated_at: String,
     pub sources: Vec<SourceTelemetry>,

@@ -67,6 +67,12 @@ default — merged code activates zero ingestion until an operator opts in (see
   admission via a new `domain_of` resolver on `build_scheduler` (parallel to
   `tier_of`), so the per-source telemetry carries its domain (weather|macro|…).
   No more empty placeholder fields in the telemetry surface.
+- OBS-2b telemetry publish — `run_ingestion_loop` now publishes the snapshot into
+  a shared `IngestionTelemetryHandle` (`Arc<RwLock<IngestionTelemetry>>`) each
+  tick ("one writer, many readers", §2); `IngestionTelemetry` derives `Default`
+  for the empty pre-first-tick state. The daemon creates the handle (inert when
+  ingestion is off) and logs the final funnel at shutdown. The ROTA read endpoint
+  (OBS-2c) is track B's harness.
 - Design docs: `docs/design/aeolus-fortuna-source-contract.md` (rev 3,
   reconciled with the Aeolus producer handoff) and
   `docs/design/ingestion-observability-contract.md` (telemetry + ROTA-views
