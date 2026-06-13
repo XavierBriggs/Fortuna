@@ -797,3 +797,163 @@ async fn cognition_carries_daemon_counters_when_the_view_is_populated() {
     // The ledger arrays still degrade independently (no pool here).
     assert_eq!(j["recent_beliefs"]["available"], false);
 }
+
+// ---- T4.5: /gates recent_rejections (audit-recents; populated-path) ----
+
+/// Seed one `gate_decision` audit row carrying a serialized GateCheckRecord
+/// payload (the per-check trail runner.rs writes). Binds the payload as TEXT
+/// cast to jsonb so the test crate needs no sqlx json feature.
+async fn insert_gate_decision(
+    pool: &sqlx::PgPool,
+    audit_id: &str,
+    at: &str,
+    intent: &str,
+    check: &str,
+    verdict: &str,
+    reason: &str,
+) {
+    let payload = serde_json::json!({
+        "check": check, "verdict": verdict, "reason": reason,
+        "at": at, "intent_id": intent, "client_order_id": format!("coid-{intent}"),
+    })
+    .to_string();
+    sqlx::query(
+        "INSERT INTO audit (audit_id, at, kind, actor, ref_id, payload) \
+         VALUES ($1, $2, 'gate_decision', NULL, $3, $4::jsonb)",
+    )
+    .bind(audit_id)
+    .bind(at)
+    .bind(intent)
+    .bind(payload)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+async fn get_gates(state: RotaState) -> serde_json::Value {
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/gates"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    h.abort();
+    j
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn gates_recent_rejections_surfaces_only_rejects_newest_first(pool: sqlx::PgPool) {
+    // The per-check gate trail: 2 Rejects (distinct checks/intents) + 1 Pass,
+    // plus a `gate_reject` row (the BUS-event kind, NOT a gate_decision audit
+    // row). recent_rejections must surface ONLY the 2 Rejects, newest-first,
+    // with the §5 {audit_id,at,check,reason,intent_ref} shape — the Pass and the
+    // foreign kind excluded.
+    insert_gate_decision(
+        &pool,
+        "01R1AAAAAAAAAAAAAAAAAAAAAA",
+        "2026-06-11T12:00:01.000Z",
+        "01INTENT1AAAAAAAAAAAAAAAAA",
+        "EdgeFloor",
+        "Reject",
+        "net edge 42bps < floor 100bps",
+    )
+    .await;
+    insert_gate_decision(
+        &pool,
+        "01P1AAAAAAAAAAAAAAAAAAAAAA",
+        "2026-06-11T12:00:02.000Z",
+        "01INTENT2AAAAAAAAAAAAAAAAA",
+        "PriceBand",
+        "Pass",
+        "within band",
+    )
+    .await;
+    insert_gate_decision(
+        &pool,
+        "01R2AAAAAAAAAAAAAAAAAAAAAA",
+        "2026-06-11T12:00:03.000Z",
+        "01INTENT3AAAAAAAAAAAAAAAAA",
+        "RateLimits",
+        "Reject",
+        "venue burst exhausted",
+    )
+    .await;
+    insert_audit(&pool, "01XXAAAAAAAAAAAAAAAAAAAAAA", "gate_reject").await;
+
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+    };
+    let j = get_gates(state).await;
+    let rr = &j["recent_rejections"];
+    assert_eq!(rr["available"], serde_json::json!(true), "{j}");
+    let rows = rr["rows"].as_array().expect("rows array");
+    assert_eq!(
+        rows.len(),
+        2,
+        "only the 2 Rejects (Pass + the gate_reject kind excluded): {rows:?}"
+    );
+    // newest-first: R2 (12:00:03) then R1 (12:00:01).
+    assert_eq!(rows[0]["audit_id"], "01R2AAAAAAAAAAAAAAAAAAAAAA");
+    assert_eq!(rows[0]["check"], "RateLimits");
+    assert_eq!(rows[0]["reason"], "venue burst exhausted");
+    assert_eq!(rows[0]["intent_ref"], "01INTENT3AAAAAAAAAAAAAAAAA");
+    assert_eq!(rows[0]["at"], "2026-06-11T12:00:03.000Z");
+    assert_eq!(rows[1]["audit_id"], "01R1AAAAAAAAAAAAAAAAAAAAAA");
+    assert_eq!(rows[1]["check"], "EdgeFloor");
+    assert_eq!(rows[1]["reason"], "net edge 42bps < floor 100bps");
+    assert_eq!(rows[1]["intent_ref"], "01INTENT1AAAAAAAAAAAAAAAAA");
+    assert_eq!(rows[1]["at"], "2026-06-11T12:00:01.000Z");
+    assert!(
+        !rows.iter().any(|r| r["check"] == "PriceBand"),
+        "a passing check must never surface as a rejection: {rows:?}"
+    );
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn gates_recent_rejections_is_available_but_empty_when_no_rejects(pool: sqlx::PgPool) {
+    // Only a Pass seeded → recent_rejections is available + EMPTY (honest empty,
+    // never the panel implying a rejection that did not happen).
+    insert_gate_decision(
+        &pool,
+        "01P1AAAAAAAAAAAAAAAAAAAAAA",
+        "2026-06-11T12:00:02.000Z",
+        "01INTENT2AAAAAAAAAAAAAAAAA",
+        "PriceBand",
+        "Pass",
+        "within band",
+    )
+    .await;
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+    };
+    let j = get_gates(state).await;
+    assert_eq!(j["recent_rejections"]["available"], serde_json::json!(true));
+    assert_eq!(
+        j["recent_rejections"]["rows"].as_array().unwrap().len(),
+        0,
+        "no rejects → empty, not fabricated"
+    );
+}
+
+#[tokio::test]
+async fn gates_recent_rejections_degrades_without_a_pool() {
+    // R1: standalone (no pool) → 200, never 500; recent_rejections explicitly
+    // unavailable, never fabricated as empty-meaning-all-clear.
+    let state = RotaState::standalone(empty_snapshot());
+    let j = get_gates(state).await;
+    assert_eq!(
+        j["recent_rejections"]["available"],
+        serde_json::json!(false),
+        "{j}"
+    );
+}

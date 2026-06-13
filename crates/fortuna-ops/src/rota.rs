@@ -93,8 +93,41 @@ async fn view_health(State(s): State<RotaState>) -> impl IntoResponse {
 async fn view_money(State(s): State<RotaState>) -> impl IntoResponse {
     Json(read_view(&s, "money").await)
 }
+/// The gates panel: the daemon-shaped scalars (total_rejections, by-check) ride
+/// the "gates" snapshot view; ROTA's OWN R5-pool query adds `recent_rejections`
+/// (§5) — the recent per-check gate REJECTIONS from the audit trail. Absent pool
+/// => an explicit unavailable sub-surface, never fabricated zeros.
 async fn view_gates(State(s): State<RotaState>) -> impl IntoResponse {
-    Json(read_view(&s, "gates").await)
+    let mut out = read_view(&s, "gates").await; // R8: snapshot lock released inside.
+    let recent = match &s.pool {
+        None => ledger_unavailable("postgres capability absent (standalone ROTA)"),
+        Some(pool) => match recent_gate_rejections_page(pool, 20).await {
+            Ok(rows) => {
+                let rows: Vec<Value> = rows
+                    .into_iter()
+                    .map(|(audit_id, at, intent_ref, check, reason)| {
+                        json!({
+                            "audit_id": audit_id,
+                            "at": at,
+                            "check": check,
+                            "reason": reason,
+                            "intent_ref": intent_ref,
+                        })
+                    })
+                    .collect();
+                json!({ "available": true, "rows": rows })
+            }
+            Err(e) => {
+                // Neutral detail only — never raw sqlx text to the view.
+                eprintln!("rota: gate-rejections read degraded: {e}");
+                ledger_unavailable("gate-rejections read unavailable (dashboard pool degraded)")
+            }
+        },
+    };
+    if let Some(obj) = out.as_object_mut() {
+        obj.insert("recent_rejections".to_string(), recent);
+    }
+    Json(out)
 }
 async fn view_settlement(State(s): State<RotaState>) -> impl IntoResponse {
     Json(read_view(&s, "settlement").await)
@@ -361,6 +394,50 @@ pub async fn audit_tail_page(
             Ok(rows)
         }
     }
+}
+
+/// Recent gate REJECTIONS for the /gates panel (§5 `recent_rejections`): the
+/// audit `gate_decision` rows whose serialized `GateCheckRecord` verdict is
+/// `Reject` (the per-check trail `runner.rs` writes via the I5 audit path),
+/// newest-first. The wanted fields are extracted as TEXT in SQL
+/// (`payload->>'check'` etc.) so no JSONB decode / sqlx-json feature is needed —
+/// the same deliberate runtime-sqlx choice as [`audit_tail_page`] (a
+/// schema-pinned read-only dashboard query, kept off the sqlx-offline cache).
+/// NOTE: the bus `gate_reject` event is a SEPARATE kind (the live event stream)
+/// — the audit TABLE carries `gate_decision`, which is what this queries.
+/// Returns `(audit_id, at, intent_ref, check, reason)`; `limit` clamped to [1, 200].
+pub async fn recent_gate_rejections_page(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<
+    Vec<(
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    )>,
+    sqlx::Error,
+> {
+    let limit = limit.clamp(1, 200);
+    sqlx::query_as::<
+        _,
+        (
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ),
+    >(
+        "SELECT audit_id, at, ref_id, payload->>'check', payload->>'reason' \
+         FROM audit \
+         WHERE kind = 'gate_decision' AND payload->>'verdict' = 'Reject' \
+         ORDER BY at DESC, audit_id DESC LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
 }
 
 async fn audit_tail(State(s): State<RotaState>, Query(q): Query<AuditQuery>) -> impl IntoResponse {
