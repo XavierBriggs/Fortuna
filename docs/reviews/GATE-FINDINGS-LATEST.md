@@ -106,6 +106,15 @@ window vs track A's in-flight cycle/belief-composition work. STATUS: OPERATOR AP
 persona registry -> runner+triggers+budget -> belief consumption -> scoring -> e2e
 meteorologist; each tests-first, full battery, invariant crate untouched, the
 trusted/untrusted separation + binary-fan-out the headline checks).
+E.1 LEDGER GATED = ACCEPT (dfdf3e0): personas + domain_analyses append-only tables;
+the I5 enforcement is REAL + mutation-proof-equivalent — the append-only triggers
+(personas_append_only, fortuna_domain_analyses_guard RAISE EXCEPTION on UPDATE/DELETE,
+content-immutable) MIRROR the proven fortuna_beliefs_guard, and 6/6 tests pass against
+LIVE Postgres incl. personas_refuse_mutation, refuse_a_version_reissue, content_immutable.
+.sqlx offline cache committed (CI-safe), protected crate untouched, .env gitignored (no
+password leak). [GATE-INFRA recipe saved: run ledger #[sqlx::test] as the superuser socket
+DATABASE_URL=postgres:///fortuna?host=/tmp — fortuna_app lacks CREATEDB.] E.2 (d6e8c23
+skill-file loader + method_hash) QUEUED to gate next.
 
 ## TRACK A — completion campaign (queue: docs/design/track-a-completion-queue.md)
 
