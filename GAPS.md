@@ -18,6 +18,58 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## RALPH STOP 2026-06-13T13:21:39Z (Track D — Phase-A queue exhausted; loop ends clean)
+
+Track D's cleanly-owned, in-scope (Phase A), valuable queue is EXHAUSTED. Stopping
+per the loop rule "idle-and-stopped beats bloat; do NOT invent unrequested work."
+
+DELIVERED THIS CAMPAIGN (all gated or committed-awaiting-gate; nothing manufactured):
+- Phase A news-ingestion D1–D10 (fortuna-sources crate, FetchClient w/ root-cause
+  SSRF fix, NWS/RSS/Calendar adapters, Layer-1 validator WIRED, Layer-2
+  corroborate built, scheduler, factory, the default-off [ingestion] daemon seam)
+  — MERGED @ f31aaa8.
+- Aeolus F-series F1 (auth, env-only secret, redacted) + F2 (NwsClimateSource CLI
+  grader) + F3 (AeolusSource, live fixtures) + F4 (factory-wired) — MERGED @ 9f2d678.
+- Observability DATA SURFACE (the operator's "see signals coming in + their data"):
+  OBS-1 (IngestionTelemetry struct + scheduler projection), OBS-2a (funnel
+  loop-stages), OBS-3 (registry domain_tags), OBS-2b (the published Arc<RwLock>
+  "one writer" handle). The writer side is COMPLETE; SourceTelemetry has no
+  placeholder fields. (OBS-2a/2b/3 are forward commits awaiting the verifier gate.)
+- Docs: CHANGELOG.md (root), the ingestion-ops runbook, the track-D subsystem map,
+  targeted architecture.md crate-map fix; the doc-hygiene directive baked into the
+  loop file (point 8).
+
+REMAINING ITEMS — each blocked, out-of-ownership, or out-of-scope (NOT buildable
+cleanly by track D now):
+- OBS-2c (ROTA read endpoint): track B's, by the §2 contract. Precise handoff is in
+  the "OBS-2b" GAPS section below.
+- Layer-2 corroboration WIRING — OPEN DESIGN DECISION for operator/verifier:
+  corroborate() (fortuna-sources) is built+tested but unwired. It is a pure
+  ANNOTATOR; its output is consumed by the cognition CONTEXT ASSEMBLER and would be
+  persisted via the LEDGER — BOTH outside track-D ownership. WHERE it runs is
+  undecided: (a) ingestion-side producer (IngestionCore runs it per tick over the
+  batch, annotation persisted to a new signals-store column, cognition reads it) —
+  needs ledger schema + cognition consumer; OR (b) cognition-side (the context
+  assembler runs it over signals it reads). Track D cannot wire this without
+  guessing the architecture (never-invent rule). RECOMMEND: operator/verifier picks
+  (a) or (b); if (a), grant track D a coordinated ledger column + a text-extraction
+  step. Until decided, Layer-2's deterministic half is built and dormant.
+- F4b release-aware cadence: PHASE B (loop scopes me to Phase A), and already
+  achievable via the existing SourceSchedule event_windows config (set windows to
+  the GEFS release times) — the dynamic next_run_at version is a refinement of
+  marginal ROI. Not Phase-A work.
+- F10: registry-row SEED = operator/ledger action (already a ledgered operator
+  prereq); the Aeolus dossier already EXISTS (docs/research/sources/aeolus, tier 7);
+  the v1→v2 fixture migration is entangled with cognition's F6 v2 parser (track C).
+- F5–F9: explicitly cognition (track C), not track D.
+- D7 GdeltSource: blocked on a persistent external IP rate-limit (no fixture; the
+  never-fabricate rule holds).
+
+SUPERSEDE CONDITION: a NEW verifier finding/gate-result naming track D, or an
+operator directive, supersedes this STOP — re-arm the loop and act on it. The
+verifier has not yet gated OBS-2a/2b/3 (forward commits); their gate may surface
+follow-ups that re-open the queue.
+
 ## TRACK D — documentation pass (operator-directed 2026-06-13): shared-doc edit ledgered
 
 The operator directed every track to maintain its own docs + keep shared docs
