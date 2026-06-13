@@ -208,6 +208,8 @@ struct RawToml {
     sim: Option<SimSection>,
     synthesis: Option<crate::compose::SynthesisSection>,
     mech_extremes: Option<crate::compose::MechExtremesSection>,
+    funding_forecast: Option<crate::compose::FundingForecastSection>,
+    perp_event_basis: Option<crate::compose::PerpEventBasisSection>,
     review: Option<crate::compose::ReviewSection>,
     ingestion: Option<IngestionSection>,
 }
@@ -226,6 +228,14 @@ pub struct DaemonToml {
     /// favorite-longshot fade strategy (spec Section 6) enrolled in the
     /// reduce-only model veto. Absent => not composed (fail closed).
     pub mech_extremes: Option<crate::compose::MechExtremesSection>,
+    /// Optional `[funding_forecast]` opt-in (slice 4c). Its PRESENCE composes
+    /// the zero-capital perp funding belief-producer (propose-nothing). Absent
+    /// => not composed (fail closed).
+    pub funding_forecast: Option<crate::compose::FundingForecastSection>,
+    /// Optional `[perp_event_basis]` opt-in (slice 4c). Its PRESENCE composes
+    /// the propose-only perp/bracket basis strategy over the config-supplied
+    /// ladder. Absent => not composed (fail closed).
+    pub perp_event_basis: Option<crate::compose::PerpEventBasisSection>,
     /// Optional `[review]` opt-in (T4.1/M2). Its PRESENCE composes the weekly/
     /// monthly review cadence (GO/NO-GO thresholds; advisory only, I7). Absent
     /// => no review fires (fail closed).
@@ -259,6 +269,8 @@ impl DaemonToml {
             sim: raw.sim,
             synthesis: raw.synthesis,
             mech_extremes: raw.mech_extremes,
+            funding_forecast: raw.funding_forecast,
+            perp_event_basis: raw.perp_event_basis,
             review: raw.review,
             ingestion: raw.ingestion,
         })

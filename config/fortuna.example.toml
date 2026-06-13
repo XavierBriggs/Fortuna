@@ -112,3 +112,30 @@ metrics_bind = "127.0.0.1:9187"   # GET-only Prometheus; wider exposure is opera
 
 [sim]                      # the Sim venue's market world (venue = "sim" requires it)
 bracket_sets = [["SIM-BKT-LO", "SIM-BKT-MID", "SIM-BKT-HI"]]
+
+# --- Opt-in perp strategies (slice 4c) -------------------------------------
+# Both are INERT until a producer injects perp PerpTicks (the live kinetics
+# feed, a later sub-slice); their PRESENCE here is what composes them. Absent =>
+# not composed (fail closed). Uncomment to enable.
+#
+# [funding_forecast]        # PRESENCE composes the zero-capital funding belief
+#                           # producer (propose-nothing). No fields at rung-0.
+#
+# [perp_event_basis]        # PRESENCE composes the propose-only perp/bracket
+#                           # basis strategy over the ladder below.
+# perp_market = "KXBTCPERP"           # the perp whose PerpTick triggers the basis
+# fee_floor_dollars = 4.0             # post-promo round-trip fee floor (dollars)
+# min_basis_dollars = 1.0             # extra edge margin; basis must clear floor+margin
+# edge_premium_cents = 2              # honest fair-value premium over the join limit
+# # The bracket LADDER: each KXBTC bracket market id -> its strike kind (dollars).
+# # The venue Market type carries no strikes, so the operator declares them here.
+# [perp_event_basis.ladder."KXBTC-LO"]    # open bottom tail: P(BTC <= cap)
+# kind = "less"
+# cap_dollars = 60000.0
+# [perp_event_basis.ladder."KXBTC-MID"]   # closed range: P(floor <= BTC < cap)
+# kind = "between"
+# floor_dollars = 60000.0
+# cap_dollars = 70000.0
+# [perp_event_basis.ladder."KXBTC-HI"]    # open top tail: P(BTC > floor)
+# kind = "greater"
+# floor_dollars = 70000.0

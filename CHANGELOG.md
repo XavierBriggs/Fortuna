@@ -18,6 +18,19 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
+- **Daemon registration of the perp strategies** (slice 4c, `fortuna-live`
+  compose/boot/daemon, additive — 489 insertions / 0 deletions): opt-in
+  `[funding_forecast]` and `[perp_event_basis]` config sections compose the two
+  perp strategies into `compose_runner` alongside the mechanical/synthesis arms
+  (same gate/exec path, I1), mirroring the `[mech_extremes]` precedent. The
+  `perp_event_basis` bracket ladder is config-supplied (`key = market →
+  { kind = between|greater|less, floor_dollars, cap_dollars }`, strictly
+  validated) — sidestepping the absent `Market` strike metadata (live-market-list
+  catalog is a later sub-slice). Neither is veto-enrolled (funding_forecast
+  proposes nothing; perp_event_basis stays out so no veto mind is required). Both
+  are INERT in pure-sim until a producer injects PerpTicks (the 4b seam) — the
+  composition is the deliverable. 11 tests incl. a `compose_runner` boot test
+  asserting both register only when configured (fail-closed otherwise).
 - **`SimRunner::inject_perp_tick`** (slice 4b, `fortuna-runner`, additive): the perp
   INGESTION seam. `EventPayload::PerpTick` has no producer in the deterministic
   `tick()` loop (which sources only `BookSnapshot`s), so the perp strategies would
