@@ -769,6 +769,13 @@ code.
       Strategy/Proposal/runner impedance, the missing perp execution path,
       the prob_claims/v1 scalar dependency, funding_carry data-only) +
       remaining slices ledgered in GAPS "T5.B7 fit-validation".
+      SLICE 3+3b (track C): perp_event_basis basis KERNEL done — kernel 70f333a
+      (merged 4db8764), refined 5fccd5f to the live 3-strike-type ladder
+      (BracketStrike enum, open-tail None, zero money-touch) + real-data e2e on
+      the committed paired-cycle fixture (median $63,961.53 / perp $63,906 /
+      basis −$55.53). Composite fixture moved to fixtures/kinetics-perps/derived/
+      (un-reds `cargo test --workspace`; see GAPS). Remaining: the sized Cents
+      bracket-leg STRATEGY (fixture-gated), then daemon wiring (slice 4).
 - [ ] T5.B8 Ops: kill-switch perps flatten (reduce_only IOC + cancel-all),
       margin/funding telemetry, funding-regime dashboard panel.
 

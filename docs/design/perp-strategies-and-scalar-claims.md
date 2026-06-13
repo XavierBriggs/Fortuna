@@ -249,9 +249,16 @@ reference, ZERO cross-venue settlement/latency risk:
   the existing gate caps apply; NO perp/margin leg in rung-0.
 - Stage = Sim; the harness sizes (I6). The basis math is a deterministic kernel in
   `fortuna-cognition` (`basis.rs` — f64-forecast, NOT core, per the money-discipline), unit-tested
-  with synthetic ladders + perp forecasts. The kernel (landed 70f333a) handles closed `between`
-  bins; the open `greater`/`less` tails + the dollar-string→probability parse are a flagged
-  refinement (slice 3b) before the real-KXBTC e2e.
+  with synthetic ladders + perp forecasts. Slice 3b (DONE) refined the kernel to the REAL
+  3-strike-type ladder: a `BracketStrike` enum {`Between`{floor,cap}, `Greater`{floor},
+  `Less`{cap}} with `BracketBin{kind, prob: f64}`; the median INTERPOLATES within the crossing
+  `between` bin and returns `None` when the 0.5 crossing lands in an OPEN tail (no finite width —
+  conservative, no fabricated point). The dollar-string→probability parse is the CALLER's boundary
+  (the kernel takes the `f64` mid, staying format-agnostic), and `compute_basis` takes the perp
+  mark as caller-supplied `f64` BTC-dollars — the kernel has ZERO money-type touch (the
+  per-contract→BTC ×10000 boundary is the caller's). The real-KXBTC e2e (`basis_live_fixture.rs`)
+  now drives it on the committed paired cycle (§3.2). The sized `Cents` bracket-leg TRADE (the
+  strategy) is the remaining fixture-gated step.
 
 ### 3.2 The live-data drive (the fixture unblock)
 
@@ -264,8 +271,14 @@ To make perp_event_basis fixtures-gated end-to-end (now drivable by me, operator
 - Sample ONE paired cycle (matching `cycle_id`: a perp book + marks + the KXBTC `between`-ladder
   bracket quotes) into a committed `fixtures/kinetics-perps/` file (market data ONLY, no keys),
   **reading the existing perishable stream, WITHOUT touching the running recorder** (loop rule).
-- The basis KERNEL (deterministic) does not block on it; the STRATEGY ships unit-tested-only until
-  the fixture + the kernel KXBTC-tail refinement (slice 3b) land.
+  DONE: `fixtures/kinetics-perps/derived/paired_cycle_btc_perp_vs_kxbtc.json` (cycle
+  1781160753775; 48 `between` + 1 `greater` + 1 `less`). It lives under `derived/` because it is
+  a recorder-DERIVED pair, not a single Kinetics DTO capture — the top-level `kinetics_dto`
+  coverage glob (non-recursive) must not require it to parse as a venue DTO.
+- The basis KERNEL (deterministic) does not block on it; both the fixture and the kernel
+  KXBTC-tail refinement (slice 3b) have LANDED, so `basis_live_fixture.rs` now drives the kernel
+  end-to-end on real co-recorded data. The STRATEGY (the sized `Cents` bracket-leg trade) is the
+  remaining fixture-gated step.
 
 ## 4. Fixture grounding (confirmed 2026-06-13 against `fixtures/kinetics-perps/` + the recorder)
 

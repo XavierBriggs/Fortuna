@@ -47,8 +47,50 @@ SLICE 3b-CODE (the remaining build, now fully specified by the real fixture): re
 e2e (the verifier's RED e2e gate flips green on real co-recorded data, not synthetic).
 
 NOTE: main now carries slices 2a (2809aea) + 2b (f949554) GATE-ACCEPTED + MERGED; operator signed off
-the 27-item Kalshi clearance (demo rung unblocked, 77bbca5). track-c is ahead with the slice-3 kernel +
-this fixture; the verifier merge-gates as I land.
+the 27-item Kalshi clearance (demo rung unblocked, 77bbca5). The slice-3 kernel + fixture are MERGED to
+main (4db8764). track-c is rebased onto main; the verifier merge-gates as I land.
+
+## TRACK C — slice 3b KERNEL LANDED + fixture relocation un-reds the workspace battery + cross-slice finding response (2026-06-13)
+
+slice-3b-KERNEL DONE (commit 5fccd5f, rebased onto main): basis.rs refined to the REAL 3 strike_types —
+`BracketStrike::{Between{floor,cap}, Greater{floor}, Less{cap}}` with `BracketBin{kind, prob: f64}`. The
+median INTERPOLATES within the crossing `between` bin and returns `None` when 0.5 crosses in an OPEN tail
+(no finite width; conservative). The dollar-string→probability parse is the CALLER's boundary (kernel
+takes the f64 mid, format-agnostic); `compute_basis` now takes `perp_mark_btc_dollars: f64` — the kernel
+has ZERO money-type touch (the per-contract→BTC ×10000 boundary is the caller's; the merged slice-3
+kernel imported PerpPrice, this removes it). This also FIXES the merged kernel's modeling gap: it handled
+CLOSED `between` bins only, but the real KXBTC ladder has open tails (48 between + 1 greater + 1 less).
+13 mutation-pinned synthetic tests (tests/basis.rs) + a NEW real-data e2e (tests/basis_live_fixture.rs)
+that reproduces the validated numbers EXACTLY off the live fixture: implied median $63,961.53, perp BTC
+$63,906.00, signed basis −$55.53. FULL battery green on the INTEGRATED tree (main + track-E + this):
+fmt clean, clippy --workspace --all-targets -Dwarnings clean, `cargo test --workspace` 1312 ok / 0
+failed (143 suites), run-dst 4 corpus + 2000 random seeds, 0 invariant violations.
+
+FIXTURE RELOCATION = a FIX for a PRE-EXISTING RED on main (verifier confirm requested): the slice-3 merge
+(4db8764) added `fixtures/kinetics-perps/paired_cycle_btc_perp_vs_kxbtc.{json,meta.md}` at the TOP LEVEL,
+but `fortuna-venues/tests/kinetics_dto.rs::every_fixture_parses_into_its_typed_dto` `read_dir`s that
+directory (non-recursive) and FAILS on any unclassified `*.json` (+ asserts seen==table.len()). The
+paired-cycle file is a recorder-DERIVED composite (a KXBTCPERP perp snapshot + a KXBTC ladder), NOT a
+single Kinetics venue API capture, so it must not be required to parse as a Kinetics DTO. Net: main's
+`cargo test --workspace` has been RED since 4db8764 (the slice-3 gate ran the COGNITION suite, not the
+full workspace — a gate-escape across crates). RESOLUTION (touches NO fortuna-venues source — track-A
+owned, off-limits this slice; no test weakened): `git mv` both files into `fixtures/kinetics-perps/
+derived/` — `read_dir` is non-recursive, so the glob no longer sees them; the kernel e2e points at the
+new path. `cargo test --workspace` is GREEN again as of 5fccd5f. OPERATOR/track-A: `derived/` is the
+minimal fix; if a flat layout is later preferred, add a `derived/`-style skip in kinetics_dto.rs — either
+way the composite must never be required to parse as a Kinetics DTO.
+
+CROSS-SLICE FINDING RESPONSE (verifier bus, KXBTCPERP1 vs KXBTCPERP): ACKNOWLEDGED. Two BTC-perp tickers
+are in play — `KXBTCPERP1` (the OLD committed Kinetics funding fixtures, ~3714 refs, used by slice-2b
+funding_forecast) vs `KXBTCPERP` (the live recorder capture, 7384 rows, used by slice-3/3b basis; the
+paired-cycle fixture's perp + ladder are BOTH from the same recorder cycle, so the basis pair is
+internally consistent). The basis KERNEL is instrument-agnostic (it takes an f64 mark + bins), so this is
+NOT a kernel concern — it is a STRATEGY-WIRING concern: when the funding_forecast and perp_event_basis
+STRATEGIES are wired to a concrete venue/instrument (slice-3b-strategy / slice-4 / demo flip), each must
+target the intended ticker, and the KXBTCPERP1→KXBTCPERP mapping (rename of one instrument vs two
+instruments on two venues) must be GROUNDED in the recorder config + docs/research before production
+reliance — NOT guessed here (never-invent-venue-behavior). Deferred to the strategy-wiring slice; logged
+so it is not lost. Does not block slice-3b-kernel.
 
 ## TRACK C — LIVE BRACKET-FORMAT INVESTIGATION (operator-directed: "drive it yourself, demo keys"): the design's bracket series was WRONG (2026-06-13)
 

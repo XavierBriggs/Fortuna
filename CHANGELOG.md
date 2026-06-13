@@ -18,15 +18,25 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
-- **`perp_event_basis` basis kernel** (slice 3, `fortuna-cognition::basis`): the
-  deterministic forecast-quality basis signal — `bracket_implied_median` (a
-  KXBTC15M bracket ladder's YES bid/ask → normalized probabilities →
+- **`perp_event_basis` basis kernel** (slices 3 + 3b, `fortuna-cognition::basis`):
+  the deterministic forecast-quality basis signal — `bracket_implied_median` (a
+  **KXBTC** price-level bracket ladder's YES bid/ask → normalized probabilities →
   0.5-crossing interpolation) + `compute_basis` (perp mark − implied median,
-  gated past the assumed-fee floor). f64-cognition (never money); the bracket
-  structure is grounded in the committed Kalshi research, only the test values
-  are synthetic. 10 mutation-proven tests. The bracket-TRADER strategy + the
-  real-orderbook e2e stay fixture-gated (operator-queue #4 + a `KalshiMarket`
-  floor/cap DTO extension).
+  gated past the assumed-fee floor). Slice 3b refined the kernel to the REAL
+  3-strike-type ladder grounded in the live capture: a `BracketStrike` enum
+  {`Between`{floor,cap}, `Greater`{floor}, `Less`{cap}} with `BracketBin{kind,
+  prob}`; a 0.5 crossing landing in an OPEN tail returns `None` (no finite width
+  to interpolate — conservative, no fabricated point). The kernel now has ZERO
+  money-type touch: `compute_basis` takes the perp mark as caller-supplied `f64`
+  BTC-dollars (the per-contract→BTC ×10000 boundary is the caller's), so it is
+  pure f64-cognition. 13 mutation-pinned synthetic tests + a NEW real-data e2e
+  (`basis_live_fixture.rs`) on the committed paired cycle — implied median
+  $63,961.53 vs perp $63,906.00 → basis −$55.53 (two independent price sources
+  agree <0.1%). The composite fixture moved to `fixtures/kinetics-perps/derived/`
+  (a recorder-DERIVED pair, NOT a single Kinetics DTO capture — un-reds
+  `cargo test --workspace`, which the top-level DTO-coverage glob had reddened).
+  The bracket-TRADER strategy (the sized `Cents` bracket-leg trade) stays
+  fixture-gated.
 - **`funding_forecast` strategy** (slice 2b, `fortuna-runner`): a zero-capital
   scalar belief-producer — on a `PerpTick` it forecasts the next funding rate
   directly from the recorded venue estimate (`finalize_funding_rate(estimate)`;
@@ -64,11 +74,12 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Deferred
 
-- perp_event_basis STRATEGY (slice 3b — the Cents bracket-leg trade + the
-  KalshiMarket floor/cap DTO; the slice-3 basis kernel above is DONE+merged, the
-  trade is fixture-gated), daemon composition (slice 4), and F5–F9 (Aeolus
-  weather → belief) — all build on the scalar foundation above. Marked pending,
-  not done. (Slices 1–2 + the slice-3 basis kernel are DONE + merged to main.)
+- perp_event_basis STRATEGY (the sized `Cents` bracket-leg trade + the
+  `KalshiMarket` floor/cap DTO; the basis kernel above — slices 3 + 3b — is DONE,
+  including the real-data e2e, the trade itself is fixture-gated), daemon
+  composition (slice 4), and F5–F9 (Aeolus weather → belief) — all build on the
+  scalar foundation above. Marked pending, not done. (Slices 1–2 + the slice-3/3b
+  basis kernel are DONE.)
 
 ### Ingestion & data sources (fortuna-sources, Track D)
 
