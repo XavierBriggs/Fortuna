@@ -87,3 +87,18 @@ EACH ITERATION, do exactly ONE item, then commit and start the next iteration.
 7. OWNERSHIP (absolute): you may modify ONLY: crates/fortuna-sources (new), fixtures/sources/ (new), one minimal flagged drive() seam in fortuna-live. Plus your own
    sections of BUILD_PLAN/GAPS/ASSUMPTIONS and your own boxes. Any other
    file => ledger + skip. No .env, no venue credentials, ever.
+
+8. DOCUMENTATION (operator-directed 2026-06-13; STANDING): keep docs FRESH, never
+   stale. Maintain track-D's OWN docs — CHANGELOG.md (the ingestion-subsystem
+   subsection), docs/design/track-d-ingestion-subsystem.md (the living map), and
+   docs/runbooks/ingestion-ops.md — and when a subsystem changes materially, in
+   the same or next iteration amend the relevant SHARED docs (docs/architecture.md
+   crate map, docs/runbooks/) with CAREFUL TARGETED edits (surgical, unique-line-
+   anchored; never a broad rewrite — they collide across the 5 worktrees). Those
+   shared-doc touches are operator-AUTHORIZED — an explicit exception to point 7's
+   "any other file => skip" — but LEDGER each one in GAPS. Use the feature-dev
+   subagents to draft efficiently, then VERIFY every load-bearing doc claim
+   against the code before commit (a self-verify already caught a "Layer-2
+   corroboration is wired" overclaim that was built-but-unwired). Docs-only
+   changes touch no code => no cargo battery applies. Prefer targeted edits; do
+   not let docs go stale.
