@@ -184,6 +184,69 @@ pub async fn pump_session<C: WsConn + ?Sized>(
     }
 }
 
+/// Opens connections (TLS upgrade + signed handshake). `Err(cause)` reports a
+/// FAILED connect — e.g. `ConnectHttpError { status: 502 }` — which the redial
+/// loop treats exactly like a lost connection. Mocked in tests; the live
+/// tokio-tungstenite impl is the next slice.
+#[async_trait]
+pub trait WsTransport {
+    async fn connect(&self) -> Result<Box<dyn WsConn>, DisconnectCause>;
+}
+
+/// THE WS dial loop: connect, pump one session, and on ANY end (lost connection
+/// or refused connect) redial after [`WsDial`]'s capped-exponential backoff —
+/// indefinitely, until `cancel` flips true. This is where the recorded venue
+/// evidence is survived end-to-end: a mid-stream reset and then a 502 on the
+/// reconnect both route through `on_connection_lost` and a backed-off redial. The
+/// backoff sleep AND an in-flight pump are both cancellable (a stop never waits
+/// out a backoff or a healthy stream). `on_event` receives every parsed frame.
+pub async fn run_dial<T, F>(
+    transport: &T,
+    tickers: &[&str],
+    mut dial: WsDial,
+    mut cancel: tokio::sync::watch::Receiver<bool>,
+    mut on_event: F,
+) where
+    T: WsTransport + ?Sized,
+    F: FnMut(KalshiWsEvent),
+{
+    let mut sub_id = 0u64;
+    loop {
+        if *cancel.borrow() {
+            return;
+        }
+        let backoff = match transport.connect().await {
+            Ok(mut conn) => {
+                // A fresh connection resets the backoff; the pump re-subscribes.
+                let _ = dial.on_connected();
+                // Pump until the connection ends — OR until cancelled mid-stream
+                // (a stop never waits out a healthy socket).
+                let cause = tokio::select! {
+                    _ = cancel.changed() => return,
+                    cause = pump_session(conn.as_mut(), tickers, &mut sub_id, &mut on_event) => cause,
+                };
+                redial_backoff(&mut dial, cause)
+            }
+            Err(cause) => redial_backoff(&mut dial, cause),
+        };
+        // Cancellable backoff: a stop wakes immediately instead of sleeping it out.
+        tokio::select! {
+            _ = cancel.changed() => return,
+            _ = tokio::time::sleep(backoff) => {}
+        }
+    }
+}
+
+/// The redial delay for a lost/refused connection. `on_connection_lost` always
+/// yields `Redial`; the other arms are unreachable, but the venues no-panic rule
+/// forbids `unreachable!()`, so they degrade to a zero delay (retry at once).
+fn redial_backoff(dial: &mut WsDial, cause: DisconnectCause) -> Duration {
+    match dial.on_connection_lost(cause) {
+        DialAction::Redial { backoff } => backoff,
+        DialAction::Subscribe | DialAction::Resync => Duration::ZERO,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -229,6 +292,85 @@ mod tests {
     const SNAPSHOT_SEQ2: &str = r#"{"type":"orderbook_snapshot","sid":2,"seq":2,"msg":{"market_ticker":"FED-23DEC-T3.00","yes_dollars_fp":[["0.0800","300.00"]],"no_dollars_fp":[["0.5400","20.00"]]}}"#;
     const DELTA_SEQ3: &str = r#"{"type":"orderbook_delta","sid":2,"seq":3,"msg":{"market_ticker":"FED-23DEC-T3.00","price_dollars":"0.960","delta_fp":"-54.00","side":"yes"}}"#;
     const DELTA_SEQ4_GAP: &str = r#"{"type":"orderbook_delta","sid":2,"seq":4,"msg":{"market_ticker":"FED-23DEC-T3.00","price_dollars":"0.960","delta_fp":"-54.00","side":"yes"}}"#;
+
+    /// One scripted connect outcome: `Err(cause)` = a failed connect (the 502);
+    /// `Ok(frames)` = a connection replaying those recv outcomes.
+    type ScriptedConnect = Result<Vec<Result<Option<String>, DisconnectCause>>, DisconnectCause>;
+
+    /// A scripted transport: each `connect()` pops one outcome.
+    struct MockWsTransport {
+        connects: std::sync::Mutex<VecDeque<ScriptedConnect>>,
+        count: std::sync::atomic::AtomicUsize,
+    }
+
+    impl MockWsTransport {
+        fn new(connects: Vec<ScriptedConnect>) -> MockWsTransport {
+            MockWsTransport {
+                connects: std::sync::Mutex::new(connects.into()),
+                count: std::sync::atomic::AtomicUsize::new(0),
+            }
+        }
+        fn connect_count(&self) -> usize {
+            self.count.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl WsTransport for MockWsTransport {
+        async fn connect(&self) -> Result<Box<dyn WsConn>, DisconnectCause> {
+            self.count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            match self.connects.lock().unwrap().pop_front() {
+                Some(Ok(frames)) => Ok(Box::new(MockWsConn::new(frames))),
+                Some(Err(cause)) => Err(cause),
+                // Exhausted: keep refusing (a real test cancels before here).
+                None => Err(DisconnectCause::Transport),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn run_dial_survives_a_reset_then_a_502_and_recovers() {
+        // The connect-level recorded evidence: a healthy connection that resets
+        // mid-stream, then a 502 on the reconnect, then a recovered connection.
+        // The loop must redial through BOTH failures and resubscribe on recovery.
+        let transport = MockWsTransport::new(vec![
+            Ok(vec![
+                Ok(Some(SNAPSHOT_SEQ2.to_string())),
+                Ok(Some(DELTA_SEQ3.to_string())),
+                Err(DisconnectCause::ResetWithoutClose),
+            ]),
+            Err(DisconnectCause::ConnectHttpError { status: 502 }),
+            Ok(vec![
+                Ok(Some(SNAPSHOT_SEQ2.to_string())),
+                Err(DisconnectCause::Transport),
+            ]),
+        ]);
+        let (tx, rx) = tokio::sync::watch::channel(false);
+        let mut snapshots = 0usize;
+        let mut deltas = 0usize;
+        // Zero backoff so the redials are instant.
+        let dial = WsDial::with_backoff(Duration::ZERO, Duration::ZERO);
+        run_dial(&transport, &["FED-23DEC-T3.00"], dial, rx, |ev| match ev {
+            KalshiWsEvent::Stream(StreamEvent::BookSnapshot { .. }) => {
+                snapshots += 1;
+                // Stop once recovered — the SECOND snapshot is on connection #3.
+                if snapshots == 2 {
+                    let _ = tx.send(true);
+                }
+            }
+            KalshiWsEvent::Stream(StreamEvent::BookDelta { .. }) => deltas += 1,
+            _ => {}
+        })
+        .await;
+
+        assert_eq!(
+            transport.connect_count(),
+            3,
+            "redialed through the reset AND the 502"
+        );
+        assert_eq!(snapshots, 2, "the initial AND the recovery snapshot");
+        assert_eq!(deltas, 1, "the single pre-reset delta");
+    }
 
     #[tokio::test]
     async fn pump_subscribes_then_emits_parsed_events_until_the_connection_ends() {

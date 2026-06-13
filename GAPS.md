@@ -18,7 +18,7 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
-## TRACK A — T4.2 item 2(i) WS dial: decision core + session pump done (dial.rs); redial loop + live transport next
+## TRACK A — T4.2 item 2(i) WS dial: decision core + session pump + redial LOOP done (dial.rs); only the concrete live transport remains
 
 Queue item 2(i) (Kalshi WS dial). Built the SURVIVAL DECISION core as a pure,
 deterministic state machine — crates/fortuna-venues/src/kalshi/dial.rs (new;
@@ -53,14 +53,37 @@ real doc-shaped frames (subscribe/snapshot/delta + a seq-4-after-2 gap). Three
 #[tokio::test]s; NO live socket. (tokio-tungstenite is already a fortuna-venues
 dep — the real WS lib for the live transport.)
 
-STILL DEFERRED to the NEXT 2(i) slice (ledgered, NOT dropped): (a) the
-WsTransport::connect trait + a scripted mock transport + the REDIAL LOOP tying
-WsDial (backoff) to pump_session across reconnects, with a tokio::select!
-cancellable backoff + an end-to-end integration test replaying the connect-level
-reset/502 evidence; (b) the signed-handshake connect (auth.rs recipe); (c) the
-ping/pong keep-alive timer (the KeepAliveTimeout cause is already modelled).
-REFINEMENT still open: backoff resets on TCP-connect; a flap-resistant version
-resets only after the first healthy frame / Subscribed ack.
+SLICE 3 (this commit) — the REDIAL LOOP + the WsTransport seam. Added the
+WsTransport::connect trait (-> Result<Box<dyn WsConn>, DisconnectCause>) and
+run_dial(transport, tickers, dial, cancel, on_event): connect -> on_connected
+(reset backoff) -> pump_session UNDER a cancel-select -> on end, on_connection_lost
+-> a tokio::select! CANCELLABLE backoff sleep -> repeat, indefinitely until the
+watch cancel flips. Both the backoff AND an in-flight pump are cancellable (a stop
+never waits out a backoff or a healthy stream). TDD RED-first via a stubbed
+run_dial, then a scripted MockWsTransport replaying the CONNECT-LEVEL evidence
+(connect-ok->reset, connect-502, connect-ok->recovery): run_dial_survives_a_reset_
+then_a_502_and_recovers asserts 3 connects + both snapshots + the pre-reset delta,
+cancelling from the sink on recovery. NO live socket. Battery: 122 ok-result lines,
+DST 4 corpus + 10000 seeds zero violations.
+
+ARCHITECTURE DECISION (flag for the verifier): tokio moved from a dev- to a NORMAL
+dependency of fortuna-venues. run_dial uses tokio::select!/time::sleep/sync::watch
+in LIB code, which the dev-only tokio could not satisfy in the strict
+`--workspace --all-targets` build (the scoped -p build hid it via dev-dep feature
+unification — exactly the cross-crate red the loop doc warns scoped batteries
+miss). House-style-compliant ("tokio for IO at the edges"; a venue adapter driving
+a live socket IS that edge), and the concrete live transport (below) needs tokio +
+tokio-tungstenite as normal deps regardless. If the verifier prefers the loop at
+the daemon edge, run_dial relocates to fortuna-live (cheap — it is generic over
+WsTransport).
+
+STILL DEFERRED to the NEXT 2(i) slice: the CONCRETE live KalshiWsTransport — a
+tokio-tungstenite WsTransport impl doing (b) the signed-handshake connect
+(auth.rs recipe; classify a 502 / a reset-without-close into the matching
+DisconnectCause) and (c) a ping/pong keep-alive timer (the KeepAliveTimeout cause
+is modelled and already redials in run_dial). Its first LIVE exercise is
+operator-run. REFINEMENT still open: backoff resets on TCP-connect; a
+flap-resistant version resets only after the first healthy frame / Subscribed ack.
 
 ## TRACK A RE-ACTIVATED (operator 2026-06-13): completion-campaign queue — M3 DONE (queue item 1)
 
