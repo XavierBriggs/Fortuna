@@ -18,7 +18,7 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
-## TRACK A — T4.2 item 2(i) WS dial: decision/session/loop/classification + keep-alive LOGIC done; only the operator-exercised socket round-trip remains
+## TRACK A — T4.2 item 2(i) WS dial COMPLETE: full KalshiWsTransport built (operator runs the first live exercise)
 
 Queue item 2(i) (Kalshi WS dial). Built the SURVIVAL DECISION core as a pure,
 deterministic state machine — crates/fortuna-venues/src/kalshi/dial.rs (new;
@@ -120,15 +120,35 @@ ws_transport tests; DST 4 corpus + 10000 seeds zero violations — a sustained-l
 OOM/lock treadmill recovered after stopping my own stalled cargo wrappers and
 re-running on the settled cache; no rustc pkill).
 
-STILL DEFERRED (operator-exercised — "no live socket in tests"): ONLY the socket
-ASSEMBLY now — connect_async with the signed handshake (reuse KalshiSigner over
-GET /trade-api/ws/v2, timestamp from an injected Clock) + a WsConn adapter over
-the WebSocketStream whose send/recv error arms CALL classify_ws_error and whose
-ping/pong frames DRIVE KeepAlive::on_pong / poll. The signing is auth.rs-tested,
-the error-classification + keep-alive LOGIC are unit-tested; only the live socket
-round-trip is the operator's recording session. REFINEMENT still open: backoff
-resets on TCP-connect; a flap-resistant version resets only after the first
-healthy frame / Subscribed ack.
+SLICE 6 (this commit; operator-directed "drive the socket assembly") — the
+CONCRETE KalshiWsTransport is BUILT (ws_transport.rs):
+- KalshiWsTransport {signer, ws_url, injected Clock + Sleeper} with signed_request:
+  a GET on /trade-api/ws/v2 carrying the three KALSHI-ACCESS-* headers (research
+  §S11, verbatim signed message timestamp+GET+path) — UNIT TESTED (method / WS
+  path / KEY+TIMESTAMP+SIGNATURE headers; a real 2048-bit keygen builds the test
+  signer). connect() runs connect_async(signed_request) and wraps the stream.
+- KalshiWsConn: a WsConn over the live WebSocketStream — text frames pass through,
+  server pings are echoed, pongs feed KeepAlive::on_pong, the keep-alive tick
+  pings/declares-dead via the INJECTED sleeper+clock, and any tungstenite error
+  routes through classify_ws_error. recv routing is factored into dispatch()
+  (Text->Frame, Close/None->Closed, Pong->GotPong, Ping->RespondPing, error->
+  Lost(cause), binary->Ignore) — UNIT TESTED.
+- KALSHI_WS_PROD_URL / KALSHI_WS_DEMO_URL constants; futures moved dev-dep ->
+  NORMAL dep (SinkExt/StreamExt drive the live stream).
+Battery green (124 ok-result lines incl. 15 kalshi dial/transport tests; DST 4
+corpus + 10000 seeds zero violations). The OOM/lock treadmill under load ~15 was
+beaten by bounding compile parallelism (cargo test -j 4 / CARGO_BUILD_JOBS=4) — no
+rustc pkill.
+
+THE WS DIAL (2(i)) IS FEATURE-COMPLETE. The ONLY untested seam is the live socket
+ROUND-TRIP itself (connect_async hitting the venue + the real stream send/recv);
+per "no live socket in tests" its first exercise is the operator's recording
+session, while every DECISION it routes through (handshake structure, error
+classification, dispatch, keep-alive) is unit-tested. DAEMON WIRING (next/T4.2
+venue-plug): construct KalshiWsTransport + run_dial in fortuna-live once the
+operator clears live; venue=kalshi still boot-refused until then. REFINEMENT still
+open: backoff resets on TCP-connect; a flap-resistant version resets only after
+the first healthy frame / Subscribed ack.
 
 ## TRACK A RE-ACTIVATED (operator 2026-06-13): completion-campaign queue — M3 DONE (queue item 1)
 
