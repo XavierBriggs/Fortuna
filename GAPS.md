@@ -2239,6 +2239,17 @@ rebased on main f4b4a54-era; all work committed, nothing pushed.
 
 ## Track D — news-aggregation Phase A
 
+- **F2 NWS climate grader: max/min EXTRACTION + station mapping are GRADER-side
+  (cognition), by design.** NwsClimateSource ingests CLI products as the
+  authoritative raw resolution source (`nws.cli`, full productText). It does NOT
+  parse the daily max/min — the CLI text is fragile (`MINIMUM 7676` = observed
+  76 + record 76 jammed) and a mis-read high would mis-grade a belief. At
+  SETTLEMENT, the cognition grader (F9) extracts the official high for the
+  target date from the raw text (where ambiguity can be flagged). Also
+  grader-side: mapping a market station (e.g. KNYC) to the right CLI product
+  (CLI is issued per WFO/office). Ledgered for the cognition/grader owner.
+  F2 (Track D) delivers the authoritative source + report_date indexing.
+
 - **D10 OPERATOR PREREQ to ENABLE ingestion (default off).** Turning on the
   ingestion loop needs THREE things together: (1) `[ingestion] enabled = true`
   + `user_agent` in fortuna.toml; (2) `[sources.<id>]` tables for the sources to

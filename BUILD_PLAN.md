@@ -811,11 +811,24 @@ OWNERSHIP: F1–F4 + F10(registry/dossier/fixture) are crates/fortuna-sources
 scheduler is shared with D9). The skill/persona layer is a separate session
 (docs/design/PROMPT-domain-analysis-skills.md).
 
-- [ ] F2 NWS observed-daily-extreme grader (LONG POLE — do first): a
-      `NwsFeed::Observations` variant or sibling fetching the official daily
-      max/min (`/stations/{id}/observations` or CF6) per station/date; real
-      fixtures; registered as a §5.12 resolution source. Reuses FetchClient +
-      the D4 NWS dossier/claimed-time pattern.
+- [x] F2 NWS observed-daily-extreme grader — NwsClimateSource (the long pole;
+      the official resolution record). Ingests the NWS CLI (Climatological
+      Report — Daily) products, which carry the OFFICIAL daily max/min — the
+      same record the market (Kalshi) and Aeolus resolve against (a max-of-
+      hourly-obs would be DERIVED and would NOT match). Chose CLI over
+      /stations/{id}/observations for exactly that reason. TWO-HOP: the
+      `/products?type=CLI` list (no text) -> per-product text fetch (with the
+      report), bounded by a per-tick cap + a FIFO seen-set of product ids;
+      conditional GET on the list (per-product texts immutable). Emits `nws.cli`
+      signals carrying the RAW productText (authoritative) + a robustly-parsed
+      report_date for indexing. DELIBERATELY DUMB about the temperatures: the
+      CLI text is fragile (`MINIMUM 7676` = observed 76 + record 76 jammed), so
+      the high-stakes max/min EXTRACTION is DEFERRED to the grader (cognition,
+      at settlement) where ambiguity is flagged, not silently mis-graded.
+      claimed_time = issuanceTime (past; report issues the morning after).
+      Fixtures REAL (2026-06-13: cli_list + cli_product). Research-grounded
+      dossier docs/research/sources/nws_climate/ (admitted tier 10 — the
+      settlement record). 6 tests. (DONE 2026-06-13, battery green; hash next.)
 - [ ] F1 Generic per-source auth header in FetchClient: header-name-agnostic
       injector (Aeolus = `x-api-key` from env `AEOLUS_API_TOKEN`), redacted in
       every error/debug/telemetry path; redaction test. Blocks F3.

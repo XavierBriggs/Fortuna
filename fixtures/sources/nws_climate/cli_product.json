@@ -1,0 +1,14 @@
+{
+    "@context": {
+        "@version": "1.1",
+        "@vocab": "https://api.weather.gov/ontology#"
+    },
+    "@id": "https://api.weather.gov/products/2a90a35d-324d-4826-9c25-8d8a7a54e62c",
+    "id": "2a90a35d-324d-4826-9c25-8d8a7a54e62c",
+    "wmoCollectiveId": "CDKA40",
+    "issuingOffice": "PTKR",
+    "issuanceTime": "2026-06-13T17:00:00+00:00",
+    "productCode": "CLI",
+    "productName": "Climatological Report (Daily)",
+    "productText": "\n000\nCDKA40 PTKR 131700\nCLITKR\nDAILY CLIMATE REPORT\nNATIONAL WEATHER SERVICE PALAU PW\n0200AM LST SAT 13 JUN 2026\n\nTHE PALAU CLIMATE SUMMARY FOR 12 JUNE  2026\n\nTEMPERATURE (F)  RECORD      \nTHIS\nDATE\nYESTERDAY    VALUE/YEAR\nLAST YEAR\n\nMAXIMUM    88       89\n  89\nMINIMUM     7676\n    76\nAVERAGE    82\n     83\nNORMAL    82\n\nCOOLING DEGREES DAYS (BASE 65)\n\nYESTERDAY    17\nMONTH TO DATE205\nPRECIPITATION (INCHES)\n\nYESTERDAY       1.73\nMONTH TO DATE   7.75     NORMAL SINCE 1 JUN\n    5.82\nYEAR TO DATE   57.83      NORMAL SINCE 1 JAN\n     55.74\n"
+}

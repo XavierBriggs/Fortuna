@@ -1,0 +1,35 @@
+{
+    "@context": {
+        "@version": "1.1",
+        "@vocab": "https://api.weather.gov/ontology#"
+    },
+    "@graph": [
+        {
+            "@id": "https://api.weather.gov/products/2a90a35d-324d-4826-9c25-8d8a7a54e62c",
+            "id": "2a90a35d-324d-4826-9c25-8d8a7a54e62c",
+            "wmoCollectiveId": "CDKA40",
+            "issuingOffice": "PTKR",
+            "issuanceTime": "2026-06-13T17:00:00+00:00",
+            "productCode": "CLI",
+            "productName": "Climatological Report (Daily)"
+        },
+        {
+            "@id": "https://api.weather.gov/products/81c5536f-f35d-4e45-83dc-d0c2e26b0e9d",
+            "id": "81c5536f-f35d-4e45-83dc-d0c2e26b0e9d",
+            "wmoCollectiveId": "CDAK49",
+            "issuingOffice": "PAFG",
+            "issuanceTime": "2026-06-13T09:59:00+00:00",
+            "productCode": "CLI",
+            "productName": "Climatological Report (Daily)"
+        },
+        {
+            "@id": "https://api.weather.gov/products/18f67571-9c26-4e45-9e45-3aeb8f7361cc",
+            "id": "18f67571-9c26-4e45-9e45-3aeb8f7361cc",
+            "wmoCollectiveId": "CDAK49",
+            "issuingOffice": "PAFG",
+            "issuanceTime": "2026-06-13T09:59:00+00:00",
+            "productCode": "CLI",
+            "productName": "Climatological Report (Daily)"
+        }
+    ]
+}
