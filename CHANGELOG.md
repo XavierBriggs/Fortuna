@@ -18,15 +18,67 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
-- **`perp_event_basis` basis kernel** (slice 3, `fortuna-cognition::basis`): the
-  deterministic forecast-quality basis signal — `bracket_implied_median` (a
-  KXBTC15M bracket ladder's YES bid/ask → normalized probabilities →
+- **`SimRunner::inject_perp_tick`** (slice 4b, `fortuna-runner`, additive): the perp
+  INGESTION seam. `EventPayload::PerpTick` has no producer in the deterministic
+  `tick()` loop (which sources only `BookSnapshot`s), so the perp strategies would
+  be inert in the daemon. This publishes an `EventOrigin::External` `PerpTick` onto
+  the bus for the next `tick()` to dispatch through its EXISTING `new_events` read —
+  so `tick()` itself is UNTOUCHED (the record/replay determinism contract and every
+  existing DST recording are unaffected; the full DST corpus re-ran green to prove
+  it). A Sim-soak test drives the REAL `funding_forecast` through a runner tick: it
+  produces a scalar belief BECAUSE it saw an injected `PerpTick`, and nothing
+  without one. The same seam carries the live kinetics feed
+  (`KineticsPerpObservation` → `inject_perp_tick`).
+- **`KineticsPerpObservation`** (slice 4a, `fortuna-venues::kinetics::perp_observation`,
+  additive): the venue-side half of a `PerpTick`, built VERBATIM from a WS `ticker`
+  frame — `MarketId` + `PerpMarks` (venue settlement; no conservative mark) +
+  `FundingObservation` (rate→`Decimal` estimate, `next_funding_time`, reference
+  price, capture `obs_at`). The venue crate stays BUS-FREE: this returns perp-domain
+  components, and the producer (a later sub-slice) adds the `venue` id to make the
+  bus event. 4 tests (synthetic exact-mapping + field-swap guards, recorded-frame
+  re-derivation, malformed→`Err`). The foundation for the PerpTick producer —
+  WITHOUT a producer the perp strategies are inert (slice-4 architectural finding,
+  see GAPS). NEXT: the scripted PerpTick source (Sim soak) + daemon registration.
+- **`perp_event_basis` STRATEGY** (slice 3b-strategy, `fortuna-runner::perp_event_basis`,
+  additive): the propose-only, mechanical, Sim-stage bracket trader. On a `PerpTick`
+  it rebuilds bin probabilities from `core.books` (YES mid `(bid_or_0 + ask_or_0)/2`
+  — an absent quote counts as the 0c floor, so the live `0 bid / Nc ask` far tails
+  keep their `ask/2` mass and the strategy reproduces the kernel's validated basis),
+  calls `compute_basis`, and proposes ONE maker-only (`Urgency::Passive`) UNSIZED
+  `Cents` leg (I6 — no qty; the harness sizes) on the bin containing the perp
+  forecast, gated by the fee-trap (`fair = limit + premium`, clamped ≤99). It holds
+  its OWN bracket catalog (`MarketId → BracketStrike`); no `fortuna_venues::Market`
+  widening (live catalog-population is the slice-4 daemon concern). 14 mutation-pinned
+  unit/e2e tests + a DST oracle that independently recomputes the verdict in lockstep
+  with `bin_prob`. VALIDATED on live DEMO data: the committed e2e (cycle …753775,
+  basis −$55.53) + a fresh independent cycle (…754035, basis +$55.08), both with
+  perp/ladder agreement <0.1%.
+- **`perp_event_basis` basis kernel** (slices 3 + 3b, `fortuna-cognition::basis`):
+  the deterministic forecast-quality basis signal — `bracket_implied_median` (a
+  **KXBTC** price-level bracket ladder's YES bid/ask → normalized probabilities →
   0.5-crossing interpolation) + `compute_basis` (perp mark − implied median,
-  gated past the assumed-fee floor). f64-cognition (never money); the bracket
-  structure is grounded in the committed Kalshi research, only the test values
-  are synthetic. 10 mutation-proven tests. The bracket-TRADER strategy + the
-  real-orderbook e2e stay fixture-gated (operator-queue #4 + a `KalshiMarket`
-  floor/cap DTO extension).
+  gated past the assumed-fee floor). Slice 3b refined the kernel to the REAL
+  3-strike-type ladder grounded in the live capture: a `BracketStrike` enum
+  {`Between`{floor,cap}, `Greater`{floor}, `Less`{cap}} with `BracketBin{kind,
+  prob}`; a 0.5 crossing landing in an OPEN tail returns `None` (no finite width
+  to interpolate — conservative, no fabricated point). The kernel now has ZERO
+  money-type touch: `compute_basis` takes the perp mark as caller-supplied `f64`
+  BTC-dollars (the per-contract→BTC ×10000 boundary is the caller's), so it is
+  pure f64-cognition. The implied-median reduction (`sum_p`) is taken over the
+  SORTED bins, so the median is a pure function of the ladder MULTISET,
+  independent of caller input order (a DST-found float-determinism wrinkle: a
+  non-associative input-order sum could flip the 0.5 crossing at an exact
+  cum==0.5-at-a-bin-boundary tie). 14 mutation-pinned synthetic tests + a NEW
+  real-data e2e (`basis_live_fixture.rs`) on the committed paired cycle — implied
+  median $63,961.53 vs perp $63,906.00 → basis −$55.53 (two independent price
+  sources agree <0.1%). The composite fixture lives in `fixtures/perp-basis/`
+  (a recorder-DERIVED perp+ladder pair for the basis/cognition layer, NOT a
+  single Kinetics DTO capture — kept OUT of `fixtures/kinetics-perps/` so the
+  venue DTO-coverage tripwire `every_fixture_parses_into_its_typed_dto`, which
+  requires every fixture there to classify, is not tripped; operator-directed
+  location, the tripwire's "every DTO fixture accounted for" guarantee intact).
+  The bracket-TRADER strategy (the sized `Cents` bracket-leg trade) stays
+  fixture-gated.
 - **`funding_forecast` strategy** (slice 2b, `fortuna-runner`): a zero-capital
   scalar belief-producer — on a `PerpTick` it forecasts the next funding rate
   directly from the recorded venue estimate (`finalize_funding_rate(estimate)`;
@@ -64,11 +116,13 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Deferred
 
-- perp_event_basis STRATEGY (slice 3b — the Cents bracket-leg trade + the
-  KalshiMarket floor/cap DTO; the slice-3 basis kernel above is DONE+merged, the
-  trade is fixture-gated), daemon composition (slice 4), and F5–F9 (Aeolus
-  weather → belief) — all build on the scalar foundation above. Marked pending,
-  not done. (Slices 1–2 + the slice-3 basis kernel are DONE + merged to main.)
+- Daemon composition (slice 4): register `funding_forecast` + `perp_event_basis`
+  into the Sim runner and populate the latter's bracket catalog from the live
+  Kalshi market list (coordinate with track A — `daemon.rs`). F5–F9 (Aeolus
+  weather → belief) build on the scalar foundation. Marked pending, not done.
+  (Slices 1–2 + the slice-3/3b basis kernel + the perp_event_basis STRATEGY are
+  DONE; the `KalshiMarket` floor/cap DTO is NOT needed — the strategy holds its
+  own catalog.)
 
 ### Ingestion & data sources (fortuna-sources, Track D)
 

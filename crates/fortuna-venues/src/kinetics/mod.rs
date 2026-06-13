@@ -17,4 +17,5 @@
 pub mod adapter;
 pub mod client;
 pub mod dto;
+pub mod perp_observation;
 pub mod ws;

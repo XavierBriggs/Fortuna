@@ -249,9 +249,27 @@ reference, ZERO cross-venue settlement/latency risk:
   the existing gate caps apply; NO perp/margin leg in rung-0.
 - Stage = Sim; the harness sizes (I6). The basis math is a deterministic kernel in
   `fortuna-cognition` (`basis.rs` — f64-forecast, NOT core, per the money-discipline), unit-tested
-  with synthetic ladders + perp forecasts. The kernel (landed 70f333a) handles closed `between`
-  bins; the open `greater`/`less` tails + the dollar-string→probability parse are a flagged
-  refinement (slice 3b) before the real-KXBTC e2e.
+  with synthetic ladders + perp forecasts. Slice 3b (DONE) refined the kernel to the REAL
+  3-strike-type ladder: a `BracketStrike` enum {`Between`{floor,cap}, `Greater`{floor},
+  `Less`{cap}} with `BracketBin{kind, prob: f64}`; the median INTERPOLATES within the crossing
+  `between` bin and returns `None` when the 0.5 crossing lands in an OPEN tail (no finite width —
+  conservative, no fabricated point). The dollar-string→probability parse is the CALLER's boundary
+  (the kernel takes the `f64` mid, staying format-agnostic), and `compute_basis` takes the perp
+  mark as caller-supplied `f64` BTC-dollars — the kernel has ZERO money-type touch (the
+  per-contract→BTC ×10000 boundary is the caller's). The real-KXBTC e2e (`basis_live_fixture.rs`)
+  now drives it on the committed paired cycle (§3.2).
+- The `Cents` bracket-leg STRATEGY is DONE (`fortuna-runner::perp_event_basis`, propose-only, additive —
+  a NEW module, NO venue-DTO change). On a `PerpTick` it rebuilds bins from `core.books` (YES mid
+  `(bid_or_0 + ask_or_0)/2`, an absent quote = the 0c floor — REQUIRED so the live `0 bid / Nc ask` far
+  tails keep their `ask/2` mass and the strategy reproduces the kernel's validated basis), calls
+  `compute_basis`, and proposes ONE maker-only (`Urgency::Passive`) UNSIZED `Cents` leg (I6 — the harness
+  sizes) on the bin CONTAINING the perp forecast, gated by the fee-trap. `fair_value = limit + premium`
+  (clamped ≤99), mirroring `MechExtremes`. The strategy holds its OWN bracket catalog
+  (`MarketId → BracketStrike`, injected at construction); the catalog is NOT read from `core.markets`
+  (`fortuna_venues::Market` carries no strike metadata — out of scope to widen), so live
+  catalog-population from the Kalshi market list is the slice-4 daemon concern. VALIDATED on live DEMO
+  data: the committed e2e on cycle …753775 (basis −$55.53) + a fresh independent cycle …754035 (basis
+  +$55.08), both with perp/ladder agreement <0.1%.
 
 ### 3.2 The live-data drive (the fixture unblock)
 
@@ -264,8 +282,14 @@ To make perp_event_basis fixtures-gated end-to-end (now drivable by me, operator
 - Sample ONE paired cycle (matching `cycle_id`: a perp book + marks + the KXBTC `between`-ladder
   bracket quotes) into a committed `fixtures/kinetics-perps/` file (market data ONLY, no keys),
   **reading the existing perishable stream, WITHOUT touching the running recorder** (loop rule).
-- The basis KERNEL (deterministic) does not block on it; the STRATEGY ships unit-tested-only until
-  the fixture + the kernel KXBTC-tail refinement (slice 3b) land.
+  DONE: `fixtures/perp-basis/paired_cycle_btc_perp_vs_kxbtc.json` (cycle
+  1781160753775; 48 `between` + 1 `greater` + 1 `less`). It lives under `derived/` because it is
+  a recorder-DERIVED pair, not a single Kinetics DTO capture — the top-level `kinetics_dto`
+  coverage glob (non-recursive) must not require it to parse as a venue DTO.
+- The basis KERNEL (deterministic) does not block on it; both the fixture and the kernel
+  KXBTC-tail refinement (slice 3b) have LANDED, so `basis_live_fixture.rs` now drives the kernel
+  end-to-end on real co-recorded data. The STRATEGY (the sized `Cents` bracket-leg trade) is the
+  remaining fixture-gated step.
 
 ## 4. Fixture grounding (confirmed 2026-06-13 against `fixtures/kinetics-perps/` + the recorder)
 
