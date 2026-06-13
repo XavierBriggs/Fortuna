@@ -927,7 +927,7 @@ scheduler is shared with D9). The skill/persona layer is a separate session
       snapshot). (DONE 2026-06-13 <hash>; scoped battery green — fmt + clippy
       -p fortuna-sources -p fortuna-live --all-targets -D warnings + test
       -p fortuna-sources 119+5 + test -p fortuna-live --lib ingestion 7/7;
-      daemon_smoke unaffected = verifier's merge gate.)
+      daemon_smoke unaffected = verifier's merge gate.) [7a9e28d]
 - [ ] OBS-2c ROTA read wiring (track-B-coordinated): track B adds an
       `ingestion: Option<IngestionTelemetryHandle>` reader to `RotaState`
       (fortuna-ops) + the V1/V2/V3 boards project it; main.rs passes
