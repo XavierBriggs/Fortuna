@@ -2190,5 +2190,22 @@ rebased on main f4b4a54-era; all work committed, nothing pushed.
   rebased tree. No Track D action was needed or taken. Left here as the
   record of why D1's commit message references it.
 
+- **D3 Layer-1 stale-republication flag is a BOUNDED in-memory check, not
+  authoritative dedup.** `StructuralValidator` flags a content hash seen
+  within its recent-hash buffer (default 4096 hashes, FIFO eviction). A
+  republication older than the buffer window is NOT flagged here — it is
+  still caught downstream by the ledger's `UNIQUE(source, content_hash)`
+  dedup (the source of truth, fortuna-cognition normalizer). The Layer-1
+  flag exists for fast-path observability (a feed re-emitting old items is a
+  health signal), not correctness. Sizing the buffer vs. a source's real
+  re-emission window is a per-source tuning concern for D9/operations.
+
+- **D3 re-decomposition: per-source Layer-0 dossiers ride with their
+  adapters (D4–D7), not D3.** D3 shipped the dossier TEMPLATE/rubric
+  (docs/research/sources/TEMPLATE.md) + the Layer-1 validator. Each source's
+  filled dossier lands with that source's adapter and fixtures, facts
+  grounded in research at record time. Phase A still exits with Layers 0–2
+  complete; this is a sequencing change, not a scope cut.
+
 ## Disputed invariant tests
 (none)

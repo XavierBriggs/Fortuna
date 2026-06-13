@@ -10,6 +10,7 @@
 pub mod config;
 pub mod error;
 pub mod fetch;
+pub mod validate;
 
 pub use config::{EventWindow, ExtractionMode, SourceConfig, SourceKind, SourcesConfig};
 pub use error::SourcesError;
@@ -17,3 +18,4 @@ pub use fetch::{
     Conditional, FetchCaps, FetchClient, FetchError, FetchOutcome, FetchTransport, HostPin,
     PoliteLimiter, RawHttpResponse, ReqwestFetchTransport,
 };
+pub use validate::{Candidate, StructuralConfig, StructuralValidator, Verdict};

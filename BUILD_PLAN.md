@@ -666,12 +666,22 @@ crates/fortuna-sources + fixtures/sources/ + one flagged drive() seam.
       17 tests incl. 2 proptests (bucket never exceeds the refill bound;
       first attempt always granted). (DONE 2026-06-13, full battery green;
       hash recorded next iteration.)
-- [ ] D3 Layer 0+1 plumbing: vetting-dossier template + dossiers for the v1
-      source set (docs/research/sources/<id>/ — ownership assumption
-      ledgered in ASSUMPTIONS); pre-normalizer structural validation
-      (timestamp sanity: future-dated rejected, stale-republication flagged;
-      per-source volume envelopes) (design §4.4 Layers 0–1).
-- [ ] D4 NwsSource (fixtures first: fixtures/sources/nws/).
+- [x] D3 Layer 0+1 plumbing (re-decomposed — see note): Layer 1
+      StructuralValidator (future-dated reject w/ clock-skew tolerance;
+      stale-republication FLAG via bounded recent-hash buffer; per-tick
+      volume envelope, §7 containment; future/dup never consume volume
+      budget) + Layer 0 dossier TEMPLATE/rubric at docs/research/sources/
+      TEMPLATE.md (six-dimension score, tier bands, consumption
+      consequences). Deterministic + Clock-driven (DST-replayable). 8 tests.
+      RE-DECOMPOSITION: the per-source dossiers move to D4–D7 — each adapter
+      lands its source's dossier WITH its fixtures, facts grounded in
+      research at record time (a source is vetted when it is built, not in
+      the abstract). Phase A still ends with Layers 0–2 complete. Ledgered
+      in ASSUMPTIONS/GAPS. (DONE 2026-06-13, full battery green; hash next
+      iteration.)
+      (Each of D4–D7 below ALSO lands its source's Layer-0 dossier from the
+      TEMPLATE, grounded in research, with that source's fixtures.)
+- [ ] D4 NwsSource (fixtures first: fixtures/sources/nws/; + NWS dossier).
 - [ ] D5 RssSource via feed-rs (fixtures first: fixtures/sources/rss/,
       including malformed documents).
 - [ ] D6 CalendarSource — BLS/Fed/FRED release calendars; emits
