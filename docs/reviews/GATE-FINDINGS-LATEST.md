@@ -64,6 +64,21 @@ feature-dev subagents."
   advanced by DOCS-ONLY bus commits since 2cd7452, so this green holds for current
   main's CODE. (200 seeds + regression corpus = DST integrity confirmed; the "10k"
   was the implementer's stress number, not required for integrity.)
+- BUSINESS NORTH STAR (operator 2026-06-13): $50k NET P&L across the system. This is
+  an EDGE milestone, not a code milestone — the system finds+exploits edge, never
+  manufactures it. RAMP: build (the 5 tracks) -> measure CLV/Brier/net-PnL per
+  strategy in Sim/paper soak -> promote CLV-positive subsets up the I7 ladder ->
+  scale winners, retire CLV~0 losers on the record. The VERDICT is CLV (beat the
+  close net of fees over >=60 resolved events), not vanity PnL. Verifier mandate
+  extends: hold the bar so that IF edge exists it is captured cleanly + measured
+  honestly; ROTA (track B) is the instrument that shows it strategy-by-strategy.
+- TRACK D F1+F3 (Aeolus auth + AeolusSource) GATED = ACCEPT (cf482b5 on the rebased
+  F-tranche): secret is ENV-ONLY (AEOLUS_API_TOKEN; lib never reads env), Debug
+  redaction MUTATION-PROVEN (break it -> transport_redacts_auth_header_value_in_debug
+  reds, leaking "super-secret-token"; restored+isolated, no contamination), error
+  path reports only the header name, fixtures secret-free, SSRF pins 6/6 un-regressed,
+  111 sources tests green, protected crate untouched. NEXT track-D gate: the live_smoke
+  example (7c45705) + factory-wiring; then merge the Aeolus F-tranche (F2+F1+F3+obs).
 - D6-D10 NEWS-INGESTION PHASE A COMPLETE + MERGED @ f31aaa8 (this session):
   calendar source + Layer-2 corroboration + validator-wired scheduler + factory +
   the daemon `[ingestion]` seam — all gated ACCEPT (D9 hard gate, D10/2 live-
