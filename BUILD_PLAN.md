@@ -730,8 +730,24 @@ crates/fortuna-sources + fixtures/sources/ + one flagged drive() seam.
       corroboration) lands when a real artlist fixture can be captured (a
       later session / different network, or contact GDELT for a key). Not a
       blocker for Phase A. (Skipped 2026-06-13 per loop fixture rule.)
-- [ ] D8 Layer 2 corroboration: deterministic near-dup clustering +
-      independent-origin counting + annotation fields (design §4.4 Layer 2).
+- [x] D8 Layer 2 corroboration (deterministic near-dup clustering): collapses
+      SYNDICATION so it cannot launder a single-source claim into fake consensus
+      ("ten outlets carrying one wire story are ONE origin"). corroborate() over
+      a signal batch → token-set Jaccard similarity + union-find connected
+      components → stable cluster ids + per-signal annotation distinguishing
+      `single-source (tier t)` from `syndicated: same content from N sources
+      [...] — treat as ONE origin`. Annotation computed deterministically, never
+      self-reported by the model (spec 5.11). Same-source-repeat correctly NOT
+      syndication; empty text never clusters on emptiness; output is replay-
+      stable (test asserts identical output on re-run). BOUNDARY (honest): the
+      deterministic half is text near-dup; "N independent origins corroborating
+      EVENT X" (differently-worded items about one event) is semantic — the
+      model / world-forward composes these clusters with its event grouping
+      (noted in module). Algorithm = Jaccard now (simple, transparent, O(n²)
+      bounded by the per-tick volume envelope); simhash/MinHash is the
+      documented refinement for larger batches, interface stable across it. Pure
+      logic, no network/fixtures. 7 tests (75 crate total). (DONE 2026-06-13,
+      full battery green; hash next iter.)
 - [ ] D9 Ingestion scheduler: Clock+CancellationToken loop, per-source cadence
       + static event windows, health state machine healthy→degraded→
       quarantined (loud), per-source isolation, trigger/resolution floors as
