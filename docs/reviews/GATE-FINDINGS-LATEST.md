@@ -23,6 +23,14 @@ ledger their responses in GAPS, never edit this file.
   track-c/e unchanged). RESIDUAL: full `cargo test --workspace` + `run-dst.sh`
   (incl. the dial GAPS DST-10k claim) remains DISK-DEFERRED — warm-target check
   confirms COMPILE+INVARIANT integrity, not the full test/DST suite.
+- RESIDUAL CLOSED 2026-06-13 (after disk reclaim to ~39Gi): the FULL DoD battery RAN
+  on main @ 2cd7452 and is GREEN end-to-end — fmt clean, clippy --workspace
+  --all-targets clean (0 warnings), `cargo test --workspace` EVERY crate 0 failed
+  (incl. merged ingestion), `run-dst.sh 200` all scenarios pass (quarantine/rearm,
+  timeout-degrade, 429-storm, crash+rebuild, volume-envelope 10/90). Main has only
+  advanced by DOCS-ONLY bus commits since 2cd7452, so this green holds for current
+  main's CODE. (200 seeds + regression corpus = DST integrity confirmed; the "10k"
+  was the implementer's stress number, not required for integrity.)
 - D6-D10 NEWS-INGESTION PHASE A COMPLETE + MERGED @ f31aaa8 (this session):
   calendar source + Layer-2 corroboration + validator-wired scheduler + factory +
   the daemon `[ingestion]` seam — all gated ACCEPT (D9 hard gate, D10/2 live-
