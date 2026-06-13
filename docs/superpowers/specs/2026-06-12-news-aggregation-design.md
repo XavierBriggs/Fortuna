@@ -47,9 +47,11 @@ downstream of the signals table changes.
   signal and the grader of the CPI belief). Source selection therefore expands which
   hypotheses the system is permitted to generate.
 - **Mind relationship:** the subsystem *feeds* Mind (signals become quoted context
-  items, data-not-instructions per 5.11) and, in exactly one bounded place, *uses* Mind:
-  the cheap tier extracts structured fields from already-fetched raw bytes. The model
-  never chooses what to fetch and never mutates state. I5/I6 intact.
+  items, data-not-instructions per 5.11) and, in exactly one bounded place, *uses* the
+  Mind machinery: a cheap-tier model extracts structured fields from already-fetched
+  raw bytes, via a narrow `Extractor` interface over `MindTransport` + `CostBudget`
+  (tiering is per-instance config, the same pattern as 5.9's triage/synthesis split).
+  The model never chooses what to fetch and never mutates state. I5/I6 intact.
 
 ## 4. Architecture
 
@@ -88,8 +90,13 @@ belongs to the scheduler). Adds:
 
 **Extraction stage (the escape hatch).** Per-source config `extraction = "none" |
 "model"`. For `model`: the raw payload is persisted first (its hash rides in the
-envelope), then the cheap tier is called through the existing `Mind` trait with a JSON
-schema (headline, summary, entities, event_time, claims). Schema-invalid output is
+envelope), then a cheap-tier model extracts against a JSON schema (headline, summary,
+entities, event_time, claims). Mechanically this is a narrow `Extractor` interface
+built on the existing Mind machinery — `MindTransport` + its own `CostBudget` instance
++ a stub implementation for tests — not a call to `Mind::decide` (whose signature is
+decision-shaped). Tiering follows the established pattern: a separate cheap-model
+instantiation with operator-configured model id, mirroring spec 5.9's triage/synthesis
+split. Schema-invalid output is
 rejected and logged, never repaired (5.9's rule). The derived signal carries provenance
 `{model_id, prompt_hash, raw_content_hash}` and trust tier = min(source tier,
 configured extraction cap). Hard daily extraction budget; when exhausted, raw signals
