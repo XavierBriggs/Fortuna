@@ -275,6 +275,40 @@ impl KalshiVenue {
         Ok(None)
     }
 
+    /// F16 cancel-reconcile: the single-order GET surface can lag the cancel
+    /// surface (recorded race — DELETE acks `reduced_by:"1.00"`, but
+    /// `GET /portfolio/orders/{id}` still reads `resting` ~360ms later). The
+    /// order LIST surface carries the authoritative terminal status, so on a
+    /// stale single-GET the caller reconciles ONCE against `GET /portfolio/orders`
+    /// and reads the order's true status here. Returns `Unknown` when the order
+    /// is absent from the page (the caller treats that as still-unresolved ->
+    /// Timeout — never a fabricated success).
+    ///
+    /// We deliberately do NOT use the re-cancel-404 "proof-of-canceled" heuristic
+    /// the fixtures README suggested: the recorded 404 bodies for already-canceled,
+    /// already-EXECUTED, and never-existed orders are BYTE-IDENTICAL
+    /// (`{"error":{"code":"not_found",...}}`), so a recancel-404 cannot distinguish
+    /// a cancel from a masked fill. The list status is the safe discriminator.
+    /// (Single page only; a multi-attempt bounded-backoff poll is deferred — it
+    /// needs an injected Sleeper and a recorded multi-stale sequence. See GAPS F16b.)
+    async fn cancel_reconcile_status_via_list(
+        &self,
+        order_id: &str,
+    ) -> Result<KalshiOrderStatus, VenueError> {
+        let resp: GetOrdersResponse = self
+            .get_json(
+                "/portfolio/orders",
+                Some(&format!("limit={PAGE_LIMIT}")),
+                "GET /portfolio/orders",
+            )
+            .await?;
+        Ok(resp
+            .orders
+            .into_iter()
+            .find(|o| o.order_id == order_id)
+            .map_or(KalshiOrderStatus::Unknown, |o| o.status))
+    }
+
     /// venue order id -> client order id, via cache then a single-order GET.
     async fn resolve_coid(&self, order_id: &str) -> Result<ClientOrderId, VenueError> {
         if let Some(coid) = self.lock().coid_by_order.get(order_id).cloned() {
@@ -531,14 +565,35 @@ impl Venue for KalshiVenue {
                          (fills will arrive via fills_since)"
                     ),
                 }),
-                KalshiOrderStatus::Resting | KalshiOrderStatus::Unknown => {
-                    Err(VenueError::Timeout {
-                        operation: format!(
-                            "cancel {order_id} (DELETE acknowledged but the order reads \
-                             {:?} on reconcile; effect unknown)",
-                            resp.order.status
-                        ),
-                    })
+                stale @ (KalshiOrderStatus::Resting | KalshiOrderStatus::Unknown) => {
+                    // F16: the single-order GET surface lagged the cancel. Reconcile
+                    // ONCE against the order list (the authoritative terminal surface)
+                    // before giving up. Canceled -> Ok, Executed -> Rejected; any list
+                    // failure or still-unresolved read falls back to the SAFE Timeout
+                    // (effect unknown; the caller reconciles via fills_since/positions).
+                    match self.cancel_reconcile_status_via_list(order_id).await {
+                        Ok(KalshiOrderStatus::Canceled) => Ok(()),
+                        Ok(KalshiOrderStatus::Executed) => Err(VenueError::Rejected {
+                            reason: format!(
+                                "cancel of {order_id} had no effect: order already fully \
+                                 executed (fills will arrive via fills_since)"
+                            ),
+                        }),
+                        Ok(_) => Err(VenueError::Timeout {
+                            operation: format!(
+                                "cancel {order_id} (DELETE acknowledged but the order reads \
+                                 {stale:?} on single-GET and is unresolved on the order list; \
+                                 effect unknown)"
+                            ),
+                        }),
+                        Err(e) => Err(VenueError::Timeout {
+                            operation: format!(
+                                "cancel {order_id} (DELETE acknowledged but the order reads \
+                                 {stale:?} on single-GET and the list reconcile failed: {e}; \
+                                 effect unknown)"
+                            ),
+                        }),
+                    }
                 }
             },
             Err(e) => Err(VenueError::Timeout {

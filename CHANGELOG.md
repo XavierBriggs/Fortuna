@@ -206,6 +206,35 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-13 — F16a: Kalshi cancel-reconcile hardened via the order list
+
+**Changed.** `KalshiVenue::cancel` (`crates/fortuna-venues/src/kalshi/adapter.rs`).
+On a DELETE-200 ack whose single reconcile GET reads stale `Resting`/`Unknown`
+(the recorded F16/F3 race — DELETE acked `reduced_by:"1.00"`, GET ~360ms later
+still `resting`), cancel() now reconciles ONCE against the order LIST
+(`GET /portfolio/orders`, new `cancel_reconcile_status_via_list`) — the
+authoritative terminal surface — and maps: list `Canceled`→`Ok(())`,
+`Executed`→`Rejected` (fills via `fills_since`), still-stale/absent/list-error→
+`Timeout` (the safe fallback). A genuinely-canceled order that read stale now
+resolves to a definite `Ok` instead of a false `Timeout`. The first-DELETE-404 →
+`NotFound` path is unchanged (no ack ⇒ claim nothing).
+
+**Why the order list, not recancel-404.** `fixtures/kalshi/README.md` finding-16
+suggested "treat recancel-404 as proof-of-canceled"; the fixtures REFUTE it — the
+404 bodies for already-canceled, already-EXECUTED, and never-existed orders are
+byte-identical (`orders__cancel_already_canceled` == `_executed` == `_unknown_id`),
+so that heuristic would MASK A FILL. The list status is the safe discriminator
+(`portfolio__orders_list` carries the same id `canceled` and other ids `executed`).
+README finding-16 annotated with this correction.
+
+**Tests** (verbatim recorded bodies; no fabrication): stale→list-canceled→Ok;
+stale→list-EXECUTED→Rejected (safety headline, **mutation-proven** — flip the
+Executed arm to `Ok(())` ⇒ that test reds); stale→absent→Timeout; the two existing
+stale tests extended to the 3-call flow (Timeout preserved, not weakened). Full
+`fortuna-venues` suite green; protected crate untouched; no new dep, no constructor
+change. **Deferred (F16b, GAPS):** the full multi-attempt bounded-backoff poll —
+needs an injected Sleeper + a recorded multi-stale fixture (never fabricated).
+
 ### 2026-06-13 — T4.5 slice: gate-verdict badge (/api/rota/v1/build) — `7ed3138`
 
 **What.** New `/api/rota/v1/build` endpoint exposing the LATEST gate verdict

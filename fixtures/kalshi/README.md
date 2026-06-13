@@ -34,6 +34,23 @@ at session time; also the settlement seed).
 | 15 | Both demo hosts accept the same signature (path-only signing confirmed) | auth__balance_alt_host |
 | 16 | **Cancel-ack vs read-surface STALE RACE, captured live** (ledgered 2026-06-11, gate finding F3 — this is checklist #15's "cancel-reconcile race" caught on the wire): DELETE acked 200 `reduced_by:"1.00"` at ts_ms 1781159364112; GET ~360ms later returned `status:"resting"`, `remaining_count_fp:"1.00"`, last_update_time UNCHANGED from creation; a second DELETE 404'd (the cancel surface knew the order was dead while the read surface said resting). ADAPTER REQUIREMENT: never trust a single post-cancel GET — reconcile by polling until terminal with bounded backoff, and treat 404-on-recancel as proof-of-canceled. | orders__cancel_v2 + orders__get_after_cancel + orders__cancel_already_canceled (bodies + meta timestamps) |
 
+### Adapter resolution of finding 16 (cancel-reconcile race) — CORRECTION 2026-06-13
+
+The recorded WIRE behavior in finding 16 stands (DELETE acked, single-GET read
+stale-`resting` ~360ms later, a recancel 404'd). But finding 16's suggested
+ADAPTER REQUIREMENT to "treat 404-on-recancel as proof-of-canceled" is UNSAFE by
+finding 5's own evidence: the 404 bodies for already-canceled, already-EXECUTED,
+and never-existed orders are BYTE-IDENTICAL (`orders__cancel_already_canceled` ==
+`orders__cancel_executed` == `orders__cancel_unknown_id`), so a recancel-404 cannot
+distinguish a cancel from a FILL — that heuristic would mask an executed order.
+The shipped adapter (F16a, `cancel_reconcile_status_via_list`) instead reconciles a
+stale single-GET ONCE against the order LIST (`GET /portfolio/orders`), the
+unambiguous terminal source: `portfolio__orders_list` carries the same order both
+`canceled` and (for other ids) `executed`. List `Canceled`→Ok, `Executed`→Rejected,
+still-stale/absent→Timeout (the safe fallback). The full poll-until-terminal with
+bounded backoff (finding 16's other half) is deferred as F16b in GAPS — it needs an
+injected Sleeper + a recorded multi-stale sequence (never fabricated).
+
 ## Known gaps left open by this session (tracked in GAPS.md)
 
 Coverage statement (corrected 2026-06-11, gate finding F4): the session

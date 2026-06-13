@@ -54,7 +54,15 @@ verifier amends as gates land. All standard loop rules apply unchanged.
           round-trips ×5 in kalshi_adapter.rs; v2-only write path per item 16 +
           DTO-identity) — no vacuous re-tests. Clearance tally now PASSes 5,7,12.
           (iii) fully done bar the live WS handshake (operator-run).
-          Cancel-hardening (poll-until-terminal/recancel-404) ledgered in GAPS.
+       >> CANCEL-HARDENING F16a DONE 2026-06-13: a stale post-ack single-GET now
+          reconciles ONCE against the order LIST (the authoritative terminal
+          surface) — canceled→Ok, executed→Rejected, still-stale/absent→Timeout.
+          The README finding-16 "recancel-404-as-canceled" heuristic was REJECTED
+          (fill-masking — the 404 bodies for canceled/executed/unknown collide
+          byte-for-byte); the list status is the safe discriminator. Mutation-
+          proven (executed→Rejected). F16b (full multi-attempt bounded-backoff
+          poll) deferred — needs an injected Sleeper + a recorded multi-stale
+          fixture (never fabricated). See GAPS F16.
        >> CLUSTER 3 auth-401 routing DONE fe86cb5 (2026-06-13): recorded 401 bodies
           → Rejected w/ code surfaced (item 3 PASS; skew-mapping half of item 2).
           WS frame-parse done in 2(ii); remaining: live WS handshake (op-run).
@@ -134,6 +142,18 @@ neighbor's seam, do not rewrite it; conflicts beyond the seam = ledger +
 bus, never a silent merge resolution.
 
 ## ADDED 2026-06-13: T5.B7/B8 reassigned to track A (ownership correction)
+
+> **SUPERSEDED 2026-06-13 — DO NOT BUILD B7/B8 from track A.** This section was
+> written `ea63559` (06-12 22:58) when track C had stopped. The operator's LATER
+> track reorg (`7fa4115`, 06-13 04:43, recorded in the bus GATE-FINDINGS-LATEST.md
+> "TRACK STRUCTURE") assigned the **cognition belief-pipeline + perps (incl. the
+> scalar plane, F5–F9) to track C** and directed C/D/E to continue
+> (`82d32c8`). Track-c is an ACTIVE worktree building in fortuna-cognition/
+> fortuna-runner; track A starting B7/B8 there now would COLLIDE in exactly the
+> shared crates the reorg exists to separate. The bus is the authoritative
+> coordination surface and it preempts this queue. Left in place for history; the
+> live ownership is track C. (The perp foundation C delivered — scalar type,
+> perp-strategy seam, funding kernel, basis kernel — is already merged to main.)
 
 Track C correctly STOPPED — B7/B8 live in TRACK A's crates, not track C's:
 T5.B7 perp strategy plugins need the Strategy trait/Proposal/CoreHandle in

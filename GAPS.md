@@ -183,13 +183,35 @@ legacy body is DTO-identical to v2). The 27-item clearance tally now: PASS inclu
 5,7,12 (clearance doc updated). Cluster 3 auth-skew DONE (fe86cb5); only the live WS
 handshake (operator-run) remains for the WS items.
 
-CANCEL-HARDENING FOLLOW-UP (ledgered; NOT a gap this slice): cancel() does DELETE
-+ ONE reconcile GET → Timeout if still resting (the SAFE outcome — Timeout
-propagates to caller reconciliation). The full F16 doctrine ("poll until terminal
-with bounded backoff; treat a recancel-404 as proof-of-canceled") is a future
-cancel-hardening item: today a recancel-404 maps to NotFound, so a caller cannot
-yet distinguish never-existed from already-canceled. Not unsafe, but worth
-hardening before heavy live cancel traffic.
+CANCEL-HARDENING F16 — F16a CLOSED (2026-06-13), F16b OPEN (deferred, scoped):
+
+F16a DONE: cancel()'s stale-read reconcile is hardened. On a DELETE-200 ack
+whose single reconcile GET reads stale `Resting`/`Unknown` (the recorded F16/F3
+race — DELETE acked `reduced_by:"1.00"`, GET ~360ms later still `resting`),
+cancel() now reconciles ONCE against the order LIST (`GET /portfolio/orders`,
+`cancel_reconcile_status_via_list`): list `Canceled`→Ok, `Executed`→Rejected,
+still-`Resting`/`Unknown`/absent→Timeout (the safe fallback unchanged), list-GET
+failure→Timeout. A genuinely-canceled order that read stale now resolves to a
+definite Ok instead of a false Timeout. The first-DELETE-404 → NotFound path is
+unchanged (we hold no ack, so we claim nothing — never-existed safety).
+DIVERGENCE FROM fixtures/kalshi/README.md finding-16 (deliberate, fixtures-
+grounded): the README's "treat recancel-404 as proof-of-canceled" heuristic is
+UNSAFE and is NOT implemented — the recorded 404 bodies for already-canceled,
+already-EXECUTED, and never-existed orders are BYTE-IDENTICAL (orders__cancel_*),
+so a recancel-404 cannot distinguish a cancel from a masked fill; the LIST status
+is the safe discriminator. Tests (kalshi_recorded_roundtrip.rs): stale→list-
+canceled→Ok, stale→list-EXECUTED→Rejected (the safety headline; MUTATION-PROVEN —
+flip the Executed arm to Ok(()) and that test reds), stale→absent→Timeout, plus
+the two existing stale tests extended to the 3-call flow (Timeout preserved). All
+verbatim recorded bodies; no fabricated fixture; protected crate untouched.
+
+F16b OPEN — full poll-until-terminal with bounded backoff: if the LIST also reads
+stale (order still `Resting` in the list, or absent from page 1), the outcome
+stays Timeout. A true multi-attempt poll needs (1) an injected Sleeper (not on
+KalshiVenue today — Clock has only now(); adding one is a constructor change,
+operator-authorized) and (2) a recorded multi-stale fixture sequence to test it
+(none exists; NEVER fabricate). Safe to defer: Timeout is the correct conservative
+outcome for an unresolvable stale state.
 ## TRACK C — slice 3b: PAIRED-CYCLE FIXTURE sampled + the basis VALIDATED on real co-recorded data (2026-06-13)
 
 Drove the operator's fixture unblock (operator-queue #4) MYSELF off the live recorder capture (READ-only;

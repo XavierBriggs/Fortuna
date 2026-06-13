@@ -263,7 +263,10 @@ fn recorded_place_duplicate_client_order_id_resolves_to_already_exists() {
 }
 
 // ===========================================================================
-// cancel() — the recorded STALE-READ RACE is Timeout, never a false success
+// cancel() — the recorded STALE-READ RACE (wire finding F16/F3). The single-
+// order GET surface lags the cancel surface; the adapter now reconciles ONCE
+// against the order LIST (the authoritative terminal surface) before giving up,
+// and never reports a false success off a stale read.
 // ===========================================================================
 
 #[test]
@@ -271,11 +274,17 @@ fn recorded_cancel_stale_read_race_is_timeout_not_false_success() {
     // Wire finding F16/F3 replayed verbatim: the DELETE acks (orders__cancel_v2,
     // reduced_by 1.00), but the reconcile GET (orders__get_after_cancel) still
     // reads status:"resting" remaining 1.00 (the read surface lagged the cancel
-    // surface ~360ms). The adapter must treat the cancel effect as UNKNOWN
-    // (Timeout) — never report success off the stale read.
+    // surface ~360ms). The adapter then reconciles ONCE against the order LIST;
+    // here the list ALSO lags (the same order still reads `resting`), so the
+    // effect stays UNKNOWN — Timeout, never a false success off either surface.
     let mock = Arc::new(MockKalshiTransport::new());
     mock.push_ok(200, recorded("orders__cancel_v2.json")); // DELETE ack
-    mock.push_ok(200, recorded("orders__get_after_cancel.json")); // reconcile: still resting
+    mock.push_ok(200, recorded("orders__get_after_cancel.json")); // single-GET: still resting
+    let still_resting = recorded("orders__get_after_cancel.json")["order"].clone();
+    mock.push_ok(
+        200,
+        serde_json::json!({ "orders": [still_resting], "cursor": "" }),
+    ); // list: still resting
     let venue = venue_with(&mock);
 
     let id = VenueOrderId::new("2597b999-f887-4195-8bac-c3f97a1f2021").unwrap();
@@ -286,7 +295,11 @@ fn recorded_cancel_stale_read_race_is_timeout_not_false_success() {
     );
 
     let calls = mock.calls();
-    assert_eq!(calls.len(), 2, "DELETE then ONE reconcile GET");
+    assert_eq!(
+        calls.len(),
+        3,
+        "DELETE, stale single-GET, then ONE list reconcile"
+    );
     assert_eq!(
         (calls[0].method.as_str(), calls[0].path.as_str()),
         (
@@ -301,6 +314,100 @@ fn recorded_cancel_stale_read_race_is_timeout_not_false_success() {
             "/portfolio/orders/2597b999-f887-4195-8bac-c3f97a1f2021"
         )
     );
+    assert_eq!(
+        (calls[2].method.as_str(), calls[2].path.as_str()),
+        ("GET", "/portfolio/orders"),
+        "the list reconcile is GET /portfolio/orders"
+    );
+}
+
+// ===========================================================================
+// cancel() — F16 HARDENING: the order LIST resolves the stale-read race. The
+// single-order GET lagged, but the list carries the authoritative terminal
+// status, so a genuinely-canceled order resolves to Ok instead of a false
+// Timeout. All three bodies are verbatim operator recordings.
+// ===========================================================================
+
+#[test]
+fn recorded_cancel_stale_then_list_canceled_resolves_ok() {
+    let mock = Arc::new(MockKalshiTransport::new());
+    mock.push_ok(200, recorded("orders__cancel_v2.json")); // DELETE ack
+    mock.push_ok(200, recorded("orders__get_after_cancel.json")); // single-GET: stale resting
+                                                                  // portfolio__orders_list carries the SAME order_id 2597b999 as `canceled`
+                                                                  // (remaining 0.00) — the read surface that had caught up when the single-GET
+                                                                  // had not. The adapter reconciles against it and resolves the cancel.
+    mock.push_ok(200, recorded("portfolio__orders_list.json"));
+    let venue = venue_with(&mock);
+
+    let id = VenueOrderId::new("2597b999-f887-4195-8bac-c3f97a1f2021").unwrap();
+    block_on(venue.cancel(&id)).expect("the list resolves the canceled order to Ok");
+
+    let calls = mock.calls();
+    assert_eq!(
+        calls.len(),
+        3,
+        "DELETE, stale single-GET, then ONE list reconcile"
+    );
+    assert_eq!(
+        (calls[2].method.as_str(), calls[2].path.as_str()),
+        ("GET", "/portfolio/orders")
+    );
+}
+
+// ===========================================================================
+// cancel() — SAFETY HEADLINE + mutation proof: a re-cancel 404 is byte-identical
+// for already-canceled / already-EXECUTED / never-existed (orders__cancel_*),
+// so "treat recancel-404 as canceled" (fixtures README finding-16) would MASK a
+// fill. The adapter instead reads the terminal status from the LIST. Order
+// 97ec18b7 is genuinely `executed` in the recorded list, so a stale-read cancel
+// of it routes to Rejected (fills via fills_since), NEVER a false canceled-Ok.
+// If the Executed arm is ever changed to Ok(()), this test reds.
+// ===========================================================================
+
+#[test]
+fn recorded_cancel_stale_then_list_executed_is_rejected_never_a_false_cancel() {
+    let executed_id = "97ec18b7-10d3-4557-9de0-8598aad625f0";
+    let mock = Arc::new(MockKalshiTransport::new());
+    mock.push_ok(200, recorded("orders__cancel_v2.json")); // DELETE ack (advisory body)
+                                                           // single-GET: stale resting. The adapter reads status only (not the id) from
+                                                           // the reconcile body, so re-point the recorded resting body at our order id.
+    let mut stale = recorded("orders__get_after_cancel.json");
+    stale["order"]["order_id"] = serde_json::json!(executed_id);
+    mock.push_ok(200, stale);
+    mock.push_ok(200, recorded("portfolio__orders_list.json")); // list: 97ec18b7 executed
+    let venue = venue_with(&mock);
+
+    let id = VenueOrderId::new(executed_id).unwrap();
+    let result = block_on(venue.cancel(&id));
+    assert!(
+        !matches!(result, Ok(())),
+        "an executed order must NEVER resolve to a false canceled-Ok"
+    );
+    match result {
+        Err(VenueError::Rejected { reason }) => assert!(
+            reason.contains("executed"),
+            "the list-confirmed executed status must surface: {reason}"
+        ),
+        other => panic!("a list-confirmed executed order must be Rejected, got {other:?}"),
+    }
+}
+
+// ===========================================================================
+// cancel() — if the order is absent from the list page (and the single-GET was
+// stale), the effect stays UNKNOWN: Timeout, never a fabricated success.
+// ===========================================================================
+
+#[test]
+fn recorded_cancel_stale_then_absent_from_list_is_timeout() {
+    let mock = Arc::new(MockKalshiTransport::new());
+    mock.push_ok(200, recorded("orders__cancel_v2.json"));
+    mock.push_ok(200, recorded("orders__get_after_cancel.json"));
+    mock.push_ok(200, serde_json::json!({ "orders": [], "cursor": "" }));
+    let venue = venue_with(&mock);
+
+    let id = VenueOrderId::new("2597b999-f887-4195-8bac-c3f97a1f2021").unwrap();
+    let err = block_on(venue.cancel(&id)).unwrap_err();
+    assert!(matches!(err, VenueError::Timeout { .. }), "got {err:?}");
 }
 
 // ===========================================================================
