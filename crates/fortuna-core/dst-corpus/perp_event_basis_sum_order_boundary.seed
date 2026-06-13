@@ -1,0 +1,17 @@
+# harness: perp-event-basis-dst
+# TRACK C slice 3b — bracket_implied_median sum_p reduction order.
+#
+# bracket_implied_median computed sum_p over the caller's INPUT order, BEFORE
+# sorting. Float addition is non-associative, so two callers passing the SAME
+# bin multiset in different orders (the strategy iterates a BTreeMap ladder; the
+# DST oracle iterates a Vec catalog) got sum_p values differing by one ULP. On
+# this seed the normalized cumulative lands EXACTLY on 0.5 at the B5/greater-tail
+# boundary, so the ULP flipped the 0.5 crossing: the strategy saw a finite median
+# ($66,000, the between-bin top) and proposed, while the oracle saw the crossing
+# fall into the open `greater` tail (median None, "not tradeable") — a propose-on-
+# non-tradeable divergence.
+#
+# Fix: sum_p is now reduced over the SORTED (canonical) bins, so the median is a
+# pure function of the ladder MULTISET, independent of caller input order. This
+# seed replays green and reds again if that canonicalization regresses.
+16773216064792667114

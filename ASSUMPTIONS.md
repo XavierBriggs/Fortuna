@@ -3,6 +3,62 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## TRACK C slice 3b — perp_event_basis STRATEGY (propose-only basis legs) (2026-06-13; interprets design §3/§3.1/§7 + I6)
+
+- **Bin probabilities are reconstructed from the runtime `OrderBook` (integer
+  cents), and REPRODUCE the kernel's validated number.** The strategy sees
+  `core.books` at runtime, so it builds each bin's YES-mid as
+  `((best_yes_bid_or_0 + best_yes_ask_or_0)/2)/100` off the `Cents` book — an
+  ABSENT quote on one side counts as the `0c` floor. This is REQUIRED for
+  correctness: the live KXBTC ladder quotes its far-OTM bins `0 bid / Nc ask`
+  (32 of the fixture's 50 active bins), and those bins carry `ask/2` implied
+  mass, NOT zero. Treating an absent quote as `0c` exactly reproduces how the
+  kernel e2e (`basis_live_fixture.rs`) and the fixture treat a recorded
+  `"0.0000"` bid, so the strategy's LIVE-fixture basis EQUALS the GAPS-validated
+  kernel number: implied median ≈$63,961.53, signed basis −$55.53 (the "two
+  independent sources agree <0.1%" evidence). **All live YES quotes are
+  whole-cent** (verified: 0 sub-cent quotes in the fixture), so the integer-cent
+  book carries identical information to the raw dollar-strings — there is NO
+  quantization loss. (An earlier draft DROPPED one-sided bins to prob 0, which
+  inflated the median to ≈$64,133 / basis ≈−$227 and broke cross-layer
+  consistency — corrected; the strategy e2e now ASSERTS the validated
+  $63,961 / −$55 in the proposal thesis, and the DST oracle mirrors `bin_prob`
+  in lockstep.) The symmetric high tail (`bid / no-ask` ⇒ `bid/2`) does not
+  occur in the live fixture (0 zero-ask bins); a sharper `(bid+100)/2` high-tail
+  convention is a deferred refinement.
+- **The perp→BTC-dollars boundary is `PerpPrice::to_dollars().to_f64()? × 10_000`.**
+  The strategy (unlike the kernel) lives in `fortuna-runner` where `rust_decimal`
+  is already a dependency, so it uses the exact `Decimal` view then `to_f64`
+  (mirroring `funding_forecast.rs`), with `to_f64() == None` degrading to no
+  proposal (never `unwrap`). The ×10000 lifts the BTC/10000 per-contract mark to
+  the BTC value the kernel compares. This is the SINGLE money→f64 touch; the only
+  money types in the strategy are `Cents` (the leg's limit/fair) and `PerpPrice`.
+- **Rung-0 leg selection (`target_market`): a containing `between` bin ALWAYS
+  wins over an open tail.** `between {floor,cap}` with `floor ≤ mark < cap`
+  (floor inclusive, cap EXCLUSIVE — matches the kernel's half-open semantics);
+  only when no between contains the mark does a tail apply (`greater` with
+  `mark ≥ floor`, `less` with `mark < cap`). A mark in an uncovered GAP (between
+  a tail edge and the nearest between bin) selects NOTHING → no proposal
+  (conservative; the rung-0 rule never invents a bin). The helper is a pure
+  function of (catalog, mark), unit-tested independently of the book/probability
+  path. Iteration is over the sorted `BTreeMap`, so selection is deterministic.
+- **Dedup key is `(target MarketId, join-limit cents)`, mirroring
+  `MechExtremes`'s `(market, side, limit)` `FadeKey`.** The identical leg fires
+  once; a move in the target bin's best bid (a new limit) OR a move to a
+  different target bin re-proposes. The strategy holds a `HashSet` of these keys
+  (no TTL — a Sim-stage propose-only scan; the harness owns order lifecycle).
+- **`fair_value = min(limit + edge_premium_cents, 99)`; `fair ≤ limit` ⇒ no
+  proposal.** Identical to `MechExtremes`: the premium is the honest
+  deterministic edge the gates re-check, and a binary contract is never worth
+  100c pre-settlement, so the clamp to 99 can erase the whole premium at the top
+  tick — when it does, there is no edge claim left and the leg is dropped.
+- **The strategy holds its OWN catalog (`PerpEventBasisConfig::ladder`), injected
+  at construction.** `fortuna_venues::Market` carries no strike_type/floor/cap,
+  so the strategy cannot read strikes from `core.markets` (confirmed: the DTO was
+  out of scope to widen). Where the catalog comes from at runtime (the Kalshi
+  market list at daemon startup) is the slice-4 daemon concern; here the strategy
+  is catalog-driven and fixture/unit/DST-tested.
+
 ## T5.B7 slice 3 — perp_event_basis BASIS KERNEL (track C, 2026-06-13; interprets design §3/§3.1/§7 + GAPS "slice 3 GROUNDED")
 
 - **CORRECTION (2026-06-13, live-capture investigation — GAPS "LIVE BRACKET-FORMAT INVESTIGATION"):

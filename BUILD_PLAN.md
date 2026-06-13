@@ -773,9 +773,16 @@ code.
       (merged 4db8764), refined 5fccd5f to the live 3-strike-type ladder
       (BracketStrike enum, open-tail None, zero money-touch) + real-data e2e on
       the committed paired-cycle fixture (median $63,961.53 / perp $63,906 /
-      basis −$55.53). Composite fixture moved to fixtures/kinetics-perps/derived/
-      (un-reds `cargo test --workspace`; see GAPS). Remaining: the sized Cents
-      bracket-leg STRATEGY (fixture-gated), then daemon wiring (slice 4).
+      basis −$55.53). Composite fixture lives in fixtures/perp-basis/ (OUT of
+      fixtures/kinetics-perps/ so the venue DTO-coverage tripwire is not tripped;
+      operator-directed; see GAPS).
+      SLICE 3b-STRATEGY (track C): perp_event_basis STRATEGY DONE — propose-only
+      maker-only UNSIZED Cents bracket leg on the bin containing the perp forecast
+      (fortuna-runner, additive; holds its own catalog, no venue-DTO change). A
+      verification pass caught + fixed a bin_prob bug (one-sided bins were dropped
+      to 0, breaking the validated basis); 14 tests + DST oracle. DEMO-ENV
+      validated on a fresh live cycle (perp/ladder agree <0.1%, both basis signs).
+      Remaining: daemon wiring (slice 4).
 - [ ] T5.B8 Ops: kill-switch perps flatten (reduce_only IOC + cancel-all),
       margin/funding telemetry, funding-regime dashboard panel.
 

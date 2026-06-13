@@ -2,7 +2,7 @@
 //! verifier-required e2e, now on REAL co-recorded data).
 //!
 //! Flow (end-to-end against the committed LIVE paired-cycle recording):
-//!   1. Load `fixtures/kinetics-perps/derived/paired_cycle_btc_perp_vs_kxbtc.json`
+//!   1. Load `fixtures/perp-basis/paired_cycle_btc_perp_vs_kxbtc.json`
 //!      ONE cycle_id-aligned pair: the KXBTCPERP perp (settlement_mark) + the
 //!      KXBTC price-LEVEL ladder (50 active markets: 48 `between` $500 bins
 //!      $51k→$75k + 1 `greater` top tail + 1 `less` bottom tail).
@@ -42,7 +42,7 @@ const TOL_DOLLARS: f64 = 3.0;
 
 fn fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/kinetics-perps/derived/paired_cycle_btc_perp_vs_kxbtc.json")
+        .join("../../fixtures/perp-basis/paired_cycle_btc_perp_vs_kxbtc.json")
 }
 
 // ── the fixture shape (only the fields the basis needs) ──────────────────────

@@ -23,7 +23,7 @@
 //! STRATEGY's exec-boundary money op (`fortuna-runner`), not part of this
 //! kernel. Synthetic ladders prove the LOGIC; the real-orderbook end-to-end is
 //! exercised by the committed LIVE paired-cycle fixture
-//! (fixtures/kinetics-perps/derived/paired_cycle_btc_perp_vs_kxbtc.json — the
+//! (fixtures/perp-basis/paired_cycle_btc_perp_vs_kxbtc.json — the
 //! `basis_live_fixture.rs` e2e), never an invented calibration claim.
 //!
 //! # Bracket structure (grounded in the LIVE capture; never invented)
@@ -49,7 +49,7 @@
 //! parsed `f64` probability, and the dollar-string → probability parse is the
 //! caller's boundary (so a future quote format does not touch this kernel).
 //! (Schema at docs/research/venue/kalshi-api-2026-06-10 research.md:251-253;
-//! the live shape in fixtures/kinetics-perps/derived/paired_cycle_btc_perp_vs_kxbtc.)
+//! the live shape in fixtures/perp-basis/paired_cycle_btc_perp_vs_kxbtc.)
 
 /// Which `strike_type` a KXBTC market is, and the BTC price strike(s) it
 /// carries. Each variant maps 1:1 to a live `strike_type`; the structure is the
@@ -161,17 +161,10 @@ pub fn bracket_implied_median(bins: &[BracketBin]) -> Option<f64> {
         return None;
     }
 
-    let sum_p: f64 = bins.iter().map(BracketBin::implied_prob).sum();
-    // Degenerate / illiquid ladder, or a non-finite (NaN/inf) prob from a
-    // malformed caller parse: no usable implied mass → no median. (`<= 0.0`
-    // rather than `== 0.0` so a pathological negative is also degenerate; the
-    // `is_finite` guard keeps a NaN prob from ever yielding a NaN median.)
-    if sum_p <= 0.0 || !sum_p.is_finite() {
-        return None;
-    }
-
-    // Order a copy by price position; the caller's slice is left untouched and
-    // the median is order-independent (a pure function of the ladder).
+    // Order a copy by price position FIRST; the caller's slice is left untouched
+    // and — critically — every downstream float reduction runs in this canonical
+    // order, so the median is a pure function of the ladder MULTISET, INDEPENDENT
+    // of the caller's input order.
     let mut sorted: Vec<BracketBin> = bins.to_vec();
     sorted.sort_by(|a, b| {
         order_rank(&a.kind).cmp(&order_rank(&b.kind)).then_with(|| {
@@ -180,6 +173,25 @@ pub fn bracket_implied_median(bins: &[BracketBin]) -> Option<f64> {
                 .unwrap_or(std::cmp::Ordering::Equal)
         })
     });
+
+    // sum_p over the SORTED (canonical) order, NOT the caller's input order.
+    // Float addition is non-associative, so summing in input order let two
+    // callers passing the SAME bins in DIFFERENT orders get sum_p values that
+    // differ by an ULP — enough to flip the 0.5 crossing at an exact
+    // cumulative-equals-0.5-at-a-bin-boundary tie (a `between` top vs the next
+    // open tail), so one caller saw a finite median and another saw `None`.
+    // Canonicalising the reduction order removes that order-dependence entirely.
+    // (DST-found, TRACK C slice 3b: a propose-only strategy and its independent
+    // DST oracle passed identical bins in BTreeMap vs Vec order and diverged on
+    // exactly one seed at the B5/greater boundary.)
+    let sum_p: f64 = sorted.iter().map(BracketBin::implied_prob).sum();
+    // Degenerate / illiquid ladder, or a non-finite (NaN/inf) prob from a
+    // malformed caller parse: no usable implied mass → no median. (`<= 0.0`
+    // rather than `== 0.0` so a pathological negative is also degenerate; the
+    // `is_finite` guard keeps a NaN prob from ever yielding a NaN median.)
+    if sum_p <= 0.0 || !sum_p.is_finite() {
+        return None;
+    }
 
     let mut cum = 0.0_f64;
     for binr in &sorted {

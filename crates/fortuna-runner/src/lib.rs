@@ -28,6 +28,7 @@
 pub mod funding_forecast;
 pub mod mech_extremes;
 pub mod mech_structural;
+pub mod perp_event_basis;
 pub mod promotion;
 mod runner;
 pub mod synth_events;

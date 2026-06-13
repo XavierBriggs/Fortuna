@@ -257,8 +257,19 @@ reference, ZERO cross-venue settlement/latency risk:
   (the kernel takes the `f64` mid, staying format-agnostic), and `compute_basis` takes the perp
   mark as caller-supplied `f64` BTC-dollars — the kernel has ZERO money-type touch (the
   per-contract→BTC ×10000 boundary is the caller's). The real-KXBTC e2e (`basis_live_fixture.rs`)
-  now drives it on the committed paired cycle (§3.2). The sized `Cents` bracket-leg TRADE (the
-  strategy) is the remaining fixture-gated step.
+  now drives it on the committed paired cycle (§3.2).
+- The `Cents` bracket-leg STRATEGY is DONE (`fortuna-runner::perp_event_basis`, propose-only, additive —
+  a NEW module, NO venue-DTO change). On a `PerpTick` it rebuilds bins from `core.books` (YES mid
+  `(bid_or_0 + ask_or_0)/2`, an absent quote = the 0c floor — REQUIRED so the live `0 bid / Nc ask` far
+  tails keep their `ask/2` mass and the strategy reproduces the kernel's validated basis), calls
+  `compute_basis`, and proposes ONE maker-only (`Urgency::Passive`) UNSIZED `Cents` leg (I6 — the harness
+  sizes) on the bin CONTAINING the perp forecast, gated by the fee-trap. `fair_value = limit + premium`
+  (clamped ≤99), mirroring `MechExtremes`. The strategy holds its OWN bracket catalog
+  (`MarketId → BracketStrike`, injected at construction); the catalog is NOT read from `core.markets`
+  (`fortuna_venues::Market` carries no strike metadata — out of scope to widen), so live
+  catalog-population from the Kalshi market list is the slice-4 daemon concern. VALIDATED on live DEMO
+  data: the committed e2e on cycle …753775 (basis −$55.53) + a fresh independent cycle …754035 (basis
+  +$55.08), both with perp/ladder agreement <0.1%.
 
 ### 3.2 The live-data drive (the fixture unblock)
 
@@ -271,7 +282,7 @@ To make perp_event_basis fixtures-gated end-to-end (now drivable by me, operator
 - Sample ONE paired cycle (matching `cycle_id`: a perp book + marks + the KXBTC `between`-ladder
   bracket quotes) into a committed `fixtures/kinetics-perps/` file (market data ONLY, no keys),
   **reading the existing perishable stream, WITHOUT touching the running recorder** (loop rule).
-  DONE: `fixtures/kinetics-perps/derived/paired_cycle_btc_perp_vs_kxbtc.json` (cycle
+  DONE: `fixtures/perp-basis/paired_cycle_btc_perp_vs_kxbtc.json` (cycle
   1781160753775; 48 `between` + 1 `greater` + 1 `less`). It lives under `derived/` because it is
   a recorder-DERIVED pair, not a single Kinetics DTO capture — the top-level `kinetics_dto`
   coverage glob (non-recursive) must not require it to parse as a venue DTO.

@@ -18,6 +18,67 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK C — slice 3b-STRATEGY (perp_event_basis) BUILT + bin_prob bug caught + DEMO-ENV validated on a fresh independent cycle (2026-06-13)
+
+The propose-only `perp_event_basis` STRATEGY (fortuna-runner, additive: new `perp_event_basis.rs` + 1-line
+`pub mod`; NO venue-DTO change — the strategy holds its OWN bracket catalog `MarketId → BracketStrike`,
+sidestepping the missing strike metadata on `fortuna_venues::Market`; live catalog-population from the
+Kalshi market list is the slice-4 daemon concern). On a `PerpTick` it reconstructs bins from `core.books`,
+calls the `compute_basis` kernel, and PROPOSES one maker-only (`Urgency::Passive`) unsized `Cents` bracket
+leg (I6 — no qty field) on the bin CONTAINING the perp forecast when the basis clears the fee-trap.
+14 unit/e2e tests + a DST oracle (independently recomputes the verdict; 6 seeds × 150–300 scenarios).
+
+**BUG CAUGHT IN VERIFICATION (delegate-but-verify, the implementer misdiagnosed it as "cent-quantization"):**
+the first draft's `bin_prob` dropped any ONE-SIDED book (empty bid, live ask) to prob 0.0. The live KXBTC
+far tails quote `0 bid / Nc ask` — 32–33 of the 50 active bins — so dropping them discards the whole low
+tail's ask/2 mass, inflating the implied median (~$64,133 vs the validated $63,961.53) and the basis
+(~−$227 vs −$55.53), BREAKING consistency with the GAPS-validated kernel number. ROOT CAUSE is NOT
+quantization — ALL live YES quotes are whole-cent (verified: 0 sub-cent in the fixture AND the fresh
+cycle). FIX: `bin_prob` = `(bid_or_0 + ask_or_0)/2` (an absent quote is the 0c floor; only a both-empty
+book → 0), exactly reproducing the kernel/fixture treatment of a recorded `"0.0000"` bid. The strategy now
+reproduces the validated median/basis; the e2e ASSERTS it (the thesis carries `median $63961` / `signed_basis
+$-55`); the DST oracle was realigned to mirror `bin_prob` in lockstep; tests/basis_live + ASSUMPTIONS
+corrected. `cargo test -p fortuna-runner` 103/0.
+
+**DEMO-ENV VALIDATION (operator directive: "test against demo kalshi env, the keys are there"):** the
+running recorder (PID 79813, up 2d12h, UNTOUCHED) authenticates to `KALSHI_DEMO_BASE_URL` with the demo
+keys (API-key-id + RSA signature) and continuously captures live demo data → so the demo keys + connection
+are PROVEN live. I ran the strategy's exact basis logic on a FRESH cycle (1781160754035) from today's
+`data/perishable/2026-06-13/` capture — INDEPENDENT of the committed fixture cycle (…753775): 48 between +
+1 greater + 1 less, 0 sub-cent quotes, 33 zero-bid bins; perp KXBTCPERP $64,132 vs ladder implied median
+$64,076.92 → basis **+$55.08 (TRADEABLE)**, target = the [64000, 64499.99) bin containing the mark. **Two
+independent price sources agree to 0.086% (<0.1%)** — the SAME cross-source agreement as the fixture cycle
+but the OPPOSITE basis sign, re-confirming the pipeline AND the bin_prob fix on fresh live demo data. (The
+committed e2e tests the actual Rust code on cycle …753775 = −$55.53; this fresh-cycle check is recorded
+evidence, not a committed test — a second committed cycle e2e is a clean future strengthening.)
+
+**SECOND BUG the DST caught — a latent KERNEL non-determinism (basis.rs), fixed at the root.** At full
+2000-seed depth the DST oracle (which iterates a `Vec` catalog) and the strategy (which iterates a
+`BTreeMap` ladder) diverged on ONE seed: identical bin MULTISET, but `bracket_implied_median` reduced
+`sum_p` in the caller's INPUT order BEFORE sorting. Float addition is non-associative, so the two orders'
+`sum_p` differed by one ULP — enough to flip the 0.5 crossing at an exact cum==0.5 tie on the B5/greater
+boundary (strategy saw median $66,000 + proposed; oracle saw the crossing fall in the open tail → None →
+"not tradeable"). FIX (basis.rs): reduce `sum_p` over the SORTED (canonical) bins, so the median is a pure
+function of the ladder MULTISET, INDEPENDENT of caller input order. Pinned deterministically by a new DST
+corpus seed (`perp_event_basis_sum_order_boundary`, seed 16773216064792667114, replays green / reds on
+regression) + a kernel unit test (`median_is_independent_of_input_order`). The GAPS-validated fixture
+median ($63,961.53) is UNCHANGED by the fix (the shift was sub-ULP). Lesson: an independent DST oracle that
+mirrors the production path but feeds inputs in a different container order is a POWERFUL float-determinism
+fuzzer — it found a kernel wrinkle no single-caller test would.
+
+**FIXTURE RELOCATED OUT of kinetics-perps/ (operator-directed, this iteration).** The slice-3b-kernel note
+below relocated the paired-cycle composite to `fixtures/kinetics-perps/derived/` (a non-recursive-glob
+dodge). The operator reviewed and directed the CLEANER fix (their Option 1): the file is basis/cognition
+data, NOT a Kinetics venue DTO, so it belongs OUT of the venue fixtures tree entirely. Moved (git mv) to
+`fixtures/perp-basis/paired_cycle_btc_perp_vs_kxbtc.{json,meta.md}`; updated every reader (basis_live_
+fixture.rs, perp_event_basis.rs e2e, basis.rs doc, the design doc). The `fortuna-venues` DTO-coverage
+tripwire (`every_fixture_parses_into_its_typed_dto`) is UNTOUCHED and its "every fixture there is a
+classified DTO" guarantee is intact — the composite simply no longer lives under the dir it scans. (The
+bus GATE-FINDINGS-LATEST still references the old top-level path as a historical record; not edited — bus
+is verifier-owned.) `cargo test -p fortuna-venues --test kinetics_dto` + the two e2e suites + the full
+workspace battery green at the new path. NOTE for the verifier: main still carries the fixture at the
+2c17295 top-level path until this lands, so main's `cargo test --workspace` stays red there until merge.
+
 ## TRACK C — slice 3b: PAIRED-CYCLE FIXTURE sampled + the basis VALIDATED on real co-recorded data (2026-06-13)
 
 Drove the operator's fixture unblock (operator-queue #4) MYSELF off the live recorder capture (READ-only;

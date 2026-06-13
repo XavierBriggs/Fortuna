@@ -16,7 +16,7 @@
 //!   If the 0.5 crossing falls in an OPEN tail (`less`/`greater`) there is no
 //!   finite width to interpolate, so the median is undefined → `None`.
 //!   Structure grounded in the LIVE fixture
-//!   (fixtures/kinetics-perps/derived/paired_cycle_btc_perp_vs_kxbtc.json) + the Kalshi
+//!   (fixtures/perp-basis/paired_cycle_btc_perp_vs_kxbtc.json) + the Kalshi
 //!   research (asyncapi.yaml:3174-3176 floor/cap, research.md:251-253
 //!   strike_type). Synthetic VALUES prove the LOGIC only.
 //! - `compute_basis`: `signed_basis = perp_mark_btc_dollars −
@@ -389,6 +389,49 @@ fn unsorted_ladder_is_ordered_by_price_position() {
     assert!(
         (median - 97_500.0).abs() < 1e-9,
         "ordered median should be 97500, got {median}"
+    );
+}
+
+// ─── reduction-order independence: same MULTISET, any input order → same median ─
+
+// The median must be a pure function of the ladder MULTISET, not the caller's
+// input order — `sum_p` is reduced over the SORTED bins, so the non-associative
+// float sum cannot make two callers (e.g. a BTreeMap-iterating strategy and a
+// Vec-iterating DST oracle) diverge at a 0.5-at-a-boundary tie. (The exact ULP
+// boundary case is pinned deterministically by the perp-event-basis-dst corpus
+// seed `perp_event_basis_sum_order_boundary`; this is the kernel-level contract.)
+//
+// MUTATION: reduce `sum_p` over the input `bins` instead of `sorted` → the float
+// sum becomes input-order-dependent and these cross-order equalities can break.
+#[test]
+fn median_is_independent_of_input_order() {
+    // A full partition (less + between core + greater) with deliberately
+    // not-power-of-two probabilities so the float sum is order-sensitive.
+    let base = vec![
+        less(95_000.0, 0.07),
+        between(95_000.0, 96_000.0, 0.13),
+        between(96_000.0, 97_000.0, 0.17),
+        between(97_000.0, 98_000.0, 0.23),
+        between(98_000.0, 99_000.0, 0.19),
+        greater(99_000.0, 0.11),
+    ];
+    let canonical = bracket_implied_median(&base).expect("crossing in a between bin");
+
+    // Reversed input order.
+    let mut rev = base.clone();
+    rev.reverse();
+    assert_eq!(
+        bracket_implied_median(&rev),
+        Some(canonical),
+        "reversed input order must give the identical median"
+    );
+
+    // A rotated order (tails interleaved into the middle).
+    let rotated = vec![base[3], base[0], base[5], base[1], base[4], base[2]];
+    assert_eq!(
+        bracket_implied_median(&rotated),
+        Some(canonical),
+        "rotated input order must give the identical median"
     );
 }
 
