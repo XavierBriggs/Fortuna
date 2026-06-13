@@ -67,6 +67,12 @@ verifier amends as gates land. All standard loop rules apply unchanged.
        (docs/research/ops/) with mock transport tests — kill REQUESTS
        only, re-arms stay CLI-only; live exercise needs the operator's
        app token (ledger the gate).
+       >> A1 DONE ca5082d (2026-06-13): socket.rs decision logic (14 tests) —
+          I2 re-arm REFUSED (airtight), allow-list fail-closed, halt-only to an
+          injected sink, untrusted-data. Dep-clean (zero new). REMAINING: A2 the
+          ack-first envelope loop + WS transport mock (dedup/reconnect); B the
+          daemon wiring + real WSS (tokio-tungstenite) + [slack.socket_mode] config
+          + FORTUNA_SLACK_APP_TOKEN + operator-run live. (GAPS.)
 
 3. T4.5 ROTA deferred panels (after T4.2: the WS gap/resync counters flip
    live as part of it; the rest per the BUILD_PLAN T4.5 entry and its

@@ -18,6 +18,34 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK A — T4.2 item 2(v) Slack Socket listener A1: decision logic DONE (ca5082d)
+
+The Slack Socket Mode listener's DECISION LOGIC is built + tested
+(crates/fortuna-ops/src/socket.rs + tests/socket.rs, 14 tests): dispatch_envelope
+→ an allow-listed kill-request routes to an injected HaltRequestSink; I2 re-arm
+REFUSED (NO halt path; HaltRequestSink exposes only request_halt — code-reviewer
+confirmed airtight); non-allow-listed + empty-allow-list fail-closed; WrongTeam
+drop (distinct from Unauthorized); untrusted-data (action_id ENUM-matched, reason
+bounded 500c + opaque, serde_json indexing panic-free); malformed/unknown →
+no-op outcomes. DEP-CLEAN: injected HaltRequestSink/EphemeralSender traits → ZERO
+new fortuna-ops dep, no fortuna-runner/gates import. Full battery green (133
+targets 0-failed; run-dst 200 0-violations; daemon_smoke 15/15). Protected crate
+untouched.
+
+REMAINING (next slices):
+- A2: the ack-FIRST envelope LOOP over a mockable SlackSocketTransport/Conn
+  (apps.connections.open→wss; ack within 3s; envelope-id dedup via a bounded
+  ring; capped-exponential reconnect; cancel watch) + loop mock-transport tests
+  (ack-first, dedup, reconnect). Pattern: the Kalshi dial WsTransport/WsConn.
+- B (operator-gated): fortuna-live daemon wiring (HaltRequestSink → the gate
+  halt path / SimRunner::apply_external_halt; EphemeralSender → SlackRouter); the
+  REAL apps.connections.open + tokio-tungstenite WSS transport (adds
+  tokio-tungstenite to fortuna-ops — the only new dep then); config
+  [slack.socket_mode] (allowed_user_ids + allowed_team_id) + FORTUNA_SLACK_APP_TOKEN
+  (xapp-, env-only; add to .env.example + operator.md); LIVE exercise operator-run
+  with the app token (the Slack app-token gate is already in the GAPS operator
+  queue / "Slack app token(s)").
+
 ## TRACK A — T4.2 item 2(iv) kill-switch Kalshi plug: MACHINERY proven (4e3a484); LIVE wiring ledgered
 
 The I4 freeze-and-cancel MACHINERY is proven over the REAL KalshiVenue adapter

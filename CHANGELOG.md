@@ -122,6 +122,29 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-13 — T4.2 (v) A1: Slack Socket listener decision logic — `ca5082d`
+
+**What.** New `crates/fortuna-ops/src/socket.rs` (+14 tests) — the Slack inbound
+interactivity DECISION LOGIC (built to docs/research/ops/slack-api-2026-06-09).
+`dispatch_envelope` routes block_actions / slash to handlers.
+
+**Safety teeth.** I2 re-arm REFUSED (no halt path; `HaltRequestSink` exposes only
+`request_halt` — code-reviewer confirmed airtight); allow-list (fail-closed empty;
+absent user = no) + optional team restriction (WrongTeam); halt-only routing to
+an injected sink (NOT the I4 killswitch); untrusted-data (action_id ENUM-matched,
+reason bounded 500c opaque, panic-free indexing).
+
+**Dep-clean.** Injected `HaltRequestSink`/`EphemeralSender` traits → ZERO new
+fortuna-ops dep, no fortuna-runner/gates import.
+
+**Remaining (GAPS).** A2 = the ack-first envelope loop + WS transport mock
+(dedup/reconnect); B = daemon wiring + real WSS (tokio-tungstenite) + config +
+`FORTUNA_SLACK_APP_TOKEN` + operator-run live.
+
+**Battery.** fmt; clippy --workspace --all-targets; cargo test --workspace (133
+targets, 0 failed); run-dst.sh 200 (0 violations; daemon_smoke 15/15).
+code-reviewer ACCEPT (2 must-fixes folded). Protected crate untouched.
+
 ### 2026-06-13 — T4.2 (iv) kill-switch Kalshi freeze machinery — `4e3a484`
 
 **What.** `crates/fortuna-killswitch/tests/kalshi_freeze.rs` (1 test; test-only) —

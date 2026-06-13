@@ -410,7 +410,8 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       (fe86cb5), WS live handshake op-run. Remaining:
       (iv) kill-switch Kalshi freeze MACHINERY proven (4e3a484, mock; i4
       invariant green) — live `freeze --venue kalshi` wiring next (GAPS); (v)
-      Slack listener.
+      Slack listener A1 decision logic DONE (ca5082d, socket.rs 14 tests; I2
+      refusal airtight) — A2 envelope loop + B daemon-wiring/WSS/token pending.
 - [ ] T4.3 ROTA — the operator dashboard (operator-directed 2026-06-11; design
       AUTHORITATIVE at docs/design/rota-dashboard.md INCLUDING its amendments
       section): read-only gold/black operator console — server-rendered Rust
