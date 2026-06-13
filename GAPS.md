@@ -18,7 +18,7 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
-## TRACK A — T4.2 item 2(v) Slack Socket listener A1: decision logic DONE (ca5082d)
+## TRACK A — T4.2 item 2(v) Slack Socket listener A1 (ca5082d) + A2 (f52ee66) DONE
 
 The Slack Socket Mode listener's DECISION LOGIC is built + tested
 (crates/fortuna-ops/src/socket.rs + tests/socket.rs, 14 tests): dispatch_envelope
@@ -32,11 +32,28 @@ new fortuna-ops dep, no fortuna-runner/gates import. Full battery green (133
 targets 0-failed; run-dst 200 0-violations; daemon_smoke 15/15). Protected crate
 untouched.
 
-REMAINING (next slices):
-- A2: the ack-FIRST envelope LOOP over a mockable SlackSocketTransport/Conn
-  (apps.connections.open→wss; ack within 3s; envelope-id dedup via a bounded
-  ring; capped-exponential reconnect; cancel watch) + loop mock-transport tests
-  (ack-first, dedup, reconnect). Pattern: the Kalshi dial WsTransport/WsConn.
+A2 DONE (f52ee66): the ack-FIRST envelope LOOP over a mockable SlackSocketTransport/
+SlackSocketConn (crates/fortuna-ops/src/socket.rs + tests/socket_loop.rs, 12 loop
+tests + 5 inline units) — mirrors the Kalshi WS dial seam (kalshi::dial). run_socket_loop:
+ack-BEFORE-process (the 3s deadline; proven by a shared ack-vs-sink ordering log),
+envelope-id dedup via a bounded ring (a durably-handled envelope suppressed, a
+SinkError-failed halt left UNrecorded so a redelivery RE-ATTEMPTS — code-reviewer
+should-fix folded + regression-tested), SocketDial capped-exponential reconnect that
+survives transport loss AND the disconnect/refresh_requested lifecycle WITHOUT
+escalating on planned refreshes, and a cancel watch (prompt mid-pump + mid-backoff).
+I2 preserved end-to-end (a re-arm on the socket is acked but REFUSED, never un-halts).
+SlackEnvelope.envelope_id is now #[serde(default)] (hello/disconnect carry none).
+ZERO new fortuna-ops dep. Full battery green (fmt + clippy --workspace --all-targets
++ test --workspace 134 bins/1209 0-failed + run-dst 200 0-violations + daemon_smoke
+15/15). Protected crate untouched.
+
+TWO faithful Slack-vs-Kalshi differences (ledgered for slice B): (1) NO client subscribe
+step — Slack pushes envelopes, the loop's only outbound frame is the ack; (2) NO app-level
+keep-alive — Slack drives the lifecycle via the disconnect envelope, so the real
+tokio-tungstenite transport (B) MUST configure a WS ping/pong timeout so a half-open
+socket surfaces as a recv error (Kalshi needed a Clock-injected keep-alive; Slack does not).
+
+REMAINING (next slice):
 - B (operator-gated): fortuna-live daemon wiring (HaltRequestSink → the gate
   halt path / SimRunner::apply_external_halt; EphemeralSender → SlackRouter); the
   REAL apps.connections.open + tokio-tungstenite WSS transport (adds

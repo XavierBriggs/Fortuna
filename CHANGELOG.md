@@ -122,6 +122,42 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-13 — T4.2 (v) A2: Slack Socket Mode envelope loop — `f52ee66`
+
+**What.** `crates/fortuna-ops/src/socket.rs` gains the ack-first listener LOOP
+over a mockable `SlackSocketTransport`/`SlackSocketConn` (mirrors the Kalshi WS
+dial seam `kalshi::dial`). `run_socket_loop`: connect → pump (ack → dedup →
+dispatch) → redial. New `tests/socket_loop.rs` (12 tests) + 5 inline units.
+
+**Why.** A1 was the pure decision logic; the loop is what actually receives,
+acks, dedups, and survives reconnects against a recorded/mock transport — the
+production-shaped listener minus the live socket (slice B).
+
+**Safety teeth.** ack-FIRST before any sink touch (the 3s deadline; proven by a
+shared ack-vs-sink ordering log); bounded envelope-id dedup ring — a
+durably-handled envelope is suppressed but a `SinkError`-failed halt is left
+UNrecorded so a Slack redelivery RE-ATTEMPTS it (code-reviewer should-fix folded
++ regression-tested); `SocketDial` capped-exponential reconnect surviving
+transport loss AND the `disconnect`/refresh_requested lifecycle WITHOUT
+escalating on planned refreshes; cancel watch (prompt mid-pump + mid-backoff).
+I2 preserved end-to-end (a re-arm on the socket is acked but REFUSED). Untrusted
+data: malformed frames skipped, no panic, no ack.
+
+**Notes.** `SlackEnvelope.envelope_id` is now `#[serde(default)]` (hello/disconnect
+protocol frames carry none). Two faithful Slack-vs-Kalshi differences ledgered for
+B: no client subscribe step; no app-level keep-alive (B's real tokio-tungstenite
+transport must set a WS ping/pong timeout so a half-open socket surfaces as a recv
+error). ZERO new fortuna-ops dep.
+
+**Remaining (GAPS).** B (operator-gated) = daemon wiring (HaltRequestSink → gate
+halt path; EphemeralSender → SlackRouter) + real WSS transport + `[slack.socket_mode]`
+config + `FORTUNA_SLACK_APP_TOKEN` + operator-run live.
+
+**Battery.** fmt --check; clippy --workspace --all-targets -D warnings; cargo test
+--workspace (134 bins, 1209 passed, 0 failed); run-dst.sh 200 (4 corpus + 200
+seeds, 0 invariant violations; ingest_dst 5/5; daemon_smoke 15/15). code-reviewer
+ACCEPT (1 should-fix folded). Protected crate untouched.
+
 ### 2026-06-13 — T4.2 (v) A1: Slack Socket listener decision logic — `ca5082d`
 
 **What.** New `crates/fortuna-ops/src/socket.rs` (+14 tests) — the Slack inbound

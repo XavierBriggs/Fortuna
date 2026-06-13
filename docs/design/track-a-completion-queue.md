@@ -69,10 +69,17 @@ verifier amends as gates land. All standard loop rules apply unchanged.
        app token (ledger the gate).
        >> A1 DONE ca5082d (2026-06-13): socket.rs decision logic (14 tests) —
           I2 re-arm REFUSED (airtight), allow-list fail-closed, halt-only to an
-          injected sink, untrusted-data. Dep-clean (zero new). REMAINING: A2 the
-          ack-first envelope loop + WS transport mock (dedup/reconnect); B the
-          daemon wiring + real WSS (tokio-tungstenite) + [slack.socket_mode] config
-          + FORTUNA_SLACK_APP_TOKEN + operator-run live. (GAPS.)
+          injected sink, untrusted-data. Dep-clean (zero new).
+       >> A2 DONE f52ee66 (2026-06-13): the ack-first envelope LOOP over a mockable
+          SlackSocketTransport/Conn (socket_loop.rs 12 tests + 5 inline units) —
+          mirrors the Kalshi WS dial. ack-BEFORE-process, bounded envelope-id dedup
+          (SinkError-failed halt stays retryable — code-reviewer should-fix folded),
+          SocketDial capped-exponential reconnect surviving loss + disconnect/refresh
+          (no escalation on planned refresh), cancel watch. I2 preserved end-to-end.
+          Zero new dep. Full battery green (test --workspace 134/1209/0 + run-dst 200
+          0-violations). REMAINING: B (operator-gated) the daemon wiring + real WSS
+          (tokio-tungstenite, +ping/pong timeout) + [slack.socket_mode] config +
+          FORTUNA_SLACK_APP_TOKEN + operator-run live. (GAPS.)
 
 3. T4.5 ROTA deferred panels (after T4.2: the WS gap/resync counters flip
    live as part of it; the rest per the BUILD_PLAN T4.5 entry and its

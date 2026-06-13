@@ -411,7 +411,9 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       (iv) kill-switch Kalshi freeze MACHINERY proven (4e3a484, mock; i4
       invariant green) — live `freeze --venue kalshi` wiring next (GAPS); (v)
       Slack listener A1 decision logic DONE (ca5082d, socket.rs 14 tests; I2
-      refusal airtight) — A2 envelope loop + B daemon-wiring/WSS/token pending.
+      refusal airtight) + A2 ack-first envelope loop DONE (f52ee66,
+      socket_loop.rs 12 tests; dedup/reconnect/cancel, mirrors the WS dial) —
+      only B (daemon-wiring/WSS/token, operator-gated) pending.
 - [ ] T4.3 ROTA — the operator dashboard (operator-directed 2026-06-11; design
       AUTHORITATIVE at docs/design/rota-dashboard.md INCLUDING its amendments
       section): read-only gold/black operator console — server-rendered Rust
