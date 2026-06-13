@@ -13,6 +13,11 @@
 #      liquidation under ack-delay/api-error, system-fill ingestion,
 #      margin-call sequences, demo-divergence — per-arm accounted,
 #      crates/fortuna-state/tests/perp_dst.rs) with the same seed count (T5.B6).
+#   5b. Runs the funding_forecast belief-producer DST (PerpTick chaos: time
+#      gaps, window rolls, estimate oscillation, ±clamp extremes — per-arm
+#      accounted; zero-proposals + every-draft-validates + determinism,
+#      crates/fortuna-runner/tests/funding_forecast_dst.rs) with the same seed
+#      count (T5.B7 slice 2b).
 #   6. Exits non-zero on ANY invariant violation OR build failure, printing the
 #      offending seed. A harness that fails to BUILD fails the battery (E5:
 #      the old "passing vacuously" escape is gone — the harness exists).
@@ -26,6 +31,8 @@ SYNTH_DST_SCENARIOS="$N" cargo test -p fortuna-runner --test synthesis_dst -- --
 SETTLE_DST_SCENARIOS="$N" cargo test -p fortuna-runner --test settlement_dst -- --nocapture
 # T5.B6: the perp margin/funding/liquidation plane under seeded chaos.
 PERP_DST_SCENARIOS="$N" cargo test -p fortuna-state --test perp_dst -- --nocapture
+# T5.B7 slice 2b: the funding_forecast belief-producer under PerpTick chaos.
+FUNDING_FORECAST_DST_SCENARIOS="$N" cargo test -p fortuna-runner --test funding_forecast_dst -- --nocapture
 # T4.1 req 10: the daemon-composition smoke (boot -> ticks -> stop signal
 # -> graceful shutdown, deterministic under SimClock, vs the example config).
 cargo test -p fortuna-live --test daemon_smoke -- --nocapture

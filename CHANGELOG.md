@@ -16,6 +16,16 @@ The `prob_claims/v1` scalar-belief foundation + perp strategies (design
 
 #### Added
 
+- **`funding_forecast` strategy** (slice 2b, `fortuna-runner`): a zero-capital
+  scalar belief-producer — on a `PerpTick` it forecasts the next funding rate
+  directly from the recorded venue estimate (`finalize_funding_rate(estimate)`;
+  the estimate IS the running TWAP, never re-derived) and emits a
+  `PredictiveDistribution::Scalar` quantile fan whose dispersion widens with
+  time-remaining-in-window (a documented rung-0 model, CRPS-measured). Proposes
+  NOTHING (I6). A live-data CRPS test scores a recorded estimate → forecast
+  against a recorded realized rate; exact-window calibration is deferred to the
+  operator-queued paired fixture (the test pins the gap executably, never
+  fabricates). DST arm over tick/gap/window-roll/clamp chaos.
 - **Perp-strategy seam** (slice 2a, additive): `EventPayload::PerpTick` + the
   `FundingObservation` type (`fortuna-core`), `ScalarBeliefDraft`
   (`fortuna-cognition::scalar_beliefs`), the `drain_scalar_beliefs()` default
