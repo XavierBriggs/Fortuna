@@ -204,6 +204,10 @@ Everything below is also recorded in ASSUMPTIONS.md (decisions) or GAPS.md
 
 ## 5. Phase-4 EXIT soak runbook — start / stop / observe (Sim; do this now)
 
+> THE LIVING PROCEDURE is docs/runbooks/soak-start.md (executed-verified by
+> the docs gate). The steps below are the acceptance-time record; where they
+> differ (e.g. unguarded `cp`), the runbook governs.
+
 This is the IMMEDIATE operator action: run the daemon continuously on the Sim
 venue (mock funds, zero live capital, no venue credentials) to accumulate the
 Phase-4 EXIT criterion — a continuous week green. Distinct from the go-live
