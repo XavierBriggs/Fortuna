@@ -783,6 +783,19 @@ pub struct SignalsRepo {
     pool: PgPool,
 }
 
+/// One signal read back for downstream context assembly (e.g. a persona run).
+/// `kind` is the table's `type` column. `received_at` is the ISO8601 receipt
+/// time; ordering is lexicographic, which is chronological for zero-padded UTC.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecentSignalRow {
+    pub signal_id: String,
+    pub source: String,
+    pub kind: String,
+    pub received_at: String,
+    pub content_hash: String,
+    pub payload: serde_json::Value,
+}
+
 impl SignalsRepo {
     pub fn new(pool: PgPool) -> SignalsRepo {
         SignalsRepo { pool }
@@ -828,6 +841,42 @@ impl SignalsRepo {
         Ok(rows
             .into_iter()
             .map(|r| (r.source, r.content_hash))
+            .collect())
+    }
+
+    /// Read recent signals of one of `kinds` whose `received_at >= received_after`
+    /// (inclusive), newest first, capped at `limit`. The read-back path that lets
+    /// the live daemon assemble a persona's untrusted `<context-item>` blocks (the
+    /// SIGNAL stream is data, never instructions — spec 5.11 / design §4). Empty
+    /// `kinds` matches nothing. Append-only table, so this is a pure read.
+    pub async fn recent_by_kind(
+        &self,
+        kinds: &[String],
+        received_after: &str,
+        limit: i64,
+    ) -> Result<Vec<RecentSignalRow>, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT signal_id, source, type AS "kind!", received_at, content_hash, payload
+               FROM signals
+               WHERE type = ANY($1) AND received_at >= $2
+               ORDER BY received_at DESC, signal_id DESC
+               LIMIT $3"#,
+            kinds,
+            received_after,
+            limit,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| RecentSignalRow {
+                signal_id: r.signal_id,
+                source: r.source,
+                kind: r.kind,
+                received_at: r.received_at,
+                content_hash: r.content_hash,
+                payload: r.payload,
+            })
             .collect())
     }
 }
