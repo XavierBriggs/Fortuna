@@ -95,7 +95,14 @@ feature-dev subagents."
   post-merge green); default-off, operator opt-in (docs/operator.md). C T5.B7 slice 1a
   (prob_claims/v1 scalar foundation) GATED ACCEPT (2026-06-13-T5.B7-slice-1a.md): math
   mutation-proven, strict validate, I5-clean, binary path untouched, 54+14 green — the
-  FOUNDATIONAL scalar type. CADENCE: gate foundational/security commits immediately + the
+  FOUNDATIONAL scalar type. SLICE 1B (scalar_beliefs + belief_scores ledger storage, 58c2159)
+  GATED ACCEPT: append-only triggers (refuse DELETE+content-mutation, exactly-once resolution
+  once-from-NULL, belief_scores immutable + UNIQUE-per-rule + FK) mirror beliefs_guard; FULL
+  ledger suite green (27+6+4+1, all existing I5 tests intact); code-reviewer SUBAGENT used (3
+  findings folded). >> C SCALAR FOUNDATION COMPLETE (1a types + 1b storage) — merge with
+  funding_forecast (slice 2) as a working-capability tranche. DISK: reclaimed RALPH-STOPped
+  track-D's 10G build target -> 22Gi (commits safe in git; procedural note: gate target-rm on
+  0-active — I bundled the check too late, no harm only because D was stopped). CADENCE: gate foundational/security commits immediately + the
   rest as consolidated TRANCHE gates at merge; nothing reaches main ungated. E.3a PERSONA FIREWALL GATED = ACCEPT-SLICE
   (the security headline): trusted method -> Mind system_charter, untrusted signals ->
   context-items; MUTATION-PROVEN (push method into a ContextItem -> the "method never in
