@@ -14,6 +14,13 @@ ledger their responses in GAPS, never edit this file.
   in 2026-06-12-docs-gate.md; pg_dump fix executed clean this session).
 - BUILD_PLAN T4.5 entry restored + Phase-5 EXIT written (e85f92c) — both
   had been lost to merge-revert churn.
+- LOOP PASS 2026-06-13 @ main 37a792c: integrity GREEN — fmt --check clean,
+  `cargo check --workspace` clean (integrated dial work breaks no cross-crate
+  consumer), and ALL invariant tests pass (I1-I7 + perp_i1/i2/i3 extensions, 26
+  assertions 0 fail). Nothing new committed to gate (track-A dial already gated;
+  track-c/e unchanged). RESIDUAL: full `cargo test --workspace` + `run-dst.sh`
+  (incl. the dial GAPS DST-10k claim) remains DISK-DEFERRED — warm-target check
+  confirms COMPILE+INVARIANT integrity, not the full test/DST suite.
 
 ## TRACK E — DESIGN critique done: ACCEPT-WITH-CONDITIONS; AWAITING OPERATOR BUILD-APPROVAL
 
@@ -188,13 +195,20 @@ integration-test binary fails with a logic-mutation signature) = suspect a stale
 artifact; `cargo clean -p <pkg>` + rebuild before reporting a regression. Verifier
 subagent briefs requesting a mutation check now carry this isolation rule.
 
-## DISK — MACHINE CONSTRAINT (operator action; the re-gate hit 120Mi mid-run)
-Five build trees (A/C/D/E targets ~9-13GB each) + gate caches + 5GB perishable
-exceed sustainable headroom on this disk; gates have ENOSPC'd twice. The
-verifier reclaims aggressively (done/idle track targets, gate caches) but this
-is structural. Operator options: free machine-wide space; or reduce concurrent
-tracks; or approve a periodic `cargo clean` of idle-track targets. Track-B and
-idle-track-D targets reclaimed this session.
+## DISK — MACHINE CONSTRAINT (operator action; NOW BLOCKING the full-workspace battery)
+2026-06-13 concrete breakdown at 11Gi free (99%): main target 27G (track-A
+checkout + IDE, ACTIVE), fortuna-wt-d/target 13G (ACTIVE — D10/2 compiling, 18
+rustc), fortuna-wt-c/target 5.8G (uncertain — perps design), shared gate target
+/tmp/fortuna-gate-target 3.1G. Track-B and track-E targets already 0 (reclaimed).
+CONSEQUENCE: a full `cargo test --workspace` + `run-dst.sh` would cold-compile
+~20-30G into the shared target -> ENOSPC. The verifier can currently only run
+WARM-TARGET-INCREMENTAL checks (fmt/check --workspace/invariants against main's
+27G target) — which this loop pass did, all green (see CAMPAIGN STATE). The big
+targets are all active/uncertain, so little is safely reclaimable without the
+operator. OPERATOR ACTION NEEDED: free machine-wide space, or drop a concurrent
+track, or approve a `cargo clean` of fortuna-wt-c/target (5.8G, if the perps
+worker is idle) — otherwise the gold-standard full-workspace test+DST battery
+stays deferred and gates remain crate-scoped.
 
 ## TRACK D — original block detail## TRACK D — original block detail (track-d-nws-gate-2026-06-13.md)
 
