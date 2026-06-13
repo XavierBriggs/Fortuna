@@ -2182,16 +2182,13 @@ rebased on main f4b4a54-era; all work committed, nothing pushed.
   ledgered here for the owner of fortuna-cognition to wire (design §4.4
   Layer 4).
 
-- **CROSS-TRACK fmt red on main (not Track D's, not fixable here).**
-  `cargo fmt --check` fails on
-  `crates/fortuna-venues/examples/record_kalshi_fixtures.rs:43` (a long
-  `.unwrap_or(90)` line), introduced by Track A/C commit c139386 ("WS
-  recapture attempt"). It is present on main as fast-forwarded into
-  track-d; my owned files are fmt-clean (`cargo fmt -p fortuna-sources`
-  applied). I cannot fix it without violating ownership (rule 5/7), and it
-  is not mine to stash (already committed on main). Flagged for the owning
-  track / the gate. The D1 commit ships because every owned file passes the
-  full battery and this red is inherited, pre-existing, and out of scope.
+- **CROSS-TRACK fmt red on main — RESOLVED on main (2026-06-13).** During
+  D1 (pre-rebase) `cargo fmt --check` failed on
+  `crates/fortuna-venues/examples/record_kalshi_fixtures.rs:43` (Track A/C
+  commit c139386). After rebasing track-d onto main @ e85f92c the red is
+  gone (gate bus certified main GREEN); `cargo fmt --check` is clean on the
+  rebased tree. No Track D action was needed or taken. Left here as the
+  record of why D1's commit message references it.
 
 ## Disputed invariant tests
 (none)

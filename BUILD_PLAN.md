@@ -655,12 +655,17 @@ crates/fortuna-sources + fixtures/sources/ + one flagged drive() seam.
       (design §4.3); Phase-A refusals encoded in validation (enabled
       scrape/mcp/model-extraction rejected at parse, not by convention);
       13 unit tests written from the design text, incl. the §4.3 example
-      verbatim. (DONE 2026-06-12, battery in-commit; hash recorded next
-      iteration.)
-- [ ] D2 FetchClient substrate: per-host politeness token bucket, conditional
-      GET cache, https-only + registry host pinning + redirect re-validation,
-      size/timeout caps, RateLimited/Timeout/Outage classification (design
-      §4.2; property test: bucket never exceeds budget).
+      verbatim. (DONE 2026-06-12, 17c95fa after rebase onto main e85f92c;
+      full battery green.)
+- [x] D2 FetchClient substrate: mockable FetchTransport trait + thin
+      ReqwestFetchTransport (auto-redirect OFF so the client re-validates
+      every hop); HostPin (https-only + exact-host, userinfo-smuggling
+      refused); PoliteLimiter (GCRA, Clock-driven, integer-exact);
+      conditional-GET (ETag/If-Modified-Since → 304 NotModified); size cap;
+      RateLimited/Timeout/Outage + local BudgetExhausted classification.
+      17 tests incl. 2 proptests (bucket never exceeds the refill bound;
+      first attempt always granted). (DONE 2026-06-13, full battery green;
+      hash recorded next iteration.)
 - [ ] D3 Layer 0+1 plumbing: vetting-dossier template + dossiers for the v1
       source set (docs/research/sources/<id>/ — ownership assumption
       ledgered in ASSUMPTIONS); pre-normalizer structural validation

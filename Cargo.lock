@@ -714,9 +714,14 @@ dependencies = [
 name = "fortuna-sources"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "chrono",
+ "fortuna-core",
+ "proptest",
+ "reqwest",
  "serde",
  "thiserror",
+ "tokio",
  "toml",
 ]
 
