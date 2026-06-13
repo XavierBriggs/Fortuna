@@ -138,4 +138,109 @@ impl MetricsRegistry {
         }
         out
     }
+
+    /// Shape the registered metrics into a ROTA board envelope (mission item 6: the
+    /// telemetry pane — "the Prometheus stack on the console"). One row per metric
+    /// SERIES: the subsystem (derived from the `fortuna_<sub>_` name prefix so the
+    /// operator can scan by layer — ingest / gate / exec / state / venue / kill-switch
+    /// / cognition / …), the full series key (name + labels), its type
+    /// (counter/gauge), and its integer value; grouped by subsystem then metric (the
+    /// `series` BTreeMap is already name-sorted, which groups the shared
+    /// `fortuna_<sub>_` prefixes). A PURE read of the ALREADY-STRUCTURED registry — no
+    /// Prometheus-TEXT parsing (R2): the daemon calls this into
+    /// `snapshot.views["telemetry"]` and ROTA serves it verbatim via `read_view`.
+    pub fn telemetry_board(&self, generated_at: &str) -> serde_json::Value {
+        let mut rows: Vec<serde_json::Value> = Vec::new();
+        for (family, series) in &self.series {
+            let kind = match self.kinds.get(family) {
+                Some(Kind::Counter) => "counter",
+                Some(Kind::Gauge) | None => "gauge",
+            };
+            // Subsystem = the first token after the `fortuna_` namespace prefix; a
+            // name without that prefix groups under "other" (honest, never dropped).
+            let subsystem = family
+                .strip_prefix("fortuna_")
+                .and_then(|s| s.split('_').next())
+                .filter(|s| !s.is_empty())
+                .unwrap_or("other");
+            for (key, value) in series {
+                rows.push(serde_json::json!({
+                    "subsystem": subsystem,
+                    "metric": key,
+                    "type": kind,
+                    "value": value,
+                }));
+            }
+        }
+        let families = self.series.len();
+        let series_count = rows.len();
+        serde_json::json!({
+            "title": "Telemetry",
+            "generated_at": generated_at,
+            "columns": [
+                {"key":"subsystem","label":"Subsystem"},
+                {"key":"metric","label":"Metric"},
+                {"key":"type","label":"Type"},
+                {"key":"value","label":"Value"},
+            ],
+            "rows": rows,
+            "summary": {"families": families, "series": series_count},
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Mission item 6: telemetry_board shapes the registered metrics into the ROTA
+    // board envelope — one row per series, subsystem derived from the fortuna_<sub>_
+    // prefix, type + integer value, grouped by subsystem (the name-sorted families).
+    // POPULATED-path: real registered counters/gauges across two subsystems + one
+    // labelled multi-series family + one non-fortuna name (→ "other").
+    #[test]
+    fn telemetry_board_shapes_registered_metrics_by_subsystem() {
+        let mut m = MetricsRegistry::new();
+        m.describe_gauge("fortuna_exec_working_orders", "live orders");
+        m.set_gauge("fortuna_exec_working_orders", &[], 3);
+        m.describe_counter("fortuna_gate_rejections_total", "gate rejections");
+        m.inc_counter("fortuna_gate_rejections_total", &[("check", "edge")], 5)
+            .unwrap();
+        m.inc_counter("fortuna_gate_rejections_total", &[("check", "rate")], 2)
+            .unwrap();
+        m.set_gauge("uptime_seconds", &[], 99); // no fortuna_ prefix → "other"
+
+        let board = m.telemetry_board("2026-06-13T12:00:00.000Z");
+        assert_eq!(board["title"], "Telemetry");
+        assert_eq!(board["generated_at"], "2026-06-13T12:00:00.000Z");
+        // 3 families (exec gauge, gate counter, the bare "other"); 4 series rows
+        // (the gate family has two labelled series).
+        assert_eq!(board["summary"]["families"], 3);
+        assert_eq!(board["summary"]["series"], 4);
+        let rows = board["rows"].as_array().unwrap();
+        assert_eq!(rows.len(), 4);
+        // The exec gauge row: subsystem "exec", type "gauge", value 3.
+        let exec = rows
+            .iter()
+            .find(|r| r["metric"] == "fortuna_exec_working_orders")
+            .expect("exec series present");
+        assert_eq!(exec["subsystem"], "exec");
+        assert_eq!(exec["type"], "gauge");
+        assert_eq!(exec["value"], 3);
+        // The gate counter's two labelled series carry subsystem "gate", type
+        // "counter", and their real values.
+        let gate_edge = rows
+            .iter()
+            .find(|r| r["metric"] == "fortuna_gate_rejections_total{check=\"edge\"}")
+            .expect("gate edge series present");
+        assert_eq!(gate_edge["subsystem"], "gate");
+        assert_eq!(gate_edge["type"], "counter");
+        assert_eq!(gate_edge["value"], 5);
+        // A non-fortuna name groups honestly under "other", never dropped.
+        let other = rows
+            .iter()
+            .find(|r| r["metric"] == "uptime_seconds")
+            .expect("other series present");
+        assert_eq!(other["subsystem"], "other");
+    }
 }

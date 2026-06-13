@@ -229,6 +229,17 @@ Track E provides the data across slices 1–5; views are persona-agnostic/
 domain-generic + additive-only so a new persona adds zero endpoints/metric names.)
 WS gap/resync counters render stub 0 until T4.2 ships the dial.
 
+MISSION 2 (2026-06-13, track-B re-missioned to TOTAL ROTA OBSERVABILITY): the
+deferred panels above are now specified by three cross-track contracts —
+`ingestion-observability-contract.md` (D: V1-V6 ingestion + funnel + scorecard),
+`perp-strategies-and-scalar-claims.md` §8-9 (C: /forecasts, /perps), and
+`domain-analysis-personas-design.md` §14,§19-20 (E: /personas, /analyses,
+/persona_pipeline, cognition persona-provenance). The authoritative sequenced
+build queue, the buildable-now vs data-blocked split, and the cross-track
+data-seam requests live in GAPS.md "TRACK B — RE-MISSIONED ... TOTAL ROTA
+OBSERVABILITY". Doctrine unchanged: read-only, honest nulls, every new board
+screenshot-verified with real rows before its box is ticked.
+
 Telemetry additions (the ONLY runner changes, both read-path): the
 `fortuna_rate_bucket_fill{venue,market}` gauge in metrics_export(), and
 account-view + book-age fields in boards_json(). Zero money-path changes.

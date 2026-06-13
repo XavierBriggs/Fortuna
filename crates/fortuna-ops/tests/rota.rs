@@ -66,7 +66,7 @@ async fn serve() -> (String, tokio::task::JoinHandle<()>) {
     (format!("http://{addr}"), handle)
 }
 
-const PATHS: [&str; 9] = [
+const PATHS: [&str; 22] = [
     "/rota",
     "/assets/rota/logo.svg",
     "/api/rota/v1/health",
@@ -75,6 +75,19 @@ const PATHS: [&str; 9] = [
     "/api/rota/v1/cognition",
     "/api/rota/v1/settlement",
     "/api/rota/v1/streams",
+    "/api/rota/v1/ingest_sources",
+    "/api/rota/v1/ingest_feed",
+    "/api/rota/v1/ingest_funnel",
+    "/api/rota/v1/fills",
+    "/api/rota/v1/strategies",
+    "/api/rota/v1/working_orders",
+    "/api/rota/v1/discovery",
+    "/api/rota/v1/personas",
+    "/api/rota/v1/persona_scores",
+    "/api/rota/v1/analyses",
+    "/api/rota/v1/forecasts",
+    "/api/rota/v1/db",
+    "/api/rota/v1/telemetry",
     "/api/rota/v1/audit",
 ];
 
@@ -116,7 +129,26 @@ async fn degraded_surfaces_are_200_with_explicit_unavailable() {
     let client = reqwest::Client::new();
 
     // Empty views => each metric surface reports unavailable, not 500.
-    for name in ["health", "money", "gates", "settlement", "streams"] {
+    for name in [
+        "health",
+        "money",
+        "gates",
+        "settlement",
+        "streams",
+        "ingest_sources",
+        "ingest_feed",
+        "ingest_funnel",
+        "fills",
+        "strategies",
+        "working_orders",
+        "discovery",
+        "personas",
+        "persona_scores",
+        "analyses",
+        "forecasts",
+        "db",
+        "telemetry",
+    ] {
         let j: serde_json::Value = client
             .get(format!("{base}/api/rota/v1/{name}"))
             .send()
@@ -168,6 +200,149 @@ async fn populated_view_is_served_verbatim() {
         .unwrap();
     assert_eq!(j["ticks_total"], 42);
     assert_eq!(j["fill_latency_p90_ms"], 14);
+}
+
+// D-contract V2 Sources Health: the handler serves the daemon-shaped board
+// envelope verbatim. POPULATED-path (real rows seeded) — a vacuous "renders
+// empty" test would not satisfy the DoD. Asserts the generic {columns,rows,
+// summary} envelope round-trips so the frontend boardTable renderer has real
+// data to render.
+#[tokio::test]
+async fn ingest_sources_board_serves_seeded_rows() {
+    let snap = empty_snapshot();
+    {
+        let mut s = snap.write().await;
+        s.views = serde_json::json!({
+            "ingest_sources": {
+                "title": "Sources Health",
+                "columns": [
+                    {"key":"source_id","label":"Source"},
+                    {"key":"health","label":"Health"},
+                    {"key":"accepted","label":"Acc"},
+                    {"key":"dropped_over_volume","label":"D:vol"}
+                ],
+                "rows": [
+                    {"source_id":"nws_alerts","health":"healthy","accepted":58,"dropped_over_volume":0},
+                    {"source_id":"nws_afd","health":"degraded","accepted":12,"dropped_over_volume":171}
+                ],
+                "summary": {"healthy":1,"degraded":1,"quarantined":0}
+            }
+        });
+    }
+    let app = rota_router(RotaState::standalone(snap));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/ingest_sources"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "both seeded sources served");
+    assert_eq!(j["rows"][0]["source_id"], "nws_alerts");
+    assert_eq!(j["rows"][1]["health"], "degraded");
+    // The AFD-firehose (huge over-volume drop) the V2 board exists to surface.
+    assert_eq!(j["rows"][1]["dropped_over_volume"], 171);
+    assert_eq!(j["summary"]["degraded"], 1);
+}
+
+// D-contract V1 Live Signal Feed: the marquee feed board serves the recent
+// SignalRecords newest-first. POPULATED-path — asserts real seeded rows incl. an
+// untrusted summary and a drop status, served verbatim for the boardTable
+// renderer (which esc()'s the untrusted summary, spec 5.11).
+#[tokio::test]
+async fn ingest_feed_board_serves_seeded_signals() {
+    let snap = empty_snapshot();
+    {
+        let mut s = snap.write().await;
+        s.views = serde_json::json!({
+            "ingest_feed": {
+                "title": "Live Signal Feed",
+                "columns": [
+                    {"key":"at","label":"Time (UTC)"},
+                    {"key":"source_id","label":"Source"},
+                    {"key":"status","label":"Status","pill":true},
+                    {"key":"summary","label":"Data"}
+                ],
+                "rows": [
+                    {"at":"2026-06-13T12:34:58Z","source_id":"nws_alerts","status":"accepted",
+                     "summary":"Severe Thunderstorm Warning — Kings County NY"},
+                    {"at":"2026-06-13T12:34:55Z","source_id":"nws_afd","status":"dropped:over_volume",
+                     "summary":"AFD over per-poll volume cap"}
+                ],
+                "summary": {"window":2,"accepted":1,"dropped":1}
+            }
+        });
+    }
+    let app = rota_router(RotaState::standalone(snap));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/ingest_feed"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "both seeded signals served");
+    assert_eq!(j["rows"][0]["source_id"], "nws_alerts");
+    assert_eq!(j["rows"][0]["status"], "accepted");
+    // The untrusted summary is carried verbatim as DATA (the renderer esc()s it).
+    assert_eq!(j["rows"][1]["status"], "dropped:over_volume");
+    assert_eq!(j["summary"]["dropped"], 1);
+}
+
+// D-contract V3 Ingest Funnel: the stage table serves the pipeline funnel with
+// retention + drop-offs. POPULATED-path — asserts real stage rows (where signal
+// is lost), not a vacuous empty funnel.
+#[tokio::test]
+async fn ingest_funnel_board_serves_seeded_stages() {
+    let snap = empty_snapshot();
+    {
+        let mut s = snap.write().await;
+        s.views = serde_json::json!({
+            "ingest_funnel": {
+                "title": "Ingest Funnel",
+                "columns": [
+                    {"key":"stage","label":"Stage"},
+                    {"key":"count","label":"Count"},
+                    {"key":"retain_pct","label":"Retain %"},
+                    {"key":"dropped","label":"Dropped"}
+                ],
+                "rows": [
+                    {"stage":"Fetched","count":1240,"retain_pct":100,"dropped":0},
+                    {"stage":"Validated","count":1052,"retain_pct":85,"dropped":188},
+                    {"stage":"Persisted","count":1048,"retain_pct":85,"dropped":4}
+                ],
+                "summary": {"fetched":1240,"persisted":1048,"retain_pct":85}
+            }
+        });
+    }
+    let app = rota_router(RotaState::standalone(snap));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/ingest_funnel"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 3, "all funnel stages served");
+    assert_eq!(j["rows"][0]["stage"], "Fetched");
+    // The validate stage is where 188 items were refused by Layer-1.
+    assert_eq!(j["rows"][1]["dropped"], 188);
+    assert_eq!(j["summary"]["persisted"], 1048);
 }
 
 #[tokio::test]
@@ -666,6 +841,7 @@ async fn cognition_degrades_without_pool_but_stays_200() {
         "no pool => beliefs unavailable, explicit: {j}"
     );
     assert_eq!(j["calibration_scopes"]["available"], false, "{j}");
+    assert_eq!(j["belief_lifecycle"]["available"], false, "{j}");
     assert!(
         j["counters_status"]
             .as_str()
@@ -739,6 +915,438 @@ async fn cognition_serves_seeded_beliefs_and_scopes(pool: sqlx::PgPool) {
     assert_eq!(scopes[0]["kind"], "platt");
 }
 
+// The belief LIFECYCLE aggregates: status distribution + the resolved beliefs'
+// calibration outcome (mean Brier). POPULATED-path over real beliefs of every
+// status — a fabricated/empty panel cannot satisfy these counts. (D V6's per-
+// belief strategy/PnL columns are schema-blocked; this is the buildable lifecycle.)
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn cognition_lifecycle_aggregates_beliefs_by_status(pool: sqlx::PgPool) {
+    use fortuna_ledger::BeliefsRepo;
+    seed_event(&pool, "01EVENTROTALIFECYCLE000001").await;
+    let beliefs = BeliefsRepo::new(pool.clone());
+    let evid = serde_json::json!({"r": "x"});
+    let prov = serde_json::json!({"model_id": "m"});
+    // 2 open.
+    for id in ["01BLIFEOPEN0000000000000001", "01BLIFEOPEN0000000000000002"] {
+        beliefs
+            .insert(
+                id,
+                "2026-06-12T01:00:00.000Z",
+                "01EVENTROTALIFECYCLE000001",
+                0.6,
+                0.6,
+                "2026-06-13T00:00:00.000Z",
+                &evid,
+                &prov,
+                None,
+            )
+            .await
+            .unwrap();
+    }
+    // 1 resolved + scored (Brier 0.2).
+    beliefs
+        .insert(
+            "01BLIFERESOLVED00000000001",
+            "2026-06-12T01:00:00.000Z",
+            "01EVENTROTALIFECYCLE000001",
+            0.7,
+            0.66,
+            "2026-06-13T00:00:00.000Z",
+            &evid,
+            &prov,
+            None,
+        )
+        .await
+        .unwrap();
+    beliefs
+        .resolve_and_score("01BLIFERESOLVED00000000001", true, 0.2, Some(40.0))
+        .await
+        .unwrap();
+    // 1 superseded (X superseded by Y; Y stays open).
+    beliefs
+        .insert(
+            "01BLIFESUPSEDED0000000001",
+            "2026-06-12T01:00:00.000Z",
+            "01EVENTROTALIFECYCLE000001",
+            0.5,
+            0.5,
+            "2026-06-13T00:00:00.000Z",
+            &evid,
+            &prov,
+            None,
+        )
+        .await
+        .unwrap();
+    beliefs
+        .insert(
+            "01BLIFESUPSEDER0000000002",
+            "2026-06-12T01:00:00.000Z",
+            "01EVENTROTALIFECYCLE000001",
+            0.5,
+            0.5,
+            "2026-06-13T00:00:00.000Z",
+            &evid,
+            &prov,
+            Some("01BLIFESUPSEDED0000000001"),
+        )
+        .await
+        .unwrap();
+
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+    };
+    let j = get_cognition(state).await;
+    let lc = &j["belief_lifecycle"];
+    assert_eq!(lc["available"], true, "{j}");
+    // open = 2 + the superseder (Y) = 3; resolved 1; superseded 1 (X); abandoned 0.
+    assert_eq!(lc["by_status"]["open"], 3, "{j}");
+    assert_eq!(lc["by_status"]["resolved"], 1, "{j}");
+    assert_eq!(lc["by_status"]["superseded"], 1, "{j}");
+    assert_eq!(
+        lc["by_status"]["abandoned"], 0,
+        "an absent bucket reads 0, never missing: {j}"
+    );
+    assert_eq!(lc["resolved_scored_n"], 1, "{j}");
+    // The calibration outcome is real (AVG over the one scored belief), not fabricated.
+    assert_eq!(lc["mean_brier"], 0.2, "{j}");
+    assert_eq!(
+        lc["mean_clv_bps"], 40.0,
+        "the CLV edge proxy is real too: {j}"
+    );
+}
+
+// The Recent Fills board serves the EXECUTED trades from the durable `fills`
+// ledger, newest-first, money columns flagged `cents`. POPULATED-path (real
+// seeded fills), not a vacuous empty board.
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn fills_board_serves_recent_executed_trades(pool: sqlx::PgPool) {
+    for (id, market, side, action, price, qty, fee, maker, at) in [
+        (
+            "01FILL0000000000000000001",
+            "KXNYCHIGH-26JUN13-B65",
+            "yes",
+            "buy",
+            41i64,
+            40i64,
+            12i64,
+            false,
+            "2026-06-13T12:30:00.000Z",
+        ),
+        (
+            "01FILL0000000000000000002",
+            "KXCHIHIGH-26JUN13-B72",
+            "no",
+            "sell",
+            55i64,
+            25i64,
+            7i64,
+            true,
+            "2026-06-13T12:31:00.000Z",
+        ),
+    ] {
+        sqlx::query(
+            "INSERT INTO fills (fill_id, venue, venue_order_id, client_order_id, market_id, \
+             side, action, price_cents, qty, fee_cents, is_maker, at) \
+             VALUES ($1,'sim',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+        )
+        .bind(id)
+        .bind(format!("vo-{id}"))
+        .bind(format!("co-{id}"))
+        .bind(market)
+        .bind(side)
+        .bind(action)
+        .bind(price)
+        .bind(qty)
+        .bind(fee)
+        .bind(maker)
+        .bind(at)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+    };
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/fills"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "both seeded fills served: {j}");
+    // Newest-first (at DESC): the 12:31 maker sell leads.
+    assert_eq!(j["rows"][0]["market"], "KXCHIHIGH-26JUN13-B72");
+    assert_eq!(j["rows"][0]["maker"], "maker");
+    assert_eq!(j["rows"][0]["price_cents"], 55);
+    assert_eq!(
+        j["rows"][1]["action"], "buy",
+        "the older fill is the buy: {j}"
+    );
+    assert_eq!(j["summary"]["fills"], 2);
+    // Price/fee are money columns (rendered as dollars via the `cents` flag).
+    let cols = j["columns"].as_array().unwrap();
+    assert!(
+        cols.iter()
+            .any(|c| c["key"] == "price_cents" && c["cents"] == true),
+        "price is a cents column: {j}"
+    );
+}
+
+// Strategy P&L board: the daemon-shaped per-strategy view serves verbatim,
+// money columns flagged `cents`. POPULATED-path (real seeded rows incl. a losing
+// strategy shown honestly), not a vacuous empty board.
+#[tokio::test]
+async fn strategies_board_serves_seeded_per_strategy_pnl() {
+    let snap = empty_snapshot();
+    {
+        let mut s = snap.write().await;
+        s.views = serde_json::json!({
+            "strategies": {
+                "title": "Strategy P&L",
+                "columns": [
+                    {"key":"strategy","label":"Strategy"},
+                    {"key":"realized_pnl_cents","label":"Realized","cents":true},
+                    {"key":"fills","label":"Fills"}
+                ],
+                "rows": [
+                    {"strategy":"mech_structural","realized_pnl_cents":3100,"fills":3},
+                    {"strategy":"perp_basis","realized_pnl_cents":-450,"fills":1}
+                ],
+                "summary": {"strategies":2,"fills":4}
+            }
+        });
+    }
+    let app = rota_router(RotaState::standalone(snap));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/strategies"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "both strategies served: {j}");
+    assert_eq!(j["rows"][0]["strategy"], "mech_structural");
+    assert_eq!(j["rows"][0]["realized_pnl_cents"], 3100);
+    // A losing strategy is shown honestly (negative realized), never hidden.
+    assert_eq!(j["rows"][1]["realized_pnl_cents"], -450, "{j}");
+    assert_eq!(j["summary"]["strategies"], 2);
+    let cols = j["columns"].as_array().unwrap();
+    assert!(
+        cols.iter()
+            .any(|c| c["key"] == "realized_pnl_cents" && c["cents"] == true),
+        "realized PnL is a cents column: {j}"
+    );
+}
+
+// Working Orders board (mission item 3, live side): the daemon-shaped resting-order
+// view serves verbatim, limit flagged `cents`, status a pill. POPULATED-path (two
+// real seeded orders incl. a partial fill), not a vacuous empty board. The shaping
+// itself (from runner.manager().intents()) is proven in fortuna-live/tests/views.rs.
+#[tokio::test]
+async fn working_orders_board_serves_seeded_resting_orders() {
+    let snap = empty_snapshot();
+    {
+        let mut s = snap.write().await;
+        s.views = serde_json::json!({
+            "working_orders": {
+                "title": "Working Orders",
+                "columns": [
+                    {"key":"market","label":"Market"},
+                    {"key":"side","label":"Side"},
+                    {"key":"limit_cents","label":"Limit","cents":true},
+                    {"key":"status","label":"Status","pill":true}
+                ],
+                "rows": [
+                    {"market":"KXNYCHIGH-26JUN13-B65","side":"yes","limit_cents":41,
+                     "qty":50,"filled":0,"status":"acked"},
+                    {"market":"KXNYCHIGH-26JUN13-B70","side":"no","limit_cents":58,
+                     "qty":40,"filled":12,"status":"partially_filled"}
+                ],
+                "summary": {"working":2}
+            }
+        });
+    }
+    let app = rota_router(RotaState::standalone(snap));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/working_orders"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "both resting orders served: {j}");
+    assert_eq!(j["rows"][0]["market"], "KXNYCHIGH-26JUN13-B65");
+    assert_eq!(j["rows"][0]["status"], "acked");
+    // A partial fill is shown honestly (filled < qty), never hidden.
+    assert_eq!(j["rows"][1]["status"], "partially_filled");
+    assert_eq!(j["rows"][1]["filled"], 12, "{j}");
+    assert_eq!(j["summary"]["working"], 2);
+    let cols = j["columns"].as_array().unwrap();
+    assert!(
+        cols.iter()
+            .any(|c| c["key"] == "limit_cents" && c["cents"] == true),
+        "limit is a cents column: {j}"
+    );
+}
+
+// Telemetry board (mission item 6): the daemon-shaped MetricsRegistry view serves
+// verbatim. POPULATED-path — the shaping itself (MetricsRegistry::telemetry_board)
+// is proven in fortuna-ops/src/metrics.rs; this confirms the read_view handler
+// serves the seeded view (the same shape telemetry_board produces).
+#[tokio::test]
+async fn telemetry_board_serves_seeded_metric_series() {
+    let snap = empty_snapshot();
+    {
+        let mut s = snap.write().await;
+        s.views = serde_json::json!({
+            "telemetry": {
+                "title": "Telemetry",
+                "columns": [
+                    {"key":"subsystem","label":"Subsystem"},
+                    {"key":"metric","label":"Metric"},
+                    {"key":"type","label":"Type"},
+                    {"key":"value","label":"Value"}
+                ],
+                "rows": [
+                    {"subsystem":"exec","metric":"fortuna_exec_working_orders","type":"gauge","value":3},
+                    {"subsystem":"gate","metric":"fortuna_gate_rejections_total{check=\"edge\"}",
+                     "type":"counter","value":5}
+                ],
+                "summary": {"families":2,"series":2}
+            }
+        });
+    }
+    let app = rota_router(RotaState::standalone(snap));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/telemetry"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "both metric series served: {j}");
+    assert_eq!(j["rows"][0]["subsystem"], "exec");
+    assert_eq!(j["rows"][0]["value"], 3);
+    assert_eq!(j["rows"][1]["type"], "counter");
+    assert_eq!(j["summary"]["families"], 2);
+}
+
+// Discovery — Events board: the canonical events with their mapped-market count.
+// POPULATED-path — two real events, one with two distinct mapped markets (incl. a
+// superseding edge on the same market that DISTINCT must collapse), one with none.
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn discovery_board_serves_events_with_distinct_market_counts(pool: sqlx::PgPool) {
+    // Event A (newer) has markets; event B (older) has none.
+    for (id, stmt, status, created_at) in [
+        (
+            "01EVENTDISC0000000000001",
+            "NYC high >= 65F",
+            "active",
+            "2026-06-12T11:00:00.000Z",
+        ),
+        (
+            "01EVENTDISC0000000000002",
+            "CHI high >= 72F",
+            "resolved_final",
+            "2026-06-12T10:00:00.000Z",
+        ),
+    ] {
+        sqlx::query(
+            "INSERT INTO events (event_id, statement, resolution_criteria, resolution_source, \
+             benchmark_at, category, status, created_at) \
+             VALUES ($1,$2,'crit','nws.cli','2026-06-13T16:00:00.000Z','weather',$3,$4)",
+        )
+        .bind(id)
+        .bind(stmt)
+        .bind(status)
+        .bind(created_at)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    // Event A -> M1 (edge1), A -> M1 again (edge2 supersedes edge1), A -> M2: two
+    // DISTINCT markets despite three edge rows.
+    for (edge_id, market_id, supersedes) in [
+        ("01EDGE0000000000000000001", "M1", None::<&str>),
+        (
+            "01EDGE0000000000000000002",
+            "M1",
+            Some("01EDGE0000000000000000001"),
+        ),
+        ("01EDGE0000000000000000003", "M2", None),
+    ] {
+        sqlx::query(
+            "INSERT INTO market_event_edges (edge_id, market_id, venue, event_id, mapping_type, \
+             confidence, proposed_by, supersedes, created_at) \
+             VALUES ($1,$2,'sim','01EVENTDISC0000000000001','direct',0.9,'discovery',$3,\
+             '2026-06-12T11:00:00.000Z')",
+        )
+        .bind(edge_id)
+        .bind(market_id)
+        .bind(supersedes)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+    };
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/discovery"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "both events served: {j}");
+    // Event A is newer (created_at later) → rows[0]; two DISTINCT markets.
+    assert_eq!(j["rows"][0]["statement"], "NYC high >= 65F");
+    assert_eq!(
+        j["rows"][0]["markets"], 2,
+        "DISTINCT market count collapses the superseding edge: {j}"
+    );
+    assert_eq!(
+        j["rows"][1]["markets"], 0,
+        "an event with no edges shows 0: {j}"
+    );
+    assert_eq!(j["summary"]["events"], 2);
+    assert_eq!(j["summary"]["markets_mapped"], 2);
+}
+
 #[sqlx::test(migrations = "../fortuna-ledger/migrations")]
 async fn cognition_truncates_evidence_over_4kb(pool: sqlx::PgPool) {
     use fortuna_ledger::BeliefsRepo;
@@ -796,4 +1404,475 @@ async fn cognition_carries_daemon_counters_when_the_view_is_populated() {
     );
     // The ledger arrays still degrade independently (no pool here).
     assert_eq!(j["recent_beliefs"]["available"], false);
+}
+
+// Mission item 5 ("honest visibility into the actual tables — counts"): the DB
+// inventory board sweeps EVERY ledger table and returns real counts, busiest-
+// first. Seeds two tables (events x2, beliefs x1) on a freshly-migrated DB and
+// asserts the full 24-table inventory, the exact non-zero counts, the busiest-
+// first ordering, the running total, and that a genuinely empty table honestly
+// shows 0 (a true COUNT(*), never an omitted row or a fabricated number).
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn db_board_counts_every_ledger_table(pool: sqlx::PgPool) {
+    use fortuna_ledger::BeliefsRepo;
+    // events: 2 rows; beliefs: 1 row (FK to one event); every other table: 0.
+    seed_event(&pool, "01EVENTDB0000000000000001").await;
+    seed_event(&pool, "01EVENTDB0000000000000002").await;
+    BeliefsRepo::new(pool.clone())
+        .insert(
+            "01BELIEFDB0000000000000001",
+            "2026-06-12T01:00:00.000Z",
+            "01EVENTDB0000000000000001",
+            0.5,
+            0.5,
+            "2026-06-13T00:00:00.000Z",
+            &serde_json::json!({"reasoning": "seed"}),
+            &serde_json::json!({"model_id": "m"}),
+            None,
+        )
+        .await
+        .unwrap();
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+    };
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/db"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    // The full sweep — every ledger table inventoried, not a subset.
+    assert_eq!(rows.len(), 24, "all 24 ledger tables inventoried: {j}");
+    assert_eq!(j["summary"]["tables"], 24);
+    // Busiest-first: events(2) precedes beliefs(1) precedes the empty tables.
+    assert_eq!(j["rows"][0]["table"], "events");
+    assert_eq!(j["rows"][0]["rows"], 2, "events count is real: {j}");
+    assert_eq!(j["rows"][1]["table"], "beliefs");
+    assert_eq!(j["rows"][1]["rows"], 1, "beliefs count is real: {j}");
+    // total_rows == the sum of every table's count.
+    assert_eq!(j["summary"]["total_rows"], 3);
+    // A genuinely empty table honestly shows a real 0 (never omitted, never faked).
+    let fills = rows
+        .iter()
+        .find(|r| r["table"] == "fills")
+        .expect("fills row present in the inventory");
+    assert_eq!(fills["rows"], 0, "an empty table shows a real 0: {j}");
+    // The scalar-belief plane (belief_scores + scalar_beliefs, added with the
+    // perp/scalar foundation) is swept too — both present, honest 0 when empty.
+    // This pins the sweep against a future migration silently escaping the board.
+    for t in ["belief_scores", "scalar_beliefs"] {
+        let row = rows
+            .iter()
+            .find(|r| r["table"] == t)
+            .unwrap_or_else(|| panic!("{t} row present in the inventory: {j}"));
+        assert_eq!(row["rows"], 0, "{t} empty → honest 0: {j}");
+    }
+}
+
+// Mission item 1 ("how beliefs are formed — the roster of analysts"): the Personas
+// registry board (§20.1 registry half) serves every (persona_id, version) grouped by
+// persona, NEWEST VERSION FIRST, with the lifecycle status as a pill, the method-file
+// integrity hash truncated to its 8-char provenance prefix, and reads_signal_kinds
+// flattened to a comma list. Seeds two personas (one with a retired v1 superseded by
+// an active v2) and asserts the grouped ordering, the real status values (active vs
+// the honestly-retired v1), the joined reads, and the registry summary. (The §20.1
+// SCORECARD half — per-persona Brier/CLV/verdict — is data-blocked; GAPS.)
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn personas_board_serves_the_registry_grouped_newest_version_first(pool: sqlx::PgPool) {
+    use fortuna_ledger::PersonasRepo;
+    let repo = PersonasRepo::new(pool.clone());
+    // macro_analyst v1 (active, synthesis tier).
+    repo.insert(
+        "01PERSONAROW000000000MACRO1",
+        "macro_analyst",
+        1,
+        "macro",
+        &serde_json::json!(["cpi", "nfp"]),
+        &serde_json::json!(["calendar.bls", "rss.fed"]),
+        "synthesis",
+        "deadbeefcafe0001",
+        "findings/v1",
+        "active",
+        None,
+        "2026-06-10T00:00:00.000Z",
+        "2026-06-10T00:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    // meteorologist v1 (retired) → superseded by v2 (active).
+    repo.insert(
+        "01PERSONAROW00000000METEO1",
+        "meteorologist",
+        1,
+        "weather",
+        &serde_json::json!(["temperature"]),
+        &serde_json::json!(["nws.afd"]),
+        "cheap",
+        "1111111111110001",
+        "findings/v1",
+        "retired",
+        None,
+        "2026-06-09T00:00:00.000Z",
+        "2026-06-09T00:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    repo.insert(
+        "01PERSONAROW00000000METEO2",
+        "meteorologist",
+        2,
+        "weather",
+        &serde_json::json!(["temperature", "nyc"]),
+        &serde_json::json!(["aeolus.forecast", "nws.observed_high"]),
+        "cheap",
+        "abcd1234ef567890",
+        "findings/v1",
+        "active",
+        Some("01PERSONAROW00000000METEO1"),
+        "2026-06-12T00:00:00.000Z",
+        "2026-06-12T00:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+    };
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/personas"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(
+        rows.len(),
+        3,
+        "all three (persona, version) rows served: {j}"
+    );
+    // Registry summary: 2 distinct personas, 3 versions, 2 active.
+    assert_eq!(j["summary"]["personas"], 2);
+    assert_eq!(j["summary"]["versions"], 3);
+    assert_eq!(j["summary"]["active"], 2);
+    // Grouped persona_id ASC, version DESC: macro_analyst, then meteorologist v2, v1.
+    assert_eq!(j["rows"][0]["persona"], "macro_analyst");
+    assert_eq!(j["rows"][0]["status"], "active");
+    assert_eq!(j["rows"][1]["persona"], "meteorologist");
+    assert_eq!(
+        j["rows"][1]["version"], 2,
+        "newest version first within a persona: {j}"
+    );
+    assert_eq!(j["rows"][1]["status"], "active");
+    assert_eq!(j["rows"][2]["version"], 1);
+    assert_eq!(
+        j["rows"][2]["status"], "retired",
+        "the superseded v1 renders honestly as retired: {j}"
+    );
+    // Method hash is the 8-char provenance prefix; reads is the joined signal kinds.
+    assert_eq!(j["rows"][1]["method"], "abcd1234");
+    assert_eq!(j["rows"][1]["reads"], "aeolus.forecast, nws.observed_high");
+}
+
+// Mission item 1 / §20.2 ("the whole process — the analyses beliefs are built
+// from"): the Domain Analyses browser serves the artifact ledger newest-first, with
+// the persona as "id@version", cost as cents (dollars in the UI via the cents flag),
+// the content-hash replay anchor truncated, and the supersession status. Seeds two
+// analyses for one region where the later supersedes the earlier, and asserts the
+// produced_at-DESC ordering, the persona render, the per-row cost + hash prefix, the
+// honest open-vs-superseded status, and the {analyses,open,cost_cents} summary. (The
+// findings/signal_manifest expander — UNTRUSTED model output — is a §20.2 follow-on.)
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn analyses_board_serves_artifacts_newest_first_with_supersession(pool: sqlx::PgPool) {
+    use fortuna_ledger::DomainAnalysesRepo;
+    let repo = DomainAnalysesRepo::new(pool.clone());
+    // A1: the earlier analysis for the region (cost 3¢) — later superseded.
+    repo.insert(
+        "01ANALYSISROTA0000000000A1",
+        "meteorologist",
+        2,
+        "weather",
+        "weather:KNYC:tmax:2026-06-12",
+        "2026-06-12T05:00:00.000Z",
+        &serde_json::json!([{"signal_id": "sig-1", "content_hash": "sh-1"}]),
+        &serde_json::json!({"thresholds": [{"ge": 60, "p": 0.9}]}),
+        "0badc0de11112222",
+        "manifest-a1",
+        3,
+        None,
+        "2026-06-12T05:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    // A2: the later analysis for the SAME region (cost 5¢), superseding A1 → the
+    // repo flips A1 to 'superseded', A2 is 'open'.
+    repo.insert(
+        "01ANALYSISROTA0000000000A2",
+        "meteorologist",
+        2,
+        "weather",
+        "weather:KNYC:tmax:2026-06-12",
+        "2026-06-12T11:00:00.000Z",
+        &serde_json::json!([{"signal_id": "sig-2", "content_hash": "sh-2"}]),
+        &serde_json::json!({"thresholds": [{"ge": 60, "p": 0.95}]}),
+        "feedface33334444",
+        "manifest-a2",
+        5,
+        Some("01ANALYSISROTA0000000000A1"),
+        "2026-06-12T11:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+    };
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/analyses"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "both artifacts served: {j}");
+    // Summary: 2 analyses, 1 still open (A2), total cost 8¢.
+    assert_eq!(j["summary"]["analyses"], 2);
+    assert_eq!(j["summary"]["open"], 1);
+    assert_eq!(j["summary"]["cost_cents"], 8);
+    // produced_at DESC: A2 (later) first, then A1.
+    assert_eq!(
+        j["rows"][0]["persona"], "meteorologist@2",
+        "persona id@version: {j}"
+    );
+    assert_eq!(j["rows"][0]["region_key"], "weather:KNYC:tmax:2026-06-12");
+    assert_eq!(j["rows"][0]["cost_cents"], 5, "per-row cost in cents: {j}");
+    assert_eq!(
+        j["rows"][0]["content_hash"], "feedface",
+        "8-char hash prefix: {j}"
+    );
+    assert_eq!(
+        j["rows"][0]["status"], "open",
+        "the newest analysis is open: {j}"
+    );
+    // A1 is honestly superseded (the repo flipped it on A2's insert).
+    assert_eq!(j["rows"][1]["cost_cents"], 3);
+    assert_eq!(
+        j["rows"][1]["status"], "superseded",
+        "the earlier analysis renders honestly as superseded: {j}"
+    );
+}
+
+// Track-C §9.1 ("the outcomes of the whole process"): the Forecasts scorecard
+// aggregates RESOLVED scalar forecasts per (producer, scoring rule) into the mean
+// CRPS (lower = better) and resolved count. Seeds two producers — funding_forecast
+// (two resolved rate forecasts) and aeolus_weather (one resolved celsius forecast),
+// each scored under crps_pinball — and asserts the producer-ASC ordering, the mean
+// CRPS per producer, the resolved counts, the unit, and the {producers,rules,scored}
+// summary. (The untrusted quantiles/provenance are never selected; the recent feed +
+// coverage are §9.1 follow-ons.)
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn forecasts_scorecard_aggregates_resolved_scores_per_producer(pool: sqlx::PgPool) {
+    use fortuna_ledger::{BeliefScoresRepo, ScalarBeliefsRepo};
+    let sb = ScalarBeliefsRepo::new(pool.clone());
+    let bs = BeliefScoresRepo::new(pool.clone());
+    // (belief_id, producer, unit, realized, crps_score)
+    let seeds = [
+        (
+            "01SBROTA000000000000FF1",
+            "funding_forecast",
+            "rate",
+            0.00012,
+            0.00003,
+        ),
+        (
+            "01SBROTA000000000000FF2",
+            "funding_forecast",
+            "rate",
+            0.00015,
+            0.00005,
+        ),
+        (
+            "01SBROTA000000000000AW1",
+            "aeolus_weather",
+            "celsius",
+            30.0,
+            1.2,
+        ),
+    ];
+    for (i, (id, producer, unit, realized, score)) in seeds.iter().enumerate() {
+        sb.insert(
+            id,
+            producer,
+            "ev-key",
+            &serde_json::json!([{"q":0.1,"v":0.0},{"q":0.5,"v":0.0001},{"q":0.9,"v":0.0003}]),
+            unit,
+            "2026-06-13T16:00:00.000Z",
+            &serde_json::json!({"strategy": producer}),
+            "2026-06-13T15:00:00.000Z",
+        )
+        .await
+        .unwrap();
+        sb.resolve(id, *realized, "2026-06-13T16:00:01.000Z")
+            .await
+            .unwrap();
+        bs.insert(
+            &format!("01SCOREROTA00000000000{i:03}"),
+            id,
+            "crps_pinball",
+            *score,
+            "2026-06-13T16:00:02.000Z",
+        )
+        .await
+        .unwrap();
+    }
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+    };
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/forecasts"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "one row per (producer, rule): {j}");
+    // producer ASC: aeolus_weather, then funding_forecast.
+    assert_eq!(j["rows"][0]["producer"], "aeolus_weather");
+    assert_eq!(j["rows"][0]["unit"], "celsius");
+    assert_eq!(j["rows"][0]["rule_id"], "crps_pinball");
+    assert_eq!(j["rows"][0]["resolved_n"], 1);
+    let aw_mean = j["rows"][0]["mean_crps"].as_f64().unwrap();
+    assert!((aw_mean - 1.2).abs() < 1e-9, "aeolus mean CRPS: {j}");
+    assert_eq!(j["rows"][1]["producer"], "funding_forecast");
+    assert_eq!(j["rows"][1]["unit"], "rate");
+    assert_eq!(j["rows"][1]["resolved_n"], 2, "two resolved forecasts: {j}");
+    let ff_mean = j["rows"][1]["mean_crps"].as_f64().unwrap();
+    assert!(
+        (ff_mean - 0.00004).abs() < 1e-9,
+        "funding_forecast mean CRPS = (0.00003+0.00005)/2: {j}"
+    );
+    assert_eq!(j["summary"]["producers"], 2);
+    assert_eq!(j["summary"]["rules"], 1);
+    assert_eq!(j["summary"]["scored"], 3);
+}
+
+// Track-E §20.1 OUTCOMES half ("are the personas any good?"): the Persona Scorecard
+// aggregates each persona's RESOLVED+scored beliefs (grouped by the belief
+// provenance's persona_id) into n_resolved + mean Brier + mean CLV. Seeds two
+// personas — meteorologist (two resolved beliefs) and macro_analyst (one) — and
+// asserts the persona-ASC ordering, the per-persona MEAN Brier/CLV, the counts, the
+// EVALUATING(n/60) verdict, and the summary. (Baselines + the promote/retire verdict
+// are omitted — unpersisted; the scorecard never fabricates them.)
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn persona_scorecard_aggregates_resolved_beliefs_by_persona(pool: sqlx::PgPool) {
+    use fortuna_ledger::BeliefsRepo;
+    seed_event(&pool, "01EVENTPSC0000000000000001").await;
+    let repo = BeliefsRepo::new(pool.clone());
+    // meteorologist ×2 (brier 0.10, 0.20 → mean 0.15; clv 30, 50 → mean 40),
+    // macro_analyst ×1 (brier 0.30; clv -10). All persona-attributed + resolved.
+    for (id, persona, brier, clv) in [
+        (
+            "01BPSC000000000000000MET1",
+            "meteorologist",
+            0.10_f64,
+            30.0_f64,
+        ),
+        ("01BPSC000000000000000MET2", "meteorologist", 0.20, 50.0),
+        ("01BPSC000000000000000MAC1", "macro_analyst", 0.30, -10.0),
+    ] {
+        repo.insert(
+            id,
+            "2026-06-12T10:00:00.000Z",
+            "01EVENTPSC0000000000000001",
+            0.6,
+            0.6,
+            "2026-06-13",
+            &serde_json::json!({"source": "aeolus.forecast"}),
+            &serde_json::json!({"persona_id": persona, "persona_version": 1, "analysis_id": "a1"}),
+            None,
+        )
+        .await
+        .unwrap();
+        repo.resolve_and_score(id, true, brier, Some(clv))
+            .await
+            .unwrap();
+    }
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+    };
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/persona_scores"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "one row per persona: {j}");
+    // persona ASC: macro_analyst, then meteorologist.
+    assert_eq!(j["rows"][0]["persona"], "macro_analyst");
+    assert_eq!(j["rows"][0]["n_resolved"], 1);
+    assert!(
+        (j["rows"][0]["brier"].as_f64().unwrap() - 0.30).abs() < 1e-9,
+        "macro brier: {j}"
+    );
+    assert!(
+        (j["rows"][0]["clv_bps"].as_f64().unwrap() - (-10.0)).abs() < 1e-9,
+        "macro clv (negative shown honestly): {j}"
+    );
+    assert_eq!(j["rows"][0]["verdict"], "evaluating (1/60)");
+    // meteorologist: the MEAN over its two resolved beliefs.
+    assert_eq!(j["rows"][1]["persona"], "meteorologist");
+    assert_eq!(j["rows"][1]["n_resolved"], 2, "two resolved beliefs: {j}");
+    assert!(
+        (j["rows"][1]["brier"].as_f64().unwrap() - 0.15).abs() < 1e-9,
+        "meteorologist mean Brier = (0.10+0.20)/2: {j}"
+    );
+    assert!(
+        (j["rows"][1]["clv_bps"].as_f64().unwrap() - 40.0).abs() < 1e-9,
+        "meteorologist mean CLV = (30+50)/2: {j}"
+    );
+    assert_eq!(
+        j["rows"][1]["verdict"], "evaluating (2/60)",
+        "honest §11 progress, never a fabricated promote/retire: {j}"
+    );
+    assert_eq!(j["summary"]["personas"], 2);
+    assert_eq!(j["summary"]["resolved"], 3);
 }

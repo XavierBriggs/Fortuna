@@ -109,3 +109,16 @@ EACH ITERATION do exactly ONE board/slice, then commit and start the next.
    are data-blocked on C/D/E (ledger the dependency, don't invent work). HOW: write
    the analysis to GAPS under "RALPH STOP <UTC>", invoke /ralph-loop:cancel-ralph,
    end the turn.
+6. DOCUMENTATION (operator standing directive 2026-06-13 — binding, part of DoD):
+   stale docs are a defect. (a) Keep track B's OWN living doc current —
+   docs/design/rota-observability.md = the board-status matrix + a dated CHANGELOG;
+   update it every slice (what landed, verified-how, what's still blocked). (b)
+   Amend the SHARED docs (architecture, runbooks, operations) by TARGETED edit as
+   work lands — small, precise, accurate; surgical pointers over churn; one source
+   per fact (no duplication); NEVER add speculative/unbuilt detail (naming an
+   unbuilt board is itself staleness); touch a shared doc only when reality has
+   moved past it. New operator-facing bringup/verify runbooks are expected. (c)
+   This directive AUTHORIZES those targeted shared-doc edits (architecture.md,
+   docs/runbooks/, docs/operations.md) for ROTA/track-B scope, above rule 4's
+   default file restriction — keep them ROTA-scoped + append-friendly. A slice that
+   ships boards but leaves its docs stale is NOT done.

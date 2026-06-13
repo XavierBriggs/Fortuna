@@ -293,6 +293,11 @@ async fn main() -> Result<()> {
     };
 
     let snapshot_for_segments = snapshot.clone();
+    // OBS-2c: a read handle to the live ingestion telemetry, merged into the ROTA
+    // snapshot each segment so the V1/V2/V3 ingestion boards render LIVE daemon
+    // data. Inert/degraded when ingestion is off (merge_ingest_views gates on an
+    // empty telemetry — the daemon snapshot is byte-unchanged in that case).
+    let ingest_telemetry_for_segments = ingest_telemetry.clone();
     let (stats, shutdown) = drive(
         &mut runner,
         &mut cadence,
@@ -306,9 +311,21 @@ async fn main() -> Result<()> {
             // shapes the per-view JSON the rota handlers serve verbatim
             // (R2 — fortuna-ops never depends on the runner).
             let generated_at = fortuna_core::clock::Clock::now(r.clock.as_ref()).to_iso8601();
-            let metrics_text = registry_from(r).render_prometheus();
+            let registry = registry_from(r);
+            let metrics_text = registry.render_prometheus();
             let boards = r.boards_json();
-            let views = fortuna_live::views::views_from(r, &generated_at);
+            let mut views = fortuna_live::views::views_from(r, &generated_at);
+            // Mission item 6: the telemetry pane — the same MetricsRegistry the
+            // /metrics exposition is rendered from, shaped into a ROTA board (R2: the
+            // daemon shapes; fortuna-ops serves it via read_view, never parsing text).
+            views["telemetry"] = registry.telemetry_board(&generated_at);
+            // OBS-2c: non-blocking read of the published telemetry (the closure is
+            // sync; the ingestion loop holds the write lock only momentarily). On
+            // contention or pre-first-tick the ingest boards stay degraded this
+            // segment — identical to the snapshot try_write contract below.
+            if let Ok(tel) = ingest_telemetry_for_segments.try_read() {
+                fortuna_live::views::merge_ingest_views(&mut views, &tel, &generated_at);
+            }
             if let Ok(mut snap) = snapshot_for_segments.try_write() {
                 snap.generated_at = generated_at;
                 snap.metrics_text = metrics_text;

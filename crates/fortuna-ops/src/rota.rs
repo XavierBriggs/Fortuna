@@ -65,6 +65,19 @@ pub fn rota_router(state: RotaState) -> Router {
         .route("/api/rota/v1/cognition", get(view_cognition))
         .route("/api/rota/v1/settlement", get(view_settlement))
         .route("/api/rota/v1/streams", get(view_streams))
+        .route("/api/rota/v1/ingest_sources", get(view_ingest_sources))
+        .route("/api/rota/v1/ingest_feed", get(view_ingest_feed))
+        .route("/api/rota/v1/ingest_funnel", get(view_ingest_funnel))
+        .route("/api/rota/v1/fills", get(view_fills))
+        .route("/api/rota/v1/strategies", get(view_strategies))
+        .route("/api/rota/v1/working_orders", get(view_working_orders))
+        .route("/api/rota/v1/discovery", get(view_discovery))
+        .route("/api/rota/v1/personas", get(view_personas))
+        .route("/api/rota/v1/persona_scores", get(view_persona_scores))
+        .route("/api/rota/v1/analyses", get(view_analyses))
+        .route("/api/rota/v1/forecasts", get(view_forecasts))
+        .route("/api/rota/v1/db", get(view_db))
+        .route("/api/rota/v1/telemetry", get(view_telemetry))
         .route("/api/rota/v1/audit", get(audit_tail))
         .with_state(state)
 }
@@ -98,6 +111,662 @@ async fn view_gates(State(s): State<RotaState>) -> impl IntoResponse {
 }
 async fn view_settlement(State(s): State<RotaState>) -> impl IntoResponse {
     Json(read_view(&s, "settlement").await)
+}
+
+/// D-contract V2 Sources Health (ingestion-observability §4). A pure read of the
+/// daemon-shaped `ingest_sources` board envelope — the generic
+/// `{title, columns, rows, summary}` shape every ingestion board (V1-V6) shares
+/// (§4 "one envelope, rendered generically"). Absent => unavailable: the
+/// daemon's OBS-2 publish shapes this from the live `IngestionTelemetry`
+/// (fortuna-sources, on main); until that publish is wired (track-A drive seam),
+/// the board renders honest-degraded, never a fabricated zero. ROTA stays a pure
+/// projection — zero ingestion-crate dependency, exactly like `view_health`.
+async fn view_ingest_sources(State(s): State<RotaState>) -> impl IntoResponse {
+    Json(read_view(&s, "ingest_sources").await)
+}
+
+/// D-contract V1 Live Signal Feed (ingestion-observability §4) — the marquee
+/// view: the recently ingested/dropped signals newest-first with their actual
+/// (redacted) payload summary. The same generic board envelope as V2, served
+/// from `snapshot.views["ingest_feed"]`; the daemon's OBS-2 publish shapes it
+/// from `IngestionTelemetry.recent` (the SignalRecord ring). Honest-degraded
+/// until that lands. Untrusted summary text stays quoted data, esc()'d in the
+/// renderer (spec 5.11) — never interpreted.
+async fn view_ingest_feed(State(s): State<RotaState>) -> impl IntoResponse {
+    Json(read_view(&s, "ingest_feed").await)
+}
+
+/// D-contract V3 Ingest Funnel (ingestion-observability §4) — the process at a
+/// glance: the pipeline stages (fetched → validated → normalized → persisted)
+/// with per-stage retention % and drop-offs, so the operator sees WHERE signal
+/// is lost. Same generic board envelope (a stage table); served from
+/// `snapshot.views["ingest_funnel"]`. The daemon's OBS-2 publish shapes it from
+/// `IngestionTelemetry.funnel` — and (CONTRACT) emits the loop-side stages as
+/// null until the ingestion loop feeds them, so an unwired stage reads "—", never
+/// a fabricated 0 that would look like "everything dropped after validation".
+async fn view_ingest_funnel(State(s): State<RotaState>) -> impl IntoResponse {
+    Json(read_view(&s, "ingest_funnel").await)
+}
+
+/// Strategy P&L (mission item 3) — per-strategy realized PnL, fees, fill count,
+/// and open exposure, shaped daemon-side from `runner.digest_snapshot()` (the
+/// same attribution the daily digest uses) into `snapshot.views["strategies"]`;
+/// price columns render as dollars (the `cents` flag). Unrealized PnL is the
+/// mark-loop gap (Money board) — realized only. Absent => unavailable.
+async fn view_strategies(State(s): State<RotaState>) -> impl IntoResponse {
+    Json(read_view(&s, "strategies").await)
+}
+
+/// Working orders (mission item 3: "trades being executed" — the LIVE side) — the
+/// intents currently resting at the venue (submitted / acked / partially-filled, not
+/// yet terminal), shaped daemon-side from `runner.manager().intents()` filtered by
+/// `IntentStatus::is_working()` into `snapshot.views["working_orders"]`; the limit
+/// renders as dollars (the `cents` flag) and the status as a pill. Empty when nothing
+/// rests (honest). Absent => unavailable.
+async fn view_working_orders(State(s): State<RotaState>) -> impl IntoResponse {
+    Json(read_view(&s, "working_orders").await)
+}
+
+/// Telemetry (mission item 6: "the Prometheus stack on the console") — the metric
+/// SERIES the daemon exports (the same `MetricsRegistry` the `/metrics` exposition is
+/// rendered from), grouped by subsystem, shaped daemon-side into
+/// `snapshot.views["telemetry"]` (`MetricsRegistry::telemetry_board`). A read_view
+/// passthrough — ROTA never parses Prometheus text (R2). Absent => unavailable.
+async fn view_telemetry(State(s): State<RotaState>) -> impl IntoResponse {
+    Json(read_view(&s, "telemetry").await)
+}
+
+/// Recent fills — the trades EXECUTED, from the durable `fills` ledger (mission
+/// item 3: "trades being executed"). Runtime sqlx (the audit-tail / belief-
+/// lifecycle precedent — read-only, schema-pinned, no offline cache). Shaped into
+/// the generic board envelope; price/fee render as dollars (the `cents` column
+/// flag). NOTE: a fill carries no `strategy` (attribution lives in the runtime
+/// PositionBook, not the row) and no realized PnL — the per-strategy P&L view
+/// (a future views_from board) and the honest unrealized-PnL gap (no mark loop,
+/// same as the Money board) are ledgered. Degrades to unavailable (HTTP 200)
+/// without the pool, never a 500.
+async fn view_fills(State(s): State<RotaState>) -> impl IntoResponse {
+    let Some(pool) = s.pool.clone() else {
+        return Json(json!({
+            "status": "unavailable",
+            "detail": "postgres capability absent (standalone ROTA)",
+        }));
+    };
+    match recent_fills(&pool, 50).await {
+        Ok(rows) => {
+            let generated_at = { s.snapshot.read().await.generated_at.clone() }; // R8
+            let n = rows.len();
+            let json_rows: Vec<Value> = rows
+                .into_iter()
+                .map(
+                    |(market, side, action, _venue, price, qty, fee, maker, at)| {
+                        json!({
+                            "at": at, "market": market, "side": side, "action": action,
+                            "qty": qty, "price_cents": price, "fee_cents": fee,
+                            "maker": if maker { "maker" } else { "taker" },
+                        })
+                    },
+                )
+                .collect();
+            Json(json!({
+                "title": "Recent Fills",
+                "generated_at": generated_at,
+                "columns": [
+                    {"key":"at","label":"Time (UTC)"},
+                    {"key":"market","label":"Market"},
+                    {"key":"side","label":"Side"},
+                    {"key":"action","label":"Act"},
+                    {"key":"qty","label":"Qty"},
+                    {"key":"price_cents","label":"Price","cents":true},
+                    {"key":"fee_cents","label":"Fee","cents":true},
+                    {"key":"maker","label":"Liq"},
+                ],
+                "rows": json_rows,
+                "summary": {"fills": n},
+            }))
+        }
+        Err(e) => {
+            // Never leak raw sqlx/Pg text — degrade like the no-pool case.
+            eprintln!("rota: fills read degraded: {e}");
+            Json(json!({
+                "status": "unavailable",
+                "detail": "fills read unavailable (dashboard pool degraded)",
+            }))
+        }
+    }
+}
+
+/// One recent fill row: (market_id, side, action, venue, price_cents, qty,
+/// fee_cents, is_maker, at).
+type FillRowTuple = (String, String, String, String, i64, i64, i64, bool, String);
+
+/// Recent fills, newest-first (`at` DESC), limit clamped to [1, 200]. Runtime
+/// sqlx by deliberate choice (the audit-tail precedent): a read-only dashboard
+/// query, schema-pinned by the migration, kept out of the sqlx-offline cache.
+pub async fn recent_fills(pool: &PgPool, limit: i64) -> Result<Vec<FillRowTuple>, sqlx::Error> {
+    let limit = limit.clamp(1, 200);
+    sqlx::query_as::<_, FillRowTuple>(
+        "SELECT market_id, side, action, venue, price_cents, qty, fee_cents, is_maker, at \
+         FROM fills ORDER BY at DESC LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
+/// Discovery — the canonical events the system tracks and the markets mapped to
+/// each (mission item 4: "the canonical EVENTS we have, the markets/series under
+/// them"). Read of the `events` ledger LEFT-JOINed to `market_event_edges`
+/// (COUNT DISTINCT market_id = the markets mapped to the event, supersession-
+/// safe). Runtime sqlx (the audit-tail precedent). Degrades to unavailable
+/// (HTTP 200) without the pool, never a 500.
+async fn view_discovery(State(s): State<RotaState>) -> impl IntoResponse {
+    let Some(pool) = s.pool.clone() else {
+        return Json(json!({
+            "status": "unavailable",
+            "detail": "postgres capability absent (standalone ROTA)",
+        }));
+    };
+    match recent_discovery_events(&pool, 50).await {
+        Ok(rows) => {
+            let generated_at = { s.snapshot.read().await.generated_at.clone() }; // R8
+            let n = rows.len();
+            let total_markets: i64 = rows.iter().map(|r| r.5).sum();
+            let json_rows: Vec<Value> = rows
+                .into_iter()
+                .map(
+                    |(event_id, statement, category, status, benchmark_at, markets)| {
+                        json!({
+                            "event_id": event_id, "statement": statement, "category": category,
+                            "status": status, "benchmark_at": benchmark_at, "markets": markets,
+                        })
+                    },
+                )
+                .collect();
+            Json(json!({
+                "title": "Discovery — Events",
+                "generated_at": generated_at,
+                "columns": [
+                    {"key":"statement","label":"Event"},
+                    {"key":"category","label":"Category"},
+                    {"key":"status","label":"Status"},
+                    {"key":"benchmark_at","label":"Benchmark (UTC)"},
+                    {"key":"markets","label":"Markets"},
+                ],
+                "rows": json_rows,
+                "summary": {"events": n, "markets_mapped": total_markets},
+            }))
+        }
+        Err(e) => {
+            eprintln!("rota: discovery read degraded: {e}");
+            Json(json!({
+                "status": "unavailable",
+                "detail": "discovery read unavailable (dashboard pool degraded)",
+            }))
+        }
+    }
+}
+
+/// One discovery row: (event_id, statement, category, status, benchmark_at,
+/// markets_mapped).
+type DiscoveryRowTuple = (String, String, String, String, String, i64);
+
+/// Recent canonical events with their mapped-market count (DISTINCT market_id over
+/// market_event_edges, supersession-safe), newest-first. Runtime sqlx (audit-tail
+/// precedent); limit clamped to [1, 200].
+pub async fn recent_discovery_events(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<Vec<DiscoveryRowTuple>, sqlx::Error> {
+    let limit = limit.clamp(1, 200);
+    sqlx::query_as::<_, DiscoveryRowTuple>(
+        "SELECT e.event_id, e.statement, e.category, e.status, e.benchmark_at, \
+                COUNT(DISTINCT mee.market_id) AS markets \
+         FROM events e \
+         LEFT JOIN market_event_edges mee ON mee.event_id = e.event_id \
+         GROUP BY e.event_id, e.statement, e.category, e.status, e.benchmark_at, e.created_at \
+         ORDER BY e.created_at DESC LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
+/// Personas registry (mission item 1: HOW beliefs are formed — the roster of
+/// analysts). The §20.1 registry half: every (persona_id, version) with its domain,
+/// tier, lifecycle status, method-file integrity hash, the signal kinds it may read,
+/// and effective date. The §20.1 SCORECARD half (per-persona Brier/CLV/verdict) is
+/// DATA-BLOCKED on track-E persona scoring + persona-dim'd calibration_params — a
+/// ledgered follow-on, never a fabricated score. Degrades to unavailable (HTTP 200)
+/// without the pool.
+async fn view_personas(State(s): State<RotaState>) -> impl IntoResponse {
+    let Some(pool) = s.pool.clone() else {
+        return Json(json!({
+            "status": "unavailable",
+            "detail": "postgres capability absent (standalone ROTA)",
+        }));
+    };
+    match persona_registry(&pool).await {
+        Ok(rows) => {
+            let generated_at = { s.snapshot.read().await.generated_at.clone() }; // R8
+            let versions = rows.len();
+            let active = rows.iter().filter(|r| r.3 == "active").count();
+            let mut ids: Vec<&str> = rows.iter().map(|r| r.0.as_str()).collect();
+            ids.sort_unstable();
+            ids.dedup();
+            let personas = ids.len();
+            let json_rows: Vec<Value> = rows
+                .into_iter()
+                .map(
+                    |(persona, version, domain, status, tier, method, reads, effective_at)| {
+                        json!({
+                            "persona": persona, "version": version, "domain": domain,
+                            "status": status, "tier": tier, "method": method,
+                            "reads": reads, "effective_at": effective_at,
+                        })
+                    },
+                )
+                .collect();
+            Json(json!({
+                "title": "Personas",
+                "generated_at": generated_at,
+                "columns": [
+                    {"key":"persona","label":"Persona"},
+                    {"key":"version","label":"Ver"},
+                    {"key":"domain","label":"Domain"},
+                    {"key":"status","label":"Status","pill":true},
+                    {"key":"tier","label":"Tier"},
+                    {"key":"method","label":"Method"},
+                    {"key":"reads","label":"Reads"},
+                    {"key":"effective_at","label":"Effective (UTC)"},
+                ],
+                "rows": json_rows,
+                "summary": {"personas": personas, "versions": versions, "active": active},
+            }))
+        }
+        Err(e) => {
+            eprintln!("rota: personas read degraded: {e}");
+            Json(json!({
+                "status": "unavailable",
+                "detail": "personas read unavailable (dashboard pool degraded)",
+            }))
+        }
+    }
+}
+
+/// One persona registry row: (persona_id, version, domain, status, tier,
+/// method_hash[..8], reads_signal_kinds joined, effective_at).
+type PersonaRowTuple = (String, i32, String, String, String, String, String, String);
+
+/// The persona registry, grouped by persona, newest version first. All columns are
+/// operator-authored config (NOT untrusted signal/model data); the method hash is
+/// truncated to its 8-char provenance prefix; `reads_signal_kinds` (a JSONB string
+/// array) is flattened to a comma list. Runtime sqlx (audit-tail precedent).
+pub async fn persona_registry(pool: &PgPool) -> Result<Vec<PersonaRowTuple>, sqlx::Error> {
+    sqlx::query_as::<_, PersonaRowTuple>(
+        "SELECT persona_id, version, domain, status, tier, \
+                substr(method_hash, 1, 8) AS method, \
+                array_to_string(ARRAY(SELECT jsonb_array_elements_text(reads_signal_kinds)), ', ') \
+                  AS reads, \
+                effective_at \
+         FROM personas \
+         ORDER BY persona_id ASC, version DESC",
+    )
+    .fetch_all(pool)
+    .await
+}
+
+/// Persona Scorecard (track-E §20.1 OUTCOMES half: "are the personas any good?").
+/// Per persona, the calibration of its RESOLVED beliefs: how many resolved, the mean
+/// Brier (LOWER = better) and the mean CLV (closing-line value, bps; HIGHER = better)
+/// — aggregated from the binary `beliefs` table grouped by `provenance->>'persona_id'`
+/// (the fan-out the persona runner writes, track-E E.4a). A PURE projection (AVG /
+/// COUNT): the §11 promote/retire VERDICT + the raw/market baselines +
+/// calibration_quality are NOT computed here (cognition logic / unpersisted baselines
+/// — ledgered); the board shows only the honest EVALUATING(n/60) progress, never a
+/// fabricated promote/retire decision. Runtime sqlx (audit-tail precedent). Empty
+/// until the persona runner is daemon-wired → honest unavailable.
+async fn view_persona_scores(State(s): State<RotaState>) -> impl IntoResponse {
+    let Some(pool) = s.pool.clone() else {
+        return Json(json!({
+            "status": "unavailable",
+            "detail": "postgres capability absent (standalone ROTA)",
+        }));
+    };
+    match persona_scorecard(&pool).await {
+        Ok(rows) => {
+            let generated_at = { s.snapshot.read().await.generated_at.clone() }; // R8
+            let resolved_total: i64 = rows.iter().map(|r| r.1).sum();
+            let n_personas = rows.len();
+            let json_rows: Vec<Value> = rows
+                .into_iter()
+                .map(|(persona, n_resolved, brier, clv_bps)| {
+                    let brier = (brier * 10_000.0).round() / 10_000.0;
+                    let clv = clv_bps.map(|c| (c * 100.0).round() / 100.0);
+                    // §11 evaluation progress toward the 60-sample gate. The
+                    // PROMOTABLE / RETIRE-CANDIDATE verdict needs the raw/market
+                    // baselines (not persisted) — so ROTA shows progress only, never
+                    // a fabricated promote/retire decision.
+                    let verdict = if n_resolved < 60 {
+                        format!("evaluating ({n_resolved}/60)")
+                    } else {
+                        "n\u{2265}60 \u{00B7} verdict pending baselines".to_string()
+                    };
+                    json!({
+                        "persona": persona, "n_resolved": n_resolved,
+                        "brier": brier, "clv_bps": clv, "verdict": verdict,
+                    })
+                })
+                .collect();
+            Json(json!({
+                "title": "Persona Scorecard",
+                "generated_at": generated_at,
+                "columns": [
+                    {"key":"persona","label":"Persona"},
+                    {"key":"n_resolved","label":"Resolved"},
+                    {"key":"brier","label":"Mean Brier (lower=better)"},
+                    {"key":"clv_bps","label":"Mean CLV bps (higher=better)"},
+                    {"key":"verdict","label":"Verdict"},
+                ],
+                "rows": json_rows,
+                "summary": {"personas": n_personas, "resolved": resolved_total},
+            }))
+        }
+        Err(e) => {
+            eprintln!("rota: persona_scores read degraded: {e}");
+            Json(json!({
+                "status": "unavailable",
+                "detail": "persona scores read unavailable (dashboard pool degraded)",
+            }))
+        }
+    }
+}
+
+/// One persona-scorecard row: (persona_id, n_resolved, mean_brier, mean_clv_bps).
+type PersonaScoreTuple = (String, i64, f64, Option<f64>);
+
+/// Per-persona calibration over RESOLVED+scored beliefs: count, mean Brier, mean CLV —
+/// grouped by the belief provenance's `persona_id`. Pure AVG/COUNT projection (no
+/// cognition logic, no untrusted-data render; the `persona_id` is operator-authored
+/// config). Runtime sqlx (audit-tail precedent).
+pub async fn persona_scorecard(pool: &PgPool) -> Result<Vec<PersonaScoreTuple>, sqlx::Error> {
+    sqlx::query_as::<_, PersonaScoreTuple>(
+        "SELECT provenance->>'persona_id' AS persona, \
+                COUNT(*) AS n_resolved, \
+                AVG(brier) AS brier, \
+                AVG(clv_bps) AS clv_bps \
+         FROM beliefs \
+         WHERE provenance->>'persona_id' IS NOT NULL \
+           AND status = 'resolved' \
+           AND brier IS NOT NULL \
+         GROUP BY provenance->>'persona_id' \
+         ORDER BY provenance->>'persona_id' ASC",
+    )
+    .fetch_all(pool)
+    .await
+}
+
+/// Domain-analysis artifacts browser (mission item 1 / track-E §20.2: the "whole
+/// process" view — the persisted analyses personas produce that beliefs are built
+/// from). The artifact ledger: which persona analysed which region, when, at what
+/// cost, the content-hash replay anchor, and the supersession status, newest-first.
+/// This view renders STRUCTURAL METADATA ONLY (ids, hashes, region_key, persona,
+/// timestamps, cost, status — all escaped by the renderer); the `findings` /
+/// `signal_manifest` drill-in (which carries UNTRUSTED model output) is the §20.2
+/// expander follow-on, ledgered. Degrades to unavailable (HTTP 200) without the pool.
+async fn view_analyses(State(s): State<RotaState>) -> impl IntoResponse {
+    let Some(pool) = s.pool.clone() else {
+        return Json(json!({
+            "status": "unavailable",
+            "detail": "postgres capability absent (standalone ROTA)",
+        }));
+    };
+    match recent_analyses(&pool, 50).await {
+        Ok(rows) => {
+            let generated_at = { s.snapshot.read().await.generated_at.clone() }; // R8
+            let n = rows.len();
+            let open = rows.iter().filter(|r| r.7 == "open").count();
+            let cost_total: i64 = rows.iter().map(|r| r.5).sum();
+            let json_rows: Vec<Value> = rows
+                .into_iter()
+                .map(
+                    |(
+                        analysis_id,
+                        persona,
+                        domain,
+                        region_key,
+                        produced_at,
+                        cost,
+                        hash,
+                        status,
+                    )| {
+                        json!({
+                            "analysis_id": analysis_id, "persona": persona, "domain": domain,
+                            "region_key": region_key, "produced_at": produced_at,
+                            "cost_cents": cost, "content_hash": hash, "status": status,
+                        })
+                    },
+                )
+                .collect();
+            Json(json!({
+                "title": "Domain Analyses",
+                "generated_at": generated_at,
+                "columns": [
+                    {"key":"persona","label":"Persona"},
+                    {"key":"domain","label":"Domain"},
+                    {"key":"region_key","label":"Region"},
+                    {"key":"produced_at","label":"Produced (UTC)"},
+                    {"key":"cost_cents","label":"Cost","cents":true},
+                    {"key":"content_hash","label":"Hash"},
+                    {"key":"status","label":"Status","pill":true},
+                ],
+                "rows": json_rows,
+                "summary": {"analyses": n, "open": open, "cost_cents": cost_total},
+            }))
+        }
+        Err(e) => {
+            eprintln!("rota: analyses read degraded: {e}");
+            Json(json!({
+                "status": "unavailable",
+                "detail": "analyses read unavailable (dashboard pool degraded)",
+            }))
+        }
+    }
+}
+
+/// One analysis row: (analysis_id, persona "id@version", domain, region_key,
+/// produced_at, cost_cents, content_hash[..8], status).
+type AnalysisRowTuple = (String, String, String, String, String, i64, String, String);
+
+/// Recent domain-analysis artifacts, newest-first. Persona is rendered "id@version";
+/// the content hash is truncated to its 8-char replay-anchor prefix. STRUCTURAL
+/// metadata only — `findings`/`signal_manifest` (untrusted model output) are NOT
+/// selected here (the §20.2 expander is a follow-on). Runtime sqlx (audit-tail
+/// precedent); limit clamped to [1, 200].
+pub async fn recent_analyses(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<Vec<AnalysisRowTuple>, sqlx::Error> {
+    let limit = limit.clamp(1, 200);
+    sqlx::query_as::<_, AnalysisRowTuple>(
+        "SELECT analysis_id, persona_id || '@' || persona_version::text AS persona, domain, \
+                region_key, produced_at, cost_cents, substr(content_hash, 1, 8) AS content_hash, \
+                status \
+         FROM domain_analyses \
+         ORDER BY produced_at DESC LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
+/// Forecasts scorecard (track-C §9.1: "the outcomes of the whole process" — how
+/// well-calibrated each scalar-forecast PRODUCER is). The calibration headline: per
+/// (producer, scoring rule), the mean score (CRPS — LOWER is better) over the
+/// RESOLVED forecasts, and how many resolved, with the unit so the CRPS scale reads.
+/// A `scalar_beliefs ⋈ belief_scores` aggregate (realized only). SCORE METADATA ONLY
+/// — the untrusted `quantiles`/`provenance` JSONB (model output) are NOT selected
+/// here; the recent-forecast feed (quantile fans + realized), coverage_bps, and the
+/// sparkline are §9.1 follow-ons (ledgered). Runtime sqlx (audit-tail precedent).
+/// Empty until track-C's daemon persist (slice 4) lands → honest unavailable, never
+/// a fabricated score.
+async fn view_forecasts(State(s): State<RotaState>) -> impl IntoResponse {
+    let Some(pool) = s.pool.clone() else {
+        return Json(json!({
+            "status": "unavailable",
+            "detail": "postgres capability absent (standalone ROTA)",
+        }));
+    };
+    match forecast_scorecard(&pool).await {
+        Ok(rows) => {
+            let generated_at = { s.snapshot.read().await.generated_at.clone() }; // R8
+            let scored: i64 = rows.iter().map(|r| r.4).sum();
+            let mut producers: Vec<&str> = rows.iter().map(|r| r.0.as_str()).collect();
+            producers.sort_unstable();
+            producers.dedup();
+            let n_producers = producers.len();
+            let mut rules: Vec<&str> = rows.iter().map(|r| r.2.as_str()).collect();
+            rules.sort_unstable();
+            rules.dedup();
+            let n_rules = rules.len();
+            let json_rows: Vec<Value> = rows
+                .into_iter()
+                .map(|(producer, unit, rule_id, mean, resolved_n)| {
+                    // CRPS rounded to 6dp for display (lower is better); the raw f64
+                    // stays the honest source — this only trims display noise.
+                    let mean_crps = (mean * 1_000_000.0).round() / 1_000_000.0;
+                    json!({
+                        "producer": producer, "unit": unit, "rule_id": rule_id,
+                        "mean_crps": mean_crps, "resolved_n": resolved_n,
+                    })
+                })
+                .collect();
+            Json(json!({
+                "title": "Forecasts",
+                "generated_at": generated_at,
+                "columns": [
+                    {"key":"producer","label":"Producer"},
+                    {"key":"unit","label":"Unit"},
+                    {"key":"rule_id","label":"Scorer"},
+                    {"key":"mean_crps","label":"Mean CRPS (lower=better)"},
+                    {"key":"resolved_n","label":"Resolved"},
+                ],
+                "rows": json_rows,
+                "summary": {"producers": n_producers, "rules": n_rules, "scored": scored},
+            }))
+        }
+        Err(e) => {
+            eprintln!("rota: forecasts read degraded: {e}");
+            Json(json!({
+                "status": "unavailable",
+                "detail": "forecasts read unavailable (dashboard pool degraded)",
+            }))
+        }
+    }
+}
+
+/// One forecast-scorecard row: (producer, unit, rule_id, mean_score CRPS, resolved_n).
+type ForecastRowTuple = (String, String, String, f64, i64);
+
+/// Per-(producer, scoring rule) calibration over RESOLVED scalar forecasts: mean
+/// score (CRPS, lower-better) and the resolved count, plus the unit (a producer's
+/// forecasts share one). `scalar_beliefs ⋈ belief_scores`, realized only, grouped +
+/// ordered by producer then rule. The untrusted JSONB columns (quantiles/provenance)
+/// are NOT selected. Runtime sqlx (audit-tail precedent).
+pub async fn forecast_scorecard(pool: &PgPool) -> Result<Vec<ForecastRowTuple>, sqlx::Error> {
+    sqlx::query_as::<_, ForecastRowTuple>(
+        "SELECT sb.producer, MIN(sb.unit) AS unit, bs.rule_id, \
+                AVG(bs.score) AS mean_score, COUNT(*) AS resolved_n \
+         FROM scalar_beliefs sb \
+         JOIN belief_scores bs ON bs.belief_id = sb.belief_id \
+         WHERE sb.realized_value IS NOT NULL \
+         GROUP BY sb.producer, bs.rule_id \
+         ORDER BY sb.producer ASC, bs.rule_id ASC",
+    )
+    .fetch_all(pool)
+    .await
+}
+
+/// DB visibility (mission item 5: "honest visibility into the actual tables —
+/// counts"). An exact-COUNT sweep over every ledger table, busiest-first. Runtime
+/// sqlx (the audit-tail precedent). NOTE: exact COUNT(*) is accurate at the current
+/// Sim scale; when a table grows large in live trading (audit/signals), switch this
+/// to pg reltuples estimates or a less-frequent poll — ledgered in GAPS. Degrades
+/// to unavailable (HTTP 200) without the pool.
+async fn view_db(State(s): State<RotaState>) -> impl IntoResponse {
+    let Some(pool) = s.pool.clone() else {
+        return Json(json!({
+            "status": "unavailable",
+            "detail": "postgres capability absent (standalone ROTA)",
+        }));
+    };
+    match db_table_counts(&pool).await {
+        Ok(rows) => {
+            let generated_at = { s.snapshot.read().await.generated_at.clone() }; // R8
+            let tables = rows.len();
+            let total: i64 = rows.iter().map(|r| r.1).sum();
+            let json_rows: Vec<Value> = rows
+                .into_iter()
+                .map(|(table, n)| json!({ "table": table, "rows": n }))
+                .collect();
+            Json(json!({
+                "title": "Database",
+                "generated_at": generated_at,
+                "columns": [
+                    {"key":"table","label":"Table"},
+                    {"key":"rows","label":"Rows"},
+                ],
+                "rows": json_rows,
+                "summary": {"tables": tables, "total_rows": total},
+            }))
+        }
+        Err(e) => {
+            eprintln!("rota: db read degraded: {e}");
+            Json(json!({
+                "status": "unavailable",
+                "detail": "db read unavailable (dashboard pool degraded)",
+            }))
+        }
+    }
+}
+
+/// One DB-inventory row: (table_name, row_count).
+type DbCountRow = (String, i64);
+
+/// Exact row counts for every ledger table, busiest-first. Static query (every
+/// table name is a literal — no interpolation). A new migration's table must be
+/// ADDED here (the list is hardcoded; an absent table just isn't shown, never an
+/// error). Runtime sqlx (audit-tail precedent).
+pub async fn db_table_counts(pool: &PgPool) -> Result<Vec<DbCountRow>, sqlx::Error> {
+    sqlx::query_as::<_, DbCountRow>(
+        "SELECT 'audit' t, COUNT(*) n FROM audit \
+         UNION ALL SELECT 'belief_scores', COUNT(*) FROM belief_scores \
+         UNION ALL SELECT 'beliefs', COUNT(*) FROM beliefs \
+         UNION ALL SELECT 'calibration_params', COUNT(*) FROM calibration_params \
+         UNION ALL SELECT 'discrepancies', COUNT(*) FROM discrepancies \
+         UNION ALL SELECT 'discrepancy_resolutions', COUNT(*) FROM discrepancy_resolutions \
+         UNION ALL SELECT 'domain_analyses', COUNT(*) FROM domain_analyses \
+         UNION ALL SELECT 'events', COUNT(*) FROM events \
+         UNION ALL SELECT 'exec_cursors', COUNT(*) FROM exec_cursors \
+         UNION ALL SELECT 'fills', COUNT(*) FROM fills \
+         UNION ALL SELECT 'halt_events', COUNT(*) FROM halt_events \
+         UNION ALL SELECT 'intent_events', COUNT(*) FROM intent_events \
+         UNION ALL SELECT 'journal', COUNT(*) FROM journal \
+         UNION ALL SELECT 'lessons', COUNT(*) FROM lessons \
+         UNION ALL SELECT 'market_event_edges', COUNT(*) FROM market_event_edges \
+         UNION ALL SELECT 'market_snapshots', COUNT(*) FROM market_snapshots \
+         UNION ALL SELECT 'personas', COUNT(*) FROM personas \
+         UNION ALL SELECT 'price_snapshots', COUNT(*) FROM price_snapshots \
+         UNION ALL SELECT 'reservation_events', COUNT(*) FROM reservation_events \
+         UNION ALL SELECT 'scalar_beliefs', COUNT(*) FROM scalar_beliefs \
+         UNION ALL SELECT 'settlement_entries', COUNT(*) FROM settlement_entries \
+         UNION ALL SELECT 'signals', COUNT(*) FROM signals \
+         UNION ALL SELECT 'source_registry', COUNT(*) FROM source_registry \
+         UNION ALL SELECT 'tradability_scores', COUNT(*) FROM tradability_scores \
+         ORDER BY 2 DESC, 1",
+    )
+    .fetch_all(pool)
+    .await
 }
 
 /// Evidence payloads are operator-readable JSONB of unbounded size; the
@@ -151,8 +820,9 @@ async fn view_cognition(State(s): State<RotaState>) -> impl IntoResponse {
             "detail": "no cognition strategy composed yet (synthesis-in-main pending)",
         }),
     };
-    let (beliefs, scopes) = match &s.pool {
+    let (beliefs, scopes, lifecycle) = match &s.pool {
         None => (
+            ledger_unavailable("postgres capability absent (standalone ROTA)"),
             ledger_unavailable("postgres capability absent (standalone ROTA)"),
             ledger_unavailable("postgres capability absent (standalone ROTA)"),
         ),
@@ -206,15 +876,66 @@ async fn view_cognition(State(s): State<RotaState>) -> impl IntoResponse {
                     ledger_unavailable("calibration read unavailable (dashboard pool degraded)")
                 }
             };
-            (beliefs, scopes)
+            // The belief LIFECYCLE aggregates (status distribution + the
+            // resolved beliefs' calibration outcome) — the "is belief formation
+            // healthy + are we calibrated" read. Degrades like the others.
+            let lifecycle = match belief_lifecycle(pool).await {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("rota: cognition lifecycle read degraded: {e}");
+                    ledger_unavailable("belief lifecycle unavailable (dashboard pool degraded)")
+                }
+            };
+            (beliefs, scopes, lifecycle)
         }
     };
     if let Some(obj) = out.as_object_mut() {
         obj.insert("generated_at".to_string(), json!(generated_at));
         obj.insert("recent_beliefs".to_string(), beliefs);
         obj.insert("calibration_scopes".to_string(), scopes);
+        obj.insert("belief_lifecycle".to_string(), lifecycle);
     }
     Json(out)
+}
+
+/// Belief LIFECYCLE aggregates for the cognition panel — the status distribution
+/// (open / resolved / superseded / abandoned) and the resolved beliefs'
+/// calibration OUTCOME (n, mean Brier, mean CLV bps): "is belief formation
+/// healthy, and are we calibrated with edge?". The D-contract V6 per-belief
+/// STRATEGY + realized-dollar-PnL columns are SCHEMA-BLOCKED — there is no
+/// belief→trade link on the current schema (GAPS) — so this surfaces the
+/// calibration edge proxy (`clv_bps`), NEVER a fabricated PnL. Runtime sqlx (the
+/// audit-tail precedent): a read-only dashboard aggregate, schema-pinned by the
+/// migration, kept out of the offline cache. The `status` CHECK pins the buckets.
+async fn belief_lifecycle(pool: &PgPool) -> Result<Value, sqlx::Error> {
+    let counts =
+        sqlx::query_as::<_, (String, i64)>("SELECT status, COUNT(*) FROM beliefs GROUP BY status")
+            .fetch_all(pool)
+            .await?;
+    // Pin all four buckets so an absent status reads 0, not missing (honest).
+    let mut by_status = serde_json::Map::new();
+    for s in ["open", "resolved", "superseded", "abandoned"] {
+        by_status.insert(s.to_string(), json!(0));
+    }
+    for (status, n) in counts {
+        by_status.insert(status, json!(n));
+    }
+    // Calibration outcome over the SCORED resolved beliefs (brier present). No
+    // resolved-scored rows => COUNT 0 + NULL averages => null (renders "—").
+    let (resolved_scored_n, mean_brier, mean_clv_bps): (i64, Option<f64>, Option<f64>) =
+        sqlx::query_as(
+            "SELECT COUNT(*), AVG(brier), AVG(clv_bps) FROM beliefs \
+             WHERE status = 'resolved' AND brier IS NOT NULL",
+        )
+        .fetch_one(pool)
+        .await?;
+    Ok(json!({
+        "available": true,
+        "by_status": Value::Object(by_status),
+        "resolved_scored_n": resolved_scored_n,
+        "mean_brier": mean_brier,
+        "mean_clv_bps": mean_clv_bps,
+    }))
 }
 /// Cheap liveness stat of the recorder's perishable JSONL streams (the
 /// /streams panel's `recorder` section). Reads only file METADATA (mtime +
@@ -478,6 +1199,16 @@ const ROTA_SHELL: &str = r#"<!doctype html><html lang="en"><head>
   .pill.dim{border:1px solid #555;color:#999}
   .warn{color:var(--amber);font-size:12px;padding:2px 0}
   .asof{color:#6e6e6a;font-size:10px;margin-top:8px}
+  .panel.wide{grid-column:1/-1}
+  table.board{width:100%;border-collapse:collapse;font-size:11px;
+      font-variant-numeric:tabular-nums lining-nums}
+  table.board th{text-align:right;color:var(--gold);font-weight:600;
+      padding:3px 8px;border-bottom:1px solid #2a2a2d;white-space:nowrap}
+  table.board th:first-child{text-align:left}
+  table.board td{text-align:right;padding:3px 8px;border-bottom:1px dotted #222;white-space:nowrap}
+  table.board td:first-child{text-align:left;color:var(--text)}
+  .bsum{font-size:12px;color:#9a9a96;margin-bottom:8px}
+  .bsum b{color:var(--text)}
   details.raw summary,details.belief summary{cursor:pointer;font-size:11px;color:#8a8a86}
   details.raw{margin-top:6px}
   details.belief{padding:2px 0;border-bottom:1px dotted #222}
@@ -499,6 +1230,19 @@ const ROTA_SHELL: &str = r#"<!doctype html><html lang="en"><head>
   <div class="panel"><h2>Cognition</h2><div id="cognition">…</div></div>
   <div class="panel"><h2>Settlement</h2><div id="settlement">…</div></div>
   <div class="panel"><h2>Streams</h2><div id="streams">…</div></div>
+  <div class="panel wide"><h2>Sources Health</h2><div id="ingest_sources">…</div></div>
+  <div class="panel wide"><h2>Live Signal Feed</h2><div id="ingest_feed">…</div></div>
+  <div class="panel wide"><h2>Ingest Funnel</h2><div id="ingest_funnel">…</div></div>
+  <div class="panel wide"><h2>Recent Fills</h2><div id="fills">…</div></div>
+  <div class="panel wide"><h2>Working Orders</h2><div id="working_orders">…</div></div>
+  <div class="panel wide"><h2>Strategy P&amp;L</h2><div id="strategies">…</div></div>
+  <div class="panel wide"><h2>Discovery — Events</h2><div id="discovery">…</div></div>
+  <div class="panel wide"><h2>Personas</h2><div id="personas">…</div></div>
+  <div class="panel wide"><h2>Persona Scorecard</h2><div id="persona_scores">…</div></div>
+  <div class="panel wide"><h2>Domain Analyses</h2><div id="analyses">…</div></div>
+  <div class="panel wide"><h2>Forecasts</h2><div id="forecasts">…</div></div>
+  <div class="panel wide"><h2>Database</h2><div id="db">…</div></div>
+  <div class="panel wide"><h2>Telemetry</h2><div id="telemetry">…</div></div>
   <div class="panel"><h2>Audit tail</h2><div id="audit">…</div></div>
 </div>
 <script>
@@ -507,10 +1251,30 @@ const esc=s=>String(s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",
 function fmtCents(c){if(c===null||c===undefined)return "—";
   return (c/100).toLocaleString("en-US",{style:"currency",currency:"USD"});}
 const kv=(k,v,gold)=>`<div class="kv"><span>${esc(k)}</span><b${gold?' class="gold"':''}>${v}</b></div>`;
-const pill=(t,c)=>`<span class="pill ${c}">${esc(t)}</span>`;
+const pill=(t,c)=>`<span class="pill ${esc(c)}">${esc(t)}</span>`;
 const raw=j=>`<details class="raw"><summary>raw</summary><pre>${esc(JSON.stringify(j,null,2))}</pre></details>`;
 const asof=j=>j.generated_at?`<div class="asof">as of ${esc(j.generated_at)} UTC</div>`:"";
 function gate(j){if(j&&j.status==="unavailable")return `<div class="warn">${esc(j.detail||"unavailable")}</div>`;return null;}
+// A status-token pill: green for healthy/accepted, red for quarantined, muted
+// otherwise (degraded, dropped:*). Drives any column the envelope flags `pill`.
+const valuePill=v=>{if(v==null)return "—";const s=String(v);const c=(s==="healthy"||s==="accepted"||s==="active")?"ok":s==="quarantined"?"bad":"dim";return pill(s,c);};
+// Generic D-contract board: {title, columns:[{key,label,pill?}], rows, summary}
+// rendered as a table — every ingestion board (V1-V6) reuses this with only a new
+// view key (§4 "render any board generically"). A column flagged `pill:true`
+// renders its value as a status pill; nulls render "—". Cells, labels, and
+// summary values are all esc()'d (untrusted ingestion data, spec 5.11).
+function boardTable(j){
+  const cols=(j&&j.columns)||[],rows=(j&&j.rows)||[];
+  if(!cols.length)return `<div class="warn">no columns</div>`;
+  let h="";
+  if(j.summary)h+=`<div class="bsum">`+Object.entries(j.summary).map(([k,v])=>`${esc(k)} <b>${esc(v)}</b>`).join(" · ")+`</div>`;
+  if(!rows.length)return h+`<div class="row">no rows yet</div>`;
+  h+=`<table class="board"><thead><tr>`+cols.map(c=>`<th>${esc(c.label||c.key)}</th>`).join("")+`</tr></thead><tbody>`;
+  rows.forEach(r=>{h+=`<tr>`+cols.map(c=>{const v=r[c.key];
+    return c.pill?`<td>${valuePill(v)}</td>`:c.cents?`<td>${fmtCents(v)}</td>`:`<td>${v==null?"—":esc(v)}</td>`;}).join("")+`</tr>`;});
+  h+=`</tbody></table>`;
+  return h;
+}
 const R={
  health(j){let h=kv("halt",j.halt_active?pill("HALTED","bad"):pill("clear","ok"));
   if(j.halt_reason)h+=kv("reason",esc(j.halt_reason));
@@ -534,6 +1298,11 @@ const R={
   else{h+=kv("spend today",fmtCents(j.mind_spend_today_cents),1)
    +kv("daily budget",fmtCents(j.daily_budget_cents))
    +kv("failures",j.cognition_failures_total??"—")+kv("breaches",j.budget_breaches_total??"—");}
+  const lc=j.belief_lifecycle;
+  if(lc&&lc.available){const bs=lc.by_status||{};
+   h+=kv("beliefs",`open ${bs.open??0} · resolved ${bs.resolved??0} · superseded ${bs.superseded??0} · abandoned ${bs.abandoned??0}`,1)
+    +kv("calibration",lc.resolved_scored_n?`n=${lc.resolved_scored_n} · Brier ${lc.mean_brier!=null?(+lc.mean_brier).toFixed(3):"—"} · CLV ${lc.mean_clv_bps!=null?Math.round(lc.mean_clv_bps)+"bp":"—"}`:"no resolved beliefs yet");}
+  else if(lc&&lc.detail)h+=`<div class="warn">lifecycle: ${esc(lc.detail)}</div>`;
   const sc=j.calibration_scopes;
   if(sc&&sc.available)sc.rows.forEach(s=>h+=kv("cal "+esc(s.model_id)+"/"+esc(s.kind),"v"+s.version));
   else if(sc)h+=`<div class="warn">scopes: ${esc(sc.detail)}</div>`;
@@ -551,6 +1320,19 @@ const R={
   (j.recorder||[]).forEach(r=>h+=kv("rec "+esc(r.stream),
     (r.healthy?pill("live","ok"):pill("stale","bad"))+" "+(r.last_capture_age_secs??"—")+"s"));
   return h;},
+ ingest_sources(j){return boardTable(j);},
+ ingest_feed(j){return boardTable(j);},
+ ingest_funnel(j){return boardTable(j);},
+ fills(j){return boardTable(j);},
+ strategies(j){return boardTable(j);},
+ working_orders(j){return boardTable(j);},
+ discovery(j){return boardTable(j);},
+ personas(j){return boardTable(j);},
+ persona_scores(j){return boardTable(j);},
+ analyses(j){return boardTable(j);},
+ forecasts(j){return boardTable(j);},
+ db(j){return boardTable(j);},
+ telemetry(j){return boardTable(j);},
  audit(j){if(!j.available)return `<div class="warn">${esc(j.detail||"unavailable")}</div>`;
   let h="";j.rows.slice(-12).forEach(r=>h+=`<div class="row">${esc(r.at)} UTC ${esc(r.kind)}${r.actor?" · "+esc(r.actor):""}</div>`);
   return h||`<div class="row">no audit rows yet</div>`;}
@@ -561,6 +1343,7 @@ async function poll(name){const el=document.getElementById(name);
   el.innerHTML=(gate(j)??R[name](j))+raw(j)+asof(j);
  }catch(e){el.innerHTML=`<div class="warn">unreachable: ${esc(e)}</div>`;}}
 function every(ms,names){names.forEach(poll);setInterval(()=>names.forEach(poll),ms);}
-every(2000,["health","audit"]);every(5000,["money","gates"]);
-every(10000,["cognition","settlement"]);every(15000,["streams"]);
+every(2000,["health","audit"]);every(5000,["money","gates","ingest_sources","ingest_feed","ingest_funnel"]);
+every(10000,["cognition","settlement","fills","strategies","working_orders"]);every(15000,["streams","discovery"]);
+every(30000,["db","personas","persona_scores","analyses","forecasts","telemetry"]);
 </script></body></html>"#;
