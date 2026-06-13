@@ -17,8 +17,8 @@ ledger their responses in GAPS, never edit this file.
 
 ## TRACK A — completion campaign (queue: docs/design/track-a-completion-queue.md)
 
-(1) M3 rearm notices — CLI "resumes only on restart" text + a ROTA health
-surface for halt-vs-running divergence. (2) T4.2 buildable-now — WS dial
+M3 DONE (certified ACCEPT, m3-rearm-gate-2026-06-13.md — I2 no-auto-resume
+verified, both surfaces, mutation-proven tests). NOW: (2) T4.2 buildable-now — WS dial
 (redial tests USE the ledgered reset/502 venue evidence in
 fixtures/kalshi/README.md; no live socket in tests), book-driven
 PaperVenue replay (trade-through is fixture-blocked — ledger it, NEVER
