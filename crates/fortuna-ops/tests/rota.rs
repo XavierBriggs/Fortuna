@@ -66,7 +66,7 @@ async fn serve() -> (String, tokio::task::JoinHandle<()>) {
     (format!("http://{addr}"), handle)
 }
 
-const PATHS: [&str; 25] = [
+const PATHS: [&str; 26] = [
     "/rota",
     "/favicon.ico",
     "/assets/rota/logo.svg",
@@ -86,6 +86,7 @@ const PATHS: [&str; 25] = [
     "/api/rota/v1/discovery",
     "/api/rota/v1/personas",
     "/api/rota/v1/persona_scores",
+    "/api/rota/v1/persona_pipeline",
     "/api/rota/v1/analyses",
     "/api/rota/v1/forecasts",
     "/api/rota/v1/forecast_feed",
@@ -147,6 +148,7 @@ async fn degraded_surfaces_are_200_with_explicit_unavailable() {
         "discovery",
         "personas",
         "persona_scores",
+        "persona_pipeline",
         "analyses",
         "forecasts",
         "db",
@@ -2490,4 +2492,130 @@ async fn forecast_feed_lists_recent_forecasts_with_outcomes(pool: sqlx::PgPool) 
         j["rows"][1]["realized"].is_null(),
         "an unresolved forecast has a null outcome, never a fabricated one: {j}"
     );
+}
+
+// Track-E §20.4: the Persona Pipeline funnel — per persona, analyses produced →
+// beliefs fanned out → beliefs resolved. Seeds two registered personas, two analyses
+// by the meteorologist (none by the macro_analyst), and three persona-attributed
+// beliefs (2 meteorologist incl. 1 resolved; 1 macro_analyst resolved). Asserts the
+// per-persona funnel counts (incl. honest 0 analyses for the macro_analyst) and the
+// totals.
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn persona_pipeline_funnels_analyses_beliefs_resolved_per_persona(pool: sqlx::PgPool) {
+    use fortuna_ledger::{BeliefsRepo, DomainAnalysesRepo, PersonasRepo};
+    // Registry: two personas (the funnel's universe).
+    let personas = PersonasRepo::new(pool.clone());
+    for (row_id, pid) in [
+        ("01PPLPERSONAROW00000MET", "meteorologist"),
+        ("01PPLPERSONAROW00000MAC", "macro_analyst"),
+    ] {
+        personas
+            .insert(
+                row_id,
+                pid,
+                1,
+                "weather",
+                &serde_json::json!([]),
+                &serde_json::json!([]),
+                "cheap",
+                "methodhash",
+                "findings/v1",
+                "active",
+                None,
+                "2026-06-10T00:00:00.000Z",
+                "2026-06-10T00:00:00.000Z",
+            )
+            .await
+            .unwrap();
+    }
+    // meteorologist produced two analyses; macro_analyst produced none.
+    let analyses = DomainAnalysesRepo::new(pool.clone());
+    for (aid, region) in [
+        ("01PPLANALYSIS000000001", "weather:r1"),
+        ("01PPLANALYSIS000000002", "weather:r2"),
+    ] {
+        analyses
+            .insert(
+                aid,
+                "meteorologist",
+                1,
+                "weather",
+                region,
+                "2026-06-12T05:00:00.000Z",
+                &serde_json::json!([]),
+                &serde_json::json!({}),
+                &format!("hash-{aid}"),
+                "manifest",
+                1,
+                None,
+                "2026-06-12T05:00:00.000Z",
+            )
+            .await
+            .unwrap();
+    }
+    // beliefs: 2 meteorologist (1 resolved), 1 macro_analyst (resolved).
+    seed_event(&pool, "01PPLEVENT00000000000001").await;
+    let beliefs = BeliefsRepo::new(pool.clone());
+    for (bid, persona, resolve) in [
+        ("01PPLBELIEF0000000000MET1", "meteorologist", true),
+        ("01PPLBELIEF0000000000MET2", "meteorologist", false),
+        ("01PPLBELIEF0000000000MAC1", "macro_analyst", true),
+    ] {
+        beliefs
+            .insert(
+                bid,
+                "2026-06-12T12:00:00.000Z",
+                "01PPLEVENT00000000000001",
+                0.6,
+                0.6,
+                "2026-06-13",
+                &serde_json::json!({"source": "x"}),
+                &serde_json::json!({"persona_id": persona}),
+                None,
+            )
+            .await
+            .unwrap();
+        if resolve {
+            beliefs
+                .resolve_and_score(bid, true, 0.1, Some(10.0))
+                .await
+                .unwrap();
+        }
+    }
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+    };
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/persona_pipeline"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "both registered personas: {j}");
+    // persona ASC: macro_analyst, then meteorologist.
+    assert_eq!(j["rows"][0]["persona"], "macro_analyst");
+    assert_eq!(
+        j["rows"][0]["analyses"], 0,
+        "macro_analyst produced no analyses (honest 0 via the LEFT JOIN): {j}"
+    );
+    assert_eq!(j["rows"][0]["beliefs"], 1);
+    assert_eq!(j["rows"][0]["resolved"], 1);
+    assert_eq!(j["rows"][1]["persona"], "meteorologist");
+    assert_eq!(j["rows"][1]["analyses"], 2, "two analyses produced: {j}");
+    assert_eq!(j["rows"][1]["beliefs"], 2, "two beliefs fanned out: {j}");
+    assert_eq!(j["rows"][1]["resolved"], 1, "one of the two resolved: {j}");
+    // Funnel totals.
+    assert_eq!(j["summary"]["personas"], 2);
+    assert_eq!(j["summary"]["analyses"], 2);
+    assert_eq!(j["summary"]["beliefs"], 3);
+    assert_eq!(j["summary"]["resolved"], 2);
 }

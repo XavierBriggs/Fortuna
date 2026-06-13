@@ -81,6 +81,7 @@ pub fn rota_router(state: RotaState) -> Router {
         .route("/api/rota/v1/discovery", get(view_discovery))
         .route("/api/rota/v1/personas", get(view_personas))
         .route("/api/rota/v1/persona_scores", get(view_persona_scores))
+        .route("/api/rota/v1/persona_pipeline", get(view_persona_pipeline))
         .route("/api/rota/v1/analyses", get(view_analyses))
         .route("/api/rota/v1/forecasts", get(view_forecasts))
         .route("/api/rota/v1/forecast_feed", get(view_forecast_feed))
@@ -669,6 +670,86 @@ pub async fn persona_scorecard(pool: &PgPool) -> Result<Vec<PersonaScoreTuple>, 
            AND brier IS NOT NULL \
          GROUP BY provenance->>'persona_id' \
          ORDER BY provenance->>'persona_id' ASC",
+    )
+    .fetch_all(pool)
+    .await
+}
+
+/// Persona pipeline funnel (track-E §20.4): per persona, the cognition PIPELINE at a
+/// glance — analyses produced → beliefs fanned out → beliefs resolved. The conversion
+/// at each stage is the pipeline-health signal (many analyses but few beliefs = low
+/// fanout; many beliefs but few resolved = slow resolution). Counts only — no content
+/// exposed. Degrades to unavailable (HTTP 200) without the pool.
+async fn view_persona_pipeline(State(s): State<RotaState>) -> impl IntoResponse {
+    let Some(pool) = s.pool.clone() else {
+        return Json(json!({
+            "status": "unavailable",
+            "detail": "postgres capability absent (standalone ROTA)",
+        }));
+    };
+    match persona_pipeline(&pool).await {
+        Ok(rows) => {
+            let generated_at = { s.snapshot.read().await.generated_at.clone() }; // R8
+            let n = rows.len();
+            let analyses_total: i64 = rows.iter().map(|r| r.1).sum();
+            let beliefs_total: i64 = rows.iter().map(|r| r.2).sum();
+            let resolved_total: i64 = rows.iter().map(|r| r.3).sum();
+            let json_rows: Vec<Value> = rows
+                .into_iter()
+                .map(|(persona, analyses, beliefs, resolved)| {
+                    json!({
+                        "persona": persona, "analyses": analyses,
+                        "beliefs": beliefs, "resolved": resolved,
+                    })
+                })
+                .collect();
+            Json(json!({
+                "title": "Persona Pipeline",
+                "generated_at": generated_at,
+                "columns": [
+                    {"key":"persona","label":"Persona"},
+                    {"key":"analyses","label":"Analyses"},
+                    {"key":"beliefs","label":"Beliefs"},
+                    {"key":"resolved","label":"Resolved"},
+                ],
+                "rows": json_rows,
+                "summary": {
+                    "personas": n, "analyses": analyses_total,
+                    "beliefs": beliefs_total, "resolved": resolved_total,
+                },
+            }))
+        }
+        Err(e) => {
+            eprintln!("rota: persona_pipeline read degraded: {e}");
+            Json(json!({
+                "status": "unavailable",
+                "detail": "persona pipeline read unavailable (dashboard pool degraded)",
+            }))
+        }
+    }
+}
+
+/// One persona-pipeline row: (persona_id, analyses, beliefs, resolved).
+type PersonaPipelineTuple = (String, i64, i64, i64);
+
+/// Per-persona pipeline funnel: analyses produced (`domain_analyses`), beliefs fanned
+/// out + resolved (`beliefs.provenance ->> 'persona_id'`), over the persona registry
+/// universe (LEFT JOIN so a registered persona with no activity reads honest 0s). All
+/// COUNTs → bigint → i64. Runtime sqlx (audit-tail precedent).
+pub async fn persona_pipeline(pool: &PgPool) -> Result<Vec<PersonaPipelineTuple>, sqlx::Error> {
+    sqlx::query_as::<_, PersonaPipelineTuple>(
+        "SELECT p.pid AS persona, \
+                COALESCE(a.n, 0)::bigint AS analyses, \
+                COALESCE(b.n, 0)::bigint AS beliefs, \
+                COALESCE(b.resolved, 0)::bigint AS resolved \
+         FROM (SELECT DISTINCT persona_id AS pid FROM personas) p \
+         LEFT JOIN (SELECT persona_id, COUNT(*) AS n FROM domain_analyses GROUP BY persona_id) a \
+                ON a.persona_id = p.pid \
+         LEFT JOIN (SELECT provenance ->> 'persona_id' AS persona_id, COUNT(*) AS n, \
+                           COUNT(*) FILTER (WHERE status = 'resolved') AS resolved \
+                    FROM beliefs WHERE provenance ->> 'persona_id' IS NOT NULL GROUP BY 1) b \
+                ON b.persona_id = p.pid \
+         ORDER BY p.pid ASC",
     )
     .fetch_all(pool)
     .await
@@ -1606,6 +1687,7 @@ const ROTA_SHELL: &str = r#"<!doctype html><html lang="en"><head>
   <div class="panel wide"><h2>Discovery — Events</h2><div id="discovery">…</div></div>
   <div class="panel wide"><h2>Personas</h2><div id="personas">…</div></div>
   <div class="panel wide"><h2>Persona Scorecard</h2><div id="persona_scores">…</div></div>
+  <div class="panel wide"><h2>Persona Pipeline</h2><div id="persona_pipeline">…</div></div>
   <div class="panel wide"><h2>Domain Analyses</h2><div id="analyses">…</div></div>
   <div class="panel wide"><h2>Forecasts</h2><div id="forecasts">…</div></div>
   <div class="panel wide"><h2>Forecast Feed</h2><div id="forecast_feed">…</div></div>
@@ -1697,6 +1779,7 @@ const R={
  discovery(j){return boardTable(j);},
  personas(j){return boardTable(j);},
  persona_scores(j){return boardTable(j);},
+ persona_pipeline(j){return boardTable(j);},
  analyses(j){return boardTable(j);},
  forecasts(j){return boardTable(j);},
  forecast_feed(j){return boardTable(j);},
@@ -1714,5 +1797,5 @@ async function poll(name){const el=document.getElementById(name);
 function every(ms,names){names.forEach(poll);setInterval(()=>names.forEach(poll),ms);}
 every(2000,["health","audit"]);every(5000,["money","gates","ingest_sources","ingest_feed","ingest_funnel"]);
 every(10000,["cognition","settlement","fills","strategies","working_orders"]);every(15000,["streams","discovery"]);
-every(30000,["db","personas","persona_scores","analyses","forecasts","forecast_feed","telemetry"]);
+every(30000,["db","personas","persona_scores","persona_pipeline","analyses","forecasts","forecast_feed","telemetry"]);
 </script></body></html>"#;

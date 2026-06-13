@@ -802,6 +802,12 @@ with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
   (`beliefs.provenance ->> 'analysis_id'`) — the cognition pipeline's downstream
   output per artifact. A correlated `COUNT(*)` (no content exposed; the untrusted-data
   boundary holds). The full per-belief expander remains a follow-on.
+- **Persona Pipeline board** (`GET /api/rota/v1/persona_pipeline`, track-E §20.4) — per
+  persona, the cognition pipeline funnel: analyses produced → beliefs fanned out →
+  beliefs resolved, over the persona-registry universe (a LEFT-JOIN aggregate; an idle
+  persona reads honest 0s). The conversion at each stage is the pipeline-health signal.
+  Counts only — no content exposed. (Universe is the registry: a persona attributed but
+  not registered is omitted — it still appears in the scorecard.)
 - **Strategy P&L board** (`GET /api/rota/v1/strategies`, mission item 3 "realized
   PnL per strategy") — per-strategy realized PnL / fees / fills / open exposure,
   shaped daemon-side from `runner.digest_snapshot()` (the same attribution the

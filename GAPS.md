@@ -1311,6 +1311,28 @@ Track-B impact: my full-workspace battery is green on EVERYTHING ELSE (1216 pass
 this 1 pre-existing main red / DST exit 0 / daemon_smoke 15/15 / clippy + fmt clean);
 this red is inherited from main, independent of the ROTA work.
 
+### PERSONA PIPELINE DONE (2026-06-13) — track-E §20.4 (post-merge follow-on)
+Built the Persona Pipeline funnel board (`/api/rota/v1/persona_pipeline`) — per persona, the
+cognition PIPELINE at a glance: analyses produced → beliefs fanned out → beliefs resolved (the
+conversion at each stage is the pipeline-health signal). `persona_pipeline(pool)` runtime-sqlx:
+the persona REGISTRY universe (`SELECT DISTINCT persona_id FROM personas`) LEFT JOINed to the
+per-persona analysis count (`domain_analyses`) and the per-persona belief + resolved counts
+(`beliefs.provenance ->> 'persona_id'`, `COUNT(*) FILTER (WHERE status='resolved')`); `COALESCE
+(...,0)::bigint` so a registered-but-idle persona reads honest 0s AND the i64 decode is safe
+(the NUMERIC/decode lesson applied proactively). COUNTS ONLY — no analysis/belief content
+exposed. fortuna-ops ONLY. PATHS[24] + degraded-loop; harness populates it from the existing
+personas + domain_analyses + persona-attributed beliefs (no harness change). DB-backed
+populated-path test (2 personas, 2 meteorologist analyses, 3 persona beliefs incl. 2
+meteorologist/1 resolved + 1 macro resolved → asserts macro 0/1/1, meteorologist 2/2/1, totals).
+Reviewer RAN — CLEAN (LEFT JOIN + COALESCE correct, casts sound, untrusted boundary, no panic,
+genuine test). NOTE (honest design, reviewer-flagged): the funnel's universe is the REGISTRY —
+a persona attributed in beliefs/analyses but NOT registered in `personas` is omitted (it would
+still appear in the scorecard); acceptable (registration precedes production), documented in the
+fn. BATTERY: green for all track-B work + the workspace EXCEPT the SAME ONE pre-existing main
+`kinetics_dto` red: fmt + clippy --workspace clean, `cargo test --workspace` 1267 passed / 1
+pre-existing-main-failed, run-dst.sh exit 0. Screenshot-verified (22 boards; Persona Pipeline
+shows meteorologist 2 analyses→1 belief→1 resolved, macro_analyst 0→1→1).
+
 ### ANALYSES BELIEF-FANOUT DONE (2026-06-13) — track-E §20.2 (post-merge follow-on)
 Extended the (now-merged) Domain Analyses board with the artifact→belief FANOUT: a `beliefs`
 column counting how many beliefs were built FROM each analysis (the cognition pipeline's
