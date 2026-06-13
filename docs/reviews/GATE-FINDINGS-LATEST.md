@@ -13,6 +13,20 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-13, cont'd — verifier loop pass)
 
+- **TRACK C SLICE-4c (register perp producers into the daemon) MERGED → main @
+  72adb7a = GATE ACCEPT.** opt-in [funding_forecast]/[perp_event_basis] sections
+  compose the two perp strategies into compose_runner (additive, same gate path
+  I1). FAIL-CLOSED + additive MUTATION-PROVEN (force always-register → composes_
+  perp_strategies_only_when_configured reds); sim byte-unchanged when absent. I6
+  intact (funding_forecast proposes nothing; perp_event_basis propose-only).
+  boot 14 + daemon_smoke 16; post-merge check --workspace clean.
+  ⚠️ **HONEST: this is the COMPOSITION, not the data feed — both strategies are
+  INERT in pure-sim until PerpTicks are injected (4b seam) + a real market catalog
+  (4e). It does NOT by itself make the soak produce beliefs.** The PERP-FEED
+  sub-slice (recorder captures → inject_perp_tick) is what lights them up and is
+  the #1 priority for a PRODUCING soak — the running soak (3690 ticks, healthy)
+  is still belief-empty (events/edges/calibration all 0; ingestion off). For C.
+
 - **TRACK A VENUE/EXEC (kill-switch I4 Kalshi plug + Slack listener) MERGED → main
   @ 62d4ce4 = GATE ACCEPT.** The last + most safety-critical tranche (track-a
   RALPH-STOPPED). I4: `freeze --venue kalshi` on a self-spun reactor (own
