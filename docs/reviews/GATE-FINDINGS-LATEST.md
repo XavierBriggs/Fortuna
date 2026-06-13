@@ -1,7 +1,9 @@
 # GATE FINDINGS — latest (verifier-owned; every track reads this at priority (a))
 
-State as of 2026-06-13, main @ e85f92c. Main is GREEN (fmt/clippy/
-workspace-tests/run-dst all clean per completion-audit-2026-06-13.md).
+State as of 2026-06-13, main @ f31aaa8 (D6-D10 ingestion tranche just merged).
+Main integrity GREEN (fmt + check --workspace + all invariants; post-merge
+daemon_smoke 15/15 + i4 + validator_is_live e2e). NOTE: full test --workspace +
+run-dst is DISK-DEFERRED (warm-target checks only — see DISK).
 A BLOCK naming your track preempts your queue. This file is the single
 coordination surface; the verifier rewrites it — tracks ACT on it and
 ledger their responses in GAPS, never edit this file.
@@ -21,6 +23,10 @@ ledger their responses in GAPS, never edit this file.
   track-c/e unchanged). RESIDUAL: full `cargo test --workspace` + `run-dst.sh`
   (incl. the dial GAPS DST-10k claim) remains DISK-DEFERRED — warm-target check
   confirms COMPILE+INVARIANT integrity, not the full test/DST suite.
+- D6-D10 NEWS-INGESTION PHASE A COMPLETE + MERGED @ f31aaa8 (this session):
+  calendar source + Layer-2 corroboration + validator-wired scheduler + factory +
+  the daemon `[ingestion]` seam — all gated ACCEPT (D9 hard gate, D10/2 live-
+  exposure gate, both mutation-proven), default-OFF, operator-opt-in. See TRACK D.
 
 ## TRACK E — DESIGN critique done: ACCEPT-WITH-CONDITIONS; AWAITING OPERATOR BUILD-APPROVAL
 
@@ -43,6 +49,16 @@ to build (with the 3 conditions folded into the design) — per track-E brief §
 the design-gate STOP; build does not start until you approve.
 
 ## TRACK A — completion campaign (queue: docs/design/track-a-completion-queue.md)
+
+NOTE-TO-TRACK-A (seam landed @ f31aaa8): track D's flagged ingestion seam is now
+in YOUR crate fortuna-live (new `ingestion.rs`; +41 boot.rs `[ingestion]` section;
++50 main.rs spawn-when-enabled). It is ADDITIVE, DEFAULT-OFF, and `drive()`'s
+signature is UNCHANGED (daemon_smoke 15/15 proves the daemon is byte-unchanged when
+[ingestion] is absent) — so it does NOT disrupt your in-flight work; no action
+needed beyond awareness. The ingestion loop is independent of the trading daemon
+(off the money path). If you touch boot.rs/main.rs, treat these as a neighbor's
+committed seam.
+
 
 M3 DONE (certified ACCEPT, m3-rearm-gate-2026-06-13.md — I2 no-auto-resume
 verified, both surfaces, mutation-proven tests). NOW: (2) T4.2 buildable-now — WS dial SLICES 1-2 + 4-5 + CONCRETE-TRANSPORT CERTIFIED (t42-wsdial-transport-gate-2026-06-13.md, ACCEPT-SLICE; dial logic generic over WsTransport, proven through MockWsTransport seam, connect_async confined to prod path; keep-alive half-open is Clock-injected; classify_ws_error typed no-panic; 21/21 lib tests). The LIVE SOCKET ROUND-TRIP is the only untested seam (operator-run first-live; venue=kalshi boot-refused until then). RESIDUAL (not verifier-confirmed here, disk-scoped gate): the GAPS "DST 10000 seeds" line is the implementer's claim — must be workspace-confirmed at the next full battery before any Phase-4 EXIT roll-up counts it. NEXT dial work: book-driven PaperVenue replay (trade-through fixture-blocked — ledger, never fabricate), the 27-item clearance record, kill-switch Kalshi plug (I4 deps absolute), Slack listener. Then book replay
@@ -152,7 +168,7 @@ OWNER PLAN: a RESTARTED track C, scoped to "extend the now-merged perps plane"
 AFTER the re-merge gate ACCEPTs and the merge lands. Phase-5 EXIT (BUILD_PLAN)
 is not met until B7+B8 land.
 
-## TRACK D — MERGED to main (2476554; SSRF-fixed news crate D1-D5; post-merge build green). Branch building forward UNMERGED toward D9: D8 Layer-2 corroboration (near-dup clustering, 6526106) + a live_smoke diagnostic / "AFD-firehose" telemetry finding (80fcc1d) landed this session; D7 GdeltSource deferred (honest external rate-limit). D9 GATE = ACCEPT — THE HARD GATE IS SATISFIED (track-d-d9-ingest-core-gate-2026-06-13.md). The Layer-1 validator is now WIRED (scheduler.rs:232, on every item pre-accept) and refusal REPRODUCES on the wired path — PROVEN BY EXECUTED MUTATION (neutralize assess->Accept => the wired-path DST scenario_burst + 2 scheduler tests go RED; restored). No model in path, Clock-injected, SSRF pin un-regressed, protected crate untouched, 84 lib + 5 DST green. EXPOSURE BOUNDARY: zero fortuna-live changes — the scheduler is UNREACHABLE from the daemon; live-ingest exposure still sits behind the pending D10 drive() seam (BUILD_PLAN:772, [ ]). MERGE HELD (not a defect): merging D6-D9 in isolation gives zero live benefit until D10 wires the seam, AND track-d's working tree has an uncommitted NON-COMPILING D10 overlay (factory.rs untracked + 3 mods; IngestionScheduler needs #[derive(Debug)]; fails fmt). PLAN: track-D finishes+commits D10 (its own battery forces the Debug fix), gate D10, then merge D6-D9-D10 as ONE coherent reachable unit. MERGE THE COMMIT NEVER THE DIRTY TREE. D10 (1/2) config-driven source factory LANDED + GATE-CLEAN (30ae38f; track-d-d10-part1-gate-2026-06-13.md, ACCEPT-SLICE): factory routes every source through scheduler.register WITH a validator_cfg (no bypass), no-model enforcement intact, dirty-tree caveat RESOLVED (overlay committed, Debug-derive fixed), fresh battery 88 lib + 5 DST green. [A first run showed a FALSE scenario_burst failure from a STALE shared-target artifact — see GATE-TARGET HYGIENE below — proven false by cargo clean + rebuild; no regression.] Track-D NEXT: D10 (2/2) the drive() seam into fortuna-live = THE live-exposure gate (makes the validator path daemon-reachable; D9 refuse-and-quarantine re-applies ON the daemon path). Then gate D9+D10 as a unit + merge. Phase A partial (2/4 adapters). WATCH: an "AFD-firehose" volume/telemetry finding may bear on the Aeolus/NWS cost-budget design — surface it as a GAPS/bus note if cross-track. Scope: PARK slot F / track M per operator.
+## TRACK D — MERGED to main (2476554; SSRF-fixed news crate D1-D5; post-merge build green). Branch building forward UNMERGED toward D9: D8 Layer-2 corroboration (near-dup clustering, 6526106) + a live_smoke diagnostic / "AFD-firehose" telemetry finding (80fcc1d) landed this session; D7 GdeltSource deferred (honest external rate-limit). D9 GATE = ACCEPT — THE HARD GATE IS SATISFIED (track-d-d9-ingest-core-gate-2026-06-13.md). The Layer-1 validator is now WIRED (scheduler.rs:232, on every item pre-accept) and refusal REPRODUCES on the wired path — PROVEN BY EXECUTED MUTATION (neutralize assess->Accept => the wired-path DST scenario_burst + 2 scheduler tests go RED; restored). No model in path, Clock-injected, SSRF pin un-regressed, protected crate untouched, 84 lib + 5 DST green. EXPOSURE BOUNDARY: zero fortuna-live changes — the scheduler is UNREACHABLE from the daemon; live-ingest exposure still sits behind the pending D10 drive() seam (BUILD_PLAN:772, [ ]). [HISTORY: the D6-D9 merge was held for D10 so the tranche landed as one coherent reachable unit — now done, see below.] D10 (1/2) config-driven source factory LANDED + GATE-CLEAN (30ae38f; track-d-d10-part1-gate-2026-06-13.md, ACCEPT-SLICE): factory routes every source through scheduler.register WITH a validator_cfg (no bypass), no-model enforcement intact, dirty-tree caveat RESOLVED (overlay committed, Debug-derive fixed), fresh battery 88 lib + 5 DST green. [A first run showed a FALSE scenario_burst failure from a STALE shared-target artifact — see GATE-TARGET HYGIENE below — proven false by cargo clean + rebuild; no regression.] D10 (2/2) live-exposure gate = ACCEPT (2026-06-13-D10-2of2-ingestion-live-gate.md): the `[ingestion]` daemon seam wires the validator-guarded scheduler into fortuna-live — DEFAULT-OFF/fail-closed (enabled is a required field + deny_unknown_fields + triple-gated spawn; daemon_smoke 15/15 byte-unchanged when absent), validator LIVE on the daemon path + refusal MUTATION-PROVEN end-to-end (neutralize validator => validator_is_live e2e reds; restored+cleaned), off-money-path independent loop (zero gates/exec/state refs; persist failure non-fatal), Clock-injected, I4 intact. >> ENTIRE D6-D10 TRANCHE MERGED to main @ f31aaa8 (conflict-free; post-merge integration GREEN: check --workspace + daemon_smoke 15/15 + validator_is_live e2e + i4 killswitch-independence 46s). PHASE A COMPLETE: 3/4 adapters (NWS+RSS+Calendar; GDELT D7 deferred on external rate-limit). LIVE INGEST IS OPERATOR-OPT-IN ONLY (config [ingestion] enabled=true + the GAPS-noted prereqs); merged code activates ZERO ingestion by default. WATCH: the "AFD-firehose" volume/telemetry finding may bear on the Aeolus/NWS cost-budget design. Scope: PARK slot F / track M per operator. NEXT (track D): Phase B / operator enablement, or stop clean.
 
 ## [merged] TRACK D — SSRF CLEARED (track-d-regate-2026-06-13.md)
 
