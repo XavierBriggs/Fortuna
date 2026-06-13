@@ -212,8 +212,13 @@ clients get Lagged (drop-oldest); the tick loop is never blocked.
 DEFERRED (source incomplete today): triage recall/precision (shadow scoring
 cross-join unwritten); market-discovery view (Tradability/Edges join
 unwritten); perps/funding-regime panel (T5.B8 owns it); DST/gate-verdict badge
-(no review-file parser). WS gap/resync counters render stub 0 until T4.2 ships
-the dial.
+(no review-file parser); domain-analysis / personas views (Track E owns —
+personas + domain_analyses tables + per-(persona,version) calibration unbuilt;
+read-only, gold-on-black, NO mutating endpoints; promote/retire is operator CLI,
+never a button; spec in docs/design/domain-analysis-personas-design.md §14:
+(1) /api/rota/v1/personas registry+scorecard, (2) /api/rota/v1/analyses artifact
+browser, (3) persona provenance in the existing cognition panel). WS gap/resync
+counters render stub 0 until T4.2 ships the dial.
 
 Telemetry additions (the ONLY runner changes, both read-path): the
 `fortuna_rate_bucket_fill{venue,market}` gauge in metrics_export(), and
