@@ -748,11 +748,27 @@ crates/fortuna-sources + fixtures/sources/ + one flagged drive() seam.
       documented refinement for larger batches, interface stable across it. Pure
       logic, no network/fixtures. 7 tests (75 crate total). (DONE 2026-06-13,
       full battery green; hash next iter.)
-- [ ] D9 Ingestion scheduler: Clock+CancellationToken loop, per-source cadence
-      + static event windows, health state machine healthy→degraded→
-      quarantined (loud), per-source isolation, trigger/resolution floors as
-      config rules; DST scenarios (timeout mid-window, 429 storm,
-      crash-in-window recovery, burst coalescing, quarantine escalation).
+- [x] D9 Ingestion scheduler (THE HARD GATE — re-gate required the validator
+      live on the ingest path). IngestionScheduler::tick(now)->TickOutcome is
+      the deterministic core (SimClock-driven, never sleeps; the async run-loop
+      is the D10 seam). WIRES THE StructuralValidator on every fetched item:
+      future-dated/republished/over-volume are REFUSED-and-recorded
+      (DropReason), never passed downstream — HARD GATE SATISFIED, tested
+      adversarially. Per-source cadence (daily time-windows boost the interval;
+      day-set restriction is the Phase-B refinement) + health state machine
+      Healthy→Degraded(n)→Quarantined (LOUD alert, deterministic exponential
+      backoff, no auto-resume — operator rearm() only, I2 spirit) + per-source
+      isolation (one fault never aborts the fleet) + trigger-floor TAG
+      (wakes_decision_cycle = tier>=trigger_floor; below-floor still lands for
+      slow discovery; resolution floor stays cognition-side). FIRST-CLASS
+      per-source SourceMetrics telemetry (operator request): polls, empty_polls
+      (304 proxy), fetch_errors, accepted, drops-by-reason, quarantines, rearms.
+      content_hash via sha2 (bounded republication flag; ledger UNIQUE is
+      authoritative). 10 unit tests + 5 ENUMERATED DST scenarios (timeout, 429
+      storm, crash+rebuild, burst/volume-cap, quarantine+rearm) in
+      tests/ingest_dst.rs, wired into scripts/run-dst.sh. Adds sha2 dep. 89
+      crate tests + 5 ingest_dst. (DONE 2026-06-13, full battery green; hash
+      next iter.)
 - [ ] D10 drive() seam: ONE minimal flagged commit wiring the scheduler into
       fortuna-live behind a config flag (default off).
 

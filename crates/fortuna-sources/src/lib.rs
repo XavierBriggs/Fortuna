@@ -14,6 +14,7 @@ pub mod error;
 pub mod fetch;
 pub mod nws;
 pub mod rss;
+pub mod scheduler;
 pub mod validate;
 
 pub use calendar::{
@@ -29,4 +30,8 @@ pub use fetch::{
 };
 pub use nws::{nws_claimed_time, NwsFeed, NwsSource};
 pub use rss::{rss_claimed_time, RssSource, RSS_ITEM_KIND};
+pub use scheduler::{
+    AcceptedSignal, Alert, ClaimedTimeFn, DropReason, Dropped, Health, IngestionScheduler,
+    SourceMetrics, SourceSchedule, TickOutcome,
+};
 pub use validate::{Candidate, StructuralConfig, StructuralValidator, Verdict};

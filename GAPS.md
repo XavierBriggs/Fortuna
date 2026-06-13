@@ -2335,16 +2335,19 @@ rebased on main f4b4a54-era; all work committed, nothing pushed.
   `canonical_https_host` via `HostPin`, the single parser. Awaiting re-gate of
   the whole D1–D5 unit.
 
-- **GATE RESPONSE — MAJOR (Layer-1 validator unwired): is D9, by design.** The
-  gate noted the `StructuralValidator` (validate.rs) is not wired into a
-  per-item ingest path. That is correct and intended for this stage: the
-  validator runs in the INGESTION SCHEDULER (D9), between adapter.fetch() and
-  the cognition normalizer — adapters stay dumb (spec 5.11). There is no ingest
-  path to wire it into until D9 exists. The adapters already expose the inputs
-  the scheduler needs (`nws_claimed_time`, `rss_claimed_time`). Tracked as D9
-  scope; not part of this SSRF-only fix iteration (per the bus: "your NEXT
-  iteration is THE SSRF FIX, nothing else"). If the gate wants the validator
-  wired sooner, D9 can be pulled forward after the SSRF re-gate.
+- **GATE RESPONSE — MAJOR (Layer-1 validator unwired): RESOLVED in D9
+  (2026-06-13).** The hard gate is satisfied: `IngestionScheduler::tick`
+  (scheduler.rs) calls `StructuralValidator::assess` on EVERY fetched item and
+  REFUSES-and-records future-dated / republished / over-volume items
+  (`DropReason`), never passing them downstream — proven by unit tests
+  (`future_dated_item_is_refused_not_ingested`, `republished_and_over_volume_
+  are_refused`) and the `ingest_dst` burst scenario (10 accepted / 90 refused).
+  Per-source claimed-time dispatch uses the adapters' `nws_/rss_/calendar_
+  claimed_time`. NOTE: the live `drive()` wiring (the scheduler actually running
+  inside the daemon) is D10 — until then the crate is still unreachable from the
+  daemon; D9 delivers the validated ingest CORE + DST, D10 plugs it in.
+  ORIGINAL (kept for history): the validator runs in the scheduler between
+  adapter.fetch() and the cognition normalizer; adapters stay dumb (spec 5.11).
 
 - **D4 NWS AFD full-text is a deferred second hop.** NwsSource emits the AFD
   product SUMMARY (id, office, issuanceTime, code) from the `/products?type=AFD`
