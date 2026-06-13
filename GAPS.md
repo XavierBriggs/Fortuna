@@ -18,6 +18,50 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK E — design committed; RALPH STOP (loop mis-located + design-phase approval gate)
+
+DESIGN PHASE DONE. The persona/domain-analysis design was explored (Explore-agent
+map of fortuna-cognition + ledger, verified), brainstormed, and the §3 artifact-model
+decision SURFACED and RESOLVED with the operator in the 2026-06-13 session:
+**persisted artifact** (operator-endorsed; the deciding argument is that LLM persona
+output is non-deterministic, so 5.7/I5 replay forces persistence regardless — ephemeral
+is a false economy). Committed this iteration on branch track-e:
+- docs/design/domain-analysis-personas-design.md — the authoritative design (§2 decision
+  RESOLVED; §5 ledger tables personas + domain_analyses; §7 declarative+schedulable
+  triggers; §15 six-slice build plan; trusted/untrusted separation as the heart).
+- docs/design/track-m-model-providers-brief.md — the PARKED Track M brief (per-tier
+  pluggable models, e.g. Hermes/local; operator: "store as a design doc, do it later").
+- implementer-loop-track-e.md — aligned from design-first to BUILD phase.
+
+STOPPING THIS LOOP for TWO operator actions (RALPH STOP 2026-06-13):
+1. **The loop is mis-located.** It was started in the MAIN checkout
+   (/Users/xavierbriggs/fortuna), where Track A lives and holds uncommitted work
+   (dial.rs). Running an autonomous Track-E BUILD loop in the shared main tree is the
+   orchestration.md shared-tree hazard. Track E must run from worktree fortuna-wt-e
+   (branch track-e). I committed the design to track-e via the worktree (git -C; main's
+   tree untouched), but I will NOT build feature code from main.
+2. **Design-phase approval gate** (loop §1b, the version on main still reads
+   design-first): the operator endorsed "persisted" and said "tweak the prompt to
+   align / proceed," but gave no crisp go-for-build and was mid-architecture-dialogue.
+
+UNBLOCK (operator, one action): review docs/design/domain-analysis-personas-design.md,
+then RE-ARM Track E from the correct worktree to enter the BUILD phase:
+  cd /Users/xavierbriggs/fortuna-wt-e
+  /ralph-loop Read docs/design/implementer-loop-track-e.md at the start of every iteration and follow it exactly.
+The aligned (build-phase) loop doc lives on track-e and governs once re-armed there.
+
+BUILD QUEUE (design §15, when re-armed): (1) ledger personas+domain_analyses tables/repos
+→ (2) persona definition+registry → (3) runner loop+triggers+budget+context+findings
+contract (StubMind determinism + trusted/untrusted + DST-under-budget) → (4) belief
+consumption (DomainAnalysis section + provenance citation) → (5) scoring scope extension
++ weekly-review promote/retire → (6) end-to-end meteorologist proof + macro mechanism test.
+
+TRACK-D REQUESTS (signal kinds Track E consumes, NOT built here): nws.observed_high,
+nws.forecast_discussion (the meteorologist's grader + discussion text), plus later the
+macro/event calendar + consensus/news kinds for the macro-economist. Aeolus (aeolus.forecast)
+already has the v2 contract (docs/design/aeolus-source-contract.md). If an NWS kind is not
+yet ingested at build time, a recorded fixture signal stands in (re-noted at slice 6).
+
 ## TRACK A — T4.2 item 2(i) WS dial: decision/session/loop + tungstenite error-classification done; only the operator-exercised socket round-trip remains
 
 Queue item 2(i) (Kalshi WS dial). Built the SURVIVAL DECISION core as a pure,

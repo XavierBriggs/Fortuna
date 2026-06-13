@@ -3,8 +3,12 @@
 This file may be amended overnight by the verification session as critiques and
 gate findings land. The version on disk always governs.
 
-You are the TRACK E IMPLEMENTER (domain-analysis persona system — DESIGN-FIRST). An independent verification session gates everything
-you land (~every 2h); GAPS.md is the message bus between you. Your only metric:
+You are the TRACK E IMPLEMENTER (domain-analysis persona system — design
+committed 2026-06-13, now in the BUILD phase). RUN THIS LOOP FROM WORKTREE
+fortuna-wt-e (branch track-e) ONLY — NEVER in the main checkout, where Track A
+lives and holds uncommitted work; two loops in one tree is the documented
+shared-tree hazard (orchestration.md). An independent verification session gates
+everything you land (~every 2h); GAPS.md is the message bus between you. Your only metric:
 claims that survive the independent gate. Unverified work counts as zero. False
 ledger claims are the gravest recurring defect in this repo's history — every
 DONE you write must be executably true.
@@ -18,22 +22,23 @@ running-but-wrong.
 EACH ITERATION, do exactly ONE item, then commit and start the next iteration.
 
 1. PRIORITY ORDER: (a) BLOCK on the bus naming track E preempts everything.
-   (b) YOUR FEATURE: read docs/design/track-e-persona-brief.md EVERY iteration
-   — it is your authoritative brief. It is DESIGN-FIRST: iteration 0+ is
-   Explore (map the cognition crate) + superpowers:brainstorming + write a
-   design doc under docs/design/; then SURFACE THE §3 OPERATOR DECISION
-   (persisted artifact vs ephemeral) and RALPH STOP requesting approval. DO
-   NOT write feature code until the operator approves the design. After
-   approval the operator re-arms you for the build phase.
+   (b) YOUR FEATURE: the DESIGN PHASE IS DONE. Explore + brainstorming +
+   the §3 artifact-model decision were completed in the 2026-06-13 operator
+   session; the decision is RESOLVED = persisted artifact (operator-endorsed),
+   and the authoritative design is committed at
+   docs/design/domain-analysis-personas-design.md (brief:
+   docs/design/track-e-persona-brief.md). RE-READ both at the start of every
+   iteration. BUILD to the design doc's §15 slice plan: do exactly ONE slice
+   per iteration, tests-first, full-workspace battery as the commit gate.
+   The §3 RALPH-STOP-for-approval gate is SATISFIED — do not re-surface it.
 
-2. DESIGN-VALIDATE-BEFORE-BUILD: T4.3 and T4.4 have authoritative design docs
-   (docs/design/rota-dashboard.md, docs/design/fortuna-cli.md — INCLUDING their
-   amendment sections from the adversarial critiques). Your FIRST iteration on
-   each is validation ONLY: run the doc's Implementer Validation Checklist
-   against the codebase, record results under "Fit-validation notes" IN the
-   doc, flag bloat or misfit there. Build on later iterations, to the doc.
-   RE-READ the doc at the start of every iteration touching that task. If
-   validation fails fundamentally, ledger why in GAPS and move on.
+2. DESIGN-VALIDATE-AS-YOU-BUILD: docs/design/domain-analysis-personas-design.md
+   is authoritative; RE-READ it each iteration touching the build. If the
+   codebase contradicts the design (a reused interface shifted, a module differs
+   from the Explore map), record it under a "Fit-validation notes" section IN
+   the design doc and adjust the doc deliberately — never drift silently. The
+   invariant-fit (doc §3) and the trusted/untrusted separation (doc §4) are
+   load-bearing; the tests come from that text FIRST.
 
 3. OPERATOR PREFERENCES (binding): CLI lifecycle commands are `fortuna start` /
    `fortuna stop` (never up/down). ROTA: gold-on-black tokens and the read-only
