@@ -25,7 +25,7 @@ telemetry on every layer — consuming the C/D/E observability contracts.
 | Health | `/health` | snapshot | live (A) | DONE + screenshot-verified (mission 1) |
 | Money | `/money` | snapshot | live (A) | DONE + verified |
 | Gates | `/gates` | snapshot | live (A) | DONE + verified |
-| Cognition | `/cognition` | snapshot + R7 ledger + lifecycle agg | B (queries) | DONE + verified; DEEPENED with the belief LIFECYCLE (status distribution + resolved calibration Brier/CLV via real `GROUP BY`/`AVG`); persona-provenance renders |
+| Cognition | `/cognition` | snapshot + R7 ledger + lifecycle agg | B (queries) | DONE + verified; DEEPENED with the belief LIFECYCLE (status distribution + resolved calibration Brier/CLV via real `GROUP BY`/`AVG`); **§20.3 provenance LEGIBILITY** — each belief's expander now shows a labeled `persona@v · model · cost · analysis · run` line (which source/persona drove it), cross-referencing the Personas/Analyses boards |
 | Settlement | `/settlement` | snapshot | live (A) | DONE + verified |
 | Streams | `/streams` | snapshot + recorder fs | B | DONE + verified |
 | Audit | `/audit` | ledger | B | DONE + verified |

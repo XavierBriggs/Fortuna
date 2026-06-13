@@ -1169,6 +1169,24 @@ fn truncate_evidence(evidence: &Value) -> Value {
     })
 }
 
+/// A LABELED summary of a belief's provenance JSONB (§20.3: "which source/persona,
+/// model_id, run_at, cost — the reasoning made legible"). Extracts the known keys —
+/// system-authored config, NOT untrusted model output — so the cognition expander can
+/// render a clean labeled line; the whole `provenance` is still served alongside.
+/// Missing keys are null (the renderer shows "—"); a non-object provenance yields all
+/// nulls (never a panic).
+fn provenance_summary(prov: &Value) -> Value {
+    let get = |k: &str| prov.get(k).cloned().unwrap_or(Value::Null);
+    json!({
+        "persona_id": get("persona_id"),
+        "persona_version": get("persona_version"),
+        "model_id": get("model_id"),
+        "cost_cents": get("cost_cents"),
+        "analysis_id": get("analysis_id"),
+        "run_at": get("run_at"),
+    })
+}
+
 /// An unavailable ledger sub-surface (uniform shape for the two arrays).
 fn ledger_unavailable(detail: &str) -> Value {
     json!({ "available": false, "detail": detail, "rows": [] })
@@ -1222,6 +1240,7 @@ async fn view_cognition(State(s): State<RotaState>) -> impl IntoResponse {
                                 "brier": r.brier,
                                 "clv_bps": r.clv_bps,
                                 "evidence": truncate_evidence(&r.evidence),
+                                "prov": provenance_summary(&r.provenance),
                                 "provenance": r.provenance,
                             })
                         })
@@ -1708,6 +1727,15 @@ function gate(j){if(j&&j.status==="unavailable")return `<div class="warn">${esc(
 // A status-token pill: green for healthy/accepted, red for quarantined, muted
 // otherwise (degraded, dropped:*). Drives any column the envelope flags `pill`.
 const valuePill=v=>{if(v==null)return "—";const s=String(v);const c=(s==="healthy"||s==="accepted"||s==="active")?"ok":s==="quarantined"?"bad":"dim";return pill(s,c);};
+// §20.3: a LEGIBLE one-line provenance summary (persona · model · cost · analysis ·
+// run) from the belief's `prov` block — the labeled "which source/persona drove this".
+const provLine=p=>{if(!p)return "";const t=[];
+ if(p.persona_id)t.push("persona "+esc(p.persona_id)+(p.persona_version!=null?"@"+esc(p.persona_version):""));
+ if(p.model_id)t.push("model "+esc(p.model_id));
+ if(p.cost_cents!=null)t.push("cost "+fmtCents(p.cost_cents));
+ if(p.analysis_id)t.push("analysis "+esc(String(p.analysis_id).slice(0,8)));
+ if(p.run_at)t.push("run "+esc(p.run_at));
+ return t.length?`<div class="row dim">${t.join(" · ")}</div>`:"";};
 // Generic D-contract board: {title, columns:[{key,label,pill?}], rows, summary}
 // rendered as a table — every ingestion board (V1-V6) reuses this with only a new
 // view key (§4 "render any board generically"). A column flagged `pill:true`
@@ -1759,6 +1787,7 @@ const R={
   const rb=j.recent_beliefs;
   if(rb&&rb.available){rb.rows.forEach(b=>{
     h+=`<details class="belief"><summary>${esc(b.belief_id.slice(-8))} p=${b.p} (${esc(b.status)})</summary>`
+     +provLine(b.prov)
      +`<pre>evidence: ${esc(JSON.stringify(b.evidence,null,1))}\nprovenance: ${esc(JSON.stringify(b.provenance,null,1))}</pre></details>`;});
    if(!rb.rows.length)h+=`<div class="row">no beliefs yet</div>`;}
   else if(rb)h+=`<div class="warn">beliefs: ${esc(rb.detail)}</div>`;

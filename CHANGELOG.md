@@ -808,6 +808,14 @@ with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
   persona reads honest 0s). The conversion at each stage is the pipeline-health signal.
   Counts only — no content exposed. (Universe is the registry: a persona attributed but
   not registered is omitted — it still appears in the scorecard.)
+- **Cognition board — provenance legibility** (§20.3 / mission item 1): the per-belief
+  expander now renders a LABELED one-line provenance summary (`persona id@version ·
+  model · cost · analysis · run`) above the raw JSON dump — "which source/persona drove
+  this belief," the reasoning made legible. A `provenance_summary` handler helper
+  extracts the known keys into an additive `prov` field; the JS escapes every value.
+  Pure JSONB field-extraction for display (no cognition computation); the whole
+  provenance is still served. Cross-references the Personas/Analyses boards via the
+  surfaced persona_id/analysis_id.
 - **Strategy P&L board** (`GET /api/rota/v1/strategies`, mission item 3 "realized
   PnL per strategy") — per-strategy realized PnL / fees / fills / open exposure,
   shaped daemon-side from `runner.digest_snapshot()` (the same attribution the

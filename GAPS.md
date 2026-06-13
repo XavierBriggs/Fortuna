@@ -1311,6 +1311,34 @@ Track-B impact: my full-workspace battery is green on EVERYTHING ELSE (1216 pass
 this 1 pre-existing main red / DST exit 0 / daemon_smoke 15/15 / clippy + fmt clean);
 this red is inherited from main, independent of the ROTA work.
 
+### COGNITION PROVENANCE LEGIBILITY DONE (2026-06-13) — track-E §20.3 / mission item 1
+Made the cognition board's belief expander LEGIBLE (mission item 1's #1 emphasis: "each belief
+with its provenance — which source/persona, model_id, run_at, cost — the reasoning made
+legible"). The expander previously dumped raw provenance JSON; it now renders a LABELED one-line
+summary above it: `persona meteorologist@3 · model claude-sonnet-4-6 · cost $0.02 · analysis
+01J0ANAL · run …`. A `provenance_summary(&Value)` handler helper extracts the known keys
+(persona_id, persona_version, model_id, cost_cents, analysis_id, run_at — SYSTEM-authored
+config, not untrusted model output) into a `prov` field per belief (the WHOLE provenance is
+still served alongside — purely additive); a JS `provLine` renders it, esc()'ing every value.
+PURE JSONB field-extraction for display — no cognition computation (R2 honored), panic-free
+(`Value::get` on a non-object → None → null). fortuna-ops ONLY. The existing
+`cognition_serves_seeded_beliefs_and_scopes` test was enriched (persona provenance seeded →
+asserts the `prov` summary surfaces model/cost/persona_id/version/analysis_id). Reviewer RAN —
+CLEAN (panic-free, all JS values esc()'d, additive, no R2 concern, genuine test). BATTERY: green
+for all track-B work + the workspace EXCEPT the SAME ONE pre-existing main `kinetics_dto` red:
+fmt + clippy --workspace clean, `cargo test --workspace` 1267 passed / 1 pre-existing-main-
+failed, run-dst.sh exit 0. Screenshot-verified (the persona belief's expander shows the labeled
+provenance line). This ties the merged Personas/Analyses boards to the beliefs they produce — the
+analysis_id/persona_id in the line cross-reference those boards. >>> REMAINING-WORK STATE: the
+mission (all 6 areas) is MERGED + GATE-ACCEPTED (@04d2f5d), and the C/E ROTA contracts are now
+substantially complete (§9.1 scorecard+coverage+feed; §20.1 registry+scorecard; §20.2
+browser+fanout; §20.3 this; §20.4 pipeline). The genuinely-remaining items are increasingly
+marginal/complex/data-blocked: the §20.2 per-belief EXPANDER (a click-to-expand UI — JS-heavy,
+thin Rust core), the §9.1 SPARKLINE (a viz — JS-heavy), §9.2 `/perps` regime/basis (the basis
+kernel is computed on-demand, NOT persisted → DATA-BLOCKED until track-C persists it), and the D
+V4/V5/V6 boards (DATA-BLOCKED on the Layer-3 source_reliability job). Track B is near the rule-5
+stop territory; further slices are polish on a complete+merged mission.
+
 ### PERSONA PIPELINE DONE (2026-06-13) — track-E §20.4 (post-merge follow-on)
 Built the Persona Pipeline funnel board (`/api/rota/v1/persona_pipeline`) — per persona, the
 cognition PIPELINE at a glance: analyses produced → beliefs fanned out → beliefs resolved (the

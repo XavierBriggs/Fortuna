@@ -873,7 +873,9 @@ async fn cognition_serves_seeded_beliefs_and_scopes(pool: sqlx::PgPool) {
             0.71,
             "2026-06-13T00:00:00.000Z",
             &serde_json::json!({"reasoning": "structural underpricing of the middle bracket"}),
-            &serde_json::json!({"model_id": "claude-fable-5", "cost_cents": 12}),
+            &serde_json::json!({"model_id": "claude-fable-5", "cost_cents": 12,
+                "persona_id": "meteorologist", "persona_version": 3,
+                "analysis_id": "01J0ANALYSIS00000NYC", "run_at": "2026-06-12T00:55:00.000Z"}),
             None,
         )
         .await
@@ -917,6 +919,17 @@ async fn cognition_serves_seeded_beliefs_and_scopes(pool: sqlx::PgPool) {
         "the model's persisted reasoning surfaces: {j}"
     );
     assert_eq!(rows[0]["provenance"]["cost_cents"], 12);
+    // §20.3: the LABELED provenance summary surfaces the key fields (which persona/
+    // model/analysis/cost drove the belief) for legible rendering — the whole
+    // provenance is still served alongside (above).
+    assert_eq!(rows[0]["prov"]["model_id"], "claude-fable-5", "{j}");
+    assert_eq!(rows[0]["prov"]["cost_cents"], 12);
+    assert_eq!(
+        rows[0]["prov"]["persona_id"], "meteorologist",
+        "the persona that produced the belief is surfaced: {j}"
+    );
+    assert_eq!(rows[0]["prov"]["persona_version"], 3);
+    assert_eq!(rows[0]["prov"]["analysis_id"], "01J0ANALYSIS00000NYC");
     let scopes = j["calibration_scopes"]["rows"].as_array().unwrap();
     assert_eq!(scopes.len(), 1, "one distinct scope: {j}");
     assert_eq!(scopes[0]["version"], 2, "max version wins: {j}");
