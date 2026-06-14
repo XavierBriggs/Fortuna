@@ -390,6 +390,10 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       waive-or-subtask call; M3 (rearm CLI/ROTA notices) is track-B. Details in
       the GAPS "T4.1 completion gate" entry.
 - [ ] T4.2 POST-FIXTURE tranche (blocked on the operator recording session):
+      ✅ STATUS 2026-06-14 (verifier de-stale): core slices (i)–(v) DONE and the live
+      e2e RUN this session; box stays open ONLY for (a) operator trade-through /
+      multi-market FIXTURE recapture (busy-market recording) + (b) the small G2
+      exchange-status DTO — every other slice is complete.
       Kalshi WS dial (signed handshake, keep-alive, redial w/ resubscribe-on-gap),
       venue-generic recorded-stream replay into PaperVenue under both mech
       strategies, kalshi adapter paper/live clearance vs fixtures, kill-switch
@@ -412,12 +416,19 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       (iv) kill-switch Kalshi freeze MACHINERY proven (4e3a484, mock; i4
       invariant green) + LIVE `freeze --venue kalshi` wiring DONE (7f69b81,
       fail-closed env creds + self-spun tokio runtime; i4 invariant still green;
-      9 fail-closed tests) — only the operator-run live EXERCISE remains; (v)
+      9 fail-closed tests) — operator-run live EXERCISE DONE 2026-06-14 (verifier ran
+      the live e2e vs the Kalshi demo under operator override: signed WS handshake +
+      fixture recording + `freeze --venue kalshi`); (v)
       Slack listener A1 decision logic DONE (ca5082d, socket.rs 14 tests; I2
       refusal airtight) + A2 ack-first envelope loop DONE (f52ee66,
       socket_loop.rs 12 tests; dedup/reconnect/cancel, mirrors the WS dial) —
       only B (daemon-wiring/WSS/token, operator-gated) pending.
 - [ ] T4.3 ROTA — the operator dashboard (operator-directed 2026-06-11; design
+      ✅ STATUS 2026-06-14 (verifier de-stale): TRACK work COMPLETE — all 9 slices
+      (router/shell, views_from, mount, streams scan, audit pool, rejections,
+      money SIM subset, cognition view + R7 queries, Phase-3 presentation + logo).
+      Box stays open ONLY for the operator §5 full money model (re-scoped → T4.5)
+      + the R12 manual browser pass. The dashboard renders live daemon data today.
       AUTHORITATIVE at docs/design/rota-dashboard.md INCLUDING its amendments
       section): read-only gold/black operator console — server-rendered Rust
       shell (NO SPA, no Node toolchain) + versioned /api/rota/v1 JSON views +
@@ -532,6 +543,11 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       Verifier gate pending as with every batch.
 
 - [ ] T4.5 ROTA v1.1 — deferred panels (RESTORED 2026-06-13; the original
+      ✅ STATUS 2026-06-14 (verifier de-stale): the buildable surface is COMPLETE
+      (recent-rejections + watchdog + verdict badge + discovery-edges joins, all
+      verifier-gated). Box stays open ONLY for operator-BLOCKED items: (c) WS
+      gap/resync counters (need the operator-run live dial wired into drive()) +
+      (d) the full §5 money model (operator/design call).
       entry was lost in the perps merge-revert churn — completion-audit
       finding). Scope: the two ledger queries (shadow cross-join for triage
       recall/precision; Tradability/Edges discovery join) + their panels;
@@ -567,7 +583,7 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       code-reviewer-clean; full battery green. So the buildable T4.5 surface is now (e)+
       (e)+(b)+(a); only (c) WS counters + (d) full money model remain (operator-BLOCKED).
 
-- [ ] T4.6 ROTA TOTAL OBSERVABILITY (mission 2; track B re-missioned 2026-06-13)
+- [x] T4.6 ROTA TOTAL OBSERVABILITY (mission 2; track B re-missioned 2026-06-13) — ✅ DONE: all 13 sub-boards built + screenshot-verified (the only open item in its range was this parent box). Ticked 2026-06-14 (verifier de-stale).
       — the operator single pane of glass consuming the C/D/E observability
       contracts. Authoritative tracker (board matrix + changelog):
       docs/design/rota-observability.md; sequenced queue + cross-track data-seam
@@ -882,8 +898,11 @@ code.
       5 new tests, all 8 drive() smokes at the 15-arg sig. Inert-producer finding
       CLOSED. Remaining for T5.B7: live wt-c daemon-run proof + perp_event_basis
       live-market catalog (folded into the Kalshi demo-flip).
-- [ ] T5.B8 Ops: kill-switch perps flatten (reduce_only IOC + cancel-all),
+- [x] T5.B8 Ops: kill-switch perps flatten (reduce_only IOC + cancel-all),
       margin/funding telemetry, funding-regime dashboard panel.
+      ✅ DONE — landed per the Phase-5 EXIT ("T5.B8 ops landed: kill-switch perps
+      flatten, margin/funding telemetry, ROTA panel"). Live perps TRADING is the
+      separate I7-ladder/operator scope, not T5.B8. Ticked 2026-06-14 (verifier de-stale).
 
 PHASE 5 EXIT (written 2026-06-13, completion-audit finding — no EXIT existed):
 the perps plane merged to main gate-clean (re-merge package: client-id test
@@ -1287,7 +1306,7 @@ ROTA views (§14/§20) + persona telemetry (§19) are operator-requested detaile
       -p fortuna-sources -p fortuna-live --all-targets -D warnings + test
       -p fortuna-sources 119+5 + test -p fortuna-live --lib ingestion 7/7;
       daemon_smoke unaffected = verifier's merge gate.) [7a9e28d]
-- [ ] OBS-2c ROTA read wiring (track-B-coordinated): track B adds an
+- [x] OBS-2c ROTA read wiring (track-B-coordinated) — ✅ DONE: the deferred read-wiring landed under T4.6 (the V1/V2/V3 ingestion boards render LIVE daemon data). Ticked 2026-06-14 (verifier de-stale). Original spec: track B adds an
       `ingestion: Option<IngestionTelemetryHandle>` reader to `RotaState`
       (fortuna-ops) + the V1/V2/V3 boards project it; main.rs passes
       `ingest_telemetry.clone()` into the dashboard state. Deferred to land WITH
