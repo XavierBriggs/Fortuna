@@ -15,6 +15,25 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-14, cont'd — verifier loop pass)
 
+- **✅ TRACK C — slice-3b-v2 §3.3 A3+A9 FAIR-PROB KERNEL MERGED → main @0f49430 = GATE ACCEPT.**
+  `fortuna_cognition::basis_v2` (826 lines, pure): `lognormal_cdf` (Φ via A&S 7.1.26 erf, rigorous
+  None-screen of every non-finite/≤0 input), `bracket_fair_probs` (A3 q_j: `Between→F(cap)−F(floor)`,
+  `Greater→1−F(floor)`, `Less→F(cap)`), `validate_ladder_no_arb` (A9: implied-CDF monotone + YES-sum≈1).
+  - **The A3 no-circularity invariant holds + is mutation-proven:** q_j reads ONLY `kind` (the strikes),
+    NEVER `BracketBin::prob` — pricing a ladder off its own implied prob is forbidden-circular. The
+    caller supplies `anchor` (A6 BRTI ref, NOT the perp mark) and `sigma` (A5); the kernel invents
+    neither. All-or-nothing degradation (any None → empty ladder; never half-priced). A9 honestly scopes
+    the crossed-quote/free-lock check OUT to the strategy layer (the kernel sees only mids).
+  - BATTERY (merged tree): fmt + full workspace test **1633/0** + clippy `--workspace -D warnings` + DST
+    5 corpus + 2000 seeds 0 violations + invariants UNTOUCHED. MUTATION-PROVEN: q_j `f_cap−f_floor`→`+`
+    reds sum-to-1; A9 monotonicity never-trip reds the non-monotone test. Pure, **proposes nothing**
+    (I6/I7 vacuous); f64 forecast-domain only, no money, no panic/unwrap, no SystemTime.
+  - **🔶 6 OPERATOR DESIGN-CALLS (track-C ledgered in GAPS — the strategy WIRING, NOT kernel blockers):**
+    DC-1 σ source (A5 realized-vol×√τ — no feed yet), DC-4 bracket settlement τ (not on PerpTick),
+    DC-5 no-arb tolerance + where the crossed-lock lives, DC-6 informativeness weights/stale-ages
+    (A7/A6), + DC-2/DC-3 (anchor source, EV gate A4/A8). Same shape as the A2d-slice-3 data blocker:
+    the kernel is correct + tested; trading it needs real data sources/config the operator must wire.
+
 - **✅ TRACK A — F7 VENUE HALF (Aeolus↔Kalshi bucket matcher) MERGED → main @800b3a8 = GATE ACCEPT.
   CLOSES the Track-A GATE-AHEAD in the track-E entry below — the off-by-one derivation is now proven.**
   `fortuna_live::aeolus_venue`: `station_series` (GROUNDED — only `KNYC+tmax→KXHIGHNY`, every other
@@ -149,8 +168,9 @@ ledger their responses in GAPS, never edit this file.
     estimate-RW, persistence-RW}, mutation-proven, DATA-ONLY/no-auto-promotion I7). NEXT: A2d
     SLICE 3 — **UNBLOCKED** (realized-funding source FOUND + fixture-backed; see the A2d-slice-3
     DATA SOURCE entry at the top of LATEST): build the `funding_rates_historical` capture, then wire
-    belief_scores + the resolve/score loop → A3+A6 (per-bracket q_j on BRTI) → A9 → A5 → A4+A8 → A7.
-    (A3+A6 is INDEPENDENT of slice-3's data feed — track-C may run it in parallel.)**
+    belief_scores + the resolve/score loop. **§3.3 basis-v2: A3 q_j kernel ✓ + A9 no-arb kernel ✓
+    (@0f49430, pure + mutation-proven).** REMAINING = the WIRING (A6 anchor source, A5 σ source, A4+A8
+    EV gate, A7 informativeness) = track-C's 6 OPERATOR DESIGN-CALLS in GAPS + the A2d funding capture.**
 
 - **🎉✅ TRACK C DEMO-FLIP (Phase 1+2) + triage follow-ons MERGED → main @ 0586bab (+ docs @b3aef5f)
   = GATE ACCEPT. RESOLVES the demo-flip BLOCK below.** fortuna-live can now compose a Kalshi DEMO
