@@ -792,6 +792,28 @@ unit tests could not catch (the live socket round-trip was the one untested seam
   venue=kalshi un-refuse) and live order/exec round-trips. This exercise was demo
   market-data only.
 
+## TRACK A — DAILY BELIEF RESOLUTION WIRED into drive() — weather+funding loop CLOSED (operator handoff "fire the resolver", 2026-06-14)
+
+The standalone resolvers (`resolve_and_score_weather_beliefs` — Track E; `resolve_and_score_funding_beliefs` —
+Track C) are now FIRED by `drive()` on the UTC-day boundary (alongside the digest + reconciliation), via a new
+opt-in `resolution_pool: Option<PgPool>` (main `Some(pool)`; smokes `None` ⇒ byte-identical, fail-closed). Both
+run each day; off the money path (ledger-only); alert-and-continue on failure (never crashes the boundary);
+idempotent (set-once resolve + score dedup). Disjoint `01BSC…` score-id bases via distinct 2^56 high tags on the
+UTC-day epoch base (`WEATHER_SCORE_BASE_TAG`/`FUNDING_SCORE_BASE_TAG`) — no PK collision, proven by an e2e where
+ONE boundary tick resolves weather brackets+scalar AND a funding belief. Full battery green (fmt + clippy + test
+--workspace + run-dst 200, zero violations).
+
+NOTES / ledgered:
+- POOL GATE: resolution runs when `resolution_pool` is `Some` (main wires it unconditionally). Chose a DEDICATED
+  param (not riding reconciliation's pool) so every existing smoke stays byte-identical (`None`) and resolution
+  is decoupled from the reconciliation mind.
+- BUILD/TEST QUIRK (operational): `cargo test --workspace -- --test-threads=N` BREAKS the `fortuna-core --test dst`
+  target — it's a CUSTOM harness (`usage: dst [--seeds N] [--replay-seed S]`), NOT libtest, so it rejects
+  `--test-threads`. Run DST via `scripts/run-dst.sh` (canonical) or bare `cargo test -p fortuna-core --test dst`.
+  (This was the real cause of the earlier "dst flake" — an arg error, never a concurrency/invariant problem.)
+- FUNDING-BOUNDARY coverage rides the same e2e (a due KXBCHPERP belief resolves on the same tick); the resolver's
+  own resolve→score+idempotency is also pinned by tests/resolve_and_score.rs.
+
 ## TRACK A — F7 LIVE PLUG-IN SLICE 3 DONE: station→series map grounded for every Kalshi temp city (operator "every other station", 2026-06-14)
 
 `station_series` extended from KNYC-only to every grading station the RECORDED Kalshi rules name

@@ -1200,6 +1200,16 @@ scheduler is shared with D9). The skill/persona layer is a separate session
       (pure), F8 stamps `nws_station_id`, `BeliefsRepo::open_aeolus_weather_due`. Verified 8 unit +
       2 ledger + 4 live + upgraded e2e (real grader); full battery + DST green. Seams (NYC CLI
       fixture, multi-station, CLV, drive() wiring) ledgered in GAPS.
+- [x] ✅ DONE (track-A) — the `drive()` daily-boundary WIRING that fires the above. On the UTC-day
+      boundary (alongside the digest + reconciliation), `drive()` now calls
+      `resolve_and_score_weather_beliefs` AND `resolve_and_score_funding_beliefs` via a new opt-in
+      `resolution_pool: Option<PgPool>` (Some in main; None in smokes ⇒ byte-identical). Disjoint
+      `01BSC…` score-id bases (distinct 2^56 high tags on the UTC-day epoch base). Alert-and-continue
+      on failure (never crashes the boundary); idempotent (set-once resolve + score dedup). e2e
+      `drive_resolves_due_weather_and_funding_beliefs_on_the_daily_boundary`: one tick resolves the
+      recorded weather brackets+scalar AND a due funding belief (disjoint bases, no PK collision);
+      second tick is a no-op. Full battery green (fmt + clippy + test --workspace + run-dst 200). The
+      weather calibration loop is CLOSED end-to-end.
 
 ### Track D — ingestion observability (data surface; contract: docs/design/ingestion-observability-contract.md §2)
 

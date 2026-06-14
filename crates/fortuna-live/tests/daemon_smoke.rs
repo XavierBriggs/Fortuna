@@ -180,6 +180,7 @@ async fn daemon_smoke_boot_ticks_signal_shutdown(pool: PgPool) {
         None, // slice-4e: no perp feed in this smoke
         None, // [personas]: none in this smoke
         None, // [discovery]: none in this smoke
+        None, // resolution_pool: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -286,6 +287,7 @@ async fn signal_with_working_orders_cancels_them_and_audits(pool: PgPool) {
         None, // slice-4e: no perp feed in this smoke
         None, // [personas]: none in this smoke
         None, // [discovery]: none in this smoke
+        None, // resolution_pool: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -517,6 +519,7 @@ async fn per_segment_refresh_picks_up_a_newly_confirmed_edge(pool: PgPool) {
         None, // slice-4e: no perp feed in this smoke
         None, // [personas]: none in this smoke
         None, // [discovery]: none in this smoke
+        None, // resolution_pool: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -659,6 +662,7 @@ async fn refresh_failure_keeps_last_known_edges_alerts_and_survives(pool: PgPool
         None, // slice-4e: no perp feed in this smoke
         None, // [personas]: none in this smoke
         None, // [discovery]: none in this smoke
+        None, // resolution_pool: none in this smoke
     )
     .await
     .expect("the loop must SURVIVE a failing refresh");
@@ -1136,6 +1140,7 @@ async fn drive_drains_and_persists_the_synthesis_arms_beliefs(pool: PgPool) {
         None, // slice-4e: no perp feed in this smoke
         None, // [personas]: none in this smoke
         None, // [discovery]: none in this smoke
+        None, // resolution_pool: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -1241,6 +1246,7 @@ async fn drive_drains_and_persists_funding_forecast_scalar_beliefs(pool: PgPool)
         Some(feed),         // slice-4e: recorded PerpTicks so the producer fires
         None,               // [personas]: none in this smoke
         None,               // [discovery]: none in this smoke
+        None,               // resolution_pool: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -1501,6 +1507,7 @@ async fn drive_runs_daily_reconciliation_at_the_utc_day_boundary(pool: PgPool) {
         None, // slice-4e: no perp feed in this e2e
         None, // [personas]: none in this e2e
         None, // [discovery]: none in this e2e
+        None, // resolution_pool: none in this e2e
     )
     .await
     .expect("daemon drive");
@@ -1732,6 +1739,7 @@ async fn drive_runs_the_weekly_review_at_the_week_boundary(pool: PgPool) {
         None,    // slice-4e: no perp feed in this smoke
         None,    // [personas]: none in this smoke
         None,    // [discovery]: none in this smoke
+        None,    // resolution_pool: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -1898,6 +1906,7 @@ async fn drive_runs_the_monthly_review_at_the_month_boundary(pool: PgPool) {
         None,    // slice-4e: no perp feed in this smoke
         None,    // [personas]: none in this smoke
         None,    // [discovery]: none in this smoke
+        None,    // resolution_pool: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -2109,6 +2118,7 @@ async fn drive_persists_persona_analysis_and_beliefs_when_wired(pool: PgPool) {
         // MUTATION PROOF: flip this to `None` and domain_analyses stays 0 => RED.
         Some(wiring), // [personas]: the wiring under test
         None,         // [discovery]: none in this persona e2e
+        None,         // resolution_pool: none in this persona e2e
     )
     .await
     .expect("daemon drive");
@@ -2359,6 +2369,7 @@ async fn discovery_world_forward_persists_watchlist_events_and_beliefs(pool: PgP
         None, // [personas]: none in this discovery e2e
         // MUTATION PROOF: flip this to `None` and watch events + beliefs stay 0 => RED.
         Some(wiring), // [discovery]: the wiring under test
+        None,         // resolution_pool: not exercised by the world-forward e2e
     )
     .await
     .expect("daemon drive");
@@ -2599,6 +2610,7 @@ async fn discovery_market_back_auto_confirms_and_synthesis_drafts_a_belief(pool:
         // MUTATION PROOF: flip this to `None` and the event + edge + synthesis belief
         // all stay 0 => RED (no discovery means no edge to believe against).
         Some(wiring),
+        None, // resolution_pool: not exercised here
     )
     .await
     .expect("daemon drive");
@@ -2797,6 +2809,7 @@ async fn drive_with_discovery(
         None, // perp feed
         None, // [personas]
         Some(wiring),
+        None, // resolution_pool: not exercised here
     )
     .await
     .expect("daemon drive");
@@ -3063,5 +3076,363 @@ async fn drive_weather_plugin_skips_a_settled_day_set(pool: PgPool) {
     assert_eq!(
         beliefs, 0,
         "a settled day-set yields no beliefs (got {beliefs})"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// DAILY BELIEF RESOLUTION (the close-the-loop wiring) — drive() fires the
+// weather + funding resolvers on the UTC-day boundary.
+//
+// Proves the wiring is load-bearing: with due open Aeolus weather beliefs + the
+// recorded NWS-CLI signal present, ONE daily boundary tick (resolution_pool
+// wired) resolves+scores them; a SECOND boundary tick is a clean no-op
+// (idempotent — the resolver excludes already-resolved beliefs and writes no
+// duplicate score). The funding resolver is wired in the SAME block and is
+// invoked on the same tick (here a harmless 0 — no funding beliefs seeded);
+// its end-to-end resolve→score is pinned by tests/resolve_and_score.rs.
+//
+// Recorded data (honesty): the μ/σ probabilities are the recorded knyc_tmax
+// forecast; the realized high (91°F) is graded from the recorded Troutdale NWS
+// CLI product (AWIPS CLITTD). The forecast is routed to grading station "TTD"
+// so the recorded product grades it — the same recorded-forecast × recorded-CLI
+// pairing weather_resolve.rs uses. Nothing fabricated.
+// ---------------------------------------------------------------------------
+
+const RESOLVE_KNYC_TMAX: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../fixtures/sources/aeolus/knyc_tmax.json"
+));
+const RESOLVE_TROUTDALE_CLI: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../fixtures/sources/nws_climate/cli_product_troutdale.json"
+));
+/// The forecast horizon (settles_after); the drive starts strictly after it.
+const RESOLVE_HORIZON: &str = "2026-06-14T10:00:00.000Z";
+const RESOLVE_TARGET_DATE: &str = "2026-06-13";
+
+/// Seed the recorded knyc forecast's beliefs (binary brackets + 1 scalar) as
+/// OPEN+DUE, routed to grading station "TTD" (so the recorded Troutdale CLI
+/// grades them). Returns the binary bracket count.
+async fn seed_open_weather_beliefs(pool: &PgPool) -> usize {
+    use fortuna_cognition::aeolus_beliefs::emit_aeolus_beliefs;
+    use fortuna_cognition::aeolus_forecast::parse_response;
+    use fortuna_cognition::scoring::PredictiveDistribution;
+    use fortuna_ledger::{BeliefsRepo, EventsRepo, ScalarBeliefsRepo};
+    use serde_json::json;
+
+    let fc = parse_response(RESOLVE_KNYC_TMAX).expect("recorded forecast parses")[0].clone();
+    let beliefs = emit_aeolus_beliefs(&fc);
+    let prov = json!({
+        "model_id": "aeolus",
+        "station": "KNYC",
+        "nws_station_id": "TTD", // routes to the recorded Troutdale CLI
+        "variable": "tmax",
+        "target_date": RESOLVE_TARGET_DATE,
+        "run_at": "2026-06-13T00:00:00.000Z",
+        "model_version": "sar-semos-v1",
+    });
+    let events = EventsRepo::new(pool.clone());
+    let beliefs_repo = BeliefsRepo::new(pool.clone());
+    for (i, draft) in beliefs.binary.iter().enumerate() {
+        events
+            .create(
+                &draft.event_id,
+                "aeolus weather bracket",
+                "official NWS daily maximum",
+                "nws_observed_high",
+                Some(RESOLVE_HORIZON),
+                RESOLVE_HORIZON,
+                "weather",
+                "2026-06-13T01:00:00.000Z",
+            )
+            .await
+            .unwrap();
+        beliefs_repo
+            .insert(
+                &format!("wxd-bin-{i}"),
+                "2026-06-13T01:00:00.000Z",
+                &draft.event_id,
+                draft.p,
+                draft.p_raw,
+                RESOLVE_HORIZON,
+                &draft.evidence,
+                &prov,
+                None,
+            )
+            .await
+            .unwrap();
+    }
+    let quantiles = match &beliefs.scalar.predictive {
+        PredictiveDistribution::Scalar { quantiles, .. } => {
+            serde_json::to_value(quantiles).unwrap()
+        }
+        _ => unreachable!("F8 scalar is a Scalar predictive"),
+    };
+    ScalarBeliefsRepo::new(pool.clone())
+        .insert(
+            "wxd-scalar-0",
+            "aeolus",
+            &beliefs.scalar.event_key,
+            &quantiles,
+            "degF",
+            RESOLVE_HORIZON,
+            &prov,
+            "2026-06-13T01:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    beliefs.binary.len()
+}
+
+async fn insert_resolve_cli_signal(pool: &PgPool) {
+    use serde_json::json;
+    let v: serde_json::Value = serde_json::from_str(RESOLVE_TROUTDALE_CLI).unwrap();
+    let text = v["productText"].as_str().unwrap();
+    fortuna_ledger::SignalsRepo::new(pool.clone())
+        .insert(
+            "cli-ttd-drive",
+            "nws_cli",
+            "nws.cli",
+            "2026-06-14T11:00:00.000Z",
+            "cli-ttd-drive",
+            &json!({ "productText": text }),
+        )
+        .await
+        .unwrap();
+}
+
+/// One drive() across a single UTC-day boundary with the resolution pool wired
+/// (fresh DailyScheduler ⇒ the boundary fires on boot). All other opt-in params
+/// off. The runner's clock starts after the beliefs' horizon, so they are due.
+async fn drive_one_boundary_with_resolution(
+    runner: &mut fortuna_live::daemon::ActiveRunner,
+    pool: &PgPool,
+) {
+    let (tx, mut stop) = tokio::sync::oneshot::channel::<()>();
+    let mut cadence = StopAtCadence {
+        clock: runner.clock().clone(),
+        sleeps: 0,
+        fire_at: 6,
+        tx: Some(tx),
+    };
+    let mut poller = NeverHalted;
+    let loop_cfg = LoopConfig {
+        tick_interval_ms: 1000,
+        halt_poll_ms: 500,
+    };
+    let mut scrape = DegradeScrape::new(default_degrade_thresholds());
+    let mut daily = fortuna_live::daemon::DailyScheduler::new();
+    let (_stats, _shutdown) = drive(
+        runner,
+        &mut cadence,
+        &mut poller,
+        &loop_cfg,
+        4,
+        &mut stop,
+        |_r, _s| {},
+        &mut scrape,
+        None,
+        &mut daily,
+        None, // synthesis_refresh
+        None, // scalar persist
+        None, // reconciliation
+        None, // reviews
+        None, // perp feed
+        None, // [personas]
+        None, // [discovery]
+        Some(pool.clone()),
+    )
+    .await
+    .expect("daemon drive");
+}
+
+// Funding fixture (real public capture, KXBCHPERP) mirrored from
+// tests/resolve_and_score.rs, used to seed ONE due funding belief so the SAME
+// boundary tick resolves weather AND funding — proving the two resolvers' DISJOINT
+// `01BSC…` score-id bases coexist on one day without a PK collision.
+const FUND_MARKET: &str = "KXBCHPERP";
+const FUND_TIME: &str = "2026-06-11T04:00:00Z"; // past the drive start ⇒ due
+const FUND_REALIZED: f64 = -0.000_397_137_868_728_9;
+const FUND_PRIOR_TIME: &str = "2026-06-10T20:00:00Z";
+const FUND_PRIOR_REALIZED: f64 = -0.000_179_146_600_442_7;
+
+/// Seed one unresolved+due funding_forecast belief + its realized (and prior)
+/// rates, so the daily boundary's funding resolver resolves + scores it.
+async fn seed_open_funding_belief(pool: &PgPool) {
+    use fortuna_ledger::{FundingRatesHistoricalRepo, ScalarBeliefsRepo};
+    use serde_json::json;
+    let canon = |iso: &str| {
+        fortuna_core::clock::UtcTimestamp::parse_iso8601(iso)
+            .unwrap()
+            .to_iso8601()
+    };
+    let funding = FundingRatesHistoricalRepo::new(pool.clone());
+    funding
+        .insert(
+            FUND_MARKET,
+            &canon(FUND_TIME),
+            FUND_REALIZED,
+            "2.0115",
+            &canon(FUND_TIME),
+        )
+        .await
+        .unwrap();
+    funding
+        .insert(
+            FUND_MARKET,
+            &canon(FUND_PRIOR_TIME),
+            FUND_PRIOR_REALIZED,
+            "1.9540",
+            &canon(FUND_PRIOR_TIME),
+        )
+        .await
+        .unwrap();
+    // A seven-quantile fan v(q)=center+Zq·band (band>0 ⇒ non-crossing), the shape
+    // the live producer emits.
+    let zqs = [
+        (0.05, -1.645),
+        (0.10, -1.282),
+        (0.25, -0.674),
+        (0.50, 0.0),
+        (0.75, 0.674),
+        (0.90, 1.282),
+        (0.95, 1.645),
+    ];
+    let fan: Vec<serde_json::Value> = zqs
+        .iter()
+        .map(|&(q, z)| json!({"q": q, "v": -0.000_30 + z * 0.000_20}))
+        .collect();
+    let horizon = canon(FUND_TIME);
+    ScalarBeliefsRepo::new(pool.clone())
+        .insert(
+            "sb-due-drive",
+            "funding_forecast",
+            &format!("{FUND_MARKET}:{horizon}"),
+            &serde_json::Value::Array(fan),
+            "rate",
+            &horizon,
+            &json!({"strategy": "funding_forecast"}),
+            "2026-06-11T03:00:00.000Z",
+        )
+        .await
+        .unwrap();
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn drive_resolves_due_weather_and_funding_beliefs_on_the_daily_boundary(pool: PgPool) {
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let dcfg = DaemonToml::parse(&text).expect("example parses");
+    let full = FortunaConfig::load_file(example_path).expect("example full-config parses");
+    // Start the clock AFTER the beliefs' horizon so the boot daily boundary finds
+    // them due (mirrors weather_resolve.rs's now()).
+    let start =
+        fortuna_core::clock::UtcTimestamp::parse_iso8601("2026-06-15T00:00:00.000Z").unwrap();
+    let runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        start,
+        91,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .expect("composition");
+    arb_books(&runner);
+
+    let n_brackets = seed_open_weather_beliefs(&pool).await;
+    assert!(n_brackets > 0, "recorded forecast yields binary brackets");
+    insert_resolve_cli_signal(&pool).await;
+    // ALSO seed one due funding belief: the SAME boundary tick must resolve it
+    // too — proving the funding resolver is wired AND that the two resolvers'
+    // disjoint `01BSC…` score-id bases coexist on one day (no PK collision).
+    seed_open_funding_belief(&pool).await;
+
+    // Nothing resolved or scored before the drive.
+    let resolved_before: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM beliefs WHERE status = 'resolved' AND event_id LIKE 'aeolus:%'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        resolved_before, 0,
+        "no weather beliefs resolved before drive"
+    );
+
+    let mut runner = fortuna_live::daemon::ActiveRunner::Sim(runner);
+    drive_one_boundary_with_resolution(&mut runner, &pool).await;
+
+    // The daily boundary fired the weather resolver: the brackets are resolved
+    // (graded against the recorded 91°F) and scored.
+    let resolved_after: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM beliefs WHERE status = 'resolved' AND event_id LIKE 'aeolus:%'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        resolved_after, n_brackets as i64,
+        "drive() resolved every due weather bracket on the boundary (got {resolved_after})"
+    );
+    let scores_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM belief_scores")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(
+        scores_after > 0,
+        "scores written (brier per bracket + scalar CRPS)"
+    );
+    // The scalar μ/σ belief resolved too (realized_value set to the graded high).
+    let scalar_resolved: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM scalar_beliefs WHERE belief_id = 'wxd-scalar-0' AND realized_value IS NOT NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        scalar_resolved, 1,
+        "the scalar weather belief resolved against the grade"
+    );
+
+    // The SAME boundary tick also fired the FUNDING resolver: the due funding
+    // belief resolved (realized_value set) and got its five score legs. Both
+    // resolvers wrote `01BSC…` scores on the same day with NO PK collision —
+    // the disjoint base scheme works.
+    let funding_resolved: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM scalar_beliefs WHERE belief_id = 'sb-due-drive' AND realized_value IS NOT NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        funding_resolved, 1,
+        "drive() resolved the due funding belief on the same boundary tick"
+    );
+    let funding_score_legs: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM belief_scores WHERE belief_id = 'sb-due-drive'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        funding_score_legs, 5,
+        "the funding belief got its five score legs (crps + 4 baselines), no PK collision with weather"
+    );
+
+    // IDEMPOTENT: a SECOND boundary tick (fresh DailyScheduler) re-runs the
+    // resolver, which finds nothing open-and-due ⇒ resolves 0, writes no
+    // duplicate score.
+    drive_one_boundary_with_resolution(&mut runner, &pool).await;
+    let scores_after_second: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM belief_scores")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        scores_after_second, scores_after,
+        "second boundary tick is a no-op — no duplicate scores (idempotent)"
     );
 }

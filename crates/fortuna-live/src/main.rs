@@ -519,7 +519,8 @@ async fn main() -> Result<()> {
     } else {
         None
     };
-    let mut poller = PgHaltPoller::new(pool);
+    // Clone (not move) so `pool` survives for the daily belief-resolution arg below.
+    let mut poller = PgHaltPoller::new(pool.clone());
     let loop_cfg = LoopConfig {
         tick_interval_ms: dcfg.daemon.tick_interval_ms,
         halt_poll_ms: dcfg.daemon.halt_poll_ms,
@@ -638,6 +639,10 @@ async fn main() -> Result<()> {
         perp_tick_feed,
         personas_wiring,
         discovery_wiring,
+        // Daily belief resolution: settled weather + funding beliefs graded once
+        // per UTC day against the NWS-CLI / realized-funding ledger (off the money
+        // path). The one ledger pool; the resolvers self-skip a day with nothing due.
+        Some(pool.clone()),
     )
     .await
     .context("daemon loop")?;

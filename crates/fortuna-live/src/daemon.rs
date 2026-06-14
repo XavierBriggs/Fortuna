@@ -1367,6 +1367,14 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     // to beliefs); `None` => the step never runs (the daemon is byte-identical to
     // today — fail closed). `mut` because `budget` mutates in place across segments.
     mut discovery: Option<DiscoveryWiring>,
+    // OPT-IN daily belief RESOLUTION pool (off the money path; ledger-only). `Some`
+    // => on the UTC-day boundary, alongside the digest + reconciliation, the daemon
+    // resolves+scores settled WEATHER beliefs (against the NWS-CLI grade) and
+    // settled FUNDING beliefs (against realized funding) — closing the calibration
+    // loop. `None` => no resolution runs (the daemon is byte-identical — fail
+    // closed). main wires `Some(pool)`; smokes that do not exercise it pass `None`.
+    // A failure ALERTS and continues (never crashes the boundary), like reconciliation.
+    resolution_pool: Option<PgPool>,
 ) -> Result<(LoopStats, fortuna_runner::ShutdownReport), DaemonError> {
     let mut total = LoopStats::default();
     // Dedup state OWNED ACROSS SEGMENTS (gate finding 2026-06-11: keeping
@@ -2498,6 +2506,88 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                         .await;
                 }
             }
+            // Daily belief RESOLUTION (off the money path; ledger-only — reads
+            // settled beliefs, writes scores/resolutions). Rides the SAME UTC-day
+            // boundary as the digest + reconciliation. Each resolver returns the
+            // count it resolved and is IDEMPOTENT (set-once resolve + score-row
+            // dedup), so a re-run is a clean no-op and a day with nothing due
+            // writes NOTHING (returns 0 — the additive-and-inert property). The
+            // two share the `01BSC…` score-id space, so they take DISJOINT bases
+            // (distinct high tags on the UTC-day epoch base; see
+            // WEATHER/FUNDING_SCORE_BASE_TAG). A failure ALERTS and continues —
+            // never crashes the boundary (matching reconciliation). NO orders, no
+            // gates: the model never sized/timed/routed any of this (I6).
+            if let Some(rpool) = resolution_pool.as_ref() {
+                let day_base = now.epoch_millis().max(0) as u64;
+                // Weather: settled Aeolus brackets + μ/σ beliefs vs the NWS-CLI grade.
+                match resolve_and_score_weather_beliefs(
+                    rpool,
+                    now,
+                    WEATHER_SCORE_BASE_TAG + day_base,
+                )
+                .await
+                {
+                    Ok(n) if n > 0 => {
+                        total_send_failures += runner
+                            .route_alerts(
+                                slack,
+                                &[(
+                                    fortuna_ops::MessageKind::Digest,
+                                    format!(
+                                        "weather belief resolution: {n} graded against NWS-CLI"
+                                    ),
+                                )],
+                            )
+                            .await;
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        total_send_failures += runner
+                            .route_alerts(
+                                slack,
+                                &[(
+                                    fortuna_ops::MessageKind::Ops,
+                                    format!("weather belief resolution FAILED: {e}"),
+                                )],
+                            )
+                            .await;
+                    }
+                }
+                // Funding: settled funding_forecast beliefs vs realized funding.
+                match resolve_and_score_funding_beliefs(
+                    rpool,
+                    now,
+                    FUNDING_SCORE_BASE_TAG + day_base,
+                )
+                .await
+                {
+                    Ok(n) if n > 0 => {
+                        total_send_failures += runner
+                            .route_alerts(
+                                slack,
+                                &[(
+                                    fortuna_ops::MessageKind::Digest,
+                                    format!(
+                                        "funding belief resolution: {n} scored against realized funding"
+                                    ),
+                                )],
+                            )
+                            .await;
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        total_send_failures += runner
+                            .route_alerts(
+                                slack,
+                                &[(
+                                    fortuna_ops::MessageKind::Ops,
+                                    format!("funding belief resolution FAILED: {e}"),
+                                )],
+                            )
+                            .await;
+                    }
+                }
+            }
         }
 
         // T4.1/M2 (spec 5.8 weekly review): on the WEEK boundary (a SEPARATE
@@ -2860,6 +2950,17 @@ const Z90: f64 = 1.282;
 /// A sane cap on the resolve/score batch per call (design §9.1: the loop drains
 /// in bounded chunks; whatever is still due is picked up by the next run).
 const RESOLVE_BATCH_CAP: i64 = 256;
+
+/// Per-day score-id base TAGS for the two daily belief resolvers. Both
+/// resolvers mint `01BSC…` score-row PKs from a caller-supplied `score_id_base`,
+/// so on a shared day their id runs MUST be disjoint. Each resolver adds a
+/// distinct high tag to the UTC-day epoch-ms base (`now.epoch_millis()`); the
+/// 2^56 gap between the tags dwarfs BOTH the per-day offset
+/// (≤ `RESOLVE_BATCH_CAP` × the few score legs per belief) AND ~1000 years of
+/// epoch drift, so the weather and funding `01BSC` runs can never overlap — on
+/// the same day or across days. (The daily epoch base separates day-over-day.)
+const WEATHER_SCORE_BASE_TAG: u64 = 1 << 56;
+const FUNDING_SCORE_BASE_TAG: u64 = 1 << 57;
 
 /// Resolve + score every DUE, capturable `funding_forecast` scalar belief
 /// (design §2.6 A2d + §9.1; the SLICE-3-part-3 standalone — NOT yet wired into

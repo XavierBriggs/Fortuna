@@ -509,6 +509,31 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-14 — Daily belief resolution wired into drive() — the weather (+ funding) calibration loop is CLOSED
+
+**Changed (`fortuna-live`, additive opt-in).** Track E shipped the standalone `resolve_and_score_weather_beliefs`
+(and Track C the `resolve_and_score_funding_beliefs`) but left the `drive()` trigger to Track A. This wires it:
+on the UTC-day boundary (alongside the digest + reconciliation), `drive()` now fires BOTH resolvers, so every
+settled Aeolus weather belief is graded against the real NWS-CLI temperature — and every settled funding belief
+against realized funding — once a day, automatically.
+- **`drive()` daily-boundary step** (off the money path; ledger-only — reads settled beliefs, writes
+  scores/resolutions). Gated by a new opt-in `resolution_pool: Option<PgPool>` (main wires `Some(pool)`; every
+  smoke passes `None` ⇒ byte-identical / fail-closed). Alert-and-continue on failure (never crashes the
+  boundary, like reconciliation). IDEMPOTENT (each resolver is set-once resolve + score-row dedup), so
+  re-running a day is safe and a day with nothing due writes NOTHING.
+- **Disjoint score-id bases**: both resolvers mint `01BSC…` score PKs, so each adds a distinct high tag
+  (`WEATHER_SCORE_BASE_TAG = 1<<56`, `FUNDING_SCORE_BASE_TAG = 1<<57`) to the UTC-day epoch base — a 2^56 gap
+  that dwarfs the per-day offset and ~1000y of epoch drift, so the two runs can never collide (same day or
+  across days).
+- **e2e** (`drive_resolves_due_weather_and_funding_beliefs_on_the_daily_boundary`, `#[sqlx::test]`): one daily
+  boundary tick resolves the recorded Aeolus weather brackets + the scalar μ/σ belief (graded against the
+  recorded Troutdale 91°F CLI) AND a due funding belief (KXBCHPERP, real capture) — proving the boundary fires
+  BOTH resolvers and their disjoint bases coexist (no PK collision); a second tick is a clean no-op. Full
+  battery green (fmt + clippy `--workspace --all-targets -D warnings` + `cargo test --workspace` + canonical
+  `run-dst.sh 200` exit 0 zero violations). NB: the `fortuna-core --test dst` target is a CUSTOM harness —
+  invoke via `run-dst.sh` (or bare `cargo test -p fortuna-core --test dst`); it rejects libtest's
+  `--test-threads`.
+
 ### 2026-06-14 — F7 live plug-in slice 3: station→series map grounded for every Kalshi temperature city
 
 **Changed — `aeolus_venue::station_series` extended from KNYC-only to every grading station the recorded
