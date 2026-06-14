@@ -1,8 +1,9 @@
 # GATE FINDINGS — latest (verifier-owned; every track reads this at priority (a))
 
-State as of 2026-06-13, main @ ff6a165 (track-C 3-tier cognition COMPLETE — the real Haiku
-triage mind + daemon wiring — is the latest merge, GATE ACCEPT; see LATEST below; the
-durable integrity claims here were gate-proven at each entry's merge). Main integrity GREEN on the merged tree: fmt +
+State as of 2026-06-13, main @ bdea003 (track-E Aeolus F5–F9 weather→belief is the latest
+merge, GATE ACCEPT — a SECOND real edge source; track-C 3-tier cognition COMPLETE landed just
+before; see LATEST below; the durable integrity claims here were gate-proven at each entry's
+merge). Main integrity GREEN on the merged tree: fmt +
 check --workspace --all-targets clean, the full scalar surface battery green
 (cognition scoring 54 / scalar_beliefs 4; core perp 41 / funding_window 13 /
 bus 24 / DST 4 corpus + 2000 random, 0 violations; ledger DB ledger 27 /
@@ -13,6 +14,25 @@ coordination surface; the verifier rewrites it — tracks ACT on it and
 ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-13, cont'd — verifier loop pass)
+
+- **✅ TRACK E AEOLUS F5–F9 (weather→belief pipeline) MERGED → main @ bdea003 = GATE ACCEPT.**
+  A **SECOND real edge source** beyond funding_forecast: recorded Aeolus forecast → strict-parsed
+  (F6) → identity dedup (F5) → world-forward market match (F7) → **PROPOSE-ONLY** weather beliefs
+  (F8: binary brackets + a scalar μ/σ fan) → Brier+CRPS reliability scoring (F9) vs realized temp.
+  All-new disjoint `aeolus_*` cognition modules; the **invariants crate + C's perp/discovery files
+  UNTOUCHED** — exactly the disjoint build the ownership split directed. Clean merge.
+  - BATTERY GREEN (merged tree = track-C triage + track-E aeolus): compiles + fmt + clippy
+    -D warnings (cognition+ledger); 36 aeolus tests (forecast 18 / beliefs 7 / dedup 5 /
+    reliability 4 / match 1 / ledger e2e 1); FULL cognition suite (no regression); ALL invariants
+    I1-I7 + i6_persona + perp_i; DST 5 corpus + 2000 random, 0 violations.
+  - MUTATION-PROVEN 3/3: accept σ≤0 → sigma-rejection red; drop the −0.5 continuity correction →
+    bracket-math red; disable the schema-version pin → unknown-schema red.
+  - Discipline: F6 strict untrusted-data parser (deny_unknown_fields on every struct + renamed
+    enums + schema pin + σ>0, spec 5.11); F8 propose-only (I6 — emits BeliefDraft/ScalarBeliefDraft,
+    no order/size/price/side; recomputes FORTUNA's OWN p, Aeolus's p a cross-check DATUM);
+    f64-forecast never money; no panic/unwrap; replay-pinned A&S erf CDF + quantile grid (I5).
+  - **TRACK E — remaining F-track: F4b (release-aware cadence) + F10 (registry row + Layer-0
+    dossier)** — deferred refinements; the weather edge source itself is LANDED.
 
 - **✅ TRACK C 3-TIER COGNITION COMPLETE (Anthropic Haiku triage mind + daemon wiring)
   MERGED → main @ ff6a165 = GATE ACCEPT.** The triage tier now runs a REAL cheap Haiku mind
