@@ -18,6 +18,23 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
+- **funding_forecast §2.6 A2d SLICE 2 — the 4-baseline unified edge gate**
+  (`fortuna-cognition::funding_baselines`, additive): adds `compare_against_baselines` +
+  a `BaselineComparison` that scores funding_forecast against FOUR naive baselines
+  side-by-side via `crps_pinball` — carry-forward (estimate point), last-realized-rate
+  (persistence point), an estimate-anchored random-walk fan, and a `last_realized`-anchored
+  PERSISTENCE random-walk fan — with `beats_all` (strict `<` on every leg; a tie does not
+  beat) as the §2.6 A2d gate (funding_forecast stays DATA-ONLY until it clears, I7). The RW
+  band is caller-INJECTED (σ·√horizon — the kernel invents no constant); the fan uses the
+  producer's pinned standard-normal multipliers (replay-deterministic, not an erf-inverse).
+  ROBUSTNESS (operator call): funding_forecast's own dispersion is already √(time-remaining)-
+  shaped, so the estimate-anchored RW near-twins it — the persistence-anchored RW (a distinct
+  anchor) was added so the gate isn't a self-comparison; the docs flag the estimate-RW as the
+  weak leg. A non-finite `rw_band` → `InvalidPrediction` (NOT silently clamped — `f64::NAN.max(0.0)`
+  is `0.0`, which would hide the bug); off-grid q → `InvalidPrediction`. SLICE 1
+  `compare_against_carry_forward` is untouched. 25 tests (5 carry-forward + 20 new), MUTATION-
+  PROVEN (each `beats_*` guard flip reds exactly its leg's tests). Pure f64, no money/DB/loop.
+  SLICE 3 (the resolve/score loop + `belief_scores` rows + ROTA §9.1) remains.
 - **funding_forecast §2.6 A2d SLICE 1 — the carry-forward baseline-comparison kernel**
   (`fortuna-cognition::funding_baselines`, post-EXIT scoring refinement, the edge /
   I7-spirit gate): a pure, deterministic kernel — `compare_against_carry_forward(forecast,

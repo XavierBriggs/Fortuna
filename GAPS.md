@@ -42,7 +42,18 @@ kernel-first plan ledgered below. The live Kalshi DEMO run also remains an OPERA
 .env + `[kalshi]` series tickers + the T4.2 fixture checklist — the code/gate need none; runbook in the
 demo-flip GAPS entry below).
 
-## TRACK C — §2.6 A2b DONE (7-quantile fan) + A2d SLICE 1 DONE (carry-forward kernel); A2d SLICE 2/3 next (2026-06-14)
+## TRACK C — §2.6 A2b DONE + A2d SLICE 1+2 DONE (4-baseline edge gate); A2d SLICE 3 (wiring) next (2026-06-14)
+
+A2d SLICE 2 — ✅ DONE: `compare_against_baselines` + `BaselineComparison` scores funding_forecast vs
+FOUR baselines (carry-forward, last-rate, estimate-RW, last_realized-anchored PERSISTENCE-RW) via
+crps_pinball; `beats_all` (strict `<` per leg) is the edge gate. RW band caller-injected; pinned
+standard-normal multipliers (replay-det). ROBUSTNESS (operator call 2026-06-14): the estimate-RW
+near-twins funding_forecast's own √-remaining dispersion, so a PERSISTENCE-anchored RW was added to
+keep the gate from being a self-comparison (the estimate-RW is the weak leg, documented). Non-finite
+rw_band → InvalidPrediction (not clamped); off-grid q → InvalidPrediction. 25 tests, mutation-proven.
+Built by an implementer subagent (+ a follow-up subagent for the 4th baseline), verified + full-battery
++ mutation-re-proven by the controller. SLICE 3 below remains.
+
 
 §2.6 A2b (the fixed 7-quantile set) is BUILT + battery-green, per the verifier's "funding_forecast
 scoring is fully buildable+testable now" design-pass adjudication (track C is operator-authorized
