@@ -293,7 +293,43 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
-### 2026-06-13 — Kalshi WS handshake: fix missing upgrade headers; LIVE-PROVEN on demo
+### 2026-06-13 — Persona analysis step wired into the live daemon (`[personas]`, opt-in)
+
+**Added (default-OFF).** Per `docs/design/persona-live-wiring-handoff.md` (Track-E→Track-A
+handoff), a `[personas]` opt-in step in `drive()`: each segment reads the signals the
+loaded personas care about (`SignalsRepo::recent_by_kind` over the union of
+`reads_signal_kinds`, within `window_hours`, capped at `max_signals`), hands them to one
+`run_due_personas` call (§4 firewall + cost budget + schema validation live INSIDE it),
+and for each produced artifact persists a `domain_analyses` row (`01PAN…` id) + fans out
+binary beliefs through the existing `persist_beliefs` path (attributed to a single
+pre-built `StrategyId("domain-analysis")` — the I7 gate/scoring boundary). Mirrors the
+scalar-drain failure posture: any read/persist failure ALERTS (routed in-segment) and
+CONTINUES — never crashes the loop (persona analyses/beliefs are the calibration
+substrate, not the money path). The block sits between the scalar-drain block and
+`route_alerts`.
+
+- **Boot loader (fail-closed):** for each `[[personas.persona]]`, read `persona.md` +
+  `schema.json`, `PersonaDef::parse`, fetch the registry HEAD, and `validate_against` it
+  — a hash/version/status mismatch (or missing row) REFUSES to boot (a tampered method
+  never runs, §6). `PersonasWiring` bundle (pool, schedules, `PersonaScheduleState`,
+  `DiscoveryBudget`, the synthesis `Mind`, the pre-built strategy, knobs) owned across
+  segments like `ReviewWiring`. The persona strategy id is built ONCE at boot (no fallible
+  id construction on the loop path); the daemon block is no-panic (match/let-else/
+  filter_map throughout, no unwrap/expect).
+- **Default-off byte-identical:** absent `[personas]` or `enabled = false` ⇒ `None` ⇒ the
+  step never runs (proven by all 9 existing `drive()` smokes passing `None`).
+- **I6/§4 inherited:** the wiring only moves SIGNALS (untrusted data) + persists outputs;
+  the trusted method never enters this code; no order/size/price is emitted (DATA →
+  BeliefDrafts → the same universal gate, propose-only).
+- **e2e (mutation-proven):** `drive_persists_persona_analysis_and_beliefs_when_wired`
+  registers the shipped meteorologist, inserts an `aeolus.forecast` signal whose payload
+  yields a date-bearing region, scripts a `StubMind`, runs ONE `drive()` segment with the
+  wiring, and asserts 1 `domain_analyses` row + exactly 3 beliefs citing that `analysis_id`.
+  MUTATION: `personas = None` ⇒ 0 rows ⇒ RED (verified). Full battery green (test
+  --workspace 1491/0; run-dst 200 0-violations). Slice 3 (weekly-review promote/retire
+  verdict folding) deferred per the handoff — separable, not a blocker.
+
+
 
 **Fixed (live WS path).** `KalshiWsTransport::signed_request`
 (`crates/fortuna-venues/src/kalshi/ws_transport.rs`) hand-built the upgrade

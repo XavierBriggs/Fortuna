@@ -237,6 +237,69 @@ async fn main() -> Result<()> {
     // mind (one build, not a second) — a stub mind self-skips. Built BEFORE
     // `pool` moves into the halt poller below.
     let reconciliation = Some((pool.clone(), synthesis_mind.clone()));
+    // OPT-IN [personas] wiring (default-off). PRESENT + enabled => load each
+    // configured persona FAIL-CLOSED: read persona.md + schema.json, parse, fetch
+    // the registry HEAD, and validate_against it (a file whose hash != the active
+    // registry row — or an inactive/version-mismatched head — REFUSES to boot, so
+    // a tampered method never runs, design §6). The persona STRATEGY id is built
+    // ONCE here (no fallible id construction on the loop path). The persona mind is
+    // the SAME synthesis mind (one build; a stub mind proposes nothing). Absent /
+    // `enabled = false` => None => the persona step never runs (byte-identical
+    // daemon). Built BEFORE `pool` + `synthesis_mind` move below.
+    let persona_strategy = fortuna_core::market::StrategyId::new("domain-analysis")
+        .map_err(|e| anyhow::anyhow!("building persona strategy id: {e}"))?;
+    let personas_wiring = match dcfg.personas.as_ref() {
+        Some(sec) if sec.enabled => {
+            let mut schedules = Vec::new();
+            for entry in &sec.personas {
+                let md = std::fs::read_to_string(format!("{}/persona.md", entry.dir))
+                    .with_context(|| format!("reading persona.md for {:?}", entry.id))?;
+                let schema = std::fs::read_to_string(format!("{}/schema.json", entry.dir))
+                    .with_context(|| format!("reading schema.json for {:?}", entry.id))?;
+                let def = fortuna_cognition::persona::PersonaDef::parse(&md, &schema)
+                    .with_context(|| format!("parsing persona {:?}", entry.id))?;
+                let head = fortuna_ledger::PersonasRepo::new(pool.clone())
+                    .head(&entry.id)
+                    .await
+                    .with_context(|| format!("registry head for persona {:?}", entry.id))?;
+                let registry_head =
+                    head.as_ref()
+                        .map(|r| fortuna_cognition::persona::RegistryHead {
+                            version: r.version,
+                            method_hash: r.method_hash.clone(),
+                            status: r.status.clone(),
+                        });
+                // FAIL-CLOSED: refuse a missing/inactive/hash/version mismatch.
+                def.validate_against(registry_head.as_ref())
+                    .with_context(|| {
+                        format!("persona {:?} failed registry validation", entry.id)
+                    })?;
+                schedules.push(fortuna_cognition::persona_orchestrator::PersonaSchedule {
+                    def,
+                    cadences: entry.cadences.clone(),
+                });
+            }
+            eprintln!(
+                "fortuna-live: persona analysis ACTIVE ({} persona(s); strategy=domain-analysis)",
+                schedules.len()
+            );
+            Some(fortuna_live::daemon::PersonasWiring {
+                pool: pool.clone(),
+                schedules,
+                state: fortuna_cognition::persona_orchestrator::PersonaScheduleState::new(
+                    sec.debounce_ms,
+                ),
+                budget: fortuna_cognition::discovery::DiscoveryBudget::new(
+                    sec.budget_cents_per_day,
+                ),
+                mind: synthesis_mind.clone(),
+                strategy: persona_strategy,
+                window_hours: sec.window_hours,
+                max_signals: sec.max_signals,
+            })
+        }
+        _ => None,
+    };
     // T4.1/M2 slice B2: the opt-in [review] weekly-review wiring, reusing the
     // synthesis mind + [synthesis].category + the boot time (paper_days). Absent
     // [review] => None => no weekly review fires. Built BEFORE `pool` moves.
@@ -372,6 +435,7 @@ async fn main() -> Result<()> {
         reconciliation,
         reviews,
         perp_tick_feed,
+        personas_wiring,
     )
     .await
     .context("daemon loop")?;

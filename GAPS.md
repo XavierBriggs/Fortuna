@@ -231,6 +231,50 @@ unit tests could not catch (the live socket round-trip was the one untested seam
   venue=kalshi un-refuse) and live order/exec round-trips. This exercise was demo
   market-data only.
 
+## TRACK A — PERSONA DAEMON WIRING DONE (`[personas]` opt-in); discovery-drive NEXT (operator amendment 2026-06-14)
+
+The persona-analysis step is wired into `drive()` (per persona-live-wiring-handoff.md):
+config + fail-closed boot loader + the drive() step + a mutation-proven e2e
+(`drive_persists_persona_analysis_and_beliefs_when_wired`). Default-off, byte-identical
+when absent. Full battery green (test --workspace 1491/0; run-dst 200 0-viol).
+
+OPERATOR AMENDMENT (2026-06-14, "drive the ingestion→beliefs loops"): the persona half is
+this slice. The DISCOVERY half is the NEXT track-A slice — drive
+`fortuna_cognition::discovery::{world_forward_discovery (discovery.rs:484),
+market_back_discovery (273)}` on a cadence in drive(), reading the signals store,
+persisting candidate events + edges (EventsRepo/EdgesRepo) so CONFIRMED-tier edges wake
+the synthesis arm (synthesis_edges()). Opt-in/default-off, shares the [cognition]
+DiscoveryBudget rails (breach→degrade), I6 propose-only, Clock-injected, recorded signals
+only (never fabricate an edge). Gate: an e2e showing signals→events→edges→synthesis
+belief, mutation-proven. IN PROGRESS as the next commit.
+
+DEFERRED (ledgered, not blockers):
+- Persona Slice 3 (weekly-review promote/retire verdict folding via persona_scoring +
+  resolved_persona_stats) — separable per the handoff §8; do it WITH the next ReviewWiring
+  change.
+- Persona cadence cross-restart durability: `PersonaScheduleState` is in-process only (a
+  restart resets the cadence/debounce gate) — SAME scope as DailyScheduler/WeeklyScheduler;
+  a `persona_schedule_state` ledger table is a future additive (handoff §2).
+- Naked cadence (a cadence with no in-window signal for any region) is a no-op — regions
+  derive from signal payloads (`fill_region_key`); a region catalog for cadence-only runs
+  is a future additive (handoff §6). Shipped personas always have a calendar/forecast
+  signal present.
+- `DomainAnalysesRepo::insert` `supersedes` is always `None` (prior per-region artifacts
+  not flipped to superseded) — track the prior analysis_id per (persona,region) in
+  PersonasWiring across segments; small additive deferred to keep this slice tight.
+- Persona belief-persist inherits the SAME "drained set lost on failure; re-buffering is
+  a ledgered refinement" posture as the scalar/synthesis belief drains (no retry today;
+  serialized within a segment so the shared `belief_id_base` "01BLF" namespace stays
+  collision-free — a separate same-prefix counter would COLLIDE, so the shared counter is
+  correct for the shared table).
+
+CORRECTION (handoff doc drift, harmless): the handoff's `[[personas.persona]]` cadence
+examples (`{ daily_at_hour_utc = 5 }`) do NOT deserialize — `Cadence` is a snake_case
+STRUCT-variant enum, so the TOML is `{ daily_at_hour_utc = { hour = 5 } }` /
+`{ every_hours = { hours = 6 } }`. The committed `config/fortuna.example.toml` shows the
+correct shape; shipped personas use `cadences = []` so only operators adding a cadence hit
+it.
+
 ## TRACK A — T4.5 ROTA: buildable surface COMPLETE (audit-recents + gate-verdict badge); 2 pieces operator-BLOCKED
 
 T4.5 (deferred ROTA trading-side panels) — the BUILDABLE-WITHOUT-OPERATOR surface is DONE:

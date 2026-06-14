@@ -167,6 +167,7 @@ async fn daemon_smoke_boot_ticks_signal_shutdown(pool: PgPool) {
         None, // M2: no reconciliation in this smoke
         None, // M2: no reviews in this smoke
         None, // slice-4e: no perp feed in this smoke
+        None, // [personas]: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -262,6 +263,7 @@ async fn signal_with_working_orders_cancels_them_and_audits(pool: PgPool) {
         None, // M2: no reconciliation in this smoke
         None, // M2: no reviews in this smoke
         None, // slice-4e: no perp feed in this smoke
+        None, // [personas]: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -466,6 +468,7 @@ async fn per_segment_refresh_picks_up_a_newly_confirmed_edge(pool: PgPool) {
         None, // M2: no reconciliation in this smoke
         None, // M2: no reviews in this smoke
         None, // slice-4e: no perp feed in this smoke
+        None, // [personas]: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -597,6 +600,7 @@ async fn refresh_failure_keeps_last_known_edges_alerts_and_survives(pool: PgPool
         None, // M2: no reconciliation in this smoke
         None, // M2: no reviews in this smoke
         None, // slice-4e: no perp feed in this smoke
+        None, // [personas]: none in this smoke
     )
     .await
     .expect("the loop must SURVIVE a failing refresh");
@@ -1037,6 +1041,7 @@ async fn drive_drains_and_persists_the_synthesis_arms_beliefs(pool: PgPool) {
         None, // M2: no reconciliation in this smoke
         None, // M2: no reviews in this smoke
         None, // slice-4e: no perp feed in this smoke
+        None, // [personas]: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -1131,6 +1136,7 @@ async fn drive_drains_and_persists_funding_forecast_scalar_beliefs(pool: PgPool)
         None,               // M2: no reconciliation in this smoke
         None,               // M2: no reviews in this smoke
         Some(feed),         // slice-4e: recorded PerpTicks so the producer fires
+        None,               // [personas]: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -1364,6 +1370,7 @@ async fn drive_runs_daily_reconciliation_at_the_utc_day_boundary(pool: PgPool) {
         Some((pool.clone(), journaling_mind("EOD: flat; tomorrow hold."))), // reconciliation
         None, // M2: no reviews in this e2e
         None, // slice-4e: no perp feed in this e2e
+        None, // [personas]: none in this e2e
     )
     .await
     .expect("daemon drive");
@@ -1576,6 +1583,7 @@ async fn drive_runs_the_weekly_review_at_the_week_boundary(pool: PgPool) {
         None,    // reconciliation
         reviews, // M2: weekly review wiring
         None,    // slice-4e: no perp feed in this smoke
+        None,    // [personas]: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -1723,6 +1731,7 @@ async fn drive_runs_the_monthly_review_at_the_month_boundary(pool: PgPool) {
         None,    // reconciliation
         reviews, // M2: weekly + monthly review wiring
         None,    // slice-4e: no perp feed in this smoke
+        None,    // [personas]: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -1736,5 +1745,242 @@ async fn drive_runs_the_monthly_review_at_the_month_boundary(pool: PgPool) {
     assert_eq!(
         after, 1,
         "drive() ran the monthly review at the month boundary"
+    );
+}
+
+/// Track A persona-live-wiring: drive() runs the OPT-IN persona step end-to-end —
+/// read a signal -> run_due_personas (scripted StubMind) -> persist one
+/// domain_analyses row -> fan out to binary beliefs citing that artifact. Mirrors
+/// crates/fortuna-ledger/tests/persona_e2e.rs (the persona pipeline, registration +
+/// StubMind findings shape) but exercises it through the LIVE drive() seam (one
+/// StopAtCadence segment, like the scalar/synthesis/review drive-tests).
+///
+/// MUTATION PROOF (verified, not just claimed): passing `personas: None` instead of
+/// `Some(wiring)` makes drive() skip the step entirely, so domain_analyses stays at
+/// 0 rows and the `after == 1` assertion goes RED — proving the wiring is
+/// load-bearing, not incidental. (I confirmed this by temporarily flipping the arg
+/// to None, observing the RED, and restoring it to Some.) The sibling drive-tests
+/// above all pass `personas: None` and persist zero persona rows, which is the same
+/// proof standing.
+///
+/// Region derivation: the meteorologist's region_key template is
+/// `weather:{station}:tmax:{date}`, so the signal PAYLOAD carries `station` +
+/// `date` fields; run_due_personas' fill_region_key renders them into
+/// `weather:KNYC:tmax:2026-06-12`, a date-bearing region belief_horizon parses
+/// (-> 2026-06-12T23:59:59.999Z). The signal `kind` is `aeolus.forecast` (one of
+/// the persona's reads_signal_kinds) and `received_at` is the SimClock start (well
+/// within the 48h window), so recent_by_kind finds it and the trigger fires.
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn drive_persists_persona_analysis_and_beliefs_when_wired(pool: PgPool) {
+    use fortuna_cognition::context::content_hash_of;
+    use fortuna_cognition::discovery::DiscoveryBudget;
+    use fortuna_cognition::persona::{PersonaDef, RegistryHead};
+    use fortuna_cognition::persona_orchestrator::{PersonaSchedule, PersonaScheduleState};
+    use fortuna_core::market::StrategyId;
+    use fortuna_ledger::PersonasRepo;
+    use serde_json::json;
+
+    // ---- Boot the daemon from the committed example config. ----
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let dcfg = DaemonToml::parse(&text).expect("example parses");
+    let full = FortunaConfig::load_file(example_path).expect("example full-config parses");
+    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 77, stub_mind())
+        .await
+        .expect("composition");
+    arb_books(&runner);
+
+    // ---- 1. Register the SHIPPED meteorologist persona, hash-bound (status=active).
+    //         Arg list copied from persona_e2e.rs:42-59; method_hash = the loader's
+    //         content_hash_of(persona.md) so validate_against (in the wiring) binds.
+    let dir = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/personas/meteorologist"
+    );
+    let md = std::fs::read_to_string(format!("{dir}/persona.md")).unwrap();
+    let schema = std::fs::read_to_string(format!("{dir}/schema.json")).unwrap();
+    let def = PersonaDef::parse(&md, &schema).unwrap();
+    let method_hash = content_hash_of(&md);
+    let personas_repo = PersonasRepo::new(pool.clone());
+    personas_repo
+        .insert(
+            "p-1",
+            &def.meta.id,
+            def.meta.version,
+            &def.meta.domain,
+            &json!(def.meta.domain_tags),
+            &json!(def.meta.reads_signal_kinds),
+            &def.meta.tier,
+            &method_hash,
+            &def.meta.output_schema_version,
+            "active",
+            None,
+            "2026-06-13T00:00:00.000Z",
+            "2026-06-13T00:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    // The loader's fail-closed check (the same one the wiring runs in main).
+    let head = personas_repo.head(&def.meta.id).await.unwrap().unwrap();
+    def.validate_against(Some(&RegistryHead {
+        version: head.version,
+        method_hash: head.method_hash.clone(),
+        status: head.status.clone(),
+    }))
+    .expect("the shipped file's hash matches the registered row");
+
+    // ---- 2. Insert a signal recent_by_kind will find. kind ∈ reads_signal_kinds;
+    //         received_at = SimClock start (within the 48h window); payload carries
+    //         the region template fields (station + date) so fill_region_key yields
+    //         a date-bearing region belief_horizon can parse.
+    let signal_payload = json!({
+        "station": "KNYC",
+        "date": "2026-06-12",
+        "mu": 64.3,
+        "sigma": 3.1
+    });
+    let received_at = t0().to_iso8601(); // 2026-06-11T12:00:00.000Z — within 48h of now
+    fortuna_ledger::SignalsRepo::new(pool.clone())
+        .insert(
+            "sig-aeolus-knyc",
+            "aeolus",
+            "aeolus.forecast", // one of the meteorologist's reads_signal_kinds
+            &received_at,
+            &content_hash_of("aeolus-knyc-tmax-2026-06-12"),
+            &signal_payload,
+        )
+        .await
+        .unwrap();
+
+    // ---- 3. A scripted StubMind whose journal.body IS the findings JSON (so
+    //         produced_artifact() is true). Findings shape copied from
+    //         persona_e2e.rs:80-89 (3 thresholds -> 3 binary beliefs).
+    let findings = json!({
+        "thresholds": [{"ge": 60, "p": 0.92}, {"ge": 65, "p": 0.41}, {"ge": 70, "p": 0.08}],
+        "sigma_trend": "tightening",
+        "confidence": "high",
+        "regime": "stagnant upper ridge",
+        "key_risk": "onshore flow backdoor front near 21Z"
+    });
+    let scripted: MindOutput = serde_json::from_value(json!({
+        "beliefs": [],
+        "proposals": [],
+        "journal": {"body": findings.to_string()},
+        "cost_cents": 1
+    }))
+    .unwrap();
+    let persona_mind: Arc<dyn Mind> = Arc::new(StubMind::scripted(vec![scripted]));
+
+    // ---- 4. Build the PersonasWiring with ONE loaded schedule (the shipped files),
+    //         cadences=[] so it triggers on the in-window signal (not a cadence).
+    let wiring = fortuna_live::daemon::PersonasWiring {
+        pool: pool.clone(),
+        schedules: vec![PersonaSchedule {
+            def,
+            cadences: Vec::new(),
+        }],
+        state: PersonaScheduleState::new(0),
+        budget: DiscoveryBudget::new(500),
+        mind: persona_mind,
+        strategy: StrategyId::new("domain-analysis").unwrap(), // TEST code: unwrap fine
+        window_hours: 48,
+        max_signals: 200,
+    };
+
+    // No persona rows before the drive.
+    let before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM domain_analyses")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(before, 0, "no domain analyses before drive");
+
+    // ---- 5. Run ONE drive() segment with personas: Some(wiring); None for the
+    //         other opt-in params (StopAtCadence one-segment harness, as the
+    //         scalar/synthesis/review drive-tests).
+    let (tx, mut stop) = tokio::sync::oneshot::channel::<()>();
+    let mut cadence = StopAtCadence {
+        clock: runner.clock.clone(),
+        sleeps: 0,
+        fire_at: 6,
+        tx: Some(tx),
+    };
+    let mut poller = NeverHalted;
+    let loop_cfg = LoopConfig {
+        tick_interval_ms: 1000,
+        halt_poll_ms: 500,
+    };
+    let mut scrape = DegradeScrape::new(default_degrade_thresholds());
+    let mut daily = fortuna_live::daemon::DailyScheduler::new();
+
+    let (_stats, _shutdown) = drive(
+        &mut runner,
+        &mut cadence,
+        &mut poller,
+        &loop_cfg,
+        4,
+        &mut stop,
+        |_r, _s| {},
+        &mut scrape,
+        None,
+        &mut daily,
+        None, // synthesis_refresh
+        None, // slice-4d: no scalar producer
+        None, // reconciliation
+        None, // reviews
+        None, // slice-4e: no perp feed
+        // MUTATION PROOF: flip this to `None` and domain_analyses stays 0 => RED.
+        Some(wiring), // [personas]: the wiring under test
+    )
+    .await
+    .expect("daemon drive");
+
+    // ---- 6. Assert: exactly one domain_analyses row for the meteorologist. ----
+    let analyses: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM domain_analyses WHERE persona_id = 'meteorologist'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        analyses, 1,
+        "drive() persisted exactly one persona analysis when wired"
+    );
+
+    // The analysis_id the wiring minted (01PAN-prefixed), to cross-check beliefs.
+    let analysis_id: String = sqlx::query_scalar(
+        "SELECT analysis_id FROM domain_analyses WHERE persona_id = 'meteorologist'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    // ---- and beliefs fanned out, each citing the persisted artifact by provenance.
+    let beliefs: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM beliefs WHERE provenance->>'persona_id' = 'meteorologist'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    // The scripted findings carry 3 thresholds, so map_persona_analysis fans out
+    // EXACTLY 3 binary beliefs (cf. persona_e2e.rs which asserts drafts.len()==3).
+    assert_eq!(
+        beliefs, 3,
+        "the 3-threshold analysis fanned out to exactly 3 beliefs (got {beliefs})"
+    );
+    let matching_analysis: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM beliefs \
+         WHERE provenance->>'persona_id' = 'meteorologist' \
+           AND provenance->>'analysis_id' = $1",
+    )
+    .bind(&analysis_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        matching_analysis, beliefs,
+        "every persona belief cites the persisted analysis_id (replay anchor holds)"
     );
 }

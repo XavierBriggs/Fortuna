@@ -201,6 +201,49 @@ fn default_volume_envelope() -> usize {
     512
 }
 
+/// One registered persona in the opt-in `[[personas.persona]]` array: its id,
+/// the directory holding `persona.md` + `schema.json`, and the operator cadences
+/// (a persona does NOT carry its own cadences — they are trigger config, design
+/// §7). The cadence shape is `fortuna_cognition::persona_trigger::Cadence`
+/// (validated at boot — an unknown/never-firing cadence is a startup rejection).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PersonaEntryConfig {
+    pub id: String,
+    pub dir: String,
+    pub cadences: Vec<fortuna_cognition::persona_trigger::Cadence>,
+}
+
+/// The `[personas]` section (opt-in, default OFF). Its PRESENCE with
+/// `enabled = true` wires the persona-analysis step into `drive()`; absent or
+/// `enabled = false` => the daemon is byte-identical to today (fail closed).
+/// `#[serde(default)]` so omitting the WHOLE section deserializes to the
+/// disabled default, and the four tuning knobs each default if omitted.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct PersonasSection {
+    pub enabled: bool,
+    pub debounce_ms: i64,
+    pub window_hours: u32,
+    pub max_signals: i64,
+    pub budget_cents_per_day: i64,
+    #[serde(rename = "persona")]
+    pub personas: Vec<PersonaEntryConfig>,
+}
+
+impl Default for PersonasSection {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            debounce_ms: 0,
+            window_hours: 48,
+            max_signals: 200,
+            budget_cents_per_day: 500,
+            personas: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct RawToml {
     daemon: Option<DaemonSection>,
@@ -212,6 +255,7 @@ struct RawToml {
     perp_event_basis: Option<crate::compose::PerpEventBasisSection>,
     review: Option<crate::compose::ReviewSection>,
     ingestion: Option<IngestionSection>,
+    personas: Option<PersonasSection>,
 }
 
 /// The parsed daemon-relevant config.
@@ -244,6 +288,12 @@ pub struct DaemonToml {
     /// spawns the news-aggregation ingestion loop (validator live on the
     /// ingest path). Absent / `enabled = false` => no ingestion.
     pub ingestion: Option<IngestionSection>,
+    /// Optional `[personas]` opt-in (default OFF). Its PRESENCE with
+    /// `enabled = true` wires the persona-analysis step into `drive()` (the
+    /// loader is fail-closed: a file whose hash != the active registry row is
+    /// refused). Absent / `enabled = false` => no persona step (the daemon is
+    /// byte-identical to today).
+    pub personas: Option<PersonasSection>,
 }
 
 impl DaemonToml {
@@ -273,6 +323,7 @@ impl DaemonToml {
             perp_event_basis: raw.perp_event_basis,
             review: raw.review,
             ingestion: raw.ingestion,
+            personas: raw.personas,
         })
     }
 
@@ -339,6 +390,118 @@ impl DaemonToml {
                 reason: "cognition budgets must be positive".to_string(),
             });
         }
+        // Opt-in [personas]: when enabled, every configured cadence must be a
+        // shape that can fire (Cadence::validate rejects e.g. daily_at_hour_utc
+        // >= 24, which would silently never fire). A bad cadence is a STARTUP
+        // rejection, not a dead trigger — mapped onto the crate's boot error
+        // exactly as the other sections refuse. Disabled / absent => no check
+        // (the step never runs, so a stale cadence cannot mislead).
+        if let Some(personas) = self.personas.as_ref() {
+            if personas.enabled {
+                for entry in &personas.personas {
+                    for cadence in &entry.cadences {
+                        cadence.validate().map_err(|e| BootError::BadConfig {
+                            reason: format!(
+                                "[personas] persona {:?} has an invalid cadence: {e}",
+                                entry.id
+                            ),
+                        })?;
+                    }
+                }
+            }
+        }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A minimal config that BOOTS (venue=sim with a non-empty [sim] world,
+    /// positive budgets, a valid halt poll + metrics bind). The persona tests
+    /// append a `[personas]` block to this and re-check validate_bootable.
+    const BOOTABLE_BASE: &str = r#"
+[daemon]
+venue = "sim"
+tick_interval_ms = 1000
+halt_poll_ms = 500
+metrics_bind = "127.0.0.1:9187"
+
+[cognition]
+daily_budget_cents = 1500
+per_cycle_budget_cents = 50
+
+[sim]
+bracket_sets = [["SIM-BKT-LO", "SIM-BKT-MID", "SIM-BKT-HI"]]
+"#;
+
+    #[test]
+    fn config_without_personas_section_parses_to_none_and_boots() {
+        // (a) Omitting [personas] entirely => personas == None (the daemon is
+        // byte-identical to today; the persona step never wires). validate_
+        // bootable accepts it (the persona check is skipped when absent).
+        let dcfg = DaemonToml::parse(BOOTABLE_BASE).expect("base config parses");
+        assert!(
+            dcfg.personas.is_none(),
+            "no [personas] section => personas is None (default-off)"
+        );
+        dcfg.validate_bootable()
+            .expect("a config with no [personas] boots");
+    }
+
+    #[test]
+    fn personas_enabled_with_a_bad_cadence_is_rejected_by_validate() {
+        // (b) An ENABLED [personas] with a never-firing cadence (daily 99:00 UTC,
+        // which Cadence::validate rejects) is refused at boot — a startup
+        // rejection, not a silently-dead trigger. The cadence shape PARSES (it is
+        // a valid Cadence::DailyAtHourUtc struct variant, just an out-of-range
+        // hour); the REFUSAL comes from validate_bootable calling
+        // Cadence::validate. NB Cadence is a struct-variant enum, so the TOML is
+        // `daily_at_hour_utc = { hour = 99 }`, NOT `daily_at_hour_utc = 99`.
+        let text = format!(
+            "{BOOTABLE_BASE}\n\
+             [personas]\n\
+             enabled = true\n\
+             [[personas.persona]]\n\
+             id = \"meteorologist\"\n\
+             dir = \"config/personas/meteorologist\"\n\
+             cadences = [{{ daily_at_hour_utc = {{ hour = 99 }} }}]\n"
+        );
+        let dcfg =
+            DaemonToml::parse(&text).expect("a bad-hour cadence still PARSES (valid variant)");
+        let err = dcfg
+            .validate_bootable()
+            .expect_err("an enabled persona with a never-firing cadence must be REJECTED");
+        match err {
+            BootError::BadConfig { reason } => {
+                assert!(
+                    reason.contains("cadence") && reason.contains("meteorologist"),
+                    "the refusal names the offending persona + cadence, got: {reason}"
+                );
+            }
+            other => panic!("expected BadConfig for the bad cadence, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn personas_disabled_with_a_bad_cadence_is_not_validated() {
+        // A DISABLED [personas] never wires the step, so a stale/never-firing
+        // cadence is NOT a boot refusal (it cannot mislead a step that does not
+        // run). This proves the cadence check is gated on `enabled`, matching how
+        // [ingestion] gates its loop. NON-VACUOUS vs the enabled test above.
+        let text = format!(
+            "{BOOTABLE_BASE}\n\
+             [personas]\n\
+             enabled = false\n\
+             [[personas.persona]]\n\
+             id = \"meteorologist\"\n\
+             dir = \"config/personas/meteorologist\"\n\
+             cadences = [{{ daily_at_hour_utc = {{ hour = 99 }} }}]\n"
+        );
+        let dcfg = DaemonToml::parse(&text).expect("parses");
+        assert!(dcfg.personas.is_some(), "the section is present (disabled)");
+        dcfg.validate_bootable()
+            .expect("a DISABLED persona section is not cadence-checked");
     }
 }

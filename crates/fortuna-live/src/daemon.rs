@@ -467,6 +467,30 @@ pub struct ReviewWiring {
     pub envelopes: std::collections::BTreeMap<String, i64>,
 }
 
+/// Opt-in persona-analysis wiring (drive() arg `personas`). Owned across segments —
+/// `state` and `budget` mutate in place. `strategy` is PRE-BUILT at boot (no fallible
+/// id construction on the loop path).
+///
+/// On a segment, the step reads the signals these personas care about
+/// (`SignalsRepo::recent_by_kind` over the union of `reads_signal_kinds`, within
+/// `window_hours`, capped at `max_signals`), hands them to one orchestrator call
+/// (`run_due_personas`, which decides what is DUE and enforces the §4 firewall +
+/// budget + schema INSIDE), and for each produced artifact persists one
+/// `domain_analyses` row and fans it out to beliefs through the existing
+/// `persist_beliefs` path. Default-off: `None` => the step never runs (the daemon
+/// is byte-identical). A persist failure ALERTS and continues (beliefs are the
+/// calibration substrate, not the money path), mirroring the scalar-drain posture.
+pub struct PersonasWiring {
+    pub pool: PgPool,
+    pub schedules: Vec<fortuna_cognition::persona_orchestrator::PersonaSchedule>,
+    pub state: fortuna_cognition::persona_orchestrator::PersonaScheduleState,
+    pub budget: fortuna_cognition::discovery::DiscoveryBudget,
+    pub mind: std::sync::Arc<dyn fortuna_cognition::mind::Mind>,
+    pub strategy: fortuna_core::market::StrategyId,
+    pub window_hours: u32,
+    pub max_signals: i64,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     runner: &mut SimRunner<PgIntentJournal>,
@@ -508,6 +532,12 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     // only sources BookSnapshots, so they are otherwise inert. `None` => no feed
     // (the producers compose but stay idle). RECORDED data only; never fabricated.
     mut perp_tick_feed: Option<crate::perp_feed::PerpTickFeed>,
+    // OPT-IN persona-analysis wiring (default-off). `Some` => each segment runs the
+    // persona step (read signals -> run_due_personas -> persist domain_analyses +
+    // fan out to beliefs); `None` => the step never runs (the daemon is
+    // byte-identical to today — fail closed). `mut` because `state` + `budget`
+    // mutate in place across segments (like the schedulers / synthesis edge set).
+    mut personas: Option<PersonasWiring>,
 ) -> Result<(LoopStats, fortuna_runner::ShutdownReport), DaemonError> {
     let mut total = LoopStats::default();
     // Dedup state OWNED ACROSS SEGMENTS (gate finding 2026-06-11: keeping
@@ -533,6 +563,12 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     // increment keeps them unique within a run). Its OWN counter so the scalar
     // ("01SCB") and binary ("01BLF") id spaces advance independently.
     let mut scalar_belief_id_base = belief_id_base;
+    // persona-analysis id monotonic base, seeded identically (drive-start epoch —
+    // unique across runs; the per-insert increment keeps them unique within a
+    // run). Its OWN counter ("01PAN" prefix) so the analysis-id space advances
+    // independently of the belief id spaces. Like the others, this is a sortable
+    // TEXT PK from a caller-monotonic base, NOT a full ULID (ledgered).
+    let mut persona_analysis_id_base = belief_id_base;
     loop {
         // slice-4e: feed one recorded PerpTick at the head of the segment so the
         // perp producers fire during this segment's ticks (EventOrigin::External,
@@ -663,6 +699,208 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                             scalar_drained.len()
                         ),
                     )),
+                }
+            }
+        }
+
+        // OPT-IN persona-analysis step (default-off; `None` => skipped entirely,
+        // the daemon byte-identical). On a segment: read the signals these personas
+        // care about, hand them to ONE orchestrator call (run_due_personas — the §4
+        // firewall + cost budget + schema validation live INSIDE it), then for each
+        // produced artifact persist one `domain_analyses` row and fan it out to
+        // beliefs through the existing persist_beliefs path. Mirrors the scalar-drain
+        // posture: a read/persist FAILURE alerts (pushed to `alerts`, routed below)
+        // and CONTINUES — persona analyses/beliefs are the calibration substrate, not
+        // the money path; no failure here may crash the loop. NEVER panics: every
+        // `Option`/`Result` is handled with `let-else`/`match` (no expect on the
+        // belief/money path, CLAUDE.md), and the trusted method never enters this
+        // wiring (signals are DATA — they only ride as context bodies inside
+        // run_persona_analysis).
+        if let Some(pw) = personas.as_mut() {
+            let kinds: Vec<String> = pw
+                .schedules
+                .iter()
+                .flat_map(|s| s.def.meta.reads_signal_kinds.iter().cloned())
+                .collect();
+            if !kinds.is_empty() {
+                let now = Clock::now(runner.clock.as_ref());
+                let now_iso = now.to_iso8601();
+                let after_ms = now.epoch_millis() - (pw.window_hours as i64) * 3_600_000;
+                // from_epoch_millis is fallible; on error, skip this segment's
+                // persona step (alert) rather than panic or guess a window.
+                match fortuna_core::clock::UtcTimestamp::from_epoch_millis(after_ms) {
+                    Err(e) => alerts.push((
+                        fortuna_ops::MessageKind::Ops,
+                        format!("persona window timestamp invalid — step skipped: {e}"),
+                    )),
+                    Ok(after_ts) => {
+                        let after_iso = after_ts.to_iso8601();
+                        let rows = match fortuna_ledger::SignalsRepo::new(pw.pool.clone())
+                            .recent_by_kind(&kinds, &after_iso, pw.max_signals)
+                            .await
+                        {
+                            Ok(rows) => rows,
+                            Err(e) => {
+                                alerts.push((
+                                    fortuna_ops::MessageKind::Ops,
+                                    format!(
+                                        "persona signal read FAILED — step skipped this segment: {e}"
+                                    ),
+                                ));
+                                Vec::new()
+                            }
+                        };
+                        // Ledger rows -> the orchestrator's cognition-native input. An
+                        // unparseable received_at SKIPS that row (filter_map), never a
+                        // panic — the signal is untrusted data.
+                        let signals: Vec<fortuna_cognition::signals::SignalEnvelope> = rows
+                            .into_iter()
+                            .filter_map(|r| {
+                                Some(fortuna_cognition::signals::SignalEnvelope {
+                                    received_at: fortuna_core::clock::UtcTimestamp::parse_iso8601(
+                                        &r.received_at,
+                                    )
+                                    .ok()?,
+                                    signal_id: r.signal_id,
+                                    source: r.source,
+                                    kind: r.kind,
+                                    payload: r.payload,
+                                    content_hash: r.content_hash,
+                                })
+                            })
+                            .collect();
+                        // One call decides what is DUE and runs it (async; returns a
+                        // Vec, no `?`). The budget + gate state mutate in place.
+                        let results = fortuna_cognition::persona_orchestrator::run_due_personas(
+                            now,
+                            &pw.schedules,
+                            &signals,
+                            &mut pw.state,
+                            pw.mind.as_ref(),
+                            &mut pw.budget,
+                        )
+                        .await;
+                        for r in results {
+                            // Defects are audit-worthy data (mind failure, schema
+                            // violation), never crashes — route each to the trail.
+                            for d in &r.outcome.defects {
+                                runner.apply_external_alert(
+                                    "personas",
+                                    &format!("{}: {d}", r.persona_id),
+                                );
+                            }
+                            if !r.outcome.produced_artifact() {
+                                continue; // throttled / skipped / degraded
+                            }
+                            // produced_artifact() => findings + content_hash are Some;
+                            // bind with let-else (no expect on the money path).
+                            let Some(findings) = r.outcome.findings.clone() else {
+                                continue;
+                            };
+                            let Some(content_h) = r.outcome.content_hash.clone() else {
+                                continue;
+                            };
+                            let analysis_id = format!("01PAN{:021}", persona_analysis_id_base);
+                            persona_analysis_id_base += 1;
+                            let domain = pw
+                                .schedules
+                                .iter()
+                                .find(|s| s.def.meta.id == r.persona_id)
+                                .map(|s| s.def.meta.domain.clone())
+                                .unwrap_or_else(|| "unknown".to_string());
+                            // signal_manifest -> JSON. A serialize failure (in practice
+                            // unreachable for Vec<SignalRef>) must NOT persist a row whose
+                            // manifest column disagrees with the content_hash (the I5
+                            // replay anchor was hashed over the REAL manifest) — alert +
+                            // skip, like the other soft failures here, never store a
+                            // mismatched row.
+                            let manifest = match serde_json::to_value(&r.outcome.signal_manifest) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    alerts.push((
+                                        fortuna_ops::MessageKind::Ops,
+                                        format!(
+                                            "persona signal_manifest serialize FAILED (persona={}, region={}): {e}",
+                                            r.persona_id, r.region_key
+                                        ),
+                                    ));
+                                    continue;
+                                }
+                            };
+                            if let Err(e) = fortuna_ledger::DomainAnalysesRepo::new(pw.pool.clone())
+                                .insert(
+                                    &analysis_id,
+                                    &r.persona_id,
+                                    r.persona_version,
+                                    &domain,
+                                    &r.region_key,
+                                    &r.outcome.produced_at.to_iso8601(),
+                                    &manifest,
+                                    &findings,
+                                    &content_h,
+                                    r.outcome.manifest_hash.as_deref().unwrap_or(""),
+                                    r.outcome.cost_cents,
+                                    None,
+                                    &now_iso,
+                                )
+                                .await
+                            {
+                                alerts.push((
+                                    fortuna_ops::MessageKind::Ops,
+                                    format!(
+                                        "persona analysis persist FAILED (persona={}, region={}): {e}",
+                                        r.persona_id, r.region_key
+                                    ),
+                                ));
+                                continue;
+                            }
+                            // Beliefs need a resolution horizon; no parseable date in
+                            // the region => persist the artifact, SKIP belief fan-out.
+                            let Some(horizon) =
+                                fortuna_cognition::persona_beliefs::belief_horizon(&r.region_key)
+                            else {
+                                continue;
+                            };
+                            let drafts =
+                                match fortuna_cognition::persona_beliefs::map_persona_analysis(
+                                    &r.persona_id,
+                                    r.persona_version,
+                                    &analysis_id,
+                                    &content_h,
+                                    &r.region_key,
+                                    &findings,
+                                    horizon,
+                                ) {
+                                    Ok(d) => d,
+                                    Err(e) => {
+                                        alerts.push((
+                                        fortuna_ops::MessageKind::Ops,
+                                        format!(
+                                            "persona belief fan-out FAILED (analysis={analysis_id}): {e}"
+                                        ),
+                                    ));
+                                        continue;
+                                    }
+                                };
+                            // Attribute every draft to the pre-built persona strategy
+                            // (the gate/scoring boundary, I7); persist through the
+                            // existing binary-belief path.
+                            let pairs: Vec<_> = drafts
+                                .into_iter()
+                                .map(|d| (pw.strategy.clone(), d))
+                                .collect();
+                            let n = pairs.len();
+                            match persist_beliefs(&pw.pool, &pairs, &now_iso, belief_id_base).await {
+                                Ok(persisted) => belief_id_base += persisted as u64,
+                                Err(e) => alerts.push((
+                                    fortuna_ops::MessageKind::Ops,
+                                    format!(
+                                        "persona belief persist FAILED — {n} belief(s) lost (analysis={analysis_id}): {e}"
+                                    ),
+                                )),
+                            }
+                        }
+                    }
                 }
             }
         }
