@@ -13,6 +13,15 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-13, cont'd — verifier loop pass)
 
+- **TRACK C 3-TIER COGNITION (ModelRegistry + synthesis/reconciliation/triage tiering)
+  MERGED → main @ 58f80e7 = GATE ACCEPT.** The model-tiering: synthesis=Opus,
+  reconciliation moved OFF Opus → mid=Sonnet, triage=Haiku (real CognitionSection
+  fields + ModelRegistry::model(tier)). boot 14 + daemon_smoke 17 green; MUTATION-
+  PROVEN tiers distinct (map Mid→synthesis → model_registry_maps_each_tier reds —
+  reconciliation can't silently fall back to Opus). Budgets/I6 intact; misspelled
+  key drops to tier default (guarded). Reconciliation is now ~5× cheaper (Sonnet $15
+  vs Opus $25 out) without touching the deep synthesis tier.
+
 - **🔀 F5–F9 (Aeolus weather→belief) REASSIGNED C → E (operator-directed 2026-06-14).**
   C is busy (perps + demo-flip Phases 2-3 + model-tiering). E owns the WEATHER domain
   (the meteorologist persona), so it's the natural owner — consolidates weather under E.
