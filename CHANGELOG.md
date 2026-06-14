@@ -425,6 +425,36 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-14 — F7 live plug-in slice 3: station→series map grounded for every Kalshi temperature city
+
+**Changed — `aeolus_venue::station_series` extended from KNYC-only to every grading station the recorded
+Kalshi rules name explicitly** (`fortuna-live`, additive match arms; pure fn, behavior unchanged for the
+only station Aeolus emits today, KNYC).
+- **Grounding (read-only, recorded):** extended `examples/kalshi_discover_markets.rs` with a
+  GRADING-STATION PROBE — for each discovered temperature series it prints the market's `rules_primary`
+  (the settlement contract text that NAMES the grading station). Ran it against the Kalshi DEMO
+  (read-only `GET /markets`), capturing every series' grading station into
+  `docs/research/sources/kalshi-temperature-stations.md`. Nothing invented — every station is quoted
+  from a recorded rule.
+- **Mapped (the rule names a precise station → unambiguous ICAO):** `(KNYC,Tmax)→KXHIGHNY` (Central Park),
+  `(KAUS,Tmax)→KXHIGHAUS` (Austin Bergstrom), `(KMDW,Tmax)→KXHIGHCHI` (Chicago Midway),
+  `(KLAX,Tmax)→KXHIGHLAX` (LA Airport), `(KMIA,Tmax)→KXHIGHMIA` (Miami Intl),
+  `(KPHL,Tmax)→KXHIGHPHIL` (Philadelphia Intl), and `(KNYC,Tmin)→KXLOWTNYC` (the daily LOW Aeolus
+  actually emits; NYC's NWS CLI station is Central Park).
+- **Deliberately UNMAPPED → None (conservative):** series whose rule names only a CITY (Denver "Denver,
+  CO", Atlanta, Boston, Las Vegas, Minneapolis, New Orleans, OKC, Phoenix, San Antonio, Seattle, SF) —
+  the exact NWS CLI station is not pinned by the contract text; ambiguous multi-airport metros (Dallas,
+  Washington DC, Houston); every other-city daily LOW (Aeolus emits only KNYC regardless); and the
+  hourly `KXTEMPNYCH` product (graded by The Weather Company, not the NWS daily high/low). Promoting one
+  needs a rule that pins its station — recorded, never guessed.
+- **Safety:** the map keys on the GRADING station, so a mapping fires only when Aeolus emits that exact
+  station code — in which case both sides resolve against the SAME physical station (correct by
+  construction). Any other code → None → not traded; a wrong/missing pairing can only MISS a trade,
+  never mis-resolve one.
+- 6-test map spec (`tests/aeolus_station_series.rs`): every explicit high station, the NYC low, city-named
+  → None, ambiguous-metro → None, variable-is-part-of-the-key, unknown → None. Full battery green
+  (fmt + clippy `--workspace --all-targets -D warnings` + `cargo test --workspace` 0-failed + `run-dst 200`).
+
 ### 2026-06-14 — F7 live plug-in slice 2: the drive() weather plug-in (Aeolus forecast → live Kalshi edges)
 
 **Added — the F7 seam now RUNS in the live daemon (`fortuna-live`, opt-in, default-off).** Slice 1
