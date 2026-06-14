@@ -18,6 +18,22 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
+- **funding_forecast §2.6 A2d SLICE 1 — the carry-forward baseline-comparison kernel**
+  (`fortuna-cognition::funding_baselines`, post-EXIT scoring refinement, the edge /
+  I7-spirit gate): a pure, deterministic kernel — `compare_against_carry_forward(forecast,
+  estimate, realized) -> CarryForwardComparison` — that scores funding_forecast's scalar
+  fan AND the carry-forward baseline (the venue ESTIMATE projected FLAT, a degenerate
+  Scalar at `estimate` over the SAME q-levels) side-by-side via the existing
+  `crps_pinball` proper rule, returning `{forecast_crps, carry_forward_crps,
+  beats_carry_forward}` (strict `<`; a TIE does NOT beat). funding_forecast has no edge —
+  and stays DATA-ONLY (no promotion past Sim, I7) — unless it MEASURABLY beats this bar.
+  KERNEL-FIRST (mirrors `basis.rs`): f64 forecast-domain, NO money/DB/loop touch, reuses
+  the scoring engine (no scoring math written). 5 adversarial tests (centered-forecast
+  beats far carry-forward; on-target carry-forward beats a wild forecast; comparison
+  computed; perfect-zero + tie-does-not-beat; non-Scalar → KindMismatch). MUTATION-PROVEN:
+  flip the `<` guard → exactly the 2 directional tests red, the other 3 stay green. SLICE
+  2 (last-rate + random-walk baselines) and SLICE 3 (the resolve/score loop + `belief_scores`
+  rows + ROTA §9.1) remain — see GAPS.
 - **funding_forecast §2.6 A2b — the fixed seven-quantile fan** (`fortuna-runner`,
   post-EXIT scoring refinement, binding design §2.6 A2b): the producer's
   `PredictiveDistribution::Scalar` now carries EXACTLY the seven quantiles
