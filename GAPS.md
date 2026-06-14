@@ -23,6 +23,36 @@ baseline rows exist). Promotion stays the operator's call on the measured result
 ROTA §9.1 renders the comparison (track-B display, when built). Design: perp-strategies-and-scalar-claims.md
 §2.6 (A2d) + §1.3 scoring. Owner: track C (the funding_forecast producer + the scoring is fortuna-cognition).
 
+DESIGN-VALIDATION (loop §2, traced against the codebase 2026-06-14 — the build plan for the next
+iteration; KERNEL-FIRST, mirroring how perp_event_basis was built as the pure `basis.rs` kernel before
+its strategy/wiring):
+- The scoring ENGINE already exists + is reusable: `fortuna-cognition::scoring` has `CrpsPinballRule`
+  (id "crps_pinball", the discretized-CRPS proper rule), `PredictiveDistribution::Scalar{quantiles,unit}`,
+  `RealizedOutcome::Scalar{value:f64}`, `ScoringRule::score(pred,&outcome)->Result<f64>` (LOWER IS
+  BETTER), and `belief_scores(belief_id, rule_id, score)` rows. The kernel REUSES this — no scoring-math
+  to write.
+- SLICE 1 (clean, isolated, pure — DO THIS FIRST): a new `funding_baselines.rs` kernel in
+  fortuna-cognition. `fn compare_against_carry_forward(forecast: &PredictiveDistribution,
+  estimate: f64, realized: f64) -> Result<BaselineComparison>`: builds the carry-forward baseline as a
+  DEGENERATE Scalar at `estimate` over the SAME 7 q-levels (all v=estimate — validate_scalar-clean:
+  q strictly increasing, v equal⇒non-decreasing), scores BOTH via `CrpsPinballRule` against
+  `RealizedOutcome::Scalar{realized}`, returns `{forecast_crps, carry_forward_crps, beats_carry_forward:
+  forecast_crps < carry_forward_crps}`. ADVERSARIAL unit tests (mutation-proven): a forecast centered on
+  realized BEATS carry-forward; a forecast far from realized but carry-forward near it does NOT; the
+  comparison is COMPUTED. Pure f64-forecast, zero money/DB/loop touch.
+- SLICE 2 (follow-on): the last-realized-rate baseline (degenerate at the last realized rate) +
+  random-walk (DEFINE precisely — recommend: last observed estimate as the point forecast with the
+  RW-scaled band, or a degenerate at the last value; pick one, document, mutation-pin). Extend the kernel
+  + comparison struct.
+- SLICE 3 (wiring, BIGGER — needs the scalar-belief RESOLUTION/scoring loop): persist the baseline CRPS
+  as `belief_scores` rows keyed by a producer/baseline label, driven by a loop that resolves realized
+  funding (`funding__rates_historical`) per resolved window and scores funding_forecast + each baseline
+  side-by-side. CHECK FIRST whether a scalar-belief scoring loop already exists (the binary-belief
+  resolution path may NOT cover scalar/funding); if absent, that loop is part of this slice (the larger
+  cost — a fresh-context design item). ROTA §9.1 surfacing is track-B's once these rows exist.
+- A2d gates NOTHING live (funding_forecast stays Sim/DATA-ONLY until it MEASURABLY beats carry-forward;
+  promotion is the operator's call, I7). So it is safely incremental, kernel-first.
+
 ## TRACK C — demo-flip Phase 2 GATE-BLOCK remediation DONE: merged main + reconciled drive() (2026-06-14)
 
 RESPONSE to the verifier's ⛔ demo-flip Phase 2 GATE BLOCK ("stale-base integration; drive()
