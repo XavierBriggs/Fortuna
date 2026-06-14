@@ -15,6 +15,18 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-14, cont'd — verifier loop pass)
 
+- **✅ TRACK C — A2d SLICE-3 PART 1: realized-funding STORE MERGED → main @b8f9299 = GATE ACCEPT** (the
+  capture I assigned in `AMENDMENT-track-C-funding-capture.md`). fortuna-ledger migration
+  `funding_rates_historical(market_ticker, funding_time, funding_rate, mark_price, captured_at)`,
+  `UNIQUE(market_ticker, funding_time)` + the append-only trigger (`fortuna_refuse_mutation` refuses
+  UPDATE/DELETE, I5). `FundingRatesHistoricalRepo` INSERT-only: `insert` (`ON CONFLICT DO NOTHING` →
+  idempotent re-poll), `realized_rate` (resolve/score read), `latest_funding_time` (poller cursor).
+  `funding_rate` DOUBLE (rate, NOT money); `mark_price` TEXT verbatim; **no creds** (the PUBLIC endpoint).
+  Battery: fmt + workspace **1663/0** + clippy `--workspace -D warnings` + DST 0 violations + invariants
+  UNTOUCHED (SQLX_OFFLINE for the 3 committed `.sqlx`). MUTATION-PROVEN: inverting the insert return
+  (`==1`→`==0`) reds the idempotency tests. NEXT (track-C building): Part 2 poller + Part 3 resolve→score
+  loop (@82da0a5) → completes A2d slice-3.
+
 - **✅ TRACK D — F2 NWS-CLI REALIZED-EXTREME GRADER MERGED → main @2732787 = GATE ACCEPT. Closes the
   weather SCORING loop** (F7 produces weather beliefs; this is the realized-outcome source they score
   against). `fortuna_sources::nws_cli_realized(product_text, station) -> Option<RealizedExtreme{station,
