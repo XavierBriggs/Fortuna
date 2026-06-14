@@ -33,6 +33,7 @@ pub mod aeolus_forecast;
 pub mod aeolus_match;
 pub mod aeolus_reliability;
 pub mod basis;
+pub mod basis_v2;
 pub mod beliefs;
 pub mod calibration;
 pub mod context;

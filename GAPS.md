@@ -3,6 +3,40 @@
 Open items the implementation defers, lacks, or needs from the operator. Acceptance
 requires this file to contain ONLY operator-blocked items, each with exact unblock steps.
 
+## TRACK C — perp basis-v2 (§3.3): fair-prob KERNEL DONE (V0–V2); strategy wiring needs 6 OPERATOR DESIGN-CALLS (2026-06-14)
+
+The v2 fair-probability kernel (`fortuna-cognition::basis_v2`: A3 per-bracket `q_j` lognormal model +
+A9 no-arb guard) is BUILT + battery-green + mutation-proven (the no-circularity A3 invariant re-verified
+by the controller). σ/τ are CALLER-injected; the kernel invents nothing. The v2 STRATEGY (V3–V7 +
+`perp_event_basis.rs` integration) is BLOCKED on 6 never-invent DESIGN-CALLS the operator must make
+(the Plan agent flagged each as under-specified in §3.3; my recommended conservative default in parens;
+all are Sim-stage I7 knobs that gate nothing live but must be operator-endorsed before treated as a real
+edge claim):
+- **DC-1 σ source (A3/A5)** — §3.3 says "σ from realized vol of the perp-mark series scaled by √τ" but NO
+  perp-mark series is buffered anywhere. NEEDS: the rolling buffer + estimator. (Rec: a bounded N=64
+  rolling `settlement_mark` buffer in the strategy state; σ = EWMA(λ=0.94) stddev of log-returns; require
+  ≥20 obs before v2 activates else fall back to rung-0; N/λ/min/floor/ceiling config-overridable.)
+- **DC-2 Gaussian Φ precision** — DONE in the kernel via in-house A&S 7.1.26 erf (no dep). (Rec: keep it;
+  confirm OK vs adding `statrs`.) — already chosen; operator confirm only.
+- **DC-3 EV gate knobs (A4/A8)** — the GO threshold, slippage, reserve, adverse_j are all unspecified.
+  (Rec: `fee`=the Kalshi EVENT maker rate `ceil(0.0175·C·P·(1−P))` floored so promo never zeroes it
+  [FEE-TRAP]; threshold=0.02 prob-units; slippage=½ tick; reserve=0.01; adverse_j=0.01 baseline upgraded
+  by A7. All config-overridable.)
+- **DC-4 bracket settlement time τ (A5)** — NOT on PerpTick, NOT in the strategy catalog (`ladder` is
+  MarketId→BracketStrike only). NEEDS: plumb a close-time. (Rec: extend the catalog to
+  MarketId→(BracketStrike, close_at) additively in compose.rs; until populated, τ unknown ⇒ Disabled
+  [propose nothing] — the conservative side.)
+- **DC-5 no-arb tolerance (A9)** — the YES-sum tolerance + where the crossed-quote/free-lock check lives.
+  (Rec: YES-sum ±0.05; monotonicity strict-within-epsilon [DONE in kernel]; the crossed-quote check at
+  the STRATEGY layer [it has the books], kernel stays sum+monotonicity.)
+- **DC-6 informativeness weights + stale ages (A7/A6)** — the spread/depth/age combiner + max_age_ms.
+  DATA CAVEAT (confirmed): `OrderBook` has only whole-book `as_of`, NO per-level age — record as the A7
+  limitation. (Rec: max_age_ms=5000 [BRTI 1/sec]; veto-if-bracket-strictly-fresher-AND-tighter; any
+  missing/stale → Unfavorable.)
+The v2 END-TO-END gate stays RED until a v2 paired-cycle fixture lands (operator/recorder — distinct from
+the rung-0 fixture; needs BRTI reference_price+ts, a settlement time, and a mark series/σ). The kernel
+slices are synthetic-green now; synthetic ≠ e2e-validated.
+
 ## RALPH STOP 2026-06-14T09:05:00Z (track C — north star MET; remaining is post-EXIT refinement best built fresh)
 
 STOPPING the overnight loop: it is MORNING (UTC) — the operator's "by morning" target — and the north
@@ -92,13 +126,50 @@ its strategy/wiring):
   random-walk (DEFINE precisely — recommend: last observed estimate as the point forecast with the
   RW-scaled band, or a degenerate at the last value; pick one, document, mutation-pin). Extend the kernel
   + comparison struct.
-- SLICE 3 (wiring, BIGGER — needs the scalar-belief RESOLUTION/scoring loop): persist the baseline CRPS
-  as `belief_scores` rows keyed by a producer/baseline label, driven by a loop that resolves realized
-  funding (`funding__rates_historical`) per resolved window and scores funding_forecast + each baseline
-  side-by-side. CHECK FIRST whether a scalar-belief scoring loop already exists (the binary-belief
-  resolution path may NOT cover scalar/funding); if absent, that loop is part of this slice (the larger
-  cost — a fresh-context design item). ROTA §9.1 surfacing is track-B's once these rows exist.
-- A2d gates NOTHING live (funding_forecast stays Sim/DATA-ONLY until it MEASURABLY beats carry-forward;
+- SLICE 3 (the resolve/score loop) — 🟢 UNBLOCKED 2026-06-14 (verifier bus 961fa7a): the realized-funding
+  source was FOUND = public `GET /margin/funding_rates/historical` (no auth, no I7/secret surface;
+  perps_openapi.yaml:887), already fixture-captured on disk (raw/live_prod_funding_hist_all.json: 100
+  finalized records / 11 markets, 2026-06-06→06-11). My earlier "BUILD-BLOCKED" (@c8775c9) is SUPERSEDED.
+  TRACK-C ASSIGNMENT (3 parts, build after the v2 kernel commits to avoid concurrent fortuna-cognition
+  edits): (1) `fortuna-ledger` append-only migration `funding_rates_historical(market_ticker, funding_time,
+  funding_rate, mark_price, captured_at)` UNIQUE(market_ticker,funding_time) + repo; (2) a public-GET
+  POLLER (NO creds, pinned Kalshi host, payload = untrusted data spec 5.11 → validate shape +
+  refuse/quarantine; backfill no-start_ts then poll past each 8h boundary 04/12/20 UTC; mirror the Aeolus
+  poll-and-persist cron); (3) the resolve→score loop (read realized → `ScalarBeliefsRepo::resolve` →
+  `compare_against_baselines` → `BeliefScoresRepo::insert`, rule_id="crps_pinball"[:baseline] per leg).
+  WIRE + correctness-validate on the fixtures NOW; the STATISTICAL beats-baselines edge accrues over the
+  soak (an I7 forward-validation gate is time-gated — building the loop is unblocked, DECLARING an edge is
+  not). Sim stays funding-free (score against REAL captured rates, never a synthetic sim model). ROTA §9.1
+  lights up automatically on the scored rows (no track-C change). Original design notes (infra all exists):
+  Investigated against the codebase 2026-06-14
+  (Explore agent, file:line-grounded). FINDINGS:
+  - **The scoring INFRA ALL EXISTS** (SLICE 1b already landed it): `belief_scores` table + `BeliefScoresRepo`
+    (insert/scores_for_belief/scores_for_rule; append-only; UNIQUE(belief_id,rule_id)) at
+    fortuna-ledger/migrations/20260613000002_scalar_beliefs.sql + repos.rs:2118-2226; `scalar_beliefs`
+    table + `ScalarBeliefsRepo` with `resolve(belief_id, realized_value, resolved_at)` (set-once) +
+    `recent()` at repos.rs:1963-2116; `CrpsPinballRule` ready (scoring.rs:318-367); and the daemon ALREADY
+    drains+persists funding_forecast's scalar beliefs each segment (daemon.rs persist_scalar_beliefs).
+  - **ROTA §9.1 is READY (track-B, NO track-C change)**: `view_forecasts`/`forecast_scorecard`
+    (rota.rs:870-971) already joins `scalar_beliefs ⋈ belief_scores WHERE realized_value IS NOT NULL`,
+    groups by `(producer, rule_id)`, AVG(score) + coverage — it LIGHTS UP automatically once scored rows
+    exist (empty → honest-empty, no fabrication).
+  - **THE GAP = the daemon resolve→score LOOP**: query unresolved `scalar_beliefs` (realized_value IS
+    NULL) whose horizon has passed → obtain the REALIZED funding → `resolve()` → score funding_forecast +
+    the 4 baselines (`compare_against_baselines`, SLICE 2) → `BeliefScoresRepo::insert()` one row per
+    leg (rule_id = "crps_pinball" for the forecast, "crps_pinball:carry_forward|last_rate|rw_estimate|
+    rw_persistence" for the baselines — fits UNIQUE(belief_id,rule_id) + the §9.1 group-by).
+  - **THE BLOCKER**: there is NO realized-funding source. No `funding__rates_historical` TABLE/API/live
+    feed exists (only fixtures); the PerpTick stream carries no `realized_rate`; the Sim venue pays no
+    funding. So the LIVE loop cannot produce real scores until the operator/recorder supplies realized
+    funding (a venue funding-history fetch, or a recorded series). DESIGN condition §2.6(b) "score by CRPS
+    against realized funding (`funding__rates_historical`), validated not asserted" is satisfiable on the
+    FIXTURE (a fixture-driven validation test is buildable + un-blocked) but the live loop is blocked.
+  - BUILD ORDER when unblocked: 3a (a pure `score_belief_against_baselines` mapping
+    compare_against_baselines → labeled belief_scores rows; deriving last_realized + rw_band from the
+    belief evidence/prior window) + 3a fixture-validation (design §2.6(b)); 3c (the daemon loop, with the
+    realized-funding source as an INJECTED seam — fail-closed: no realized ⇒ no resolution). NO ledger
+    migration / NO rota.rs change needed.
+- A2d gates NOTHING live (funding_forecast stays Sim/DATA-ONLY until it MEASURABLY beats the baselines;
   promotion is the operator's call, I7). So it is safely incremental, kernel-first.
 
 ## TRACK C — demo-flip Phase 2 GATE-BLOCK remediation DONE: merged main + reconciled drive() (2026-06-14)

@@ -18,6 +18,19 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
+- **perp basis-v2 §3.3 — the fair-probability kernel (V0–V2)** (`fortuna-cognition::basis_v2`,
+  additive pure-f64 kernel): the §3.3 per-bracket fair-probability model (A3) + the ladder
+  no-arbitrage guard (A9). `normal_cdf` (Φ via the in-house A&S 7.1.26 erf — no new dependency,
+  replay-deterministic) + `lognormal_cdf` (F(price)=Φ(ln(price/S₀)/σ), None on non-finite/≤0);
+  `bracket_fair_probs(bins, SettlementModel{anchor,σ})` → per-bin `q_j` (Between→F(cap)−F(floor),
+  Greater→1−F(floor), Less→F(cap)) over the rung-0 canonical price order, all-or-nothing on
+  degenerate input; `validate_ladder_no_arb` → monotone-implied-CDF + YES-sum coherence. LOAD-BEARING
+  A3 no-circularity: `q_j` reads ONLY the strikes, never `BracketBin.prob` (the implied mid) —
+  mutation-PROVEN (reading `.prob` reds `fair_probs_independent_of_implied_prob`; re-verified by the
+  controller). σ/τ are CALLER-injected (the kernel invents no modeling constant); the crossed-quote
+  check is documented as the strategy layer's job. 22 adversarial tests. Pure f64, no money/IO. The
+  v2 STRATEGY wiring (V3–V7: horizon-gate, EV gate, informativeness, CDF diagnostics, multi-leg
+  propose) needs 6 operator design-calls (DC-1..DC-6, ledgered in GAPS) + the e2e is fixture-gated.
 - **funding_forecast §2.6 A2d SLICE 2 — the 4-baseline unified edge gate**
   (`fortuna-cognition::funding_baselines`, additive): adds `compare_against_baselines` +
   a `BaselineComparison` that scores funding_forecast against FOUR naive baselines
