@@ -16,7 +16,22 @@ FULL workspace battery as the commit gate.
 
 ---
 
-## F6 — strict v2 parser + μ/σ→bracket-p (the deterministic foundation) (this commit)
+## F5 — identity-tuple dedup (newest run per slot) (this commit)
+
+New `crates/fortuna-cognition/src/aeolus_dedup.rs`: `dedup_forecasts(Vec<AeolusForecast>) ->
+Vec<AeolusForecast>` collapses forecasts to one per `(station, variable, target_date)` slot — the
+newest `run_at` wins, so a re-issued GEFS run never double-counts; a same-`run_at` correction
+resolves to the later-received envelope (it supersedes, contract §3 ETag rule). Pure + deterministic:
+a first-seen-ordered `Vec` (not a map), so the output is a pure function of the input (no clock, no
+iteration-order surprises, no panic). Operates on F6's typed `AeolusForecast` via its `identity()`
+surface. 5 tests (newest-wins-either-order, same-run revision supersedes, distinct slots survive in
+order, empty/single identity, many-runs-collapse-irrespective-of-arrival). Built directly (small,
+pure), tests-first. Verified: `cargo test -p fortuna-cognition --test aeolus_dedup` 5/5; `fmt` +
+`clippy --workspace --all-targets -D warnings` clean; full workspace test fully green.
+
+Shared-doc touches: none (new file only).
+
+## F6 — strict v2 parser + μ/σ→bracket-p (the deterministic foundation) (commit 7f451bc)
 
 New `crates/fortuna-cognition/src/aeolus_forecast.rs`. Two pure, replay-deterministic
 pieces:

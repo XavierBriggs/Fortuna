@@ -16,8 +16,9 @@ Contract: `docs/design/aeolus-fortuna-source-contract.md` (rev 3). Changelog:
   uses the half-degree continuity correction (`ge t` ⟺ `T ≥ t−0.5`), VALIDATED against the recorded
   fixture (`knyc_tmax.json`) to a max delta of **6.868e-8** across all 14 brackets (the pinned-erf
   residual, not a formula error). Strict `deny_unknown_fields` + clamp-not-reject + nullable skill.
-- **F5 (NEXT)** — identity-tuple dedup: collapse forecasts by `(station, variable, target_date)`,
-  newest `run_at` wins (over the typed `AeolusForecast`, whose `identity()` accessor F6 exposes).
+- **F5 — identity-tuple dedup — DONE (this commit).** `aeolus_dedup::dedup_forecasts` collapses
+  forecasts by `(station, variable, target_date)`, newest `run_at` wins (same-`run_at` correction →
+  later-received supersedes). Pure/deterministic over F6's typed `AeolusForecast`. 5 tests.
 - **F7** — world-forward match (forecast→Kalshi temp-bracket market-family). KNOWN SEAM: no live
   station→Kalshi-market discovery exists; F7 produces the forecast-side market family (brackets +
   resolution) and the live-market match is a venue seam (ledger here + e2e uses the recorded fixture).

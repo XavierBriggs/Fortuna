@@ -26,6 +26,7 @@
     )
 )]
 
+pub mod aeolus_dedup;
 pub mod aeolus_forecast;
 pub mod basis;
 pub mod beliefs;
