@@ -3,6 +3,40 @@
 Open items the implementation defers, lacks, or needs from the operator. Acceptance
 requires this file to contain ONLY operator-blocked items, each with exact unblock steps.
 
+## TRACK C — perp basis-v2 (§3.3): fair-prob KERNEL DONE (V0–V2); strategy wiring needs 6 OPERATOR DESIGN-CALLS (2026-06-14)
+
+The v2 fair-probability kernel (`fortuna-cognition::basis_v2`: A3 per-bracket `q_j` lognormal model +
+A9 no-arb guard) is BUILT + battery-green + mutation-proven (the no-circularity A3 invariant re-verified
+by the controller). σ/τ are CALLER-injected; the kernel invents nothing. The v2 STRATEGY (V3–V7 +
+`perp_event_basis.rs` integration) is BLOCKED on 6 never-invent DESIGN-CALLS the operator must make
+(the Plan agent flagged each as under-specified in §3.3; my recommended conservative default in parens;
+all are Sim-stage I7 knobs that gate nothing live but must be operator-endorsed before treated as a real
+edge claim):
+- **DC-1 σ source (A3/A5)** — §3.3 says "σ from realized vol of the perp-mark series scaled by √τ" but NO
+  perp-mark series is buffered anywhere. NEEDS: the rolling buffer + estimator. (Rec: a bounded N=64
+  rolling `settlement_mark` buffer in the strategy state; σ = EWMA(λ=0.94) stddev of log-returns; require
+  ≥20 obs before v2 activates else fall back to rung-0; N/λ/min/floor/ceiling config-overridable.)
+- **DC-2 Gaussian Φ precision** — DONE in the kernel via in-house A&S 7.1.26 erf (no dep). (Rec: keep it;
+  confirm OK vs adding `statrs`.) — already chosen; operator confirm only.
+- **DC-3 EV gate knobs (A4/A8)** — the GO threshold, slippage, reserve, adverse_j are all unspecified.
+  (Rec: `fee`=the Kalshi EVENT maker rate `ceil(0.0175·C·P·(1−P))` floored so promo never zeroes it
+  [FEE-TRAP]; threshold=0.02 prob-units; slippage=½ tick; reserve=0.01; adverse_j=0.01 baseline upgraded
+  by A7. All config-overridable.)
+- **DC-4 bracket settlement time τ (A5)** — NOT on PerpTick, NOT in the strategy catalog (`ladder` is
+  MarketId→BracketStrike only). NEEDS: plumb a close-time. (Rec: extend the catalog to
+  MarketId→(BracketStrike, close_at) additively in compose.rs; until populated, τ unknown ⇒ Disabled
+  [propose nothing] — the conservative side.)
+- **DC-5 no-arb tolerance (A9)** — the YES-sum tolerance + where the crossed-quote/free-lock check lives.
+  (Rec: YES-sum ±0.05; monotonicity strict-within-epsilon [DONE in kernel]; the crossed-quote check at
+  the STRATEGY layer [it has the books], kernel stays sum+monotonicity.)
+- **DC-6 informativeness weights + stale ages (A7/A6)** — the spread/depth/age combiner + max_age_ms.
+  DATA CAVEAT (confirmed): `OrderBook` has only whole-book `as_of`, NO per-level age — record as the A7
+  limitation. (Rec: max_age_ms=5000 [BRTI 1/sec]; veto-if-bracket-strictly-fresher-AND-tighter; any
+  missing/stale → Unfavorable.)
+The v2 END-TO-END gate stays RED until a v2 paired-cycle fixture lands (operator/recorder — distinct from
+the rung-0 fixture; needs BRTI reference_price+ts, a settlement time, and a mark series/σ). The kernel
+slices are synthetic-green now; synthetic ≠ e2e-validated.
+
 ## RALPH STOP 2026-06-14T09:05:00Z (track C — north star MET; remaining is post-EXIT refinement best built fresh)
 
 STOPPING the overnight loop: it is MORNING (UTC) — the operator's "by morning" target — and the north
