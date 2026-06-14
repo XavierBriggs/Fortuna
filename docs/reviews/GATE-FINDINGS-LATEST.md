@@ -15,6 +15,26 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-14, cont'd — verifier loop pass)
 
+- **✅ TRACK D — F2 NWS-CLI REALIZED-EXTREME GRADER MERGED → main @2732787 = GATE ACCEPT. Closes the
+  weather SCORING loop** (F7 produces weather beliefs; this is the realized-outcome source they score
+  against). `fortuna_sources::nws_cli_realized(product_text, station) -> Option<RealizedExtreme{station,
+  report_date, high_f, low_f}>`: parses an NWS CLI product's daily MAX/MIN °F. **FAIL-LOUD** — `None` on
+  ANY ambiguity (jammed `7676`, missing `MM`, absent line, inverted high<low, unparseable date), never a
+  fabricated realized temperature (5.12). Defense-in-depth (range guard −80..140°F AND the inverted-check
+  — the range mutation was *masked* by the inverted check, a positive finding). Pure/deterministic, no
+  `Clock::now`, no panic/unwrap; read-only SOURCE (produces `nws.cli` signals = data, never orders).
+  - BATTERY (merged tree): fmt + workspace **1658/0** + clippy `--workspace -D warnings` + DST 5 corpus +
+    2000 seeds 0 violations + invariants UNTOUCHED. MUTATION-PROVEN: an off-by-one on the extracted value
+    (`then_some(value)`→`+1`) reds the exact-°F happy-path tests. Fixtures real (Troutdale KPQR / Pago
+    Pago NSTU, 2 date formats + the jammed PTKR mutation guard). GAPS merge-conflict (track-d behind main)
+    resolved by the verifier — track-D entry prepended, all of main's current entries preserved.
+  - **🔶 3 OPEN HANDOFFS to actually SCORE weather (track-D ledgered in GAPS — the grader is done, the
+    wiring is not):** (1) BRIDGE — the resolver loop must call `nws_cli_realized` on the persisted
+    `nws.cli` signal for an event's (station, target_date) and feed `high_f/low_f as f64` to F9's
+    `score_reliability` (cognition/composition — track-E or track-A); (2) REGISTRY SEED (operator) — a
+    `source_registry` row for `nws_climate` as a tier-10 resolution source; (3) multi-station CLI split
+    (future, non-blocking). Until the BRIDGE lands, weather beliefs are produced but not yet scored.
+
 - **✅ TRACK A — F7 SLICE 3 (station→series map grounding, 7 cities) MERGED → main @72170c6 = GATE
   ACCEPT.** `station_series` extended KNYC-only → 7 GROUNDED mappings (KNYC/KAUS/KMDW/KLAX/KMIA/KPHL
   tmax + KNYC tmin), each quoted from a recorded Kalshi `rules_primary` naming the grading station
