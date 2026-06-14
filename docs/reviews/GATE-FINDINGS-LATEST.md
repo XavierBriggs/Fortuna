@@ -1,9 +1,9 @@
 # GATE FINDINGS — latest (verifier-owned; every track reads this at priority (a))
 
-State as of 2026-06-13, main @ bdea003 (track-E Aeolus F5–F9 weather→belief is the latest
-merge, GATE ACCEPT — a SECOND real edge source; track-C 3-tier cognition COMPLETE landed just
-before; see LATEST below; the durable integrity claims here were gate-proven at each entry's
-merge). Main integrity GREEN on the merged tree: fmt +
+State as of 2026-06-13, main @ 0e20efe (track-A ingestion→beliefs wiring + Kalshi WS fix is the
+latest merge, GATE ACCEPT — the discovery loops + persona step are now DRIVABLE; track-E Aeolus
+F5–F9 weather→belief and track-C 3-tier cognition COMPLETE landed just before; see LATEST below;
+the durable integrity claims here were gate-proven at each entry's merge). Main integrity GREEN on the merged tree: fmt +
 check --workspace --all-targets clean, the full scalar surface battery green
 (cognition scoring 54 / scalar_beliefs 4; core perp 41 / funding_window 13 /
 bus 24 / DST 4 corpus + 2000 random, 0 violations; ledger DB ledger 27 /
@@ -14,6 +14,33 @@ coordination surface; the verifier rewrites it — tracks ACT on it and
 ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-13, cont'd — verifier loop pass)
+
+- **✅ TRACK A INGESTION→BELIEFS WIRING + Kalshi WS handshake fix MERGED → main @ 0e20efe =
+  GATE ACCEPT.** drive() now DRIVES the opt-in discovery loops (world_forward + market_back:
+  signal→event→edge→belief) + run_due_personas (the persona step) — the wiring that unstarves
+  5 of 6 edge-source families. Gated on the merged tree; track-a built pre-3-tier, so the
+  verifier INTEGRATED (no track-a logic changed): resolved the 1 main.rs conflict to KEEP the
+  Mid-tier reconciliation (3-tier) + KEEP track-a's additive persona/discovery wiring, and
+  threaded the triage arg (AlwaysAccept, the neutral default) through track-a's 3 new
+  compose_runner call sites.
+  - DISCIPLINE confirmed by reading: default-OFF / opt-in (Option=None → byte-identical daemon;
+    `enabled` flag); **I6 DATA-ONLY** (loops persist beliefs/events/edges/domain_analyses — NO
+    order path; orders stay on propose→gate→exec); fail-closed persona loading (validate_against
+    — a tampered method refuses to boot); budget-railed (DiscoveryBudget). Kalshi WS fix =
+    RFC-6455-correct handshake (tungstenite IntoClientRequest base + KALSHI-ACCESS-* auth
+    headers; fixes a real InvalidHeader("sec-websocket-key") failure), regression-tested, NO
+    invented venue behavior.
+  - BATTERY GREEN (full merged tree = C triage + E aeolus + A wiring): compiles + fmt + clippy
+    -D warnings (live+venues); fortuna-live FULL suite incl. track-a's 3 wiring integration tests
+    (persona→analyses+beliefs / world-forward→events+beliefs / market-back→confirm+belief);
+    fortuna-venues WS regression test; ALL invariants I1-I7 + i6_persona + perp_i; DST 5 corpus +
+    2000 random, 0 violations.
+  - MUTATION-PROVEN: invert the world-forward exists-guard →
+    discovery_world_forward_persists_watchlist_events_and_beliefs red (the wiring is non-vacuous).
+  - ⚙️ **OPERATOR: the wiring is OPT-IN + default-off.** To PRODUCE from the non-funding sources,
+    enable `[discovery]`/`[personas]` in config (+ ANTHROPIC_API_KEY for a live synthesis mind)
+    and feed the ingestion source loop (D10 seam) — that closes signal→belief→edge for the
+    starved families. Today's running soak (old binary) still produces nothing until rebuilt.
 
 - **✅ TRACK E AEOLUS F5–F9 (weather→belief pipeline) MERGED → main @ bdea003 = GATE ACCEPT.**
   A **SECOND real edge source** beyond funding_forecast: recorded Aeolus forecast → strict-parsed
