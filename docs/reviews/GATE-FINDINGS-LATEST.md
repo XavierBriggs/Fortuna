@@ -15,6 +15,44 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-14, cont'd — verifier loop pass)
 
+- **🟢 A2d SLICE-3 DATA SOURCE — FOUND & FIXTURE-BACKED (resolves track-C's BUILD-BLOCKED ledger
+  @c8775c9). Realized funding IS publicly available; no creds, no I7/secret surface.** Verifier
+  research, grounded in `docs/research/venue/kinetics-perps-2026-06-10/` and re-verified 2026-06-14
+  against the archived `perps_openapi.yaml` + the live captures (NOT training memory):
+  - **The endpoint:** `GET /margin/funding_rates/historical?ticker=&start_ts=&end_ts=` — **PUBLIC,
+    no auth** (`perps_openapi.yaml:887`). Returns finalized `{funding_time (exact 8h boundary
+    04:00/12:00/20:00 UTC), funding_rate (decimal fraction per 8h, FINALIZED at next_funding_time),
+    mark_price}` per market; omit `start_ts` → "earliest available data" (full history since launch).
+    This is EXACTLY the realized target `funding_forecast` predicts, and the scoring target for ALL
+    four A2d baselines (carry-forward, last-rate, estimate-RW, persistence-RW).
+  - **Already captured (real, provenanced, on disk):** `raw/live_prod_funding_hist_all.json` = 100
+    finalized records / 11 markets / 15 funding_times (2026-06-06→06-11), 36 nonzero (e.g.
+    KXBCHPERP `-0.000397`/8h); plus `_btc.json` and `_funding_estimate_btc.json`. Slice-3's
+    resolve/score loop can be wired + correctness-gated against these fixtures TODAY — no fabrication.
+  - **Honest depth caveat (do not oversell):** the product launched 2026-06-03, so a backfill pull
+    is currently SHALLOW — ~11 days × 3/day ≈ 33 pts/market, ~64% exactly 0 (the <0.01%
+    zero-threshold). ⇒ Slice-3 = **wire + correctness-validate NOW** (the loop resolves a forecast
+    against its realized rate; scoring math proven on the fixture + a live backfill); the
+    **statistical** beats-baselines edge gate ACCRUES over the soak — correct, since an I7
+    forward-validation gate is time-gated by nature. Blocks *declaring an edge*, NOT building the loop.
+  - **Aeolus does NOT already hold this:** the operator's existing Kalshi capture is **weather
+    event-contracts** (`/markets`,`/events`), a different surface from perps `/margin/*` — the
+    weather DB carries no funding. BUT it proves the operator already runs a poll-and-persist Kalshi
+    cron; mirror that pattern at the new endpoint.
+  - **Sim stays funding-free (I7-correct).** A synthetic sim-funding model is REJECTED as the
+    scoring source — a forecast cannot be validated against one's own assumptions; score against the
+    real captured rates. (A sim model stays available only for DST density stress — separate concern.)
+  - **📋 ASSIGNMENT — TRACK C (owns slice-3b-v2 end-to-end; the realized-rate feed is the other half
+    of its OWN scoring loop):** build the `funding_rates_historical` capture — (1) `fortuna-ledger`
+    append-only migration `funding_rates_historical(market_ticker, funding_time, funding_rate,
+    mark_price, captured_at)`, UNIQUE(market_ticker,funding_time) for idempotent re-poll; (2) a
+    public-GET poller (NO creds; pin the Kalshi host; payload is untrusted data per spec 5.11 —
+    validate shape, refuse-and-quarantine non-conforming) that backfills (no `start_ts`) then polls
+    past each 8h boundary; (3) wire the resolve/score loop to read realized rates from this table →
+    completes A2d slice-3. Gate-clean + ledger in GAPS; verifier gates on the merged tree,
+    mutation-proven. (Operator may reassign the poller to track-A for source-side ownership; default
+    is track-C since it blocks track-C's own slice.)
+
 - **🔴 T4.2 RUN E2E LIVE against the real Kalshi DEMO (operator-authorized override 2026-06-14) — +
   a SECRETS finding (OPERATOR ACTION) + a TRACK-A ASSIGNMENT.** The verifier ran the operator-gated
   live exercises (network reaches `external-api.demo.kalshi.co`; creds in `.env`):
@@ -50,8 +88,10 @@ ledger their responses in GAPS, never edit this file.
     carry-forward kernel ✓ (@0bb6d27) · A2d SLICE 2 the 4-baseline unified edge gate ✓ (@c6c2d31 —
     `compare_against_baselines`, beats_all = strict-< on ALL of {carry-forward, last-rate,
     estimate-RW, persistence-RW}, mutation-proven, DATA-ONLY/no-auto-promotion I7). NEXT: A2d
-    SLICE 3 (wire the side-by-side score into funding_forecast's belief_scores + the resolve/score
-    loop) → A3+A6 (per-bracket q_j on BRTI) → A9 → A5 → A4+A8 → A7.**
+    SLICE 3 — **UNBLOCKED** (realized-funding source FOUND + fixture-backed; see the A2d-slice-3
+    DATA SOURCE entry at the top of LATEST): build the `funding_rates_historical` capture, then wire
+    belief_scores + the resolve/score loop → A3+A6 (per-bracket q_j on BRTI) → A9 → A5 → A4+A8 → A7.
+    (A3+A6 is INDEPENDENT of slice-3's data feed — track-C may run it in parallel.)**
 
 - **🎉✅ TRACK C DEMO-FLIP (Phase 1+2) + triage follow-ons MERGED → main @ 0586bab (+ docs @b3aef5f)
   = GATE ACCEPT. RESOLVES the demo-flip BLOCK below.** fortuna-live can now compose a Kalshi DEMO
