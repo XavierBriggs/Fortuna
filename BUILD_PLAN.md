@@ -702,6 +702,17 @@ Polymarket research+fixtures, spec v0.9 touch-up).
         verifier/IDE Postgres load — proven transient by rota 34/34 in isolation + a
         clean re-run); screenshot-verified (this commit, 21 boards). §9.1's two halves
         (scorecard + feed) now both live; coverage_bps + sparkline + §9.2 /perps remain.
+  - [x] Forecast Feed ENRICHED → rich scalar-belief board (operator "completely see the
+        belief and everything", 2026-06-13; consumes track-C slice-4d/4e live persistence):
+        switched to ScalarBeliefsRepo::recent (no ledger change); each belief a click-to-expand
+        <details> (the /cognition precedent) surfacing the WHOLE quantile fan + the producer's
+        EVIDENCE + provenance, SPLIT from the daemon's {"provenance":…,"evidence":…} wrapper
+        (both-keys detection; non-wrapped shown whole, never partially nulled). Untrusted-data
+        (5.11): clean_quantiles numbers-only + truncate_evidence + esc'd JSON. Test
+        forecast_feed_surfaces_recent_scalar_beliefs_richly (full fan + split-out evidence +
+        prov-survives-split + honest-null pending); code-reviewer-clean (||→&& both-keys fix +
+        prov assertion applied); full workspace battery GREEN (fmt/clippy/test 159 suites
+        0-fail/DST exit-0 incl. daemon_smoke 17); screenshot rota-forecast-feed-rich-2026-06-13.png.
 
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)

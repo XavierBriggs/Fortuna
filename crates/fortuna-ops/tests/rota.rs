@@ -2417,25 +2417,34 @@ async fn build_endpoint_serves_the_latest_verdict_and_degrades_without_a_reviews
     );
 }
 
-// Track-C §9.1 RECENT half ("did the vendor call it?"): the Forecast Feed lists the
-// recent individual scalar forecasts newest-first with the forecast MEDIAN (the q=0.5
-// of the quantile fan, extracted in SQL — the raw fan is never rendered) and the
-// realized outcome / pending status. Seeds one resolved + one pending forecast and
-// asserts the created_at-DESC ordering, the median extraction, the realized value vs
-// the honest null for the pending one, the status, and the summary.
+// Track-C §9.1 + the operator "completely see the belief and everything" want
+// (2026-06-13): the Forecast Feed surfaces the recent scalar beliefs newest-first (by
+// ULID belief_id), each FULLY inspectable — the at-a-glance median + status + realized
+// outcome PLUS the WHOLE quantile fan and the producer's EVIDENCE + provenance. The
+// live daemon wraps {"provenance":…,"evidence":…} into the single `provenance` column
+// (persist_scalar_beliefs); the board splits it back. Seeds one resolved
+// funding_forecast + one pending aeolus_weather with that wrapped provenance and
+// asserts: ordering, the full fan, the median, the realized-vs-honest-null outcome,
+// the split-out evidence, and the summary.
 #[sqlx::test(migrations = "../fortuna-ledger/migrations")]
-async fn forecast_feed_lists_recent_forecasts_with_outcomes(pool: sqlx::PgPool) {
+async fn forecast_feed_surfaces_recent_scalar_beliefs_richly(pool: sqlx::PgPool) {
     use fortuna_ledger::ScalarBeliefsRepo;
     let sb = ScalarBeliefsRepo::new(pool.clone());
-    // sb1: funding_forecast, RESOLVED (created later → newest-first).
+    // sb1: funding_forecast, RESOLVED. belief_id FF1 > AW1 → newest-first. The
+    // provenance column is the daemon wrapper {"provenance":…,"evidence":…}; the
+    // producer's work (estimate / point_forecast / remaining_candles) lives under
+    // "evidence".
     sb.insert(
         "01SBFEED00000000000000FF1",
         "funding_forecast",
-        "KXBTCPERP:2026-06-13T16:00:00Z",
+        "KXBTCPERP1:2026-06-13T16:00:00Z",
         &serde_json::json!([{"q":0.1,"v":0.00005},{"q":0.5,"v":0.0001},{"q":0.9,"v":0.00018}]),
         "rate",
         "2026-06-13T16:00:00.000Z",
-        &serde_json::json!({"strategy": "funding_forecast"}),
+        &serde_json::json!({
+            "provenance": {"model_id":"funding-v1","cost_cents":7},
+            "evidence": {"estimate":"0.0001","point_forecast":"0.0001","remaining_candles":42}
+        }),
         "2026-06-13T15:00:00.000Z",
     )
     .await
@@ -2447,7 +2456,7 @@ async fn forecast_feed_lists_recent_forecasts_with_outcomes(pool: sqlx::PgPool) 
     )
     .await
     .unwrap();
-    // sb2: aeolus_weather, PENDING (created earlier; no realized value).
+    // sb2: aeolus_weather, PENDING (no realized value); a different evidence shape.
     sb.insert(
         "01SBFEED00000000000000AW1",
         "aeolus_weather",
@@ -2455,7 +2464,10 @@ async fn forecast_feed_lists_recent_forecasts_with_outcomes(pool: sqlx::PgPool) 
         &serde_json::json!([{"q":0.1,"v":80.0},{"q":0.5,"v":85.0},{"q":0.9,"v":90.0}]),
         "celsius",
         "2026-06-14T16:00:00.000Z",
-        &serde_json::json!({"strategy": "aeolus_weather"}),
+        &serde_json::json!({
+            "provenance": {},
+            "evidence": {"model":"aeolus-emos","station":"KNYC"}
+        }),
         "2026-06-13T14:00:00.000Z",
     )
     .await
@@ -2479,32 +2491,76 @@ async fn forecast_feed_lists_recent_forecasts_with_outcomes(pool: sqlx::PgPool) 
         .await
         .unwrap();
     let rows = j["rows"].as_array().unwrap();
-    assert_eq!(rows.len(), 2, "both forecasts served: {j}");
+    assert_eq!(rows.len(), 2, "both beliefs served: {j}");
     assert_eq!(j["summary"]["forecasts"], 2);
     assert_eq!(j["summary"]["resolved"], 1);
     assert_eq!(j["summary"]["pending"], 1);
-    // created_at DESC: the funding_forecast (resolved) is newest.
-    assert_eq!(j["rows"][0]["producer"], "funding_forecast");
-    assert_eq!(j["rows"][0]["status"], "resolved");
+
+    // rows[0]: funding_forecast, resolved, newest by belief_id DESC (FF1 > AW1).
+    let r0 = &j["rows"][0];
+    assert_eq!(r0["producer"], "funding_forecast");
+    assert_eq!(r0["status"], "resolved");
     assert!(
-        (j["rows"][0]["median"].as_f64().unwrap() - 0.0001).abs() < 1e-12,
+        (r0["median"].as_f64().unwrap() - 0.0001).abs() < 1e-12,
         "median is the q=0.5 of the fan: {j}"
     );
     assert!(
-        (j["rows"][0]["realized"].as_f64().unwrap() - 0.00012).abs() < 1e-12,
+        (r0["realized"].as_f64().unwrap() - 0.00012).abs() < 1e-12,
         "realized outcome: {j}"
     );
-    // The pending forecast shows its median but an HONEST null realized.
-    assert_eq!(j["rows"][1]["producer"], "aeolus_weather");
-    assert_eq!(j["rows"][1]["status"], "pending");
+    // The WHOLE quantile fan is surfaced (not just the median), ascending by q.
+    let fan = r0["quantiles"].as_array().unwrap();
+    assert_eq!(fan.len(), 3, "the full fan, every q/v pair: {j}");
+    assert!((fan[0]["q"].as_f64().unwrap() - 0.1).abs() < 1e-12);
+    assert!((fan[2]["q"].as_f64().unwrap() - 0.9).abs() < 1e-12);
     assert!(
-        (j["rows"][1]["median"].as_f64().unwrap() - 85.0).abs() < 1e-12,
-        "pending forecast still carries its median: {j}"
+        (fan[2]["v"].as_f64().unwrap() - 0.00018).abs() < 1e-12,
+        "the q=0.9 tail of the fan is rendered: {j}"
+    );
+    // The producer's EVIDENCE is split out of the wrapper and surfaced verbatim — the
+    // "show me the model's work" the operator asked for.
+    assert_eq!(r0["evidence"]["estimate"], "0.0001");
+    assert_eq!(r0["evidence"]["point_forecast"], "0.0001");
+    assert_eq!(
+        r0["evidence"]["remaining_candles"].as_i64().unwrap(),
+        42,
+        "evidence numbers are rendered as data: {j}"
+    );
+    // The split is clean: the rendered evidence is the INNER evidence, NOT the whole
+    // wrapped column — no nested "evidence"/"provenance" keys leak into it.
+    assert!(
+        r0["evidence"].get("evidence").is_none() && r0["evidence"].get("provenance").is_none(),
+        "evidence is the unwrapped inner payload: {j}"
+    );
+    // The inner provenance ALSO survives the split: model_id lives under the wrapper's
+    // "provenance" key, so reading it back proves the unwrap (a broken split would read
+    // the top-level wrapper and find null). Both the raw provenance and the labeled
+    // `prov` summary (which drives the provLine) carry it.
+    assert_eq!(
+        r0["provenance"]["model_id"], "funding-v1",
+        "inner provenance surfaced: {j}"
+    );
+    assert_eq!(
+        r0["prov"]["model_id"], "funding-v1",
+        "the unwrapped provenance feeds the summary line: {j}"
+    );
+    assert_eq!(r0["prov"]["cost_cents"].as_i64().unwrap(), 7);
+
+    // rows[1]: aeolus_weather, PENDING — its median + fan + evidence are shown, but the
+    // realized outcome is an HONEST null, never a fabricated one.
+    let r1 = &j["rows"][1];
+    assert_eq!(r1["producer"], "aeolus_weather");
+    assert_eq!(r1["status"], "pending");
+    assert!(
+        r1["realized"].is_null(),
+        "an unresolved belief has a null outcome, never a fabricated one: {j}"
     );
     assert!(
-        j["rows"][1]["realized"].is_null(),
-        "an unresolved forecast has a null outcome, never a fabricated one: {j}"
+        (r1["median"].as_f64().unwrap() - 85.0).abs() < 1e-12,
+        "a pending belief still carries its median: {j}"
     );
+    assert_eq!(r1["evidence"]["model"], "aeolus-emos");
+    assert_eq!(r1["quantiles"].as_array().unwrap().len(), 3);
 }
 
 // Track-E §20.4: the Persona Pipeline funnel — per persona, analyses produced →
