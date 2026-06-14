@@ -37,9 +37,13 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
   only, never a coerced verdict). PROVEN: synthesis-mind == Opus + reconciliation-mind ==
   Sonnet, DISTINCT (MUTATION-PROVEN: route reconciliation on Opus → RED, executed); a
   parse/default guard; a registry-lookup test; 4 cycle tests (accept→synthesis,
-  decline→no-synthesis, cost-accounted, failure-surfaces). The daemon still composes
-  `AlwaysAccept`; binding the Anthropic Haiku triage on `triage_model` is the immediate
-  follow-on.
+  decline→no-synthesis, cost-accounted, failure-surfaces). The daemon now COMPOSES the
+  triage on `triage_model`: an Anthropic Haiku triage (`AnthropicTriageMind`, its own
+  `[cognition]` budget rails) when `ANTHROPIC_API_KEY` is present, else `AlwaysAccept`
+  (byte-unchanged). 4 more tests pin the Haiku triage: escalate true/false →
+  Accepted/Declined, cost-from-usage-tokens, and a budget breach + a malformed output both
+  surface (never a coerced verdict). The `compose_runner` triage injection is compiler +
+  clippy verified (an unused `triage` param fails `-D warnings`).
 - **Scalar-belief EGRESS persisted + Sim-soak PerpTick FEED** (slices 4d + 4e,
   `fortuna-live` daemon/main + new `perp_feed`, additive): closes the slice-4
   finding — the producers composed in 4c now actually PRODUCE and PERSIST. Each

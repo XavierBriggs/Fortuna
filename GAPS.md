@@ -18,19 +18,19 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
-## TRACK C — triage SEAM built; daemon Haiku-triage wiring is the next commit (2026-06-13)
+## TRACK C — 3-tier cognition COMPLETE: registry + synthesis/reconciliation/triage (2026-06-13)
 
-The 3-tier cognition amendment + the triage SEAM are landed: synthesis → synthesis_model
-(Opus), the daily reconciliation → a SEPARATE mid_model mind (Sonnet), all resolved via a
-ModelRegistry (fortuna-cognition, the mind layer); and the triage tier now has a real seam —
-a `TriageMind` trait + `StubTriageMind` + a `TriageDecision::Mind` variant whose async
-`assess` runs in the cognition cycle BEFORE the frontier mind (cost accounted even on a plain
-decline; a provider failure → CycleError::Triage, degrade-not-crash). 4 cycle tests pin it.
-WHAT REMAINS (the immediate next commit, operator-requested): (1) an Anthropic-backed Haiku
-triage mind — the cheap-model `assess`: a triage prompt + structured accept/decline parse +
-budget, mirroring AnthropicMind::decide_with_budget; and (2) the daemon composing it on
-`triage_model` (StubTriageMind::allow_all when no key) into the synthesis config's `triage`
-instead of `AlwaysAccept`. NOT operator-blocked.
+DONE (operator-requested, both parts delivered). The full 3-tier cognition role is built:
+synthesis → synthesis_model (Opus), the daily reconciliation → a SEPARATE mid_model mind
+(Sonnet), the triage → triage_model (Haiku) — all resolved via a ModelRegistry
+(fortuna-cognition, the mind layer). The triage tier: a `TriageMind` trait + `StubTriageMind`
++ a `TriageDecision::Mind` variant whose async `assess` runs in the cognition cycle BEFORE the
+frontier mind (cost accounted even on a plain decline; a provider failure → CycleError::Triage,
+degrade-not-crash); an `AnthropicTriageMind` (the cheap Haiku `assess`: a triage prompt +
+structured escalate/decline parse + its own budget rails, mirroring AnthropicMind); and the
+daemon composes it on `triage_model` via `triage_from_env` (AlwaysAccept when no key,
+byte-unchanged) through a new `compose_runner` triage param (compiler + clippy verified — an
+unused param fails `-D warnings`). 8 new tests (4 cycle seam + 4 Haiku mind). NO open item.
 
 ## TRACK C → TRACK B REQUEST — ROTA must surface the RECENT scalar-belief feed (operator-wanted, 2026-06-13)
 
