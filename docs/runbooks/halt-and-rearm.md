@@ -4,7 +4,7 @@
 audit failure, or a manual halt), or running a halt drill.
 **When to read it:** BEFORE the first halt drill of the soak — the re-arm
 semantics are not what most people expect.
-**Status:** accurate as of commit `334612d` (2026-06-12).
+**Status:** accurate as of 2026-06-13.
 
 The one-sentence version: **a re-arm does NOT resume a running daemon.**
 Resumption requires a restart. That is invariant I2 ("Drawdown halts with

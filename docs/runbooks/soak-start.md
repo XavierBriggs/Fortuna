@@ -3,7 +3,7 @@
 **Who this is for:** the operator starting (or restarting) the 7-day Sim soak.
 **When to read it:** before the first start, and again at any restart during the
 soak window.
-**Status:** accurate as of commit `334612d` (2026-06-12). The soak GO verdict is
+**Status:** accurate as of 2026-06-13. The soak GO verdict is
 [docs/reviews/soak-go-gate-2026-06-12.md](../reviews/soak-go-gate-2026-06-12.md)
 ("GO. The daemon at 8ea8a4d is fit to start the 7-day Phase-4 EXIT soak NOW").
 The start is an operator action by design (BUILD_PLAN T4.1: outward-facing

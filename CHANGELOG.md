@@ -149,13 +149,15 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Deferred
 
-- Daemon composition (slice 4): register `funding_forecast` + `perp_event_basis`
-  into the Sim runner and populate the latter's bracket catalog from the live
-  Kalshi market list (coordinate with track A — `daemon.rs`). F5–F9 (Aeolus
-  weather → belief) build on the scalar foundation. Marked pending, not done.
-  (Slices 1–2 + the slice-3/3b basis kernel + the perp_event_basis STRATEGY are
-  DONE; the `KalshiMarket` floor/cap DTO is NOT needed — the strategy holds its
-  own catalog.)
+- Live-market bracket catalog (slice 4e-future): populate `perp_event_basis`'s
+  bracket ladder from the live Kalshi market list instead of config (coordinate
+  with track A). NOT needed for composition — the strategy holds its own
+  config-supplied catalog (the `KalshiMarket` floor/cap DTO is unnecessary). The
+  daemon composition itself (slices 4b–4e: registration in `compose_runner` /
+  `daemon.rs`, the PerpTick injection seam, and the recorded Sim-soak feed) is
+  DONE and listed under Added above.
+- F5–F9 (Aeolus weather → belief) build on the scalar foundation — see the
+  Ingestion track's Deferred list.
 
 ### Ingestion & data sources (fortuna-sources, Track D)
 

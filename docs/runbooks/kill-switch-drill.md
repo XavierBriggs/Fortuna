@@ -4,7 +4,7 @@
 anyone deciding between `fortuna halt` and `fortuna kill` mid-incident.
 **When to read it:** monthly (the drill), and before the soak's first
 incident.
-**Status:** accurate as of commit `334612d` (2026-06-12).
+**Status:** accurate as of 2026-06-13.
 
 Why this exists: invariant I4 — the kill switch must work when nothing else
 does. It "must not depend on the cognition runtime, the event loop,
@@ -84,7 +84,7 @@ Concretely, as of `334612d`:
 | | `fortuna halt` | `fortuna kill` |
 |---|---|---|
 | What it is | durable gate flag; the runner stops NEW orders within ≤500ms ([halt-and-rearm.md](halt-and-rearm.md)) | execs the STANDALONE `fortuna-killswitch` binary to freeze (cancel everything working at the venue) — out-of-band, no Postgres ([crates/fortuna-cli/src/main.rs](../../crates/fortuna-cli/src/main.rs), `kill`) |
-| Needs | Postgres up | nothing but the binary + (eventually) venue credentials |
+| Needs | Postgres up | nothing but the binary; a LIVE `freeze --venue kalshi` also needs the switch's own `FORTUNA_KILLSWITCH_KALSHI_*` creds (incl. `_BASE_URL`) |
 | Use when | normal incident response; drills; anything where the daemon and DB are alive | the daemon or Postgres is unresponsive, or the venue is unreachable while orders are working — the `fortuna stop` timeout message names this exact case: "if the venue is unreachable use `fortuna kill`" (CLI A7 text) |
 | Undo | `rearm` + restart (I2) | re-arm path unchanged; the kill journal records what it did |
 
@@ -92,29 +92,39 @@ Concretely, as of `334612d`:
 order at the venue. Precondition: you have decided trading must stop NOW and
 the normal path is unavailable.
 
-**Honest limitation as of `334612d`:** the live venue plug is NOT wired.
-(UPDATE 2026-06-13, `4e3a484`: the freeze MACHINERY is now proven over the real
-`KalshiVenue` adapter via a mock transport — `crates/fortuna-killswitch/tests/
-kalshi_freeze.rs` — so the cancel path itself is verified; only the LIVE
-`freeze --venue kalshi` wiring in `main.rs` remains, the next slice. The
-operator-facing limitation below still holds until that lands.)
-`fortuna kill` (which runs `fortuna-killswitch freeze`; `--flatten` runs the
-`report` action) exits 3 with "no live adapter for venue … is wired yet" —
-only `self-test` is functional (killswitch main.rs; GAPS.md "Kill-switch
-live venue plug": `freeze --venue kalshi` stays unwired until the adapter
-passes fixture confirmation, T4.2, and then gets its OWN credential pair,
-`FORTUNA_KILLSWITCH_*` — see
-[key-rotation-and-secrets.md](key-rotation-and-secrets.md)). During the Sim
-soak this is acceptable: the sim daemon's orders die with the daemon, and
-`fortuna halt` covers every drill scenario. Re-verify this section when T4.2
-lands.
+**Live venue plug (wired 2026-06-13, `7f69b81`):** the STANDALONE
+`fortuna-killswitch freeze --venue kalshi` is now LIVE. It reads the switch's
+OWN credential pair (env-only, separate from the runtime —
+`FORTUNA_KILLSWITCH_KALSHI_API_KEY_ID`, `_PRIVATE_KEY_PATH`, and
+`_BASE_URL`, the last with NO default so prod vs demo is explicit), builds a
+`ReqwestKalshiTransport` → `KalshiVenue` on a self-spun current-thread tokio
+runtime, and cancels every open order (`crates/fortuna-killswitch/src/main.rs`,
+`freeze_kalshi`). It is fail-closed: any missing/blank cred or unreadable PEM
+refuses before any venue call (exit 4). `kalshi` is the binary's DEFAULT venue,
+so a bare `freeze` reaches the same live path. The first live exercise is
+operator-run after the (now-signed) 27-item paper clearance.
+
+**Nuance — the `fortuna kill` CLI wrapper.** `fortuna kill` execs the standalone
+binary as `freeze --journal <path>` — it does NOT pass `--venue` through
+([crates/fortuna-cli/src/main.rs](../../crates/fortuna-cli/src/main.rs), `kill`).
+Because the binary defaults the venue to `kalshi`, the wrapper still reaches the
+live `freeze_kalshi` path; with the creds set it freezes Kalshi, and without
+them it fails closed (exit 4), NOT a silent no-op. `fortuna kill --flatten`
+instead execs the `report` action, which has no library path yet and exits 3
+("`report` … is not wired; use `freeze`"). The sim `self-test` path
+(the monthly drill) is unchanged. During the Sim soak none of this is exercised:
+the sim daemon's orders die with the daemon, and `fortuna halt` covers every
+drill scenario.
 
 ## When to stop and escalate
 
 - Drill FAILS → incident. Nothing resumes until the switch passes again.
 - Drill passes only WITH `DATABASE_URL` set, fails without → I4 violation;
   the implementation is wrong, not the test. Record in GAPS.md, stop.
-- You reached for `fortuna kill` in earnest and got exit 3 → expected
-  pre-T4.2 (see above); fall back to `fortuna halt` + venue-side manual
-  cancellation, and escalate to the operator queue that T4.2 is now
-  blocking incident response.
+- You reached for `fortuna kill` in earnest and it REFUSED fail-closed (exit 4,
+  "kill-switch kalshi freeze REFUSED") → the switch's `FORTUNA_KILLSWITCH_KALSHI_*`
+  creds are unset/incomplete; provision them (§1 of [operator.md](../operator.md))
+  or run the standalone binary with creds in the environment. In the meantime fall
+  back to `fortuna halt` + venue-side manual cancellation. (If you used
+  `--flatten`, that execs the unwired `report` verb and exits 3 — drop `--flatten`
+  and use the plain `freeze`.)

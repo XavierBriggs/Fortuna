@@ -6,7 +6,7 @@ before bending it. Read this before your first edit; read [spec.md](spec.md)
 (v0.9, the normative design) for any detail this doc summarizes. When this doc
 and the spec disagree, the spec wins ([CLAUDE.md](../CLAUDE.md)).
 
-**Status honesty:** accurate as of commit `334612d` (main, 2026-06-12). The
+**Status honesty:** accurate as of 2026-06-13 (main). The
 system runs Sim-only — the daemon's boot refuses every venue except `"sim"`
 ([track-c-final-gate, criterion C3](reviews/track-c-final-gate-2026-06-12.md));
 the system has never placed an order on a real venue (the only real-venue
@@ -14,9 +14,10 @@ traffic in the project's history is read-only data capture and operator-run
 fixture recording against demo environments, spec §5.2/§5.15). The Phase-4 EXIT soak was declared GO at
 `8ea8a4d` ([soak-go-gate](reviews/soak-go-gate-2026-06-12.md)); the start is an
 operator action. The Kalshi adapter is fixtures-gated pending the operator
-recording session (BUILD_PLAN T4.2); the Kinetics perps implementation lives on
-the `track-c` branch awaiting its re-merge package
-([GATE-FINDINGS-LATEST](reviews/GATE-FINDINGS-LATEST.md)).
+recording session (BUILD_PLAN T4.2); the Kinetics perps pipeline (the
+`perp_event_basis` + `funding_forecast` strategies, the PerpTick ingestion seam,
+and the daemon composition) MERGED to main 2026-06-13 (`9c4026e`, `72adb7a`,
+`95799cc`) and is INERT in pure-sim until a recorded perp feed is opted in.
 
 Companion docs: [README](../README.md) · [quickstart](quickstart.md) ·
 [verification](verification.md) · [operations](operations.md) ·
@@ -174,7 +175,7 @@ charged-vs-modeled reconciliation; adapters are `sim/` (seeded fault injection
 — the DST workhorse), `kalshi/` (built only against `fixtures/kalshi/`), and a
 `polymarket/` stub. Must never: accept an ungated order, or invent venue
 behavior beyond fixtures and the research archive. (The `kinetics/` perps
-adapter exists on `track-c`, pending re-merge.)
+adapter is on main as of 2026-06-13.)
 
 **[fortuna-ledger](../crates/fortuna-ledger/src/lib.rs)** — all Postgres
 persistence, I5 (spec §5.5, §5.13, §7): beliefs, scalar_beliefs, belief_scores,

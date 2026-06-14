@@ -30,7 +30,7 @@ secrets); your real file is `.env` (gitignored, `chmod 600`). Load with
 | Slack **app-level token** (`xapp-…`, scope `connections:write`) | Socket Mode **inbound** listener — button clicks / approvals over WebSocket. | **NOT-YET — pending track-A Slack listener.** Not implemented (`slack.rs` is send-only; the listener is later-phase per BUILD_PLAN). No env var exists in code yet. |
 | `AEOLUS_API_TOKEN` | The Aeolus weather-forecast vendor source (`x-api-key` auth header). Wired via the `[sources.<id>] auth_env = "AEOLUS_API_TOKEN"` key; the factory's `secret_resolver` reads it from env. | **NOT-YET** — only when you enable an `aeolus` source. |
 | `KALSHI_API_KEY_ID` + `KALSHI_PRIVATE_KEY_PATH` | Kalshi **runtime/trading** venue credentials. | **NOT-YET** — required before any live/demo Kalshi venue connection. Reserved names; no live path yet. |
-| `FORTUNA_KILLSWITCH_KALSHI_API_KEY_ID` + `FORTUNA_KILLSWITCH_KALSHI_PRIVATE_KEY_PATH` | The kill-switch's **own** Kalshi credential pair (I4 — must never share keys with the runtime). | **NOT-YET** — required before any live/demo Kalshi venue connection. |
+| `FORTUNA_KILLSWITCH_KALSHI_API_KEY_ID` + `FORTUNA_KILLSWITCH_KALSHI_PRIVATE_KEY_PATH` + `FORTUNA_KILLSWITCH_KALSHI_BASE_URL` | The kill-switch's **own** Kalshi credential set (I4 — must never share keys with the runtime). The standalone `fortuna-killswitch freeze --venue kalshi` is wired (`7f69b81`) and reads all three; `_BASE_URL` has **no default** (prod vs demo must be explicit). | **NOT-YET** — required before the first live/demo `freeze --venue kalshi`; until set, that path fails closed (exit 4) and only `self-test` runs. |
 
 Sources: `crates/fortuna-ops/src/config.rs` (`ENV_SLACK_BOT_TOKEN`, `ENV_DEADMAN_URL`,
 `ENV_DATABASE_URL`, `ENV_SLACK_CHANNEL_PREFIX`), `crates/fortuna-sources/src/factory.rs`
@@ -52,10 +52,16 @@ of the box, zero ingestion runs.
 | **News/weather ingestion loop** | `[ingestion]` section with `enabled = true` (also requires `user_agent`). | The whole section is `Option` in `boot.rs`; **absent section or `enabled = false` ⇒ no ingestion**, daemon byte-unchanged. (`enabled` is a required field *within* the section — there is no implicit default, so you must write it.) |
 | **A specific data source** | A `[sources.<id>]` block (e.g. `kind`, `url`, `base_interval`, `rate_budget_per_min`, `enabled = true`, optional `auth_header`/`auth_env`). | Parsed by `fortuna-sources` `SourcesConfig`; fail-closed — unknown kinds/fields, non-https URLs, and Phase-A-unbuildable kinds are hard errors. A source defaults disabled unless `enabled = true`. |
 | **Cognition / synthesis / mech-extremes / review** | Their `[cognition]` / `[synthesis]` / `[mech_extremes]` / `[review]` sections (presence composes the strategy; fail-closed when absent). | Optional sections in `boot.rs`/`compose.rs`. |
+| **Perp funding-rate belief producer** | A `[funding_forecast]` section (no required fields). Optional `ticker_feed_jsonl = "<path>.jsonl"` replays RECORDED kinetics `ticker` frames as PerpTicks so it fires in a Sim soak. | `Option` in `boot.rs`; **PRESENCE composes** the propose-nothing `FundingForecast`. Absent ⇒ not composed; inert in pure-sim with no feed. |
+| **Perp/bracket basis strategy** | A `[perp_event_basis]` section (all fields required: `perp_market`, `fee_floor_dollars`, `min_basis_dollars`, `edge_premium_cents`, and a non-empty `ladder` of `market → { kind = between\|greater\|less, floor_dollars, cap_dollars }`). | `Option` in `boot.rs`; **PRESENCE composes** `PerpEventBasis`, ladder STRICTLY validated by `build_perp_event_basis_config` (`compose.rs`). Absent ⇒ not composed. |
 
 Sources: `crates/fortuna-live/src/boot.rs` (`IngestionSection { enabled: bool, … }`,
-`Option<IngestionSection>`), `crates/fortuna-sources/src/config.rs` (`SourceConfig`,
-`SourceKind`, fail-closed parse), `config/fortuna.example.toml`.
+`Option<IngestionSection>`, `Option<FundingForecastSection>`,
+`Option<PerpEventBasisSection>`), `crates/fortuna-live/src/compose.rs`
+(`FundingForecastSection`, `PerpEventBasisSection`, `build_perp_event_basis_config`),
+`crates/fortuna-live/src/daemon.rs` (the perp-strategy composition),
+`crates/fortuna-sources/src/config.rs` (`SourceConfig`, `SourceKind`, fail-closed
+parse), `config/fortuna.example.toml`.
 
 ---
 
@@ -91,9 +97,10 @@ Each rung is a deliberate human step. None auto-advances (I7).
 6. **Out-of-band kill switch (I4)** — `fortuna kill [--flatten] [--journal <path>]`, or
    the standalone binary directly:
    `fortuna-killswitch <freeze|report|self-test> --journal <path> [--venue kalshi]`.
-   No Postgres, no runtime, no Slack dependency by construction. Live venue freeze needs
-   the `FORTUNA_KILLSWITCH_*` creds (§1); until a live adapter is wired only `self-test`
-   runs. Runbook: `docs/runbooks/kill-switch-drill.md`.
+   No Postgres, no runtime, no Slack dependency by construction. The standalone
+   `freeze --venue kalshi` is wired (`7f69b81`) and needs the
+   `FORTUNA_KILLSWITCH_KALSHI_*` creds (§1); without them it fails closed (exit 4)
+   and only `self-test` runs. Runbook: `docs/runbooks/kill-switch-drill.md`.
 
 ---
 
