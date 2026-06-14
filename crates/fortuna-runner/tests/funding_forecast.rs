@@ -203,6 +203,33 @@ fn exact_zero_estimate_forecasts_zero() {
 }
 
 #[test]
+fn a2b_emits_exactly_the_seven_fixed_quantiles() {
+    // Design §2.6 A2b: funding_forecast's `PredictiveDistribution::Scalar` carries
+    // EXACTLY the seven quantiles {0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95} — the
+    // fixed set characterizing the body + both tails for CRPS and band-coverage
+    // (supersedes the prior unfixed 3-point fan). MUTATION GUARD: drop/add/reorder
+    // a level, or revert to the 3-point set, and this reds.
+    let mut s = FundingForecast::new().unwrap();
+    let w = World::new(ts("2026-06-12T16:00:00.000Z"));
+    let ev = perp_tick(dec("0.0005"), "2026-06-12T16:00:00.000Z", NEXT_FUNDING);
+    let fan = emit_one(&mut s, &w, &ev);
+    let qs: Vec<f64> = fan.iter().map(|x| x.q).collect();
+    assert_eq!(
+        qs,
+        vec![0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95],
+        "the fixed §2.6 A2b seven-quantile set, in strictly-increasing order"
+    );
+    // The values stay non-decreasing across the wider set (validate_scalar
+    // guarantees it; pin it so a multiplier sign/order slip reds here).
+    for pair in fan.windows(2) {
+        assert!(
+            pair[1].v >= pair[0].v,
+            "quantile values non-decreasing across the 7-fan: {fan:?}"
+        );
+    }
+}
+
+#[test]
 fn dispersion_widens_with_remaining_candles() {
     // Earlier in the window (more remaining) => a STRICTLY WIDER band than near
     // the close. The band shrinks as sqrt(remaining/window).

@@ -29,25 +29,25 @@
 //! # The dispersion model (rung-0; documented, CRPS-measured)
 //!
 //! The quantile fan is the point forecast `p` plus a deterministic dispersion
-//! that NARROWS as the window elapses. The shape, with `remaining` candles left
+//! that NARROWS as the window elapses. The fixed §2.6 A2b quantile set
+//! `{0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95}`, with `remaining` candles left
 //! before `next_funding_time` (out of `FUNDING_CANDLES_PER_WINDOW`):
 //!
 //! ```text
 //! band = DISPERSION_SCALE · sqrt(remaining / FUNDING_CANDLES_PER_WINDOW)
-//! q = 0.1 →  v = clamp(p − 1.282·band, ±FUNDING_RATE_CLAMP)
-//! q = 0.5 →  v = p                                  (the median is the point forecast)
-//! q = 0.9 →  v = clamp(p + 1.282·band, ±FUNDING_RATE_CLAMP)
+//! v(q) = clamp(p + Zq·band, ±FUNDING_RATE_CLAMP)
+//!   Zq ∈ {0.05:−1.645, 0.10:−1.282, 0.25:−0.674, 0.50:0, 0.75:+0.674, 0.90:+1.282, 0.95:+1.645}
 //! ```
 //!
 //! - `DISPERSION_SCALE = 0.002` (a ±0.2% maximum half-band scale at the
 //!   window's start) — a deliberately conservative rung-0 width well inside the
 //!   venue's ±2% finalization clamp (even the widest tail spread,
-//!   `1.282·0.002 ≈ 0.26%`, stays an order of magnitude under the ±2% cap).
-//! - `1.282` is the standard-normal 0.9-quantile multiplier (so the ±band·1.282
-//!   spread reads as a ~80% central interval under a normal prior). This is a
-//!   modelling CHOICE, not a venue fact.
+//!   `1.645·0.002 ≈ 0.33%`, stays an order of magnitude under the ±2% cap).
+//! - `Zq` are the standard-normal quantile multipliers (so the ±band·1.282 pair
+//!   reads as a ~80% central interval, the ±band·1.645 pair as ~90%, under a
+//!   normal prior). This is a modelling CHOICE, not a venue fact.
 //! - `sqrt(remaining/window)` makes the band shrink to 0 as the window closes
-//!   (`remaining == 0` ⇒ band 0 ⇒ all three quantile values equal `p`): early
+//!   (`remaining == 0` ⇒ band 0 ⇒ all seven quantile values equal `p`): early
 //!   in the window the estimate is noisier, near close it is nearly final.
 //!
 //! This shape is the rung-0 modelling choice the design (§2.3) says CRPS then
@@ -74,10 +74,28 @@ use std::collections::BTreeMap;
 /// as `sqrt(remaining/window)`.
 pub const DISPERSION_SCALE: f64 = 0.002;
 
-/// The standard-normal 0.9-quantile (and, by symmetry, |0.1-quantile|)
-/// multiplier: the q=0.1/0.9 forecast values sit `±Z90 · band` around the
-/// median, reading the band as a ~80% central interval under a normal prior.
+/// The standard-normal quantile multipliers for the fixed §2.6 A2b seven-quantile
+/// set: a forecast value sits `p + Zq·band`, reading `band` as a normal-prior
+/// dispersion. By symmetry the lower/upper pairs are ∓ the same |Z| (Z25≈0.674,
+/// Z90≈1.282, Z95≈1.645).
+const Z75: f64 = 0.674;
 const Z90: f64 = 1.282;
+const Z95: f64 = 1.645;
+
+/// The FIXED quantile set (design §2.6 A2b) `{0.05, 0.10, 0.25, 0.50, 0.75, 0.90,
+/// 0.95}` paired with its standard-normal multiplier. `build_quantiles` evaluates
+/// the SAME dispersion `band` at each level, so q is strictly increasing and —
+/// because `band ≥ 0` and the multipliers are non-decreasing — v is
+/// non-decreasing, i.e. `validate_scalar`-clean by construction.
+const FIXED_QUANTILES: [(f64, f64); 7] = [
+    (0.05, -Z95),
+    (0.10, -Z90),
+    (0.25, -Z75),
+    (0.50, 0.0),
+    (0.75, Z75),
+    (0.90, Z90),
+    (0.95, Z95),
+];
 
 /// The clamp bound as `f64` (the scalar quantile values are cognition-`f64`,
 /// never money). `finalize_funding_rate` already clamps the point forecast to
@@ -143,17 +161,18 @@ impl FundingForecast {
         candles.clamp(0, max) as usize
     }
 
-    /// Build the {0.1, 0.5, 0.9} quantile fan around point forecast `p` for a
-    /// window with `remaining` candles left.
+    /// Build the fixed §2.6 A2b seven-quantile fan
+    /// `{0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95}` around point forecast `p` for
+    /// a window with `remaining` candles left.
     ///
-    /// Guarantees the result passes `validate_scalar`: q strictly increasing
-    /// (0.1 < 0.5 < 0.9), v non-decreasing, all finite. The symmetric
-    /// `±FUNDING_RATE_CLAMP` clamp can collapse the band when `p` is near the
-    /// ±2% cap; because `p ∈ [−CLAMP_F64, CLAMP_F64]` (it is
-    /// `finalize_funding_rate`'d, then defensively re-clamped) the clamped
-    /// low/median/high stay ordered `v_low ≤ p ≤ v_high` (proof in the module
-    /// doc). At `remaining == 0` the band is 0 and all three values equal `p`
-    /// (equal v is non-decreasing — still valid).
+    /// Guarantees the result passes `validate_scalar`: q strictly increasing,
+    /// v non-decreasing, all finite. The symmetric `±FUNDING_RATE_CLAMP` clamp can
+    /// collapse the band when `p` is near the ±2% cap; because
+    /// `p ∈ [−CLAMP_F64, CLAMP_F64]` (it is `finalize_funding_rate`'d, then
+    /// defensively re-clamped) the clamped values stay ordered around `p` (the
+    /// multipliers are non-decreasing, so the map is monotone). At `remaining == 0`
+    /// the band is 0 and all seven values equal `p` (equal v is non-decreasing —
+    /// still valid).
     fn build_quantiles(p: f64, remaining: usize) -> Vec<Quantile> {
         // p is finalized + clamped upstream; re-clamp defensively so the
         // ordering proof (which assumes |p| ≤ CLAMP_F64) cannot be defeated by
@@ -161,14 +180,16 @@ impl FundingForecast {
         let p = p.clamp(-CLAMP_F64, CLAMP_F64);
         let frac = remaining as f64 / FUNDING_CANDLES_PER_WINDOW as f64;
         let band = DISPERSION_SCALE * frac.sqrt();
-        let spread = Z90 * band;
-        let v_low = (p - spread).clamp(-CLAMP_F64, CLAMP_F64);
-        let v_high = (p + spread).clamp(-CLAMP_F64, CLAMP_F64);
-        vec![
-            Quantile { q: 0.1, v: v_low },
-            Quantile { q: 0.5, v: p },
-            Quantile { q: 0.9, v: v_high },
-        ]
+        // The SAME dispersion `band` evaluated at the fixed 7-quantile set
+        // (§2.6 A2b): v(q) = clamp(p + Zq·band). At `remaining == 0` band = 0, so
+        // all seven collapse to `p` (equal v is non-decreasing — still valid).
+        FIXED_QUANTILES
+            .iter()
+            .map(|&(q, z)| Quantile {
+                q,
+                v: (p + z * band).clamp(-CLAMP_F64, CLAMP_F64),
+            })
+            .collect()
     }
 }
 

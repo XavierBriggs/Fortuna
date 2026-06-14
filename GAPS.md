@@ -3,6 +3,26 @@
 Open items the implementation defers, lacks, or needs from the operator. Acceptance
 requires this file to contain ONLY operator-blocked items, each with exact unblock steps.
 
+## TRACK C — funding_forecast §2.6 A2b DONE (7-quantile fan); A2d (baseline-beat CRPS) is the next slice (2026-06-14)
+
+§2.6 A2b (the fixed 7-quantile set) is BUILT + battery-green, per the verifier's "funding_forecast
+scoring is fully buildable+testable now" design-pass adjudication (track C is operator-authorized
+GREEN TO BUILD; this is post-EXIT refinement, NOT the demo-flip-gated v2 trader). The producer's
+Scalar now carries exactly `{0.05,0.10,0.25,0.50,0.75,0.90,0.95}` via the same dispersion band at the
+standard-normal multipliers; pinned by `a2b_emits_exactly_the_seven_fixed_quantiles` (MUTATION-PROVEN
+RED→GREEN). Contained: existing fan tests read `q_at(0.1/0.5/0.9)` (retained), ROTA renders generically
+(no track-B touch), only `daemon_smoke`'s count assertion moved 3→7. No money/gate/exec touch.
+
+NEXT SLICE — §2.6 A2d (baseline-beat CRPS, the edge/I7-spirit gate), buildable now, NOT YET BUILT:
+funding_forecast must BEAT naive baselines on the same resolved windows or stay DATA-ONLY. Implement
+each baseline as a trivial `PredictiveDistribution::Scalar` producer over the same ticks —
+(1) **carry-forward** (the venue ESTIMATE projected FLAT to next_funding_time — THE bar), (2)
+last-realized-rate, (3) random-walk — score them side-by-side via §1.3's `(belief_id, rule_id)` CRPS
+rows keyed by a `producer`/`baseline` label, and a test asserts the comparison is COMPUTED (the
+baseline rows exist). Promotion stays the operator's call on the measured result (I7, never automatic).
+ROTA §9.1 renders the comparison (track-B display, when built). Design: perp-strategies-and-scalar-claims.md
+§2.6 (A2d) + §1.3 scoring. Owner: track C (the funding_forecast producer + the scoring is fortuna-cognition).
+
 ## TRACK C — demo-flip Phase 2 GATE-BLOCK remediation DONE: merged main + reconciled drive() (2026-06-14)
 
 RESPONSE to the verifier's ⛔ demo-flip Phase 2 GATE BLOCK ("stale-base integration; drive()

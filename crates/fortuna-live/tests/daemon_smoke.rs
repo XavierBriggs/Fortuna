@@ -1257,8 +1257,8 @@ async fn drive_drains_and_persists_funding_forecast_scalar_beliefs(pool: PgPool)
     );
 
     // The persisted row is a well-formed prob_claims/v1 scalar claim, not an
-    // empty husk: unit "rate" (funding_forecast's domain) + the {0.1,0.5,0.9}
-    // quantile fan. Asserting SHAPE proves the drain carried the real draft.
+    // empty husk: unit "rate" (funding_forecast's domain) + the fixed §2.6 A2b
+    // seven-quantile fan. Asserting SHAPE proves the drain carried the real draft.
     let unit: String = sqlx::query_scalar(
         "SELECT unit FROM scalar_beliefs WHERE producer = 'funding_forecast' \
          ORDER BY created_at LIMIT 1",
@@ -1278,8 +1278,8 @@ async fn drive_drains_and_persists_funding_forecast_scalar_beliefs(pool: PgPool)
     .await
     .unwrap();
     assert_eq!(
-        qlen, 3,
-        "the persisted quantile fan is the {{0.1,0.5,0.9}} forecast"
+        qlen, 7,
+        "the persisted quantile fan is the fixed §2.6 A2b seven-quantile forecast"
     );
 }
 
