@@ -1144,7 +1144,12 @@ with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
   AFD-firehose. Now also the source_registry admission attributes **Domains**
   (`domain_tags`, joined; honest null "—" when untagged) + **Tier** (`trust_tier`),
   surfaced in `merge_ingest_views`'s `sources_board` after track-D's OBS-3 populated
-  them — "what this source is and how trusted", beside its counters.
+  them — "what this source is and how trusted", beside its counters. PLUS the
+  operational-health fields **Fetch err** (`fetch_errors`) + **Rearm** (`rearms`) +
+  **Last error** (`last_error`, redacted/capped per the SourceTelemetry contract;
+  honest-null when the source has not errored) + a summary `fetch_errors` total — the
+  "why" behind a degraded source (fetch failures + the diagnostic), beyond the
+  validation-drop counts.
 - **V1 Live Signal Feed** (`GET /api/rota/v1/ingest_feed`) — recent signals
   newest-first with their (redacted, esc()'d) data + accept/drop status pills.
 - **V3 Ingest Funnel** (`GET /api/rota/v1/ingest_funnel`) — the pipeline as a stage
@@ -1163,9 +1168,11 @@ with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
   (`market_event_edges ⋈ events`, NOT-EXISTS supersession filter — no ledger change),
   newest-event-first, edges clustered per event. Both statuses shown (confirmed = a
   green pill via a 1-token `valuePill` addition; a proposed edge's confirmer is an
-  honest null "—"). UNTRUSTED-DATA (5.11): every string `esc()`'d by `boardTable`,
-  confidence a rounded number. Screenshot-verified. Tradability join + an
-  events→edges drill-in are follow-ons (GAPS).
+  honest null "—"). Also a **Trad** column — the market's latest `tradability_scores`
+  score (a correlated subquery; honest-null when the market is unscored) — completing
+  the T4.5(a) Tradability⋈Edges join. UNTRUSTED-DATA (5.11): every string `esc()`'d by
+  `boardTable`, confidence/tradability rounded numbers. The events→edges drill-in is
+  superseded by this board.
 - **Database board** (`GET /api/rota/v1/db`, mission item 5 "honest visibility into
   the actual tables — counts") — an exact `COUNT(*)` sweep over every one of the 24
   ledger tables (incl. the `scalar_beliefs`/`belief_scores` scalar plane), busiest-
@@ -1255,8 +1262,16 @@ with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
 - **Domain Analyses board — belief fanout** (§20.2): the Analyses board gains a
   `beliefs` column counting how many beliefs were built from each analysis
   (`beliefs.provenance ->> 'analysis_id'`) — the cognition pipeline's downstream
-  output per artifact. A correlated `COUNT(*)` (no content exposed; the untrusted-data
-  boundary holds). The full per-belief expander remains a follow-on.
+  output per artifact. A correlated `COUNT(*)`.
+- **Domain Analyses board — §20.2 expander**: the Analyses board is now a per-analysis
+  click-to-expand `<details>` (the `/cognition` belief-panel precedent) — the summary is
+  the metadata line (persona `id@version` · region · produced · cost · belief-fanout ·
+  status), and expanding reveals the persona's **findings** + the **signal_manifest** it
+  read. These are UNTRUSTED model output (5.11): size-capped server-side
+  (`truncate_evidence` — the same helper proven by `cognition_truncates_evidence_over_4kb`)
+  and `esc()`'d JSON at render, never interpreted. Replaces the flat `boardTable` with a
+  custom renderer. (A beliefs-list json_agg is a further refinement — the fanout count +
+  the `/cognition` board already cover beliefs.)
 - **Persona Pipeline board** (`GET /api/rota/v1/persona_pipeline`, track-E §20.4) — per
   persona, the cognition pipeline funnel: analyses produced → beliefs fanned out →
   beliefs resolved, over the persona-registry universe (a LEFT-JOIN aggregate; an idle

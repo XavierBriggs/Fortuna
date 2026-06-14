@@ -544,6 +544,7 @@ async fn view_discovery_edges(State(s): State<RotaState>) -> impl IntoResponse {
                         proposed_by,
                         confirmed_by,
                         status,
+                        tradability,
                     )| {
                         json!({
                             "statement": statement,
@@ -551,6 +552,10 @@ async fn view_discovery_edges(State(s): State<RotaState>) -> impl IntoResponse {
                             "venue": venue,
                             "mapping_type": mapping_type,
                             "confidence": (confidence * 100.0).round() / 100.0,
+                            // The market's latest tradability score (T4.5 (a)
+                            // Tradability⋈Edges join); honest null when the market has
+                            // no score yet (discovery hasn't scored it).
+                            "tradability": tradability.map(|t: f64| (t * 100.0).round() / 100.0),
                             "status": status,
                             "proposed_by": proposed_by,
                             "confirmed_by": confirmed_by,
@@ -567,6 +572,7 @@ async fn view_discovery_edges(State(s): State<RotaState>) -> impl IntoResponse {
                     {"key":"venue","label":"Venue"},
                     {"key":"mapping_type","label":"Mapping"},
                     {"key":"confidence","label":"Conf"},
+                    {"key":"tradability","label":"Trad"},
                     {"key":"status","label":"Status","pill":true},
                     {"key":"proposed_by","label":"Proposed"},
                     {"key":"confirmed_by","label":"Confirmed"},
@@ -587,7 +593,8 @@ async fn view_discovery_edges(State(s): State<RotaState>) -> impl IntoResponse {
 }
 
 /// One discovery-edge row: (event_id, statement, market_id, venue, mapping_type,
-/// confidence, proposed_by, confirmed_by, status).
+/// confidence, proposed_by, confirmed_by, status, tradability). `tradability` is the
+/// market's latest tradability score, NULL when the market has no score yet.
 type DiscoveryEdgeTuple = (
     String,
     String,
@@ -598,13 +605,16 @@ type DiscoveryEdgeTuple = (
     String,
     Option<String>,
     String,
+    Option<f64>,
 );
 
 /// The live (non-superseded) market↔event edges JOINed to their event, clustered by
 /// event (so an event's markets read together). `status` is confirmed/proposed on
-/// `confirmed_by`. Mirrors `EdgesRepo::confirmed_edges`'s supersession filter but
-/// keeps PROPOSED edges too + carries the event statement. Runtime sqlx (audit-tail
-/// precedent); limit clamped to [1, 200].
+/// `confirmed_by`; `tradability` is the market's latest `tradability_scores` score
+/// (a correlated subquery — the T4.5 (a) Tradability⋈Edges join; NULL when unscored).
+/// Mirrors `EdgesRepo::confirmed_edges`'s supersession filter but keeps PROPOSED edges
+/// too + carries the event statement. Runtime sqlx (audit-tail precedent); limit
+/// clamped to [1, 200].
 pub async fn recent_discovery_edges(
     pool: &PgPool,
     limit: i64,
@@ -613,7 +623,9 @@ pub async fn recent_discovery_edges(
     sqlx::query_as::<_, DiscoveryEdgeTuple>(
         "SELECT mee.event_id, e.statement, mee.market_id, mee.venue, mee.mapping_type, \
                 mee.confidence, mee.proposed_by, mee.confirmed_by, \
-                CASE WHEN mee.confirmed_by IS NULL THEN 'proposed' ELSE 'confirmed' END AS status \
+                CASE WHEN mee.confirmed_by IS NULL THEN 'proposed' ELSE 'confirmed' END AS status, \
+                (SELECT ts.score FROM tradability_scores ts WHERE ts.market_id = mee.market_id \
+                   ORDER BY ts.created_at DESC, ts.score_id DESC LIMIT 1) AS tradability \
          FROM market_event_edges mee \
          JOIN events e ON e.event_id = mee.event_id \
          WHERE NOT EXISTS ( \
@@ -915,12 +927,19 @@ async fn view_analyses(State(s): State<RotaState>) -> impl IntoResponse {
                         hash,
                         status,
                         beliefs,
+                        findings,
+                        signal_manifest,
                     )| {
                         json!({
                             "analysis_id": analysis_id, "persona": persona, "domain": domain,
                             "region_key": region_key, "produced_at": produced_at,
                             "cost_cents": cost, "content_hash": hash, "status": status,
                             "beliefs": beliefs,
+                            // §20.2 expander: the persona's structured output + the
+                            // signals it read. UNTRUSTED (5.11) — size-capped here,
+                            // escaped at render, never interpreted.
+                            "findings": truncate_evidence(&findings),
+                            "signal_manifest": truncate_evidence(&signal_manifest),
                         })
                     },
                 )
@@ -928,16 +947,6 @@ async fn view_analyses(State(s): State<RotaState>) -> impl IntoResponse {
             Json(json!({
                 "title": "Domain Analyses",
                 "generated_at": generated_at,
-                "columns": [
-                    {"key":"persona","label":"Persona"},
-                    {"key":"domain","label":"Domain"},
-                    {"key":"region_key","label":"Region"},
-                    {"key":"produced_at","label":"Produced (UTC)"},
-                    {"key":"cost_cents","label":"Cost","cents":true},
-                    {"key":"beliefs","label":"Beliefs"},
-                    {"key":"content_hash","label":"Hash"},
-                    {"key":"status","label":"Status","pill":true},
-                ],
                 "rows": json_rows,
                 "summary": {"analyses": n, "open": open, "cost_cents": cost_total, "beliefs": beliefs_total},
             }))
@@ -953,7 +962,9 @@ async fn view_analyses(State(s): State<RotaState>) -> impl IntoResponse {
 }
 
 /// One analysis row: (analysis_id, persona "id@version", domain, region_key,
-/// produced_at, cost_cents, content_hash[..8], status, beliefs_fanout).
+/// produced_at, cost_cents, content_hash[..8], status, beliefs_fanout, findings,
+/// signal_manifest). `findings`/`signal_manifest` are UNTRUSTED model output — the
+/// handler size-caps them (`truncate_evidence`) and the renderer escapes them.
 type AnalysisRowTuple = (
     String,
     String,
@@ -964,15 +975,18 @@ type AnalysisRowTuple = (
     String,
     String,
     i64,
+    Value,
+    Value,
 );
 
 /// Recent domain-analysis artifacts, newest-first. Persona is rendered "id@version";
 /// the content hash is truncated to its 8-char replay-anchor prefix; `beliefs` is the
 /// §20.2 artifact→belief FANOUT — how many beliefs were built FROM this analysis
 /// (`beliefs.provenance ->> 'analysis_id'`), the cognition pipeline's downstream
-/// output. STRUCTURAL metadata only — `findings`/`signal_manifest` (untrusted model
-/// output) are NOT selected here (the per-belief expander is a further follow-on).
-/// Runtime sqlx (audit-tail precedent); limit clamped to [1, 200].
+/// output. `findings`/`signal_manifest` are the persona's structured output + the
+/// signals it read (§20.2 expander) — UNTRUSTED model output (spec 5.11): selected
+/// raw here, but size-capped (`truncate_evidence`) + escaped at render, never
+/// interpreted. Runtime sqlx (audit-tail precedent); limit clamped to [1, 200].
 pub async fn recent_analyses(
     pool: &PgPool,
     limit: i64,
@@ -983,7 +997,8 @@ pub async fn recent_analyses(
                 da.domain, da.region_key, da.produced_at, da.cost_cents, \
                 substr(da.content_hash, 1, 8) AS content_hash, da.status, \
                 (SELECT COUNT(*) FROM beliefs b \
-                   WHERE b.provenance ->> 'analysis_id' = da.analysis_id) AS beliefs \
+                   WHERE b.provenance ->> 'analysis_id' = da.analysis_id) AS beliefs, \
+                da.findings, da.signal_manifest \
          FROM domain_analyses da \
          ORDER BY da.produced_at DESC LIMIT $1",
     )
@@ -1953,7 +1968,20 @@ const R={
  personas(j){return boardTable(j);},
  persona_scores(j){return boardTable(j);},
  persona_pipeline(j){return boardTable(j);},
- analyses(j){return boardTable(j);},
+ // §20.2 artifact browser with a per-analysis expander (the /cognition belief-panel
+ // precedent): summary = persona · region · produced · cost · belief-fanout · status;
+ // expand = the persona's FINDINGS + the SIGNAL_MANIFEST it read. findings/manifest are
+ // untrusted model output (5.11) — esc()'d JSON, never interpreted (and size-capped
+ // server-side via truncate_evidence).
+ analyses(j){let h="";
+  if(j.summary)h+=`<div class="bsum">`+Object.entries(j.summary).map(([k,v])=>`${esc(k)} <b>${esc(v)}</b>`).join(" · ")+`</div>`;
+  const rows=j.rows||[];
+  if(!rows.length)return h+`<div class="row">no analyses yet</div>`;
+  rows.forEach(a=>{
+   h+=`<details class="belief"><summary>${esc(a.persona)} · ${esc(a.region_key)} · ${esc(a.produced_at)} · ${fmtCents(a.cost_cents)} · ${a.beliefs} beliefs ${valuePill(a.status)}</summary>`
+    +`<div class="row dim">${esc(a.domain)} · hash ${esc(a.content_hash)}</div>`
+    +`<pre>findings: ${esc(JSON.stringify(a.findings,null,1))}\nsignal_manifest: ${esc(JSON.stringify(a.signal_manifest,null,1))}</pre></details>`;});
+  return h;},
  forecasts(j){return boardTable(j);},
  // The scalar-belief feed: each recent forecast as a click-to-expand <details>
  // (the /cognition belief-panel precedent) so the operator can "completely see the

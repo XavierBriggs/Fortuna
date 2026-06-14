@@ -2364,6 +2364,48 @@ TRADES FOLLOW-ONS (ledgered, NOT built — mission item 3 remainder):
   is exposed (operator/track-A). Fills carry no strategy column (attribution is runtime
   PositionBook state) — per-fill strategy needs the digest path, not the fills table.
 
+### COMPLETE ALL SLICES (2026-06-14, operator) — the 3 ready ROTA follow-ons DONE; the rest blocked/marginal
+Operator: "complete all slices." Drained the track-B ROTA follow-on queue. The THREE
+data-ready follow-ons are now BUILT (one commit each-ish; all read-only, honest-null,
+untrusted-data-safe; full battery green):
+1. **Sources Health operational fields** (fortuna-live/src/views.rs `sources_board`): added
+   **Fetch err** (`fetch_errors`) + **Rearm** (`rearms`) + **Last error** (`last_error`,
+   redacted/capped per the SourceTelemetry contract) columns + a summary `fetch_errors` total
+   — the operational "why" behind a degraded source (fetch failures + the diagnostic), beyond
+   the validation-drop counts. boardTable; honest-null `last_error` when a source has not errored.
+2. **Tradability⋈Edges join** (rota.rs `recent_discovery_edges`): the Discovery — Edges board
+   gains a **Trad** column — the market's latest `tradability_scores.score` (correlated subquery;
+   honest-null when a market is unscored). Literally completes the T4.5 (a) "Tradability/Edges
+   discovery JOIN" the design named.
+3. **Analyses §20.2 expander** (rota.rs `view_analyses`): the Domain Analyses board is now a
+   per-analysis click-to-expand `<details>` (the /cognition precedent) — the summary is the
+   metadata line; EXPAND shows the persona's **findings** + the **signal_manifest** it read.
+   These are UNTRUSTED model output (5.11): size-capped server-side (`truncate_evidence`, the
+   same helper `cognition_truncates_evidence_over_4kb` proves) + esc'd JSON at render, never
+   interpreted. Replaced the flat boardTable with a custom renderer.
+
+VERIFICATION (chrome-devtools MCP was DISCONNECTED this turn → browser screenshots DEFERRED;
+verified instead via the live harness JSON endpoints + populated-path tests, reusing the
+visually-proven boardTable + `<details>` renderers): each board curl-verified through the real
+handler on the seeded harness (fetch_errors=5/last_error rendered; B65 Trad 0.73 / B70 null;
+analyses findings+signal_manifest surfaced). Tests: views shapes/honest-null (fetch_errors +
+last_error), discovery_edges (Trad join + unscored-null), analyses (findings/manifest surfaced).
+The harness regenerates the visuals on demand when the MCP returns.
+
+INTENTIONALLY NOT BUILT (diminishing returns — ledgered, not fabricated): Forecast/Forecasts
+SPARKLINE (pure UI polish, no operator-question value); DB per-table DRILL-IN (broad bespoke
+work, low marginal value over the COUNT sweep); Discovery — Events per-event drill-in (SUPERSEDED
+by the Discovery — Edges board, which already shows the markets under each event); Analyses
+beliefs-list json_agg (the belief FANOUT count + the /cognition board already cover beliefs;
+the findings/manifest were the expander's real value).
+
+STILL BLOCKED (data/operator, NOT track-B-buildable — honest): Vendor Scorecard (D V4, Layer-3
+trust job); Forecast→Outcome (D V5, the data flow); Hypothesis Lifecycle full belief→trade→PnL
+(needs a schema change); persona PROMOTABLE/RETIRE verdict (cognition-only, unpersisted); §5
+money mark-loop floating/unrealized (no SimRunner accessor exposed); WS gap/resync counters
+(operator-run live dial, not in drive()); T4.6 A10 perp-CDF (Track-C basis-v2 diagnostics).
+⇒ Track-B's ROTA observability queue is now EXHAUSTED of buildable work.
+
 ### OBSERVABILITY-TAIL TRIAGE + Discovery — Edges board DONE (2026-06-14, operator directive)
 Operator re-missioned the observability tail: "T4.5 (v1.1 deferred panels) · T4.6 (single-pane
 total observability consuming C/D/E; A10 perp-CDF half waits on Track-C basis-v2) · OBS-2 (funnel
