@@ -15,6 +15,16 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-14, cont'd — verifier loop pass)
 
+- **✅ TRACK B — ROTA observability follow-on TAIL (3 slices) MERGED → main @21e95df = GATE ACCEPT.**
+  `fortuna-ops/rota.rs` + `fortuna-live/views.rs`: the persona-pipeline board, the forecast feed
+  (recent scalar beliefs), and the discovery/tradability⋈edges join. **READ-ONLY** (SELECT-only, zero
+  mutating endpoints); **honest-NULL/unavailable throughout** (a degraded pool → explicit "unavailable",
+  NEVER fabricated zeros); untrusted model output handled as data (5.11). Tests are populated-path AND
+  degraded-path (real rows, not stubbed-empty). Battery: fmt + workspace **1680/0** + clippy
+  `--workspace -D warnings` + DST 0 violations + invariants UNTOUCHED. MUTATION-PROVEN: gate-rejection
+  `count→0` reds `gates_rejections_by_check_is_non_vacuous`. Minor (noted): a defensive quantile-null
+  (`views.rs:85`) isn't test-covered for the no-observation case — coverage gap, not a defect.
+
 - **✅ TRACK C — basis-v2 §3.3 V3 MODEL LAYER (A3+A6+A9+σ) MERGED → main @ce8248b = GATE ACCEPT.**
   `perp_event_basis_v2.rs`: composes the gated A3/A9 kernel + the **A6 BRTI anchor**
   (`funding.reference_price` → BTC dollars, NEVER the perp mark) + the **DC-1 σ estimator** (bounded
