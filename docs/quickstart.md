@@ -3,7 +3,9 @@
 **Who this is for:** anyone with a fresh checkout who wants the FORTUNA daemon
 running locally on the Sim venue, the ROTA console in a browser, and the test
 battery green. Read it once, in order. Live trading is not part of this
-document — `sim` is the only bootable venue until Kalshi fixture clearance
+document — this quickstart uses the Sim venue; the Kalshi DEMO also boots
+(`venue="kalshi", stage="paper"` + a `[kalshi]` section), with its live run
+operator-gated (see [runbooks/demo-flip.md](runbooks/demo-flip.md))
 ([config/fortuna.example.toml](../config/fortuna.example.toml) `[daemon]`);
 the live path is [FINAL_REPORT.md](../FINAL_REPORT.md) §6.
 
@@ -55,8 +57,9 @@ real file is operator-local and gitignored; it carries **no secrets**
 
 What matters for a first boot:
 
-- `[daemon]` — `venue = "sim"` (the only bootable venue; `kalshi` refuses
-  without fixture clearance), `metrics_bind = "127.0.0.1:9187"`,
+- `[daemon]` — `venue = "sim"` for this quickstart (`kalshi` also boots at
+  `stage="paper"` with a `[kalshi]` section — its live run is operator-gated),
+  `metrics_bind = "127.0.0.1:9187"`,
   `tick_interval_ms`, `halt_poll_ms`.
 - `[cognition]` — `allow_stub_mind = false` by default: booting **without**
   `ANTHROPIC_API_KEY` is a hard refusal unless you set

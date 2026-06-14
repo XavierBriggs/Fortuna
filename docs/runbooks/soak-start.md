@@ -44,8 +44,9 @@ Success looks like: `config OK: config/fortuna.toml`.
 [config/fortuna.example.toml](../../config/fortuna.example.toml), which since
 commit `304f746` carries everything the soak composition needs (the
 `[review]` thresholds, the `synthesis_cents` envelope, and
-`[gates.per_strategy.synthesis]`). `[daemon] venue` stays `"sim"` — the boot
-check refuses `"kalshi"` until T4.2 fixture clearance
+`[gates.per_strategy.synthesis]`). `[daemon] venue` stays `"sim"` for the soak
+— the Kalshi demo (`venue="kalshi", stage="paper"`) is a separate live exercise
+with its own operator preconditions, not the Sim soak
 ([crates/fortuna-live/src/boot.rs](../../crates/fortuna-live/src/boot.rs),
 `validate_bootable`; see [demo-flip.md](demo-flip.md)).
 

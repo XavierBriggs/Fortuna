@@ -2,11 +2,13 @@
 
 **Who this is for:** the operator who will eventually flip the daemon from
 the Sim venue to the Kalshi DEMO environment (mock funds).
-**When to read it:** now, to know why the flip is currently refused; again
-when T4.2 clears, to execute it.
-**Status:** accurate as of commit `334612d` (2026-06-12). **The flip's
-precondition is NOT met** — this runbook documents a blocked procedure
-honestly rather than pretending it is available.
+**When to read it:** now — the demo-flip CODE is merged and the daemon BOOTS
+at Kalshi/paper; this is how you execute the live demo run (still gated on
+operator preconditions, §1).
+**Status:** the Kalshi demo-flip (Phase 1+2) is MERGED (main @ `0586bab`,
+2026-06-14): `venue = "kalshi", stage = "paper"` + a `[kalshi]` section composes
+the Kalshi demo runner at `Stage::Paper`. The CODE is no longer refused; the
+LIVE RUN is operator-gated — see §1.
 
 Related: [soak-start.md](soak-start.md) ·
 [fixture-recording.md](fixture-recording.md) ·
@@ -14,33 +16,31 @@ Related: [soak-start.md](soak-start.md) ·
 
 ---
 
-## 1. Current state: the flip is refused at boot, by design
+## 1. Current state: the flip BOOTS at paper; the LIVE RUN is operator-gated
 
-Setting `[daemon] venue = "kalshi"` today makes the daemon refuse to start
-with exactly this
+`[daemon] venue = "kalshi"` + `stage = "paper"` + a non-empty `[kalshi]`
+section now COMPOSES the Kalshi demo runner at `Stage::Paper`
 ([crates/fortuna-live/src/boot.rs](../../crates/fortuna-live/src/boot.rs),
-`validate_bootable`):
+`validate_bootable`; merged @`0586bab`). The boot gate refuses ONLY:
 
-```
-venue kalshi cannot boot: adapter is cleared for Sim development only until
-operator fixture clearance completes (GAPS.md Kalshi section; T4.2)
-```
+- `venue=kalshi` at `stage=sim` — a mis-wiring (the Sim world is `venue=sim`);
+- `venue=kalshi` at `stage=live_min`/`scaled` — I7: promotion past Paper needs
+  the forward-validation gate (a human action); the daemon never auto-promotes;
+- `venue=kalshi, stage=paper` with an empty/absent `[kalshi].series`.
 
-This is fail-closed gating, not a bug. The operator directive recorded in
-BUILD_PLAN.md is explicit: "demo-mode startup is itself gated on T4.1+T4.2
-clearance". T4.1 (the daemon) is done; **T4.2 is not** — its BUILD_PLAN box
-is unticked, covering: the Kalshi WS dial (signed handshake, keep-alive,
-redial with resubscribe-on-gap), venue-generic recorded-stream replay into
-PaperVenue, **kalshi adapter paper/live clearance vs fixtures**, the
-kill-switch KalshiVenue plug (`FORTUNA_KILLSWITCH_*` creds), and the Slack
-Socket Mode listener (BUILD_PLAN.md, T4.2 POST-FIXTURE tranche). The
-clearance residue is itemized in GAPS.md "Operator-blocked: Kalshi
-fixtures" ("REMAINING for clearance (T4.2): adapter re-pointed at
-recordings + nested-envelope fix; settlement capture …; prod-parity
-read-only re-record before live").
+So the CODE is ready. What still gates the LIVE demo RUN (per
+[kalshi-demo-flip.md](../design/kalshi-demo-flip.md) §"Operator-blocked"):
 
-Do not edit the gate away. When T4.2's independent gate verdict exists, the
-refusal will be removed by that work, not by this runbook.
+1. **Demo credentials** in `.env` — `KALSHI_API_DEMO_KEY_ID` +
+   `KALSHI_DEMO_PRIVATE_KEY_PATH` (the PEM: chmod 600, gitignored, outside the
+   repo; confirm it is the ROTATED key post the 2026-06-11 incident).
+2. **T4.2 fixture clearance** — the 27-item Kalshi checklist (GAPS) closes via
+   the operator recording session before running against the real demo API.
+3. **`[kalshi].series`** tickers, from a demo-account inspection.
+
+Do not edit the boot gate. If a NON-paper stage ever boots for `venue=kalshi`
+(or `kalshi`+`paper` boots with an empty `[kalshi]`), the I7 gate was weakened
+— stop and treat it as a protected-path incident.
 
 ## 2. What is already prepared
 
@@ -60,21 +60,20 @@ key id is the DEMO-environment key and `KALSHI_PRIVATE_KEY_PATH` points at
 its PEM, chmod 600, outside the repo (GAPS.md "Operator-blocked:
 credentials"; [key-rotation-and-secrets.md](key-rotation-and-secrets.md)).
 
-## 3. The flip itself (when T4.2 clears) — REVIEW-VERIFIED, not executable today
+## 3. Executing the live demo run (code-ready; needs the §1 operator preconditions)
 
 **OPERATOR-JUDGMENT** — flipping venue points the daemon at a real external
-venue (demo environment, mock funds). Preconditions: the T4.2 clearance
-gate verdict exists under `docs/reviews/`; demo credentials confirmed per
-§2; the kill-switch KalshiVenue plug landed with its own credential pair
-(it is part of the same T4.2 tranche — incident response on a real venue
-without it is degraded, see
+venue (the Kalshi DEMO environment, mock funds). Preconditions (§1): demo
+credentials in `.env`; the 27-item T4.2 fixture clearance closed; `[kalshi].series`
+set; the kill-switch KalshiVenue plug is wired (LIVE `freeze --venue kalshi` is
+built — only the operator-run live exercise remains, see
 [kill-switch-drill.md](kill-switch-drill.md)).
 
-1. Edit `config/fortuna.toml` — `[daemon] venue` from `"sim"` to the value
-   T4.2 defines for the demo environment (`"kalshi"` is the venue name the
-   boot gate reserves today; whether demo-vs-prod selection is a host key
-   or a mode key is T4.2's to define — re-verify this step against the
-   T4.2 verdict before executing).
+1. Edit `config/fortuna.toml` — set `[daemon] venue = "kalshi"`, `stage = "paper"`,
+   and add a `[kalshi]` section with your demo `series` tickers (the boot gate
+   requires all three). Demo-vs-prod is selected by the env credentials + the
+   Kalshi base URL the transport reads — the demo creds/URL point at the demo
+   environment.
 2. Check it parses and passes the boot rules:
    `./target/release/fortuna config check`
 3. Restart — config changes are RESTART-GATED:
@@ -122,10 +121,10 @@ Stays exactly as it is:
 
 ## When to stop and escalate
 
-- The boot refusal in §1 disappears WITHOUT a T4.2 gate verdict in
-  `docs/reviews/` → someone weakened the gate; stop and treat as a
-  protected-path incident (CLAUDE.md: fail-closed gating is not editable
-  convenience).
+- A NON-paper stage (`live_min`/`scaled`) boots for `venue=kalshi`, or
+  `kalshi`+`paper` boots with an empty `[kalshi]` → the I7 boot gate was
+  weakened; stop and treat as a protected-path incident (CLAUDE.md: fail-closed
+  gating is not editable convenience).
 - Demo behavior diverges from a fixture-confirmed behavior → record it;
   fixtures are demo-recorded and the divergence discipline (spec.md v0.9)
   exists exactly for this; do not "fix" the adapter live.

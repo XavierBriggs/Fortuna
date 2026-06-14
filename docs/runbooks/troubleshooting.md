@@ -44,9 +44,12 @@ that fallback.
 - `missing [daemon] section …` / `missing [cognition] section …` — your
   `config/fortuna.toml` predates the current example; re-diff against
   [config/fortuna.example.toml](../../config/fortuna.example.toml).
-- `venue kalshi cannot boot: adapter is cleared for Sim development only
-  until operator fixture clearance completes (GAPS.md Kalshi section; T4.2)`
-  — expected; see [demo-flip.md](demo-flip.md).
+- The stage-specific Kalshi boot gate (boot.rs): `venue=kalshi requires
+  stage=paper …` (kalshi at stage=sim — a mis-wiring), or `venue=kalshi
+  stage=LiveMin/Scaled is refused: promotion past Paper needs the
+  forward-validation gate (I7)`, or `venue = "kalshi", stage = "paper" requires
+  a [kalshi] section with a non-empty series list`. `kalshi`+`paper`+`[kalshi].series`
+  BOOTS (the demo composition); see [demo-flip.md](demo-flip.md).
 - `halt_poll_ms = … violates the <=500ms halt-poll pin (ASSUMPTIONS)` — the
   halt rail's reaction bound is non-negotiable.
 - `venue = "sim" requires a [sim] section with non-empty bracket_sets` —

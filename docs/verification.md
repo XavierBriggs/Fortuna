@@ -305,9 +305,9 @@ SETTLE_DST_SCENARIOS=2000 cargo test -p fortuna-runner --test settlement_dst -- 
 cargo test -p fortuna-live --test daemon_smoke -- --nocapture
 ```
 
-(The perp DST harness, `cargo test -p fortuna-state --test perp_dst`, rides the
-`track-c` branch pending the re-merge —
-[GATE-FINDINGS-LATEST](reviews/GATE-FINDINGS-LATEST.md).)
+(The perp DST harness, `cargo test -p fortuna-state --test perp_dst`, is on
+`main` and runs as a standard stage of `scripts/run-dst.sh`, alongside the
+`perp_event_basis` and `funding_forecast` DST arms.)
 
 **The invariant suite** (protected crate — see
 [CLAUDE.md](../CLAUDE.md) before touching anything here):

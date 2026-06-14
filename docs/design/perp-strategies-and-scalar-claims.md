@@ -470,6 +470,11 @@ whereas v2 deepens a Sim-stage, propose-only, non-live-capital strategy (I7) who
 already merged, so it gates nothing live. F5–F9 was moved off C → E (2026-06-14), freeing C's
 load for this.
 
+**v2 PROGRESS (2026-06-14):** §2.6 **A2b** (the fixed seven-quantile fan, @79e3dad) and **A2d
+slice-1** (the carry-forward baseline kernel `funding_baselines.rs`, @0bb6d27) are MERGED + gated.
+The per-bracket EV trader (§3.3 A3/A6/A5/A9/A4+A8/A7/A10) and A2d slice-2 (wiring the side-by-side
+score into funding_forecast) remain unbuilt.
+
 ## 6. What this deliberately does NOT do (YAGNI)
 
 - No native perp-leg trading (perp_event_basis trades brackets; perp legs are a later,
