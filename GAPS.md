@@ -92,8 +92,22 @@ its strategy/wiring):
   random-walk (DEFINE precisely — recommend: last observed estimate as the point forecast with the
   RW-scaled band, or a degenerate at the last value; pick one, document, mutation-pin). Extend the kernel
   + comparison struct.
-- SLICE 3 (the resolve/score loop) — ⛔ DESIGN-COMPLETE but BUILD-BLOCKED on a REALIZED-FUNDING SOURCE
-  (operator/recorder — same class as the v2 e2e fixture). Investigated against the codebase 2026-06-14
+- SLICE 3 (the resolve/score loop) — 🟢 UNBLOCKED 2026-06-14 (verifier bus 961fa7a): the realized-funding
+  source was FOUND = public `GET /margin/funding_rates/historical` (no auth, no I7/secret surface;
+  perps_openapi.yaml:887), already fixture-captured on disk (raw/live_prod_funding_hist_all.json: 100
+  finalized records / 11 markets, 2026-06-06→06-11). My earlier "BUILD-BLOCKED" (@c8775c9) is SUPERSEDED.
+  TRACK-C ASSIGNMENT (3 parts, build after the v2 kernel commits to avoid concurrent fortuna-cognition
+  edits): (1) `fortuna-ledger` append-only migration `funding_rates_historical(market_ticker, funding_time,
+  funding_rate, mark_price, captured_at)` UNIQUE(market_ticker,funding_time) + repo; (2) a public-GET
+  POLLER (NO creds, pinned Kalshi host, payload = untrusted data spec 5.11 → validate shape +
+  refuse/quarantine; backfill no-start_ts then poll past each 8h boundary 04/12/20 UTC; mirror the Aeolus
+  poll-and-persist cron); (3) the resolve→score loop (read realized → `ScalarBeliefsRepo::resolve` →
+  `compare_against_baselines` → `BeliefScoresRepo::insert`, rule_id="crps_pinball"[:baseline] per leg).
+  WIRE + correctness-validate on the fixtures NOW; the STATISTICAL beats-baselines edge accrues over the
+  soak (an I7 forward-validation gate is time-gated — building the loop is unblocked, DECLARING an edge is
+  not). Sim stays funding-free (score against REAL captured rates, never a synthetic sim model). ROTA §9.1
+  lights up automatically on the scored rows (no track-C change). Original design notes (infra all exists):
+  Investigated against the codebase 2026-06-14
   (Explore agent, file:line-grounded). FINDINGS:
   - **The scoring INFRA ALL EXISTS** (SLICE 1b already landed it): `belief_scores` table + `BeliefScoresRepo`
     (insert/scores_for_belief/scores_for_rule; append-only; UNIQUE(belief_id,rule_id)) at
