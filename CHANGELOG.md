@@ -18,6 +18,27 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
+- **perp basis-v2 §3.3 SLICE V5 — measured informativeness + diagnostics (A7 + A10)**
+  (`fortuna-runner::perp_event_basis_v2`, additive; the LAST v2 slice — the v2 strategy is now COMPLETE):
+  "measure that the perp leads, don't assume it." Per candidate bin, A7 computes an `InfoVerdict` from
+  whole-book FRESHNESS (the only cleanly cross-instrument signal; DC-6 — per-level age is unavailable, and
+  perp-vs-bracket spread/depth are different units so they are RECORDED, not gated): perp side = the perp
+  book's `as_of` (via `core.books`) or `funding.obs_at` when the perp book is unplumbed; bracket side = the
+  bin book's `as_of`. The verdict feeds the V4 EV gate and can ONLY make it more conservative — BracketLeads
+  (bracket strictly fresher, both fresh) ⇒ VETO (configurable); Unfavorable (perp book absent, either side
+  stale, or no bin book) ⇒ raise `adverse` by `info_adverse_penalty` then re-apply the strict EV gate;
+  PerpFavorable ⇒ unchanged. The conservative default is NEVER PerpFavorable when perp leadership cannot be
+  established. A10: emits the model-vs-implied CDF divergence (a Kolmogorov sup-distance over the
+  canonically-ordered cumulatives) + `q_j` + the A7 verdict + per-bin freshness/spread/depth into the
+  `V2Eval` snapshot and the proposal `thesis` (the §9 "C produces the numbers" half; the richer named-
+  `MetricSample` emission + realized band-coverage are deferred to the telemetry slice T5.B8, and the ROTA
+  §9.2 display is track-B). Documents the rung-0 FALLBACK: v2 degrades to propose-nothing on any
+  unavailable/stale/incoherent input, and the rung-0 strategy remains the fallback basis path. I6/I7
+  preserved; A7 never up-sizes or up-weights. 11 new adversarial tests (the three verdicts, the veto, the
+  penalty skips/overcomes, the conservative default, the CDF divergence hand-checked), MUTATION-PROVEN
+  (defaulting perp-absent to PerpFavorable reds the perp-absent tests). NO `compose.rs` wire-in (track-A
+  follow-on). With V5 the v2 strategy (§3.3 A3/A6/A9/A5/A4/A8/A7/A10) is COMPLETE — DATA-ONLY, Sim-stage; a
+  declared edge awaits operator endorsement of the DC defaults + a v2 paired-cycle e2e fixture (I7).
 - **perp basis-v2 §3.3 SLICE V4 — horizon gating + the per-bin EV gate (A5 + A4 + A8)**
   (`fortuna-runner::perp_event_basis_v2`, additive; the FIRST v2 slice that PROPOSES): extends V3 with
   (A5) per-bracket horizon regimes — τ = `core.markets[bracket].close_at − core.now` (DC-4 resolved
