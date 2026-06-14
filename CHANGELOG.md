@@ -438,6 +438,29 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-14 — F7 live plug-in slice 1: the Kalshi day-set source (`WeatherMarketSource`)
+
+**Added (`fortuna-venues::kalshi::weather`, additive — the live half of the F7 venue seam).**
+The recorded-fixture matcher (the F7 venue half below) needs the LIVE day-set to match against; this
+slice is the read-only discovery that produces it.
+- **`WeatherMarketSource` trait** — `async day_set(series, target_date) -> Vec<KalshiMarket>`. A date
+  with no live market is an empty `Vec` (NOT an error — "no live market ⇒ not traded"); a transport or
+  body-parse failure is a hard `Err` (a malformed venue frame is never a fabricated market).
+- **`KalshiWeatherSource`** — the live impl over a shared `Arc<dyn KalshiTransport>` (adds no creds of
+  its own; inherits the runner's demo/prod routing + signing). Paginates `GET /markets?series_ticker=…`
+  (READ-ONLY — no orders), keeps the markets grading on the target date. No status filter (returns the
+  COMPLETE day-set incl. settled; the caller applies the tradeable-status filter).
+- **`event_grades_on(event_ticker, target_date)`** — the pure date-match key: derives the
+  `{YY}{MON}{DD}` token (`26JUN13`) from the ISO date and matches it as a '-'-delimited ticker segment.
+  A MATCH key against recorded data, never a constructed market ticker (buckets/edges always key on the
+  recorded `market.ticker`). Malformed ISO date → no match (conservative: a wrong padding can only
+  *miss* a day, never mis-trade). Day-padding (single-digit days) ledgered in GAPS.
+- **Grounded e2e** (`tests/kalshi_weather_source.rs`): a `MockKalshiTransport` replays the recorded
+  `fixtures/kalshi/markets__high_temp.json` verbatim — `day_set` returns the 6 active June-15 markets,
+  the 6 settled June-13 markets (unfiltered), an empty Vec for absent June-16, and issues exactly one
+  READ-ONLY `GET /markets` scoped to the series. Scoped-green (fmt + clippy `-D warnings` + 6/6 test);
+  additive + inert (nothing imports it until plug-in slice 2). Full battery rides slice 2's commit.
+
 ### 2026-06-14 — F7 venue half: Aeolus↔Kalshi bucket matcher (makes weather beliefs tradeable)
 
 **Added (the venue half of the Track-E↔Track-A F7 contract, `docs/design/aeolus-kalshi-bucket-matching.md`).**
