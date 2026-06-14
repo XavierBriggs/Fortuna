@@ -573,6 +573,36 @@ unit tests could not catch (the live socket round-trip was the one untested seam
   venue=kalshi un-refuse) and live order/exec round-trips. This exercise was demo
   market-data only.
 
+## TRACK A — F7 VENUE BUCKET MATCHER DONE (Aeolus↔Kalshi seam, operator-directed 2026-06-14)
+
+The venue half of the Track-E↔Track-A F7 contract (docs/design/aeolus-kalshi-bucket-matching.md) is
+built + recorded-e2e-proven: `fortuna-venues` `KalshiMarket` strike DTO + `fortuna-live::aeolus_venue`
+(`station_series`, `market_to_bucket`, `aeolus_bucket_edges`). Consumes Track-E's committed
+`aeolus_bucket_beliefs`. Full battery green (test --workspace 1611/0; run-dst 200 0-viol).
+
+GROUNDED IN REAL DATA: a read-only demo-discovery tool (examples/kalshi_discover_markets.rs) found the
+live series + captured fixtures/kalshi/markets__high_temp.json (18 verbatim KXHIGHNY markets,
+secret-clean). The recorded forecast (knyc_tmax) + recorded markets → 6 beliefs + 6 Direct edges, p's
+sum to 1.0, mutation-proven. Never a fabricated ticker.
+
+DEFERRED / FOLLOW-ON (ledgered, not blockers):
+- DRIVE() LIVE PLUG-IN: not yet wired — the world-forward step does not yet, for an `aeolus.forecast`
+  signal, discover the live Kalshi day-set → build `WeatherBucket[]` → `aeolus_bucket_edges` → persist
+  beliefs + edges. It's INERT in prod until `venue=kalshi` (operator-gated, no live Kalshi catalog in
+  Sim) and reuses the market-back edge-persist machinery. The matcher is ready; the plug-in is the next
+  Track-A slice.
+- STATION→SERIES MAP: only `KNYC+tmax→KXHIGHNY` is grounded (the recorded forecast's station). The other
+  discovered cities (KXHIGHCHI/DEN/LAX/MIA/PHIL/AUS + KXHIGHT{ATL,BOS,DAL}) need each NWS-station↔
+  Kalshi-city confirmed before mapping — `station_series` returns `None` for the unconfirmed (conservative).
+- DTO FINDING (recorded-data forced): `KalshiMarket.floor_strike`/`cap_strike` are `Option<serde_json::
+  Number>` NOT `Option<i64>` — the recorded `markets__status_closed.json` WTI market has a fractional
+  `floor_strike: 91.89`; `i64` would have regressed venues parsing. Integer-degree consumers use the
+  `*_int()` accessors (exact-integer-only; a price strike degrades to None → skipped). Additive, no regress.
+- INTEGRATION NOTE: track-a carries the `track-e-bucket-matching` merge (the seam code, commits
+  fef0e65+3378bb9) — Track-E committed the contract+code on that branch; the verifier should merge
+  `track-e-bucket-matching` → main so all tracks get the seam (track-a→main will bring it via this work
+  regardless; same SHAs merge once).
+
 ## TRACK A — PERSONA DAEMON WIRING DONE (`[personas]` opt-in); discovery-drive NEXT (operator amendment 2026-06-14)
 
 The persona-analysis step is wired into `drive()` (per persona-live-wiring-handoff.md):
