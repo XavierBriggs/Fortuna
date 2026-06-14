@@ -15,6 +15,19 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-14, cont'd — verifier loop pass)
 
+- **✅ TRACK C — basis-v2 §3.3 V3 MODEL LAYER (A3+A6+A9+σ) MERGED → main @ce8248b = GATE ACCEPT.**
+  `perp_event_basis_v2.rs`: composes the gated A3/A9 kernel + the **A6 BRTI anchor**
+  (`funding.reference_price` → BTC dollars, NEVER the perp mark) + the **DC-1 σ estimator** (bounded
+  anchor ring → per-step log-returns → EWMA of r² → clamp [floor,ceiling], INACTIVE until `min_vol_obs`
+  returns folded — falls back rather than guessing, all degenerate-safe). A9-gates the ladder; A10
+  median is a health DIAGNOSTIC not a signal. **DATA-ONLY: `on_event` always returns `Ok(vec![])` —
+  proposes NOTHING** (V4 is the per-bin EV gate). Mechanical, `Stage::Sim` (I7); I6 vacuous; no
+  panic/unwrap; f64 forecast-domain; no SystemTime; untrusted-data guards on anchor/quotes (5.11).
+  Battery: fmt + workspace **1680/0** + clippy `--workspace -D warnings` + DST 0 violations +
+  invariants UNTOUCHED. MUTATION-PROVEN: the σ-readiness gate (`return_count < min_vol_obs` → `< 1`)
+  reds `sigma_not_ready_no_eval`. slice-3b-v2 §3.3: A3 q_j ✓ A9 no-arb ✓ (@0f49430) → V3 model layer
+  (A6 anchor + DC-1 σ) ✓ (@ce8248b); NEXT = V4 EV gate (A4/A8 → UNSIZED maker legs) + A7 informativeness.
+
 - **✅ TRACK C — A2d SLICE-3 PART 3: resolve→score loop MERGED → main @db17fe8 = GATE ACCEPT. A2d
   SLICE-3 COMPLETE** (the A2d funding-belief scoring loop the whole amendment was for — store + scoring
   now both landed). `resolve_and_score_funding_beliefs(pool, now, score_id_base)`: per due unresolved
