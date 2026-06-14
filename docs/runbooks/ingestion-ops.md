@@ -47,6 +47,24 @@ refuses rather than running degraded.
    first"). Built dossiers/tiers: `nws`, `rss_fed_press`, `rss_sec_edgar`,
    `calendar_bls`, `nws_climate` (tier 10), `aeolus` (tier 7).
 
+   The seed is one idempotent `upsert` per source — e.g. the `nws_climate`
+   resolution feed (the weather grader's input; required before the scoring loop
+   can resolve a belief). Run against the daemon's `DATABASE_URL` (or the
+   superuser socket); `<NOW>` is a UTC ISO8601 string:
+
+   ```sql
+   INSERT INTO source_registry (source_id, trust_tier, domain_tags, enabled, created_at, updated_at)
+   VALUES ('nws_climate', 10, '["weather"]'::jsonb, true, '<NOW>', '<NOW>')
+   ON CONFLICT (source_id) DO UPDATE
+     SET trust_tier  = EXCLUDED.trust_tier,
+         domain_tags = EXCLUDED.domain_tags,
+         enabled     = EXCLUDED.enabled,
+         updated_at  = EXCLUDED.updated_at;
+   ```
+
+   (Repeat per source id you are admitting. The local `fortuna` DB has
+   `nws_climate` seeded already, 2026-06-14.)
+
 2. **Add `[sources.<id>]` config rows** in `fortuna.toml`. Required keys for an
    enabled source: `kind`, `url` (https only), `base_interval`,
    `rate_budget_per_min`. `feed` is required for `nws` (`alerts` | `afd` |

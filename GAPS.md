@@ -14,19 +14,19 @@ line, inverted high<low, unparseable date) — never a fabricated temperature
 (spec 5.12). RECORDED fixtures only (2 new real captures + the existing jammed
 PTKR; mutation guard). Battery-green source-side.
 
-OPEN HANDOFFS (each is another track's / the operator's, with exact steps):
-1. BRIDGE (cognition / composition — Track-E or Track-A settlement loop): F9's
-   `score_reliability(fc, realized_f: f64)` is unchanged; to feed it, the resolver
-   loop calls `nws_cli_realized(productText, station)` on the persisted `nws.cli`
-   signal for the event's (station, target_date), then passes `r.high_f as f64`
-   for a TMAX event or `r.low_f as f64` for a TMIN event. `None` ⇒ the day is
-   UNSCOREABLE (skip; do not grade). fortuna-live (composition) depends on both
-   fortuna-sources and fortuna-cognition, so the bridge has no dependency problem.
-2. REGISTRY SEED (operator): seed a `source_registry` row for the observed-daily-
-   extreme feed (the `nws_climate` source) with its resolution-source role +
-   tier 10, so weather events can declare it as their resolution source (§3.2,
-   §5.12). The dossier (docs/research/sources/nws_climate/dossier.md) already
-   declares this role; only the DB seed is operator-side.
+HANDOFFS (status as of 2026-06-14):
+1. BRIDGE — HANDOFF PROMPT WRITTEN for Track E:
+   `docs/design/PROMPT-track-e-grader-bridge.md`. The resolver loop calls
+   `nws_cli_realized(productText, station)` on the persisted `nws.cli` signal for
+   the belief's (grading-station, target_date), passes `r.high_f as f64` (TMAX) /
+   `r.low_f as f64` (TMIN) to `score_reliability`, then `resolve_and_score` per
+   bracket. `None` ⇒ UNSCOREABLE (skip; never grade). Mirror the existing
+   `resolve_and_score_funding_beliefs` analog in daemon.rs. Owner: Track E
+   (resolver) + Track A (the `drive()` touch). STILL OPEN — Track E builds it.
+2. REGISTRY SEED — DONE on the local `fortuna` DB (2026-06-14): `source_registry`
+   row `nws_climate` (tier 10, `["weather"]`, enabled). The idempotent upsert SQL
+   is in `docs/runbooks/ingestion-ops.md` (prereq 1) for the PROD seed (the only
+   remaining operator step, per-env).
 3. STATION ROUTING / multi-station CLI: `station` is caller-supplied and stamped;
    the grader assumes a single-station product (true for all captured fixtures).
    A multi-station CLI product (some offices list several sites) would need a
