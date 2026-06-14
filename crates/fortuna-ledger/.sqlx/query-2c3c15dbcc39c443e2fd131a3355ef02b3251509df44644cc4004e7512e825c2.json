@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT belief_id, event_id, p,\n                      provenance->>'variable'       AS variable,\n                      provenance->>'nws_station_id' AS nws_station_id,\n                      provenance->>'target_date'    AS target_date,\n                      horizon\n               FROM beliefs\n               WHERE status = 'open'\n                 AND provenance->>'model_id' = 'aeolus'\n                 AND horizon <= $1\n               ORDER BY horizon ASC, belief_id ASC\n               LIMIT $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "belief_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "p",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 3,
+        "name": "variable",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "nws_station_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "target_date",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "horizon",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      null,
+      null,
+      false
+    ]
+  },
+  "hash": "2c3c15dbcc39c443e2fd131a3355ef02b3251509df44644cc4004e7512e825c2"
+}

@@ -8,8 +8,12 @@
 //! bracket belief is NOT done) and the belief's p is re-validated against the
 //! pinned μ/σ math (calibration validated, not asserted).
 //!
-//! The realized temperature stands in for the NWS-CLI grader (F2, a ledgered seam);
-//! the value used here is a chosen daily high — the math is what is proven.
+//! The realized temperature is GRADED from a RECORDED NWS CLI product through the
+//! real F2 grader (`nws_cli_realized`) — not a chosen number. The recorded
+//! Troutdale product (`CLITTD`, daily high 91°F) stands in for NYC's CLI (the
+//! production `CLINYC` fixture is a ledgered seam — GAPS): the recorded Aeolus
+//! μ/σ beliefs are graded by a recorded NWS realized value, which is the math
+//! this e2e proves.
 
 use fortuna_cognition::aeolus_beliefs::emit_aeolus_beliefs;
 use fortuna_cognition::aeolus_dedup::dedup_forecasts;
@@ -24,6 +28,12 @@ use std::collections::BTreeMap;
 const FIXTURE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../fixtures/sources/aeolus/knyc_tmax.json"
+));
+/// Recorded NWS CLI product (Troutdale, AWIPS `CLITTD`, daily high 91°F) — the
+/// realized grade the F9 step scores against (graded, never a chosen number).
+const TROUTDALE_CLI: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../fixtures/sources/nws_climate/cli_product_troutdale.json"
 ));
 
 #[sqlx::test(migrations = "./migrations")]
@@ -44,8 +54,16 @@ async fn recorded_forecast_drives_a_persisted_scored_bracket_belief(pool: PgPool
     assert_eq!(beliefs.binary.len(), 14);
     assert_eq!(beliefs.skipped_in_bracket, 0);
 
-    // ---- F9 score vs a RECORDED realized daily high. --------------------------
-    let realized = 88.0_f64;
+    // ---- F9 score vs a RECORDED realized daily high (graded, not chosen). ------
+    // The real F2 grader extracts the official daily MAX from a recorded NWS CLI
+    // product; 91°F is the recorded Troutdale high (the recorded Aeolus μ/σ
+    // beliefs graded by a recorded NWS realized — the NYC CLI fixture is a seam).
+    let cli: serde_json::Value = serde_json::from_str(TROUTDALE_CLI).expect("cli json");
+    let product_text = cli["productText"].as_str().expect("productText");
+    let realized = fortuna_sources::nws_climate::nws_cli_realized(product_text, "KPDX")
+        .expect("recorded CLI product grades")
+        .high_f as f64;
+    assert_eq!(realized, 91.0, "the recorded Troutdale daily high");
     let reliability = score_reliability(fc, realized);
     // event_id -> (outcome, brier) for resolving the persisted beliefs.
     let scored: BTreeMap<&str, (bool, f64)> = reliability
@@ -130,7 +148,7 @@ async fn recorded_forecast_drives_a_persisted_scored_bracket_belief(pool: PgPool
         .unwrap();
 
     // ---- THE GATE: a scored bracket belief exists, replaying to the μ/σ math. --
-    // ge87 is the borderline bracket: p≈0.672, outcome true (88≥87).
+    // ge87: p≈0.672, outcome true (the graded high 91 ≥ 87).
     let ge87_event = "aeolus:knyc-2026-06-13-tmax-ge87";
     let idx = beliefs
         .binary
@@ -145,7 +163,7 @@ async fn recorded_forecast_drives_a_persisted_scored_bracket_belief(pool: PgPool
         row.status, "resolved",
         "the bracket belief is SCORED, not merely parsed"
     );
-    assert_eq!(row.outcome, Some(1), "88 ≥ 87 ⇒ outcome true");
+    assert_eq!(row.outcome, Some(1), "91 ≥ 87 ⇒ outcome true");
     // Calibration VALIDATED, not asserted: the persisted p is exactly the pinned
     // μ/σ probability (the same number F6's fixture test pinned to 6.9e-8 of Aeolus).
     let expected_p = bracket_prob_ge(87, fc.mu(), fc.sigma()).unwrap();

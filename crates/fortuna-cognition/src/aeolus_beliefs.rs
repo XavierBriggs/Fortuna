@@ -96,6 +96,11 @@ fn provenance(fc: &AeolusForecast) -> serde_json::Value {
     json!({
         "model_id": "aeolus",
         "station": fc.station(),
+        // The OFFICIAL grading station (may differ from `station`: Aeolus forecasts
+        // `KNYC`, the NWS CLI grades it as `NYC`). Stamped so the resolution bridge
+        // (`resolve_and_score_weather_beliefs`) routes the belief to its CLI product
+        // off the persisted row alone — never by re-parsing the source forecast.
+        "nws_station_id": fc.nws_station_id(),
         "variable": variable_str(fc.variable()),
         "target_date": fc.target_date(),
         "run_at": fc.run_at().to_iso8601(),

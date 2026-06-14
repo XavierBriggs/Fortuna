@@ -3090,6 +3090,242 @@ pub async fn resolve_and_score_funding_beliefs(
     Ok(resolved)
 }
 
+/// The producer whose weather beliefs this loop resolves + scores: the Aeolus
+/// forecast pipeline (F8 stamps `provenance.model_id = "aeolus"`). Both the binary
+/// bracket beliefs (`BeliefsRepo`) and the scalar μ/σ belief (`ScalarBeliefsRepo`,
+/// producer = this string) carry it.
+pub const AEOLUS_PRODUCER: &str = "aeolus";
+
+/// Cap on the `nws.cli` signal scan per resolution call. The grader routes each
+/// due forecast to ITS CLI product among the most-recent `nws.cli` signals; a
+/// product older than this cap (≫ the daily settle lag) is not found and its
+/// belief stays OPEN for a later run. Ledgered in GAPS (the single-station +
+/// bounded-scan assumptions).
+const CLI_SCAN_CAP: i64 = 512;
+
+/// Resolve + score every DUE, gradeable Aeolus WEATHER belief (source contract
+/// `docs/design/aeolus-fortuna-source-contract.md` §5 Layer 3 — "the loop"). The
+/// standalone resolver mirroring [`resolve_and_score_funding_beliefs`; NOT yet
+/// wired into `drive()` — that one-line additive call sits next to the F7 weather
+/// world-forward block and is coordinated with Track A]. For each open Aeolus
+/// belief whose window has CLOSED (`horizon <= now`), it:
+///   1. routes the belief to ITS NWS CLI product (by the forecast's grading
+///      station `nws_station_id`, stamped in provenance — `cli_serves_station`),
+///   2. INDEPENDENTLY grades the realized daily high/low from that product's raw
+///      text (`nws_cli_realized`, the NWS grader — NEVER Aeolus, the V4 caution),
+///   3. binary brackets: Brier the belief's OWN persisted `p` against the realized
+///      0/1 outcome (`aeolus_resolve::score_bracket`) and `resolve_and_score` it;
+///   4. the scalar μ/σ belief: CRPS its persisted quantile fan vs the realized
+///      value (the SAME reconstruct-from-the-belief-row shape funding uses) and
+///      write one `belief_scores` `crps_pinball` row.
+///
+/// Returns the count of beliefs RESOLVED (binary + scalar) this call.
+///
+/// # The realized value is the GRADER's, never fabricated
+///
+/// A belief is resolved ONLY when its CLI product is found AND grades cleanly. A
+/// missing product (no recorded CLI for that station yet — a ledgered fixture
+/// seam), an ambiguous/jammed CLI (`nws_cli_realized` → `None`, e.g. a jammed
+/// `MINIMUM 7676`), an unparseable `event_hint`, or an unknown variable all SKIP
+/// the belief — it stays OPEN for a later run, NEVER graded against a derived or
+/// fabricated temperature (spec 5.12). Grading is keyed on the grading station +
+/// `target_date`, memoized so each forecast is graded once per call.
+///
+/// # Why grade the PERSISTED p / quantiles (not a re-parsed forecast)
+///
+/// The score is computed from the persisted belief (its `p`, its quantiles), not
+/// by re-parsing the source `aeolus.forecast` signal — so reliability scores
+/// exactly what FORTUNA believed (calibration-safe: today `p == p_raw`, but a
+/// later weather calibration layer would make `p ≠ p_raw`), mirroring the funding
+/// resolver. The realized °F is the only external input, and it is the
+/// independent NWS grade.
+///
+/// # Idempotency
+///
+/// `resolve_and_score` / `ScalarBeliefsRepo::resolve` are set-once; a re-run never
+/// re-lists an already-resolved belief (`open_aeolus_weather_due` /
+/// `unresolved_due` exclude it), so a second call resolves 0. A `CorruptRow` from
+/// a concurrent double-resolve is treated as "already resolved, skip"; a UNIQUE
+/// `(belief_id, rule_id)` collision on the scalar score insert is treated as
+/// "already scored, skip". Any other ledger error bubbles.
+pub async fn resolve_and_score_weather_beliefs(
+    pool: &PgPool,
+    now: UtcTimestamp,
+    score_id_base: u64,
+) -> Result<usize, DaemonError> {
+    use fortuna_cognition::aeolus_forecast::Variable;
+    use fortuna_cognition::aeolus_resolve::{cli_serves_station, realized_f_for, score_bracket};
+    use fortuna_cognition::scoring::{
+        CrpsPinballRule, PredictiveDistribution, Quantile, RealizedOutcome, ScoringRule,
+    };
+    use fortuna_ledger::{BeliefScoresRepo, BeliefsRepo, ScalarBeliefsRepo, SignalsRepo};
+    use fortuna_sources::nws_climate::{nws_cli_realized, RealizedExtreme, NWS_CLI_KIND};
+    use std::collections::HashMap;
+
+    let beliefs = BeliefsRepo::new(pool.clone());
+    let scalars = ScalarBeliefsRepo::new(pool.clone());
+    let now_iso = now.to_iso8601();
+
+    // (a) The two work queues: open binary brackets + open scalar μ/σ beliefs,
+    // both DUE (`horizon <= now`). If BOTH are empty, do no signal IO at all.
+    let due_binary = beliefs
+        .open_aeolus_weather_due(&now_iso, RESOLVE_BATCH_CAP)
+        .await
+        .map_err(|e| DaemonError::Compose {
+            reason: format!("open_aeolus_weather_due: {e}"),
+        })?;
+    let due_scalar = scalars
+        .unresolved_due(AEOLUS_PRODUCER, &now_iso, RESOLVE_BATCH_CAP)
+        .await
+        .map_err(|e| DaemonError::Compose {
+            reason: format!("scalar unresolved_due({AEOLUS_PRODUCER}): {e}"),
+        })?;
+    if due_binary.is_empty() && due_scalar.is_empty() {
+        return Ok(0);
+    }
+
+    // (b) The recent `nws.cli` products (the realized-grade source). Loaded once.
+    let signals = SignalsRepo::new(pool.clone());
+    let cli_signals = signals
+        .recent_by_kind(&[NWS_CLI_KIND.to_string()], "", CLI_SCAN_CAP)
+        .await
+        .map_err(|e| DaemonError::Compose {
+            reason: format!("recent_by_kind({NWS_CLI_KIND}): {e}"),
+        })?;
+
+    // (c) Grade each (grading station, target_date) ONCE. Route by the AWIPS
+    // station id, then confirm the date via the grader itself; `None` means no
+    // clean product (missing/ambiguous) ⇒ the forecast's beliefs stay OPEN.
+    let mut graded: HashMap<(String, String), Option<RealizedExtreme>> = HashMap::new();
+    let mut grade = |station: &str, target_date: &str| -> Option<RealizedExtreme> {
+        let key = (station.to_string(), target_date.to_string());
+        graded
+            .entry(key)
+            .or_insert_with(|| {
+                for sig in &cli_signals {
+                    let Some(text) = sig.payload.get("productText").and_then(|v| v.as_str()) else {
+                        continue;
+                    };
+                    if !cli_serves_station(text, station) {
+                        continue;
+                    }
+                    if let Some(re) = nws_cli_realized(text, station) {
+                        if re.report_date == target_date {
+                            return Some(re);
+                        }
+                    }
+                }
+                None
+            })
+            .clone()
+    };
+
+    let mut resolved = 0usize;
+    let mut score_offset = 0u64;
+
+    // (d) Binary bracket beliefs: Brier the persisted `p` vs the realized outcome.
+    for b in &due_binary {
+        let Some(re) = grade(&b.nws_station_id, &b.target_date) else {
+            continue; // no clean grade ⇒ leave OPEN for a later run
+        };
+        let variable = match b.variable.as_str() {
+            "tmax" => Variable::Tmax,
+            "tmin" => Variable::Tmin,
+            _ => continue, // unknown variable ⇒ skip (never grade on a guess)
+        };
+        let realized_f = realized_f_for(variable, re.high_f, re.low_f);
+        let Some(event_hint) = b.event_id.strip_prefix("aeolus:") else {
+            continue; // a belief whose event_id lacks the namespace ⇒ skip
+        };
+        let Some((outcome, brier)) = score_bracket(event_hint, b.p, realized_f) else {
+            continue; // unparseable/in_bracket hint ⇒ skip, never mis-grade
+        };
+        match beliefs
+            .resolve_and_score(&b.belief_id, outcome, brier, None)
+            .await
+        {
+            Ok(()) => resolved += 1,
+            // Concurrent double-resolve: already scored ⇒ skip, don't bubble.
+            Err(fortuna_ledger::LedgerError::CorruptRow { .. }) => continue,
+            Err(e) => {
+                return Err(DaemonError::Compose {
+                    reason: format!("resolve_and_score {}: {e}", b.belief_id),
+                });
+            }
+        }
+    }
+
+    // (e) The scalar μ/σ belief: CRPS its persisted fan vs the realized value
+    // (reconstruct-from-the-row, exactly like the funding resolver).
+    let scores = BeliefScoresRepo::new(pool.clone());
+    for s in &due_scalar {
+        let station = s.provenance.get("nws_station_id").and_then(|v| v.as_str());
+        let var_s = s.provenance.get("variable").and_then(|v| v.as_str());
+        let date = s.provenance.get("target_date").and_then(|v| v.as_str());
+        let (Some(station), Some(var_s), Some(date)) = (station, var_s, date) else {
+            continue; // a scalar belief missing grading provenance ⇒ skip
+        };
+        let variable = match var_s {
+            "tmax" => Variable::Tmax,
+            "tmin" => Variable::Tmin,
+            _ => continue,
+        };
+        let Some(re) = grade(station, date) else {
+            continue;
+        };
+        let realized_f = realized_f_for(variable, re.high_f, re.low_f);
+
+        // Reconstruct the quantile fan from the persisted row; a parse/validate
+        // failure ⇒ skip (never score a malformed claim).
+        let Ok(quantiles) = serde_json::from_value::<Vec<Quantile>>(s.quantiles.clone()) else {
+            continue;
+        };
+        let fan = PredictiveDistribution::Scalar {
+            quantiles,
+            unit: s.unit.clone(),
+        };
+        if fan.validate().is_err() {
+            continue;
+        }
+        let Ok(crps) = CrpsPinballRule.score(&fan, &RealizedOutcome::Scalar { value: realized_f })
+        else {
+            continue; // impossible post-validate; skip rather than bubble
+        };
+
+        // RESOLVE set-once, then write the single crps_pinball score row.
+        match scalars.resolve(&s.belief_id, realized_f, &now_iso).await {
+            Ok(()) => {}
+            Err(fortuna_ledger::LedgerError::CorruptRow { .. }) => continue,
+            Err(e) => {
+                return Err(DaemonError::Compose {
+                    reason: format!("scalar resolve {}: {e}", s.belief_id),
+                });
+            }
+        }
+        let score_id = format!("01BSC{:021}", score_id_base + score_offset);
+        score_offset += 1;
+        match scores
+            .insert(&score_id, &s.belief_id, "crps_pinball", crps, &now_iso)
+            .await
+        {
+            Ok(()) => {}
+            // Idempotent: a UNIQUE (belief_id, rule_id) collision ⇒ already scored.
+            Err(fortuna_ledger::LedgerError::Sqlx(e))
+                if e.as_database_error()
+                    .map(|db| db.is_unique_violation())
+                    .unwrap_or(false) => {}
+            Err(e) => {
+                return Err(DaemonError::Compose {
+                    reason: format!("scalar belief_scores insert {}: {e}", s.belief_id),
+                });
+            }
+        }
+        resolved += 1;
+    }
+
+    Ok(resolved)
+}
+
 /// The daily reconciliation cycle (spec 5.8; fires at the 00:00 UTC daily
 /// boundary once slice 2 wires it into drive()): the model reads the day's
 /// fills + open positions (assembled as context) and writes the journal entry.

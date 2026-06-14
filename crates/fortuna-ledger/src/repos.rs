@@ -1000,6 +1000,24 @@ pub struct BeliefPanelRow {
     pub provenance: serde_json::Value,
 }
 
+/// One open Aeolus weather belief that is DUE for resolution (the weather
+/// "close-the-loop" bridge, source contract §5 Layer 3). The grading-relevant
+/// fields are lifted out of the belief's `provenance` JSONB (`model_id='aeolus'`
+/// stamps `nws_station_id`/`variable`/`target_date`), so the live resolver routes
+/// the belief to its NWS CLI product and picks the realized °F off the row alone —
+/// never by re-parsing the source forecast. `event_id` carries the bracket
+/// (`aeolus:{event_hint}`); the resolver recovers `(comparison, threshold)` from it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OpenWeatherBelief {
+    pub belief_id: String,
+    pub event_id: String,
+    pub p: f64,
+    pub variable: String,
+    pub nws_station_id: String,
+    pub target_date: String,
+    pub horizon: String,
+}
+
 /// Belief ledger ops (spec 5.5): rows are immutable (DB content guard);
 /// an update INSERTS a superseding row and flips the prior's status;
 /// scoring fills outcome/brier/clv exactly once (repo-enforced over the
@@ -1238,6 +1256,54 @@ impl BeliefsRepo {
             samples,
             clv_bps,
         })
+    }
+
+    /// Open Aeolus weather beliefs whose window has CLOSED at `now_iso` — the
+    /// `resolve_and_score_weather_beliefs` work queue (source contract §5 Layer
+    /// 3; mirrors `ScalarBeliefsRepo::unresolved_due`). A row qualifies iff it is
+    /// still `open`, was produced by Aeolus (`provenance->>'model_id' = 'aeolus'`),
+    /// and is due (`horizon <= $1`). `horizon` is ISO8601 TEXT with fixed-ms
+    /// precision (sorts lexically == chronologically), so `<=` is a correct
+    /// chronological gate and `ORDER BY horizon ASC` is oldest-due-first. `limit`
+    /// caps the batch (the loop drains in bounded chunks; a later run takes the
+    /// rest). A belief whose grading provenance keys are absent (impossible for an
+    /// Aeolus belief, which always stamps them) is skipped, never grades on NULLs.
+    pub async fn open_aeolus_weather_due(
+        &self,
+        now_iso: &str,
+        limit: i64,
+    ) -> Result<Vec<OpenWeatherBelief>, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT belief_id, event_id, p,
+                      provenance->>'variable'       AS variable,
+                      provenance->>'nws_station_id' AS nws_station_id,
+                      provenance->>'target_date'    AS target_date,
+                      horizon
+               FROM beliefs
+               WHERE status = 'open'
+                 AND provenance->>'model_id' = 'aeolus'
+                 AND horizon <= $1
+               ORDER BY horizon ASC, belief_id ASC
+               LIMIT $2"#,
+            now_iso,
+            limit
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|r| {
+                Some(OpenWeatherBelief {
+                    belief_id: r.belief_id,
+                    event_id: r.event_id,
+                    p: r.p,
+                    variable: r.variable?,
+                    nws_station_id: r.nws_station_id?,
+                    target_date: r.target_date?,
+                    horizon: r.horizon,
+                })
+            })
+            .collect())
     }
 
     /// Test hook proving the DATABASE guard refuses content mutation

@@ -3,6 +3,43 @@
 Open items the implementation defers, lacks, or needs from the operator. Acceptance
 requires this file to contain ONLY operator-blocked items, each with exact unblock steps.
 
+## RALPH STOP 2026-06-14T17:34:59Z — Track-E build queue EXHAUSTED (clean stop)
+
+The operator's final handoff — wire the weather scoring bridge ("close the loop") —
+is DONE, gate-clean, committed (`f366987` + docs `9ec22a1` on branch
+`track-e-weather-resolve`, NOT merged — the verifier merges). Full battery green this
+iteration: `cargo fmt --check`, `clippy --workspace --all-targets -D warnings` (exit 0),
+`cargo test --workspace --no-fail-fast` (exit 0, 0 failures / 175 binaries), and
+`scripts/run-dst.sh` (exit 0, 5/5 regression seeds + 2000 random scenarios). The bus's
+"3 OPEN HANDOFFS to actually SCORE weather → the BRIDGE" item is now closed: weather
+beliefs are produced AND scored against the independent NWS grade.
+
+Every remaining Track-E item has its IN-OWNERSHIP part done; the remainders are all
+cross-track or operator-gated (NOT Track-E code I may build), so per implementer-loop §6
+("every priority item is blocked/exhausted — do NOT invent unrequested work; idle-and-
+stopped beats bloat") I am stopping the loop. EXACT remaining handoffs:
+- **drive() wiring (Track A):** the one-line additive call to
+  `resolve_and_score_weather_beliefs` in `drive()`'s resolution tick, next to the F7
+  weather block + `resolve_and_score_funding_beliefs`. Do NOT edit Track A's daemon
+  composition unilaterally — coordinate. Until then the resolver is built/tested but not
+  on the live tick.
+- **NYC CLI fixture (operator/capture):** no recorded `CLINYC` product exists, so the
+  live NYC happy-path is proven only via the recorded Troutdale CLI pairing. CAPTURE:
+  read-only `api.weather.gov/products?type=CLI` filtered to the NYC office (CLINYC,
+  report_date = a knyc target_date) → `fixtures/sources/nws_climate/`.
+- **F10 remainder (Track-D source / operator):** the Aeolus *source* `source_registry`
+  row + v1→v2 fixture migration (schema-dispatch `parse_versioned` + the Layer-0 dossier
+  are already DONE). fortuna-sources is Track D's; the registry seed is per-env operator.
+- **E.5 ScopeKey/daemon wiring (Track-A coord):** `PersonaScope`/`score_persona`/
+  `weekly_persona_proposals` are built (E.5a); the `review::ScopeKey` field edit would
+  break Track A's `daemon.rs:1024` struct literal, so it stays a Track-A-coordinated
+  parallel realization, not a unilateral edit.
+- **Bridge sub-seams (non-blocking, ledgered below):** weather-belief CLV, multi-station
+  CLI, negative-threshold hints, the bounded CLI scan — see the Track-D bridge section.
+
+To RE-ARM: the operator gives a new Track-E handoff (or a BLOCK on the bus names Track E).
+Until then the loop is intentionally idle-and-stopped.
+
 ## TRACK D — NWS-CLI realized-extreme GRADER (F2 long-pole) DONE (2026-06-14) + bridge/registry handoffs
 
 The productText→°F grader that F9 (and every weather belief) depends on is built:
@@ -15,22 +52,54 @@ line, inverted high<low, unparseable date) — never a fabricated temperature
 PTKR; mutation guard). Battery-green source-side.
 
 HANDOFFS (status as of 2026-06-14):
-1. BRIDGE — HANDOFF PROMPT WRITTEN for Track E:
-   `docs/design/PROMPT-track-e-grader-bridge.md`. The resolver loop calls
-   `nws_cli_realized(productText, station)` on the persisted `nws.cli` signal for
-   the belief's (grading-station, target_date), passes `r.high_f as f64` (TMAX) /
-   `r.low_f as f64` (TMIN) to `score_reliability`, then `resolve_and_score` per
-   bracket. `None` ⇒ UNSCOREABLE (skip; never grade). Mirror the existing
-   `resolve_and_score_funding_beliefs` analog in daemon.rs. Owner: Track E
-   (resolver) + Track A (the `drive()` touch). STILL OPEN — Track E builds it.
+1. BRIDGE — DONE (2026-06-14, Track E). `resolve_and_score_weather_beliefs(pool,
+   now, score_id_base)` in `crates/fortuna-live/src/daemon.rs` (standalone,
+   mirrors `resolve_and_score_funding_beliefs`). For each DUE open Aeolus belief
+   it routes to the CLI product by the forecast's grading station (provenance
+   `nws_station_id`, now stamped by F8), grades via `nws_cli_realized`, and
+   resolves both the binary brackets (Brier of the PERSISTED `p`) and the scalar
+   μ/σ belief (CRPS) against the realized °F; `None` ⇒ belief stays OPEN (never
+   fabricated). Pure cognition half in `fortuna_cognition::aeolus_resolve`
+   (`cli_serves_station` station routing, `parse_bracket_hint`, `score_bracket`).
+   New ledger query `BeliefsRepo::open_aeolus_weather_due`. Tests: 8 cognition
+   unit + 2 ledger (`open_weather_due`) + 4 live (`weather_resolve`: happy +
+   idempotent + unroutable + jammed) + the upgraded `aeolus_e2e` (now grades a
+   RECORDED CLI). DESIGN NOTE: scores the PERSISTED `p`/quantiles, NOT a re-parsed
+   forecast — calibration-safe (today `p==p_raw`; a later weather-calibration
+   layer would make `p≠p_raw` and reliability must score what we believed),
+   mirroring the funding resolver. STILL OPEN (Track A): the one-line `drive()`
+   call wiring the resolver into the resolution tick — additive, next to the F7
+   weather block + the funding resolver; coordinate with Track A (do NOT edit the
+   daemon composition unilaterally).
+   NEW SUB-SEAMS opened by the bridge (none Phase-A-blocking):
+   - NYC CLI FIXTURE MISSING: no recorded `CLINYC` product exists, so the live
+     NYC happy-path is unexercised end-to-end; the `weather_resolve` happy test
+     pairs the recorded knyc μ/σ beliefs with the recorded Troutdale CLI (station
+     labelled `TTD`) and `aeolus_e2e` grades the same Troutdale product — both
+     REAL captures, but a real `CLINYC` capture (report_date = a knyc target_date)
+     should be recorded to prove the production route. CAPTURE: read-only fetch of
+     `api.weather.gov/products?type=CLI` filtered to the NYC office (CLINYC), save
+     under `fixtures/sources/nws_climate/`.
+   - CLV unmeasured: weather beliefs resolve with `clv_bps = None` (no entry-mid
+     capture in the producer path; they are reliability/cross-check, not the
+     tradeable bucket path). A CLV feed for the tradeable buckets is future work.
+   - NEGATIVE-THRESHOLD hints: `parse_bracket_hint` conservatively skips a
+     `…-ge-5`-style negative threshold (the leading `-` splits the token) ⇒ the
+     belief stays OPEN, never mis-graded. Does not occur for the stations Aeolus
+     forecasts today (NYC summer highs/lows); revisit if a sub-zero bracket ships.
+   - BOUNDED CLI SCAN: the resolver scans the most-recent `CLI_SCAN_CAP=512`
+     `nws.cli` signals per call; a product older than that is not found and its
+     belief stays OPEN for a later run (acceptable for a bounded batch).
 2. REGISTRY SEED — DONE on the local `fortuna` DB (2026-06-14): `source_registry`
    row `nws_climate` (tier 10, `["weather"]`, enabled). The idempotent upsert SQL
    is in `docs/runbooks/ingestion-ops.md` (prereq 1) for the PROD seed (the only
    remaining operator step, per-env).
-3. STATION ROUTING / multi-station CLI: `station` is caller-supplied and stamped;
-   the grader assumes a single-station product (true for all captured fixtures).
-   A multi-station CLI product (some offices list several sites) would need a
-   site-section split — ledgered as a future enhancement, not Phase-A-blocking.
+3. STATION ROUTING — single-station route DONE (`aeolus_resolve::cli_serves_station`
+   matches the CLI AWIPS id `CLI{nws_station_id}` as a whole token). MULTI-STATION
+   CLI still open: `station` is caller-supplied/stamped and the grader assumes one
+   station per product (true for all captured fixtures); a multi-station office CLI
+   (several sites in one product) would need a site-section split — future
+   enhancement, not Phase-A-blocking.
 
 ## TRACK C — perp basis-v2 (§3.3): fair-prob KERNEL DONE (V0–V2); strategy wiring needs 6 OPERATOR DESIGN-CALLS (2026-06-14)
 
