@@ -145,24 +145,30 @@ const SYNTH_MIND_SYSTEM_CHARTER: &str =
 /// The reqwest transport timeout for the live synthesis mind (main only).
 pub const SYNTH_MIND_TIMEOUT_SECS: u64 = 30;
 
-/// Build the synthesis mind from the operator's environment (S5b — the
-/// `mind_from_env` contract CognitionSection names). `transport` Some => the
-/// Claude-backed AnthropicMind over that transport (main injects the reqwest
+/// Build a cognition mind for a GIVEN tier `model` (spec 5.9 tiering) from the
+/// operator's environment. Each role calls this with its tier's model id —
+/// synthesis on `synthesis_model` (Opus), the daily reconciliation on `mid_model`
+/// (Sonnet), the triage path on `triage_model` (Haiku) — so the tiers are
+/// DISTINCT minds, never one Opus mind reused across roles. `transport` Some =>
+/// the Claude-backed AnthropicMind over that transport (main injects the reqwest
 /// transport built from ANTHROPIC_API_KEY; tests inject a scripted one — the
 /// API KEY never enters this layer, only the transport carries it). `transport`
 /// None => the deterministic StubMind (the no-key + allow_stub degrade the boot
-/// gate already opted into). `clock` drives the cost budget's per-UTC-day reset:
-/// main passes RealClock, and the real-time daemon's SimClock tracks wall time,
-/// so the reset boundary aligns (a fully shared clock is a ledgered refinement).
+/// gate already opted into). EVERY tier shares the SAME `[cognition]` budget rails
+/// (`per_cycle_budget_cents` + `daily_budget_cents`) and stays propose-only (I6).
+/// `clock` drives the cost budget's per-UTC-day reset: main passes RealClock, and
+/// the real-time daemon's SimClock tracks wall time, so the reset boundary aligns
+/// (a fully shared clock is a ledgered refinement).
 pub fn mind_from_env<T: MindTransport + 'static>(
     cognition: &CognitionSection,
+    model: &str,
     transport: Option<T>,
     clock: Arc<dyn Clock>,
 ) -> Arc<dyn Mind> {
     match transport {
         Some(transport) => Arc::new(AnthropicMind::new(
             AnthropicMindConfig {
-                model: cognition.synthesis_model.clone(),
+                model: model.to_string(),
                 max_tokens: SYNTH_MIND_MAX_TOKENS,
                 input_price_cents_per_mtok: SYNTH_MIND_INPUT_PRICE_CENTS_PER_MTOK,
                 output_price_cents_per_mtok: SYNTH_MIND_OUTPUT_PRICE_CENTS_PER_MTOK,
@@ -1660,48 +1666,131 @@ mod tests {
         assert_eq!(failures, 3);
     }
 
-    #[test]
-    fn mind_from_env_builds_anthropic_when_a_transport_is_present_else_stub() {
-        // S5b: the mind_from_env contract. A transport (main's reqwest, tests'
-        // scripted) => the Claude-backed AnthropicMind whose id IS the
-        // configured model (proving cognition.synthesis_model flows into
-        // AnthropicMindConfig); no transport => the deterministic StubMind.
-        // NON-VACUOUS: the two branches yield DIFFERENT ids — a helper that
-        // ignored the transport would fail the model-id assertion. The scripted
-        // transport is never called (id() is pure) and NEVER carries a real API
-        // key (the kickoff money pitfall).
-        use fortuna_cognition::mind::MindError;
-        use fortuna_core::clock::SimClock;
-
-        struct ScriptedTransport;
-        #[async_trait::async_trait]
-        impl MindTransport for ScriptedTransport {
-            async fn post_messages(
-                &self,
-                _body: serde_json::Value,
-            ) -> Result<(u16, serde_json::Value), MindError> {
-                Ok((200, serde_json::json!({})))
-            }
+    /// A scripted MindTransport: present => AnthropicMind, never called (id() is
+    /// pure) and NEVER carrying a real API key (the kickoff money pitfall).
+    struct ScriptedTransport;
+    #[async_trait::async_trait]
+    impl MindTransport for ScriptedTransport {
+        async fn post_messages(
+            &self,
+            _body: serde_json::Value,
+        ) -> Result<(u16, serde_json::Value), fortuna_cognition::mind::MindError> {
+            Ok((200, serde_json::json!({})))
         }
+    }
 
-        let cognition = CognitionSection {
+    fn tier_test_cognition() -> CognitionSection {
+        CognitionSection {
             daily_budget_cents: 10_000,
             per_cycle_budget_cents: 1_000,
             allow_stub_mind: true,
-            synthesis_model: "claude-fable-5".to_string(),
-        };
-        let clock: Arc<dyn Clock> = Arc::new(SimClock::new(
-            UtcTimestamp::parse_iso8601("2026-06-11T12:00:00.000Z").unwrap(),
-        ));
+            synthesis_model: "claude-opus-4-8".to_string(),
+            mid_model: "claude-sonnet-4-6".to_string(),
+            triage_model: "claude-haiku-4-5".to_string(),
+        }
+    }
 
-        let keyed = mind_from_env(&cognition, Some(ScriptedTransport), clock.clone());
+    fn tier_test_clock() -> Arc<dyn Clock> {
+        Arc::new(fortuna_core::clock::SimClock::new(
+            UtcTimestamp::parse_iso8601("2026-06-11T12:00:00.000Z").unwrap(),
+        ))
+    }
+
+    #[test]
+    fn mind_from_env_builds_anthropic_when_a_transport_is_present_else_stub() {
+        // The mind_from_env contract. A transport => the Claude-backed AnthropicMind
+        // whose id IS the model passed in (proving the model arg flows into
+        // AnthropicMindConfig); no transport => the deterministic StubMind.
+        // NON-VACUOUS: the two branches yield DIFFERENT ids.
+        let cognition = tier_test_cognition();
+        let clock = tier_test_clock();
+
+        let keyed = mind_from_env(
+            &cognition,
+            &cognition.synthesis_model,
+            Some(ScriptedTransport),
+            clock.clone(),
+        );
         assert_eq!(
             keyed.id(),
-            "claude-fable-5",
-            "a transport => AnthropicMind whose id is the configured model"
+            "claude-opus-4-8",
+            "a transport => AnthropicMind whose id is the model passed in"
         );
 
-        let stub = mind_from_env(&cognition, None::<ScriptedTransport>, clock);
+        let stub = mind_from_env(
+            &cognition,
+            &cognition.synthesis_model,
+            None::<ScriptedTransport>,
+            clock,
+        );
         assert_eq!(stub.id(), "stub-mind", "no transport => StubMind");
+    }
+
+    #[test]
+    fn cognition_tiers_are_distinct_minds_synthesis_vs_reconciliation() {
+        // 3-tier cognition (spec 5.9): the verification the amendment gates on —
+        // the synthesis mind runs on synthesis_model (Opus) and the daily-
+        // reconciliation mind runs on mid_model (Sonnet), DISTINCT (not one Opus
+        // mind reused across roles). Mirrors main's wiring: each role calls
+        // mind_from_env with its tier's model. MUTATION-PROOF: route reconciliation
+        // on synthesis_model (or set mid_model == synthesis_model) and the model-id
+        // + the assert_ne both red.
+        let cognition = tier_test_cognition();
+        let clock = tier_test_clock();
+
+        let synthesis = mind_from_env(
+            &cognition,
+            &cognition.synthesis_model,
+            Some(ScriptedTransport),
+            clock.clone(),
+        );
+        let reconciliation = mind_from_env(
+            &cognition,
+            &cognition.mid_model,
+            Some(ScriptedTransport),
+            clock,
+        );
+        assert_eq!(
+            synthesis.id(),
+            "claude-opus-4-8",
+            "synthesis runs on the synthesis (Opus) tier"
+        );
+        assert_eq!(
+            reconciliation.id(),
+            "claude-sonnet-4-6",
+            "reconciliation runs on the MID (Sonnet) tier — not Opus"
+        );
+        assert_ne!(
+            synthesis.id(),
+            reconciliation.id(),
+            "the tiers are DISTINCT minds, not all-Opus"
+        );
+    }
+
+    #[test]
+    fn cognition_section_reads_all_three_tier_models_and_defaults_them() {
+        // The misspelled-key guard: CognitionSection tolerates unknown fields
+        // (other consumers read more), so a MISSPELLED model key silently drops to
+        // the default. Assert the PARSED values so a renamed/broken field reds
+        // here. Explicit keys are read verbatim; omitted keys take the spec-5.9
+        // tier defaults (Opus / Sonnet / Haiku).
+        let explicit: CognitionSection = toml::from_str(
+            "daily_budget_cents = 1500\n\
+             per_cycle_budget_cents = 50\n\
+             synthesis_model = \"syn-X\"\n\
+             mid_model = \"mid-Y\"\n\
+             triage_model = \"tri-Z\"\n",
+        )
+        .expect("explicit [cognition] parses");
+        assert_eq!(explicit.synthesis_model, "syn-X", "synthesis_model is READ");
+        assert_eq!(explicit.mid_model, "mid-Y", "mid_model is READ");
+        assert_eq!(explicit.triage_model, "tri-Z", "triage_model is READ");
+
+        let defaulted: CognitionSection =
+            toml::from_str("daily_budget_cents = 1500\nper_cycle_budget_cents = 50\n")
+                .expect("minimal [cognition] parses");
+        assert_eq!(defaulted.synthesis_model, "claude-opus-4-8");
+        assert_eq!(defaulted.mid_model, "claude-sonnet-4-6");
+        assert_eq!(defaulted.triage_model, "claude-haiku-4-5");
     }
 }

@@ -24,9 +24,11 @@ use crate::calibration::{calibrate, shrink_toward_market, CalibrationParams};
 use crate::context::{assemble_context, AssemblerConfig, ContextItem};
 use crate::events::{EdgeTier, MappingType};
 use crate::mind::{Mind, MindError};
+use async_trait::async_trait;
 use fortuna_core::clock::UtcTimestamp;
 use fortuna_core::market::Side;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -35,6 +37,8 @@ pub enum CycleError {
     Mind(#[from] MindError),
     #[error("context assembly failed: {0}")]
     Context(#[from] crate::context::ContextError),
+    #[error("triage mind failed: {0}")]
+    Triage(#[from] TriageError),
 }
 
 /// A belief as the comparator sees it: calibrated p plus the freshness
@@ -204,20 +208,159 @@ pub enum TriageVerdict {
     Declined,
 }
 
-/// v1 triage policies: rule stubs now, a cheap-model Mind behind the
-/// same enum when the live composition wires it (the verdict shape and
-/// the scoring contract do not change).
-#[derive(Debug, Clone, Copy)]
+/// The triage tier's assessment: the verdict plus what answering COST (model
+/// spend tracked from day one; the rule stubs cost zero). Mirrors VetoAssessment.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TriageAssessment {
+    pub verdict: TriageVerdict,
+    pub cost_cents: i64,
+}
+
+/// Triage failure (e.g. the cheap-model provider is down). The cycle surfaces it
+/// (CycleError::Triage); it never silently coerces a verdict.
+#[derive(Debug, Error)]
+pub enum TriageError {
+    #[error("triage provider: {reason}")]
+    Provider { reason: String },
+}
+
+/// The triage interface (spec 5.9 cheap tier). Mirrors the `Mind`/`VetoMind`
+/// shape (`&self`, `Send + Sync`, async) so the Anthropic-backed Haiku triage
+/// drops in behind it. PROPOSE-ONLY (I6): it returns a verdict on whether a
+/// trigger warrants deep synthesis, NEVER an order.
+#[async_trait]
+pub trait TriageMind: Send + Sync {
+    fn id(&self) -> &str;
+    /// Assess a fired trigger on `event_id` given its (light) triggering context
+    /// — the cheap gate BEFORE the expensive context assembly + frontier mind.
+    async fn assess(
+        &self,
+        event_id: &str,
+        context: &[ContextItem],
+    ) -> Result<TriageAssessment, TriageError>;
+}
+
+enum StubTriageMode {
+    AllowAll,
+    DeclineAll,
+    Scripted(std::collections::BTreeMap<String, TriageVerdict>),
+    Failing(String),
+}
+
+/// Deterministic stand-in triage mind (DST + the no-key composition). Same
+/// inputs => same verdict, no clock, no randomness, zero cost. `allow_all` is
+/// the safe null action (the AlwaysAccept behavior) until a key binds the
+/// Anthropic Haiku triage.
+pub struct StubTriageMind {
+    mode: StubTriageMode,
+    cost_cents: i64,
+}
+
+impl StubTriageMind {
+    pub fn allow_all() -> Self {
+        StubTriageMind {
+            mode: StubTriageMode::AllowAll,
+            cost_cents: 0,
+        }
+    }
+    pub fn decline_all() -> Self {
+        StubTriageMind {
+            mode: StubTriageMode::DeclineAll,
+            cost_cents: 0,
+        }
+    }
+    /// Verdicts keyed by event_id; unscripted events default to Accepted (the
+    /// recall-safe null action — never silently drop a trigger).
+    pub fn scripted(verdicts: Vec<(String, TriageVerdict)>) -> Self {
+        StubTriageMind {
+            mode: StubTriageMode::Scripted(verdicts.into_iter().collect()),
+            cost_cents: 0,
+        }
+    }
+    /// Always errors: exercises the cycle's provider-down path.
+    pub fn failing(reason: impl Into<String>) -> Self {
+        StubTriageMind {
+            mode: StubTriageMode::Failing(reason.into()),
+            cost_cents: 0,
+        }
+    }
+    /// Report `cost_cents` of spend per assessment (default 0) — for the
+    /// cost-accounting path.
+    pub fn with_cost(mut self, cost_cents: i64) -> Self {
+        self.cost_cents = cost_cents;
+        self
+    }
+}
+
+#[async_trait]
+impl TriageMind for StubTriageMind {
+    fn id(&self) -> &str {
+        "stub-triage"
+    }
+    async fn assess(
+        &self,
+        event_id: &str,
+        _context: &[ContextItem],
+    ) -> Result<TriageAssessment, TriageError> {
+        let verdict = match &self.mode {
+            StubTriageMode::AllowAll => TriageVerdict::Accepted,
+            StubTriageMode::DeclineAll => TriageVerdict::Declined,
+            StubTriageMode::Scripted(map) => map
+                .get(event_id)
+                .copied()
+                .unwrap_or(TriageVerdict::Accepted),
+            StubTriageMode::Failing(reason) => {
+                return Err(TriageError::Provider {
+                    reason: reason.clone(),
+                })
+            }
+        };
+        Ok(TriageAssessment {
+            verdict,
+            cost_cents: self.cost_cents,
+        })
+    }
+}
+
+/// v1 triage policies: the rule stubs (AlwaysAccept/AlwaysDecline) plus a
+/// `Mind`-backed tier (the cheap Haiku triage) behind the same enum — the verdict
+/// shape and the scoring contract do not change. `Mind` carries an
+/// `Arc<dyn TriageMind>`, so the enum is `Clone` but not `Copy`.
+#[derive(Clone)]
 pub enum TriageDecision {
     AlwaysAccept,
     AlwaysDecline,
+    Mind(Arc<dyn TriageMind>),
+}
+
+impl std::fmt::Debug for TriageDecision {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TriageDecision::AlwaysAccept => write!(f, "AlwaysAccept"),
+            TriageDecision::AlwaysDecline => write!(f, "AlwaysDecline"),
+            TriageDecision::Mind(m) => write!(f, "Mind({})", m.id()),
+        }
+    }
 }
 
 impl TriageDecision {
-    fn assess(&self) -> TriageVerdict {
+    /// Assess a fired trigger. The rule stubs are immediate + free; the `Mind`
+    /// variant calls the cheap-model triage (async, costed).
+    async fn assess(
+        &self,
+        event_id: &str,
+        context: &[ContextItem],
+    ) -> Result<TriageAssessment, TriageError> {
         match self {
-            TriageDecision::AlwaysAccept => TriageVerdict::Accepted,
-            TriageDecision::AlwaysDecline => TriageVerdict::Declined,
+            TriageDecision::AlwaysAccept => Ok(TriageAssessment {
+                verdict: TriageVerdict::Accepted,
+                cost_cents: 0,
+            }),
+            TriageDecision::AlwaysDecline => Ok(TriageAssessment {
+                verdict: TriageVerdict::Declined,
+                cost_cents: 0,
+            }),
+            TriageDecision::Mind(m) => m.assess(event_id, context).await,
         }
     }
 }
@@ -327,12 +470,19 @@ impl DecisionCycle {
         quotes: &[MarketQuote],
         now: UtcTimestamp,
     ) -> Result<CycleOutcome, CycleError> {
-        let triage = self.triage.assess();
+        // The triage tier (spec 5.9 cheap gate): for the `Mind` variant this calls
+        // the cheap-model triage (costed) BEFORE the expensive context assembly +
+        // frontier mind; the rule stubs are immediate + free. A provider failure
+        // surfaces (CycleError::Triage), never a silently-coerced verdict.
+        let assessment = self.triage.assess(event_id, context_items).await?;
+        let triage = assessment.verdict;
+        let triage_cost = assessment.cost_cents;
         let shadow = match triage {
             TriageVerdict::Accepted => false,
             TriageVerdict::Declined => {
                 if !self.sampler.should_shadow(now) {
-                    // Plain decline: recorded, no mind call, no cost.
+                    // Plain decline: recorded, no frontier-mind call. The triage
+                    // call itself still COST (the cheap tier ran) — accounted.
                     return Ok(CycleOutcome {
                         triage,
                         shadow: false,
@@ -340,7 +490,7 @@ impl DecisionCycle {
                         candidates: Vec::new(),
                         discarded_model_proposals: 0,
                         manifest_hash: String::new(),
-                        cost_cents: 0,
+                        cost_cents: triage_cost,
                     });
                 }
                 true
@@ -394,7 +544,7 @@ impl DecisionCycle {
             candidates,
             discarded_model_proposals: output.proposals.len(),
             manifest_hash: ctx.manifest_hash,
-            cost_cents: output.cost_cents,
+            cost_cents: triage_cost + output.cost_cents,
         })
     }
 }

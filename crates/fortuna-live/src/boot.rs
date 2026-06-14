@@ -143,17 +143,53 @@ pub struct CognitionSection {
     /// (mind_from_env contract). That degrade must be OPTED INTO.
     #[serde(default)]
     pub allow_stub_mind: bool,
-    /// The synthesis model id (spec 5.9 tiering; default the synthesis tier
-    /// "claude-fable-5"). S5b feeds it to AnthropicMindConfig.model when a key
-    /// is present. The model is config; the API KEY is env-only (never here).
-    /// NAME matches the committed example's `[cognition].synthesis_model` — a
-    /// mismatched name would silently drop the operator's choice to the default.
+    /// The SYNTHESIS tier (spec 5.9): the deep belief-formation model (Opus).
+    /// `mind_from_env` feeds it to AnthropicMindConfig.model when a key is present.
+    /// The model is config; the API KEY is env-only (never here). NAME matches the
+    /// committed example's `[cognition].synthesis_model` — a mismatched/misspelled
+    /// name would silently drop the operator's choice to the default (a test
+    /// asserts the parsed value to catch exactly that).
     #[serde(default = "default_synthesis_model")]
     pub synthesis_model: String,
+    /// The MID tier (spec 5.9): the daily RECONCILIATION (and a natural home for
+    /// the reviews) runs here — a capable but cheaper model than the synthesis
+    /// Opus (Sonnet). A REAL field with its OWN `mind_from_env`, NOT a clone of the
+    /// synthesis mind; a misspelled `mid_model` drops to the default, so a test
+    /// asserts the parsed value.
+    #[serde(default = "default_mid_model")]
+    pub mid_model: String,
+    /// The TRIAGE/trigger tier (spec 5.9): the fast, cheap model (Haiku). A REAL
+    /// field — it was present in the example TOML but UNREAD (tolerated-and-
+    /// dropped); now parsed so a misspelled key is caught, not silently defaulted.
+    #[serde(default = "default_triage_model")]
+    pub triage_model: String,
 }
 
+/// The three cognition tiers (spec 5.9). Each is overridable per `[cognition]`;
+/// a config that omits one falls back here. The model is config; the API KEY is
+/// env-only.
 fn default_synthesis_model() -> String {
-    "claude-fable-5".to_string()
+    "claude-opus-4-8".to_string()
+}
+
+fn default_mid_model() -> String {
+    "claude-sonnet-4-6".to_string()
+}
+
+fn default_triage_model() -> String {
+    "claude-haiku-4-5".to_string()
+}
+
+impl CognitionSection {
+    /// The spec-5.9 tier → model registry: the single source of truth the daemon
+    /// consults to build each role's mind on its tier's model (synthesis/mid/triage).
+    pub fn model_registry(&self) -> fortuna_cognition::mind::ModelRegistry {
+        fortuna_cognition::mind::ModelRegistry::new(
+            self.synthesis_model.clone(),
+            self.mid_model.clone(),
+            self.triage_model.clone(),
+        )
+    }
 }
 
 /// The `[sim]` section: the synthetic market world the Sim-venue daemon

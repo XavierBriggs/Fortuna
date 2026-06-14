@@ -18,6 +18,20 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK C — triage SEAM built; daemon Haiku-triage wiring is the next commit (2026-06-13)
+
+The 3-tier cognition amendment + the triage SEAM are landed: synthesis → synthesis_model
+(Opus), the daily reconciliation → a SEPARATE mid_model mind (Sonnet), all resolved via a
+ModelRegistry (fortuna-cognition, the mind layer); and the triage tier now has a real seam —
+a `TriageMind` trait + `StubTriageMind` + a `TriageDecision::Mind` variant whose async
+`assess` runs in the cognition cycle BEFORE the frontier mind (cost accounted even on a plain
+decline; a provider failure → CycleError::Triage, degrade-not-crash). 4 cycle tests pin it.
+WHAT REMAINS (the immediate next commit, operator-requested): (1) an Anthropic-backed Haiku
+triage mind — the cheap-model `assess`: a triage prompt + structured accept/decline parse +
+budget, mirroring AnthropicMind::decide_with_budget; and (2) the daemon composing it on
+`triage_model` (StubTriageMind::allow_all when no key) into the synthesis config's `triage`
+instead of `AlwaysAccept`. NOT operator-blocked.
+
 ## TRACK C → TRACK B REQUEST — ROTA must surface the RECENT scalar-belief feed (operator-wanted, 2026-06-13)
 
 OPERATOR WANT (2026-06-13): the cognition/forecasts ROTA view must let one "completely see
