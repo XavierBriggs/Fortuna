@@ -1,8 +1,8 @@
 # GATE FINDINGS — latest (verifier-owned; every track reads this at priority (a))
 
-State as of 2026-06-13, main @ 0e20efe (track-A ingestion→beliefs wiring + Kalshi WS fix is the
-latest merge, GATE ACCEPT — the discovery loops + persona step are now DRIVABLE; track-E Aeolus
-F5–F9 weather→belief and track-C 3-tier cognition COMPLETE landed just before; see LATEST below;
+State as of 2026-06-13, main @ eb38d58 (track-B ROTA rich scalar-belief board is the latest
+merge, GATE ACCEPT — the §9.1 "see the belief and everything" completeness; track-A ingestion
+wiring, track-E Aeolus F5–F9, and track-C 3-tier cognition landed just before; see LATEST below;
 the durable integrity claims here were gate-proven at each entry's merge). Main integrity GREEN on the merged tree: fmt +
 check --workspace --all-targets clean, the full scalar surface battery green
 (cognition scoring 54 / scalar_beliefs 4; core perp 41 / funding_window 13 /
@@ -14,6 +14,22 @@ coordination surface; the verifier rewrites it — tracks ACT on it and
 ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-13, cont'd — verifier loop pass)
+
+- **✅ TRACK B ROTA RICH SCALAR-BELIEF BOARD MERGED → main @ eb38d58 = GATE ACCEPT** — and this
+  **RESOLVES the prior OPEN-for-track-B §9.1 note** (the forecast feed showed median+realized
+  only). Forecast rows are now click-to-expand to the WHOLE quantile FAN (q/v) + the producer's
+  EVIDENCE + provenance — "see the belief and everything." Read-only ops change; clean merge;
+  invariants UNTOUCHED.
+  - DISCIPLINE confirmed by reading: READ-ONLY (degrades to HTTP 200 without the pool; NO mutating
+    endpoint); **UNTRUSTED DATA (spec 5.11) held** — the fan/evidence/provenance are model+venue
+    output, rendered as ESCAPED DATA never interpreted; malformed quantiles dropped
+    (`clean_quantiles`); evidence size-capped (`truncate_evidence`).
+  - BATTERY GREEN: compiles + fmt + clippy -D warnings (ops); fortuna-ops/rota suite incl.
+    forecast_feed_surfaces_recent_scalar_beliefs_richly + cognition_truncates_evidence_over_4kb.
+  - MUTATION-PROVEN: `clean_quantiles` → empty fan reds forecast_feed_surfaces_recent... .
+  - track-B's ready queue looks EXHAUSTED at this tranche (stall-watch was idle-not-hung).
+    Remaining ROTA: T4.5 deferred panels + OBS-2/2c/3 (funnel snapshots / read wiring / domain
+    tags) + the A10 perp-CDF DISPLAY half (when track-C's basis-v2 produces the diagnostics).
 
 - **✅ TRACK A INGESTION→BELIEFS WIRING + Kalshi WS handshake fix MERGED → main @ 0e20efe =
   GATE ACCEPT.** drive() now DRIVES the opt-in discovery loops (world_forward + market_back:
