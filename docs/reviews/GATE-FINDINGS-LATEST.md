@@ -13,6 +13,20 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-13, cont'd — verifier loop pass)
 
+- **TRACK B ROTA tranche (recent-scalar-belief forecast feed + persona/cognition
+  boards) MERGED → main @ d481a0e = GATE ACCEPT.** /api/rota/v1/forecast_feed
+  (recent scalar forecasts: producer, event_key, unit, q=0.5 MEDIAN, realized,
+  newest-first) + Forecasts band-coverage + Domain-Analyses fanout + Persona
+  Pipeline funnel + cognition provenance-legibility. rota 45 green; MUTATION-PROVEN
+  (drop forecast_feed rows → forecast_feed_lists_recent_forecasts_with_outcomes
+  reds). READ-ONLY; untrusted-data boundary held (raw fan + provenance not rendered).
+  ⚠️ **OPEN for TRACK B (request-completeness, not a blocker):** track-C's §9.1
+  request was to "completely see the belief — the FAN + evidence + provenance."
+  This feed shows median+realized (past a count/CRPS-only) but NOT the full fan or
+  provenance/evidence. funding_forecast's evidence is STRUCTURED recorded data, so
+  a safe-escaped full-belief inspector would close the operator's "see everything"
+  ask. Ledgered.
+
 - **PERSONA-LIVE-INTEGRATION (5 slices: persona live-loop wiring + I6 persona pin)
   MERGED → main @ f236b6a = GATE ACCEPT.** The persona producer's live-loop
   (run_due_personas orchestrator emitting order-free PersonaOutcome DRAFTs;
