@@ -24,9 +24,12 @@ Contract: `docs/design/aeolus-fortuna-source-contract.md` (rev 3). Changelog:
   events are scoreable). SEAM still open: intersecting with the LIVE Kalshi book (does the bracket
   trade?) is venue-discovery (Track A/venues), not cognition — F7 delivers the forecast side; e2e
   uses the recorded fixture's brackets.
-- **F8** — emit bracket `BeliefDraft`s (binary fan-out, propose-only `p_raw`, `event_id =
-  aeolus:{event_hint}`) + a scalar `ScalarBeliefDraft` (μ/σ→quantile fan) for CRPS. Calibration is
-  applied DOWNSTREAM (the producer emits `p_raw` only, like funding_forecast).
+- **F8 — propose-only belief emission — DONE (this commit).** `aeolus_beliefs::emit_aeolus_beliefs`
+  → binary bracket `BeliefDraft`s (`p==p_raw` via the F6 helpers, no calibration; `event_id =
+  aeolus:{event_hint}`; provenance `{model_id:"aeolus",…}` that F9 keys on) + one scalar
+  `ScalarBeliefDraft` (pinned μ/σ quantile fan, `degF`) for CRPS. I6 propose-only (no exec fields).
+  Reviewer-checked (the "harness-stamps provenance" flag verified a false alarm — producers stamp
+  provenance, scoring keys on it; matches persona_beliefs + reconciliation). `in_bracket` skipped+counted.
 - **F9** — Layer-3 reliability scoring (Brier + CRPS vs realized temp, per (model, scope)). KNOWN
   SEAM: the productText→realized-daily-high extraction (F2) is NOT in cognition; F9 takes the
   realized temp as an input and the extraction is seamed (e2e uses a recorded realized value).

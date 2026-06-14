@@ -16,7 +16,39 @@ FULL workspace battery as the commit gate.
 
 ---
 
-## F7 — world-forward match (forecast → predicted weather market-family) (this commit)
+## F8 — propose-only belief emission (binary brackets + scalar μ/σ fan) (this commit)
+
+New `crates/fortuna-cognition/src/aeolus_beliefs.rs`: `emit_aeolus_beliefs(&AeolusForecast) ->
+AeolusBeliefs { binary: Vec<BeliefDraft>, scalar: ScalarBeliefDraft, skipped_in_bracket }`. The
+PROPOSE-ONLY producer step (I6 — beliefs only; no order/size/price/side on any output; the harness
+owns sizing/gating/execution):
+
+- **Binary bracket drafts** — one per `ge`/`lt` bracket, `event_id = aeolus:{event_hint}`, `p =
+  p_raw =` FORTUNA's OWN μ/σ probability via the F6 helpers (`bracket_prob_ge`/`bracket_prob_lt`,
+  the −0.5 correction inside them — F8 passes the raw integer threshold, no double-correction). NO
+  calibration here (downstream layer; `p == p_raw`). `horizon = resolution.settles_after`. Evidence
+  carries the cross-check (`p_aeolus`/`p_fortuna`/`divergence`) + skill as DATA; provenance carries
+  `{model_id:"aeolus", station, variable, target_date, run_at, model_version}`. `in_bracket`
+  brackets skipped + counted (a single threshold can't define a range).
+- **One scalar draft** — the μ/σ distribution as a PINNED 7-point standard-normal quantile fan
+  (`v = μ + σ·z`, fixed `(q,z)` table — no probit/erf-inverse, replay-byte-stable; σ>0 ⇒ strictly
+  increasing ⇒ always `validate`s), `unit="degF"`, `event_key = aeolus:{station}:{variable}:
+  {target_date}` — F9's CRPS vehicle.
+
+Subagent-built tests-first; main-loop read + verified + feature-dev:code-reviewer. The reviewer's
+one "Critical" (producer stamping `provenance` vs the `BeliefDraft` "harness-stamps" doc) was
+VERIFIED a false alarm: both deterministic-producer precedents stamp provenance at the producer
+(`persona_beliefs` → `{persona_id,…}`, `reconciliation`'s v1 Aeolus mapper → `{model_id:"aeolus",…}`)
+and the scoring layer KEYS on it (`resolved_persona_stats` reads `provenance->>'persona_id'`), so F9
+REQUIRES F8 to stamp `provenance->>'model_id'`; the doc refers to the LLM-mind proposal path. Kept
+as-is. 7 tests (fixture: 14 ge drafts with `p == bracket_prob_ge`, `p==p_raw`, propose-only key set
+`{event_id,p,p_raw,horizon,evidence,provenance}`, evidence cross-check, scalar fan validates + q=0.5≈μ,
+lt path complementary). Verified: `cargo test -p fortuna-cognition --test aeolus_beliefs` 7/7; full
+workspace clippy + test (see commit).
+
+Shared-doc touches: none (new file only).
+
+## F7 — world-forward match (forecast → predicted weather market-family) (commit efcaffe)
 
 New `crates/fortuna-cognition/src/aeolus_match.rs`: `match_forecast(&AeolusForecast) ->
 WeatherMarketFamily` synthesizes the temperature-bracket events a forecast predicts (spec §5.12
