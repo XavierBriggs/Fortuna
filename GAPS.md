@@ -3,6 +3,52 @@
 Open items the implementation defers, lacks, or needs from the operator. Acceptance
 requires this file to contain ONLY operator-blocked items, each with exact unblock steps.
 
+## TRACK E — AEOLUS WEATHER→BELIEF (F5–F9), reassigned C → E 2026-06-14 (branch track-e-aeolus)
+
+Building the deterministic Aeolus temperature pipeline (the statistical counterpart to the
+meteorologist persona). New disjoint `aeolus_*.rs` in fortuna-cognition; reuses the pinned
+`persona_beliefs::{normal_cdf, prob_at_least}`, `BeliefDraft`, `scoring`/`scalar_beliefs`, the NWS
+grader; does NOT touch C's perp files / fortuna-runner; composition entry point handed to Track A.
+Contract: `docs/design/aeolus-fortuna-source-contract.md` (rev 3). Changelog:
+`docs/design/track-e-aeolus-changelog.md`.
+
+- **F6 — strict v2 parser + μ/σ→bracket-p — DONE (this commit).** `aeolus_forecast.rs`. The μ/σ→p
+  uses the half-degree continuity correction (`ge t` ⟺ `T ≥ t−0.5`), VALIDATED against the recorded
+  fixture (`knyc_tmax.json`) to a max delta of **6.868e-8** across all 14 brackets (the pinned-erf
+  residual, not a formula error). Strict `deny_unknown_fields` + clamp-not-reject + nullable skill.
+- **F5 — identity-tuple dedup — DONE (this commit).** `aeolus_dedup::dedup_forecasts` collapses
+  forecasts by `(station, variable, target_date)`, newest `run_at` wins (same-`run_at` correction →
+  later-received supersedes). Pure/deterministic over F6's typed `AeolusForecast`. 5 tests.
+- **F7 — world-forward match — DONE (this commit).** `aeolus_match::match_forecast` synthesizes the
+  predicted `WeatherMarketFamily` (events keyed `aeolus:{event_hint}` + the resolution declaration so
+  events are scoreable). SEAM still open: intersecting with the LIVE Kalshi book (does the bracket
+  trade?) is venue-discovery (Track A/venues), not cognition — F7 delivers the forecast side; e2e
+  uses the recorded fixture's brackets.
+- **F8 — propose-only belief emission — DONE (this commit).** `aeolus_beliefs::emit_aeolus_beliefs`
+  → binary bracket `BeliefDraft`s (`p==p_raw` via the F6 helpers, no calibration; `event_id =
+  aeolus:{event_hint}`; provenance `{model_id:"aeolus",…}` that F9 keys on) + one scalar
+  `ScalarBeliefDraft` (pinned μ/σ quantile fan, `degF`) for CRPS. I6 propose-only (no exec fields).
+  Reviewer-checked (the "harness-stamps provenance" flag verified a false alarm — producers stamp
+  provenance, scoring keys on it; matches persona_beliefs + reconciliation). `in_bracket` skipped+counted.
+- **F9 — Layer-3 reliability scoring — DONE (this commit).** `aeolus_reliability::score_reliability`
+  → per-(model,scope) Brier (binary brackets vs realized 0/1) + CRPS (F8's μ/σ fan vs realized),
+  reusing `brier_score`/`CrpsPinballRule`. Validated against the fixture (outcomes split 8/6 at
+  realized 88; CRPS grows for a colder realized). SEAM still open (operator/Track-D): the
+  productText→realized-daily-high extraction (F2) is NOT in cognition — F9 takes the realized temp as
+  input; the e2e supplies a recorded value. A future F2 cognition grader (NWS-CLI productText → °F)
+  closes it.
+- **e2e — the assignment GATE — DONE (this commit). PIPELINE COMPLETE.** `aeolus_e2e.rs`
+  (`#[sqlx::test]`): recorded forecast → F6→F5→F7→F8 PERSIST (beliefs + scalar_beliefs) → F9 scores →
+  resolve_and_score + belief_scores. Asserts a SCORED bracket belief (ge87 `status=resolved`,
+  `outcome=Some(1)`, brier persisted) whose persisted `p` == the pinned μ/σ math (1e-12) — calibration
+  validated, not asserted. 1/1 green on the live DB.
+
+THE AEOLUS PIPELINE (F5–F9 + e2e) IS COMPLETE. Two ledgered seams remain (NOT Track-E-cognition):
+(1) live-Kalshi-market intersection for F7 (venue/Track-A); (2) the NWS-CLI productText→°F grader for
+F9's realized input (F2/Track-D). Composition entry point (run these on the live `drive()` loop) is
+handed to Track A — same "Track E exposes / Track A wires" split as the persona work.
+- **e2e** — recorded forecast → F6→F7→F8→persist→F9 scores vs recorded realized temp.
+
 Status (post-E-batch, 2026-06-10): the T3.6 completion claim was FALSIFIED
 by the full-build gate (docs/reviews/system-0-3-final-2026-06-10.md, BLOCK:
 four unledgered Majors). The fix batch (commits 1d1c033..1e3e5e7) closed

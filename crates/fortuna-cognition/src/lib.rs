@@ -26,6 +26,11 @@
     )
 )]
 
+pub mod aeolus_beliefs;
+pub mod aeolus_dedup;
+pub mod aeolus_forecast;
+pub mod aeolus_match;
+pub mod aeolus_reliability;
 pub mod basis;
 pub mod beliefs;
 pub mod calibration;
