@@ -182,8 +182,9 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
   daemon composition itself (slices 4b–4e: registration in `compose_runner` /
   `daemon.rs`, the PerpTick injection seam, and the recorded Sim-soak feed) is
   DONE and listed under Added above.
-- F5–F9 (Aeolus weather → belief) build on the scalar foundation — see the
-  Ingestion track's Deferred list.
+- F5–F9 (Aeolus weather → belief) — ✅ LANDED (track-E, merged @bdea003): the
+  `aeolus_*` cognition modules (dedup / strict v2 parser / world-forward match /
+  propose-only emission / Brier+CRPS reliability) are on main. No longer deferred.
 
 ### Ingestion & data sources (fortuna-sources, Track D)
 
@@ -281,13 +282,14 @@ default — merged code activates zero ingestion until an operator opts in (see
 - OBS-2 — the loop-side funnel stages (`normalized` / `deduped` / `persisted`)
   and the `Arc<RwLock>` snapshot publish (fortuna-live); OBS-3 — `domain_tags`
   from the registry.
-- F4b — release-aware cadence (consume `next_run_at` + the GEFS release pattern).
+- F4b — release-aware cadence — ✅ LANDED (track-E, merged @0e20681): the scheduler
+  consumes `next_run_at` (band-clamped so an absurd hint can't break steady cadence).
 - F10 — Aeolus `source_registry` row + dossier finalization + v1→v2 fixture
   migration.
-- F5–F9 — these are cognition (Track C), not Track D: F5 dedup, F6 the strict
-  v2 μ/σ→p parser, F7 world-forward match, F8 belief→calibration→gates→sizing,
-  F9 the Layer-3 `source_reliability` scoring that V4 of the ROTA scorecard
-  depends on (until then V4 shows "insufficient data").
+- F5–F9 — ✅ LANDED (track-E, merged @bdea003; cognition, reassigned C→E): F5 dedup,
+  F6 the strict v2 μ/σ→p parser, F7 world-forward match, F8
+  belief→calibration→gates→sizing, F9 the Layer-3 `source_reliability` scoring the
+  ROTA scorecard depends on. No longer deferred.
 
 ### Domain-analysis personas (fortuna-cognition, Track E)
 

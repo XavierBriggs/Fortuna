@@ -826,7 +826,7 @@ code.
       real liquidations [786 @ 2000 scenarios]; 7 per-seed invariants
       incl. gate-pass=>no-instant-liquidation, never-silent liquidation,
       exact conservation, same-seed determinism; coverage floor at 100+.)
-- [ ] T5.B7 Strategies rung 0: perp_event_basis (Sim), funding_forecast
+- [x] T5.B7 ✅ DONE (rung-0 slices merged; design §5 EXIT; funding_carry data-only by design) — Strategies rung 0: perp_event_basis (Sim), funding_forecast
       (zero-capital scalar claims), funding_carry DATA-ONLY until >=60d regime
       evidence (amendment B). FEE-TRAP RULE (amendment C): edge floors at assumed
       post-promo fees (5-12 bps until fee_tiers is real); Sim gates re-run when
@@ -1115,7 +1115,7 @@ scheduler is shared with D9). The skill/persona layer is a separate session
       green — fmt --check + clippy -p fortuna-sources --all-targets -D warnings +
       test -p fortuna-sources + check -p fortuna-live consumer; full-workspace
       battery is the verifier's merge gate, see GAPS "TRACK D — F4".)
-- [ ] F4b release-aware cadence: consume next_run_at + the GEFS release pattern
+- [x] F4b ✅ DONE (track-E @0e20681; deferral lifted) — release-aware cadence: consume next_run_at + the GEFS release pattern
       to tighten the poll cadence around forecast issuance. DEFERRED to Phase B —
       a scheduling refinement, NOT the gate's reachability/validation ask (which
       F4 closes). Today the Aeolus source polls on its configured base_interval.
@@ -1123,7 +1123,7 @@ scheduler is shared with D9). The skill/persona layer is a separate session
       MEASURED reality not an unproven edge, per contract §1/§5) + v1→v2 fixture
       migration (keep v1 behind "schema absent ⇒ v1"; aeolus_eval T2.7 stays
       green; do NOT weaken it).
-- [ ] (cognition; OWNER = TRACK E as of 2026-06-14, reassigned from C — operator-
+- [x] ✅ DONE (track-E Aeolus F5–F9 merged @bdea003) — (cognition; OWNER = TRACK E as of 2026-06-14, reassigned from C — operator-
       directed; E owns the weather domain. New disjoint fortuna-cognition modules;
       reuse C's prob_claims/v1 + scalar_beliefs; do not touch C's perp/discovery files.)
       F5 identity-tuple dedup, F6 strict v2 parser + pinned-erf μ/σ→p, F7 world-forward
@@ -1154,7 +1154,7 @@ scheduler is shared with D9). The skill/persona layer is a separate session
       funnel and publishes the snapshot behind `Arc<RwLock<IngestionTelemetry>>`
       for the metrics renderer + ROTA handlers (§2 "one writer, many readers").
       Touches fortuna-live (the drive() seam slice) — sequence vs track A.
-- [ ] OBS-3 domain_tags population: carry each source's domain (weather|macro|…)
+- [x] OBS-3 ✅ DONE (track-B Sources Health @072f9a1) — domain_tags population: carry each source's domain (weather|macro|…)
       from the source_registry/config admission into `SourceTelemetry.domain_tags`
       (empty in slice 1). Needs a config/registry field — fold with F10.
 

@@ -51,15 +51,19 @@ of the box, zero ingestion runs.
 |---|---|---|
 | **News/weather ingestion loop** | `[ingestion]` section with `enabled = true` (also requires `user_agent`). | The whole section is `Option` in `boot.rs`; **absent section or `enabled = false` ⇒ no ingestion**, daemon byte-unchanged. (`enabled` is a required field *within* the section — there is no implicit default, so you must write it.) |
 | **A specific data source** | A `[sources.<id>]` block (e.g. `kind`, `url`, `base_interval`, `rate_budget_per_min`, `enabled = true`, optional `auth_header`/`auth_env`). | Parsed by `fortuna-sources` `SourcesConfig`; fail-closed — unknown kinds/fields, non-https URLs, and Phase-A-unbuildable kinds are hard errors. A source defaults disabled unless `enabled = true`. |
-| **Cognition / synthesis / mech-extremes / review** | Their `[cognition]` / `[synthesis]` / `[mech_extremes]` / `[review]` sections (presence composes the strategy; fail-closed when absent). | Optional sections in `boot.rs`/`compose.rs`. |
+| **Cognition / synthesis / mech-extremes / review** | Their `[cognition]` / `[synthesis]` / `[mech_extremes]` / `[review]` sections (presence composes the strategy; fail-closed when absent). `[cognition]` carries the 3-tier model ids — `synthesis_model` (Opus), `mid_model` (Sonnet, the daily reconciliation), `triage_model` (Haiku, the cheap gate); a `ModelRegistry` maps tier→model. | Optional sections in `boot.rs`/`compose.rs`. |
 | **Perp funding-rate belief producer** | A `[funding_forecast]` section (no required fields). Optional `ticker_feed_jsonl = "<path>.jsonl"` replays RECORDED kinetics `ticker` frames as PerpTicks so it fires in a Sim soak. | `Option` in `boot.rs`; **PRESENCE composes** the propose-nothing `FundingForecast`. Absent ⇒ not composed; inert in pure-sim with no feed. |
 | **Perp/bracket basis strategy** | A `[perp_event_basis]` section (all fields required: `perp_market`, `fee_floor_dollars`, `min_basis_dollars`, `edge_premium_cents`, and a non-empty `ladder` of `market → { kind = between\|greater\|less, floor_dollars, cap_dollars }`). | `Option` in `boot.rs`; **PRESENCE composes** `PerpEventBasis`, ladder STRICTLY validated by `build_perp_event_basis_config` (`compose.rs`). Absent ⇒ not composed. |
+| **Persona analysis step** (ingestion→beliefs) | A `[personas]` section with `enabled = true` plus its `[[personas.persona]]` entries. Reads ingested signals, runs the operator-authored personas, persists `domain_analyses` + beliefs — never orders (I6). | `Option<PersonasSection>` in `boot.rs`; **absent or `enabled = false` ⇒ the step never runs**, daemon byte-identical. A hash/version/status mismatch vs the registry **refuses to boot**. |
+| **Discovery step** (ingestion→beliefs) | A `[discovery]` section with `enabled = true` (prefilter knobs `category_allowlist` / `min_volume_contracts` / `min_category_quality`). Drives world-forward (signals→`watch:` events + beliefs) and, when a venue catalog is wired, market-back (catalog→events→auto-confirmed low-stakes edges; high-stakes routed to review). Data-only — never orders (I6); orders still cross the gate (I1). | `Option<DiscoverySection>` in `boot.rs`; **absent or `enabled = false` ⇒ the step never runs**, daemon byte-identical. Market-back is INERT in prod until the Kalshi adapter supplies a catalog (GAPS). |
 
 Sources: `crates/fortuna-live/src/boot.rs` (`IngestionSection { enabled: bool, … }`,
 `Option<IngestionSection>`, `Option<FundingForecastSection>`,
-`Option<PerpEventBasisSection>`), `crates/fortuna-live/src/compose.rs`
+`Option<PerpEventBasisSection>`, `Option<PersonasSection>`, `Option<DiscoverySection>`),
+`crates/fortuna-live/src/compose.rs`
 (`FundingForecastSection`, `PerpEventBasisSection`, `build_perp_event_basis_config`),
-`crates/fortuna-live/src/daemon.rs` (the perp-strategy composition),
+`crates/fortuna-live/src/daemon.rs` (the perp-strategy composition + the `drive()`
+persona/discovery steps),
 `crates/fortuna-sources/src/config.rs` (`SourceConfig`, `SourceKind`, fail-closed
 parse), `config/fortuna.example.toml`.
 
@@ -121,4 +125,6 @@ Each rung is a deliberate human step. None auto-advances (I7).
 | View | How |
 |---|---|
 | **ROTA console** (read-only, gold-on-black) | The daemon serves it on the metrics listener: `[daemon] metrics_bind = "127.0.0.1:9187"` ⇒ open `http://127.0.0.1:9187/rota`. Versioned JSON under `http://127.0.0.1:9187/api/rota/v1/`; Prometheus text at `/metrics`. Every route is GET-only. (`docs/operations.md` §2, `docs/quickstart.md`, `crates/fortuna-ops/src/rota.rs`.) |
+| **Scalar-belief board** (Forecasts + Forecast Feed) | `/api/rota/v1/forecasts` (per-producer CRPS calibration + band coverage) and `/api/rota/v1/forecast_feed` (recent scalar beliefs, each a `<details>` expander with the full quantile fan + the producer's evidence + provenance). Untrusted-data safe (the fan/evidence/provenance are rendered as data, never interpreted). Empty until a scalar producer persists. (`view_forecasts` / `view_forecast_feed`, `crates/fortuna-ops/src/rota.rs`.) |
+| **Sources Health board** | `/api/rota/v1/ingest_sources` — per-source health with `domain_tags` (weather\|macro\|…) and `trust_tier`, fed from ingestion telemetry; populated only when the `[ingestion]` loop is on. (`crates/fortuna-live/src/views.rs` "Sources Health".) |
 | **Operator-decision queue** | `docs/reviews/GATE-FINDINGS-LATEST.md` — the single coordination surface; gate findings and what each track needs from you. |

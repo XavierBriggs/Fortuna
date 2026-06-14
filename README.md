@@ -62,6 +62,41 @@ where existing tests may never be weakened — additions only.
   daemon composition — are now on main (gate-ACCEPT merges `9c4026e`, `72adb7a`,
   `95799cc`, 2026-06-13). The strategies are propose-only (I6) and INERT in
   pure-sim until an operator opts in a recorded perp feed.
+- **A second edge source — Aeolus weather (F5–F9): on main.** The proprietary
+  probabilistic temperature-forecast vendor is now a full belief pipeline in
+  `fortuna-cognition`: the strict `aeolus.forecast/v2` envelope parser and the
+  μ/σ→bracket-probability backbone
+  ([aeolus_forecast.rs](crates/fortuna-cognition/src/aeolus_forecast.rs), F6),
+  the propose-only producer that emits binary temperature-bracket drafts plus a
+  scalar μ/σ quantile fan
+  ([aeolus_beliefs.rs](crates/fortuna-cognition/src/aeolus_beliefs.rs), F8), and
+  independent Brier+CRPS settlement scoring against the NWS-graded realized
+  temperature ([aeolus_reliability.rs](crates/fortuna-cognition/src/aeolus_reliability.rs),
+  F9), with F5 dedup and F7 world-forward market matching. Propose-only (I6),
+  scored like any source; inert until an operator enables an `aeolus` source.
+- **3-tier cognition.** The frontier tier is now resolved by a `ModelRegistry`
+  ([mind.rs](crates/fortuna-cognition/src/mind.rs)) that maps each role's tier to
+  a model as the single source of truth: Synthesis→Opus, Mid→Sonnet (the daily
+  reconciliation runs on its own mid-tier mind, not a synthesis clone), and a
+  real cheap Triage→Haiku gate (`AnthropicTriageMind`,
+  [cycle.rs](crates/fortuna-cognition/src/cycle.rs)) that runs before the
+  expensive synthesis mind. Every tier shares the `[cognition]` budget rails and
+  stays propose-only (I6).
+- **Ingestion→beliefs wiring: drivable, default-OFF.** The daemon's `drive()`
+  loop ([daemon.rs](crates/fortuna-live/src/daemon.rs)) drives opt-in
+  world-forward / market-back discovery and a persona-analysis step that turn
+  ingested signals (and, for market-back, a venue catalog) into persisted
+  beliefs/events/edges. All are `Option`-gated (absent ⇒ never run) and
+  data-only — they persist beliefs, never orders (I6); orders still cross the
+  universal gate (I1).
+- **Demo-flip (Kalshi DEMO at `Stage::Paper`): in progress, not merged.** A
+  track-c effort to let `fortuna-live` run a Kalshi *demo* (mock funds) at the
+  Paper stage, pre-promotion, while prod/live stays REFUSED at the boot gate.
+  Phase 1 (the venue-generic `SimRunner` refactor) is done on track-c; Phase 2
+  (`compose_kalshi_runner` + the boot gate) is next, and its live run is
+  operator-blocked behind the T4.2 clearance. Design:
+  `docs/design/kalshi-demo-flip.md` on track-c. This changes nothing about the
+  honest framing below.
 - **Live trading: NEVER enabled.** `sim` is the only bootable venue
   ([config/fortuna.example.toml](config/fortuna.example.toml) `[daemon]`); the
   Kalshi adapter refuses to boot without operator-recorded fixture clearance;
