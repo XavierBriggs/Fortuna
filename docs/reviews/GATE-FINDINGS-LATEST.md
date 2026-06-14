@@ -15,6 +15,27 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-14, cont'd — verifier loop pass)
 
+- **🎉 F7 AEOLUS↔KALSHI WEATHER MATCH — COMPLETE END-TO-END (all four pieces gated + merged).** A live
+  `aeolus.forecast` signal now flows: signal → live Kalshi day-set discovery → ACTIVE-only buckets →
+  propose-only beliefs + 1:1 auto-confirmed `Direct` edges → ledger, wired into `drive()` on the kalshi
+  demo. Pieces: track-E cognition matcher (@de9054a) + track-A venue derivation (@800b3a8) + live source
+  (@5b93f8e) + `drive()` wiring (@533ce17). Propose-only (I6), gate-respecting (I1), operator-gated to
+  actually run (demo creds + the soak). A forecast that produced 0 tradeable edges now produces 6.
+
+- **✅ TRACK A — F7 LIVE PLUG-IN SLICE 2 (`drive()` weather wiring) MERGED → main @533ce17 = GATE ACCEPT.**
+  daemon.rs (+297): the F7 plug-in runs per-segment ONLY when `weather_source` is `Some` (⟺ venue=kalshi;
+  INERT on sim). ONE signed demo transport SHARED by the runner + the read-only weather source (PEM read
+  once, `Secret`-wrapped, no second key read). Reads fresh `aeolus.forecast` from the signals ledger,
+  parses defensively (untrusted DATA, 5.11 — `apply_external_alert` + skip on failure, never panic/
+  fabricate), station→series→live day-set→ACTIVE buckets→`aeolus_bucket_edges`, persists beliefs-FIRST
+  (creates the `aeolus:{ticker}` event for the edge FK) then edges; idempotent per-market dedup;
+  alert-and-continue throughout. Propose-only (I6 — beliefs+edges, NO orders; any order still gates, I1);
+  Clock-injected (no SystemTime); `proposed_by='aeolus_bucket_match'` (distinct from the strategy).
+  - BATTERY (merged tree): fmt + workspace **1642/0** (incl. DB-backed daemon_smoke: persist /
+    idempotent-not-12 / sim-inert-zero / drop-tracking / settled-skip) + clippy `--workspace -D warnings`
+    + DST 5 corpus + 2000 seeds 0 violations + invariants UNTOUCHED. MUTATION-PROVEN: the ACTIVE-status
+    tradeable filter (`Active`→`Determined` reds the active-day persist test).
+
 - **✅ TRACK A — F7 LIVE PLUG-IN SLICE 1 (`WeatherMarketSource` + live `KalshiWeatherSource`) MERGED →
   main @5b93f8e = GATE ACCEPT.** `kalshi/weather.rs`: read-only `GET /markets?series_ticker=` day-set
   discovery + `event_grades_on` (pure date-match key, whole-segment `-{YY}{MON}{DD}` match — guards the
