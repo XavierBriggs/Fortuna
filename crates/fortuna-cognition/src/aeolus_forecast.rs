@@ -37,6 +37,7 @@
 //! accepts both the `Z` and `+00:00` offset forms — the fixture uses `+00:00`).
 
 use crate::persona_beliefs::prob_at_least;
+use crate::reconciliation::AeolusEnvelope;
 use fortuna_core::clock::UtcTimestamp;
 use serde::Deserialize;
 use thiserror::Error;
@@ -331,4 +332,50 @@ pub fn parse_envelope(body: &str) -> Result<AeolusForecast, AeolusError> {
 pub fn parse_response(body: &str) -> Result<Vec<AeolusForecast>, AeolusError> {
     let response: Response = serde_json::from_str(body)?;
     response.forecasts.into_iter().map(validate).collect()
+}
+
+/// One Aeolus envelope parsed at whichever schema version it declared (F10
+/// migration, contract §9). The v1 envelope (the committed
+/// `fixtures/aeolus/sample_envelope.json`: station/target_date/run_at/brackets
+/// `[{event_hint, p}]`) carries NO `schema` field; the v2 envelope carries
+/// `schema == "aeolus.forecast/v2"` and the full §2 shape.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AeolusEnvelopeVersion {
+    /// Legacy v1 — retained ONLY for back-compat (the `aeolus_eval` T2.7 fixture).
+    V1(AeolusEnvelope),
+    /// The strict v2 envelope (what `AeolusSource` emits in production). Boxed:
+    /// the v2 forecast is ~4× the v1 envelope, so boxing keeps the enum small
+    /// (the `Box` auto-derefs for the `AeolusForecast` accessors).
+    V2(Box<AeolusForecast>),
+}
+
+/// Dispatch a raw Aeolus envelope to the v1 or v2 parser by its OPTIONAL `schema`
+/// field (contract §9 migration): `schema` absent ⇒ **v1** (the legacy
+/// `AeolusEnvelope` — keeps the `aeolus_eval` fixture working, never weakened);
+/// `schema == "aeolus.forecast/v2"` ⇒ the **strict v2** parse; any other `schema`
+/// value ⇒ `UnknownSchema` (forces lockstep upgrades, §8). The `AeolusSource`
+/// adapter emits only v2 in production; v1 survives solely for the legacy fixture.
+pub fn parse_versioned(body: &str) -> Result<AeolusEnvelopeVersion, AeolusError> {
+    let value: serde_json::Value = serde_json::from_str(body)?;
+    // Take the schema decision as an OWNED value first, so `value` is free to be
+    // moved into the chosen parser below (no borrow held across the move).
+    let schema = value
+        .get("schema")
+        .and_then(|s| s.as_str())
+        .map(str::to_string);
+    match schema.as_deref() {
+        // No schema → v1. Strict (`deny_unknown_fields`): a v2 envelope is never
+        // mistaken for v1 (it carries `schema`, so it never reaches this arm).
+        None => Ok(AeolusEnvelopeVersion::V1(serde_json::from_value(value)?)),
+        // The pinned v2 string → the full strict v2 parse + validation.
+        Some(s) if s == SCHEMA_V2 => {
+            let raw: RawEnvelope = serde_json::from_value(value)?;
+            Ok(AeolusEnvelopeVersion::V2(Box::new(validate(raw)?)))
+        }
+        // Any other schema string is a hard error (the §8 co-evolution tripwire).
+        Some(other) => Err(AeolusError::UnknownSchema {
+            expected: SCHEMA_V2.to_string(),
+            found: other.to_string(),
+        }),
+    }
 }

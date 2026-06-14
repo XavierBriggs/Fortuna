@@ -1119,10 +1119,14 @@ scheduler is shared with D9). The skill/persona layer is a separate session
       to tighten the poll cadence around forecast issuance. DEFERRED to Phase B —
       a scheduling refinement, NOT the gate's reachability/validation ask (which
       F4 closes). Today the Aeolus source polls on its configured base_interval.
-- [ ] F10 registry row + Layer-0 dossier (docs/research/sources/aeolus/, stating
+- [x] F10 registry row + Layer-0 dossier (docs/research/sources/aeolus/, stating
       MEASURED reality not an unproven edge, per contract §1/§5) + v1→v2 fixture
       migration (keep v1 behind "schema absent ⇒ v1"; aeolus_eval T2.7 stays
       green; do NOT weaken it).
+      ✅ DONE (track-e-f10-e5): v1↔v2 schema dispatch `aeolus_forecast::parse_versioned`
+      (absent⇒v1 reconciliation::AeolusEnvelope, kept green/unweakened; v2⇒strict F6 parse;
+      else UnknownSchema) + 3 tests; dossier pre-existing/complete (tier-7 sober, measured
+      reality); source_registry ROW = ledgered operator seed (values in GAPS).
 - [x] ✅ DONE (track-E Aeolus F5–F9 merged @bdea003) — (cognition; OWNER = TRACK E as of 2026-06-14, reassigned from C — operator-
       directed; E owns the weather domain. New disjoint fortuna-cognition modules;
       reuse C's prob_claims/v1 + scalar_beliefs; do not touch C's perp/discovery files.)
