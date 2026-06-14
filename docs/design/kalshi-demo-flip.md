@@ -1,11 +1,17 @@
 # Kalshi demo-flip — design (track C)
 
-Status: **Phase 1 DONE** (commits: de4d2d8 `Venue::account()` + the
-`SimRunner<V: Venue = SimVenue, J>` generalization — landed gate-clean; the DST
-corpus is byte-identical, so A3 holds). **Phase 2** (`compose_kalshi_runner` +
-boot gate + `ActiveRunner`) is buildable now; its *live run* is operator-blocked
-(demo credentials + the T4.2 fixture checklist). Explore-traced + architect-validated
-2026-06-14. Authority chain: docs/spec.md > CLAUDE.md > this doc.
+Status: **Phase 1 + Phase 2 CODE DONE** (Phase 1: de4d2d8 `Venue::account()` +
+f8e3ad3 the `SimRunner<V: Venue = SimVenue, J>` generalization; Phase 2: 8d11b43
+`compose_kalshi_runner` + boot gate + `ActiveRunner`; the DST corpus is
+byte-identical, so A3 holds). MERGED onto current main + the `drive()` conflict
+with track-a's ingestion wiring reconciled (e023ac7) — track-c is 0-behind main,
+ready for the verifier's re-gate. **Design call** (per the gate bus): the
+opt-in persona/discovery ingestion loops run under BOTH `ActiveRunner` arms (Sim
+and Kalshi), config-gated by their `Some`/`None` params — they are I6
+propose-only (persist beliefs/events/edges, no order path), so venue-agnostic is
+safe. The *live run* stays operator-blocked (demo credentials in `.env` + the
+T4.2 fixture checklist + `[kalshi].series` tickers). Explore-traced +
+architect-validated 2026-06-14. Authority chain: docs/spec.md > CLAUDE.md > this doc.
 
 ## Goal
 
