@@ -1135,6 +1135,15 @@ impl crate::Venue for SimVenue {
         st.cash.checked_sub(st.reserved).map_err(VenueError::Money)
     }
 
+    async fn account(&self) -> Result<(Cents, Cents), VenueError> {
+        // Surface the EXACT (cash, reserved) the sim tracks by delegating to the
+        // prior `inspect_totals` read — a pure lock-and-read, NO outage/transient
+        // fault roll — so the runner's drawdown + dashboard numbers are
+        // byte-identical to the pre-generalization `inspect_totals` calls (A3).
+        let (cash, reserved, _, _) = self.inspect_totals();
+        Ok((cash, reserved))
+    }
+
     async fn fills_since(&self, cursor: Cursor) -> Result<FillPage, VenueError> {
         let mut st = self.lock();
         self.check_outage(&st)?;

@@ -147,6 +147,29 @@ fn buy_yes_crossing_fills_through_visible_depth() {
 }
 
 #[test]
+fn account_equals_inspect_totals_cash_and_reserved() {
+    // The Venue::account() seam (demo-flip Phase 1): SimVenue's account() returns
+    // the EXACT (cash, reserved) inspect_totals reads, so the runner's drawdown +
+    // dashboard numbers stay byte-identical post-generalization (A3). NON-VACUOUS:
+    // a RESTING buy reserves capital, so reserved > 0.
+    let (_c, v) = venue();
+    // A buy at 50c (below the 55c ask) RESTS, reserving 50*5 + the maker fee.
+    v.place_raw(order("c1", Side::Yes, Action::Buy, 50, 5))
+        .unwrap();
+    let (cash_it, reserved_it, _, _) = v.inspect_totals();
+    let (cash_acct, reserved_acct) = futures::executor::block_on(v.account()).unwrap();
+    assert_eq!(cash_acct, cash_it, "account() cash == inspect_totals cash");
+    assert_eq!(
+        reserved_acct, reserved_it,
+        "account() reserved == inspect_totals reserved"
+    );
+    assert!(
+        reserved_acct > Cents::ZERO,
+        "the resting order reserved capital (non-vacuous)"
+    );
+}
+
+#[test]
 fn partial_fill_rests_the_remainder_as_maker() {
     let (_c, v) = venue();
     let id = v
