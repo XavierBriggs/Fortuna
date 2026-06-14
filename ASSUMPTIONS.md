@@ -3,6 +3,32 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## TRACK C — perp basis-v2 SLICE V3 (the model layer: A3+A6+A9+σ) (2026-06-14; interprets design §3.3 + DC-1/DC-4/DC-5)
+
+- **DC-1 σ EWMA seed = the FIRST squared return** (`var₀ = r₀²`), not 0 or a prior. The RiskMetrics-style
+  seed makes σ hand-computable and, for a constant-log-step anchor sequence, exactly `|ln ratio|` and
+  λ-independent (which the wiring test pins). §3.3 A3/A5 fix λ and the recurrence but not the seed; this is
+  the conservative standard choice. λ=0.94, N=64 ring, min_vol_obs=20 RETURNS (not ticks: N returns need
+  N+1 anchors), σ clamped to `[1e-6, 5.0]` — all config-overridable.
+- **DC-4 τ source is `CoreHandle.markets.get(&bracket).close_at − CoreHandle.now`, NO compose.rs change.**
+  The earlier rec (extend the catalog to `MarketId→(BracketStrike, close_at)` in compose.rs) is SUPERSEDED:
+  KXBTC brackets are binary events whose `fortuna_venues::Market.close_at` is already in `core.markets`, and
+  `core.now` is the injected Clock. The conservative side is unchanged — τ unknown (market absent or
+  `close_at` None) ⇒ the bin/market is Disabled (propose nothing). Interprets §3.3 A5 + the Clock money-rule.
+  (V4 implements the τ read; V3 only records the seam.)
+- **A10 median diagnostic via `compute_basis(bins, anchor, 0.0, 0.0)` reading ONLY `bracket_implied_median`.**
+  The median field is independent of the perp-mark arg and of the fee/min_basis args (those only affect
+  `is_tradeable`), so reusing the rung-0 fn with the anchor + zero floors yields the pure implied-median
+  health metric. Interprets §3.3 A10 (median demoted to a health metric).
+- **A ready σ but a degenerate CURRENT anchor ⇒ skip the tick, RETAIN the prior `last_eval` snapshot**
+  (rather than overwrite it with a not-ready marker): the snapshot reflects the last VALID evaluation, and
+  the strategy proposes nothing on the degenerate tick either way. Interprets §3.3 "degrade to propose
+  nothing on any degenerate/stale input."
+- **σ_step is used DIRECTLY as `SettlementModel.sigma` in V3; the √τ horizon scaling is deferred to V4/A5.**
+  V3's `q_j` is therefore a per-step-σ DIAGNOSTIC, never a trade (V3 proposes nothing); V4 replaces σ_step
+  with the τ-regime-scaled σ at the same seam. Interprets the §3.3 build order (step 2 builds A3's q_j with
+  a σ; step 4 wraps it with the τ-regime σ model).
+
 ## TRACK C — 3-tier cognition models (2026-06-13; interprets spec 5.9 tiering + I6)
 
 - **Each tier is a SEPARATE mind sharing the [cognition] budget CONFIG, not one
