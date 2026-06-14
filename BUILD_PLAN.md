@@ -1100,7 +1100,9 @@ scheduler is shared with D9). The skill/persona layer is a separate session
       hard-error path; mutation guard (drop the MAXIMUM line → None). 10 grader
       tests (141 sources lib total). Registry: the observed-daily-extreme feed is
       the resolution source (dossier updated; the source_registry seed is the
-      operator prereq, ledgered in GAPS). (DONE 2026-06-14 <hash>; battery green.)
+      operator prereq, ledgered in GAPS). (DONE 2026-06-14 a615cc3; battery green:
+      fmt + clippy --workspace --all-targets -D warnings + check --workspace +
+      cargo test --workspace 167 ok/0 failed + run-dst.sh 200.)
 - [x] F1 Generic per-source auth header in FetchClient (subagent-built, I
       reviewed + verified). ReqwestFetchTransport.with_auth_header(name, secret):
       Aeolus = `x-api-key`, generic by name (Bearer drops in). The value is
