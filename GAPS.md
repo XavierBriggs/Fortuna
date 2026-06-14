@@ -47,6 +47,19 @@ THE AEOLUS PIPELINE (F5–F9 + e2e) IS COMPLETE. Two ledgered seams remain (NOT 
 (1) live-Kalshi-market intersection for F7 (venue/Track-A); (2) the NWS-CLI productText→°F grader for
 F9's realized input (F2/Track-D). Composition entry point (run these on the live `drive()` loop) is
 handed to Track A — same "Track E exposes / Track A wires" split as the persona work.
+
+REFINEMENTS (operator-directed 2026-06-14, F4b+F10 reassigned to track-e):
+- **F4b — release-aware cadence — DONE (this commit).** The D9 scheduler (`crates/fortuna-sources`,
+  operator-authorized) consumes Aeolus's `next_run_at` to poll just after the advertised next run
+  (`aeolus_next_run_at` + an opt-in `ReleaseHintFn` + `release_aware_due_ms`, clamped to
+  `[now+30s, now+2·base]`). OPT-IN: the non-hint `next_due` arm is byte-identical to pre-F4b, so no
+  other source's cadence changes. 131 fortuna-sources tests pass (0 regressed).
+- **F10 — dossier DONE (pre-existing), registry-row = operator action.** The Layer-0 dossier
+  (`docs/research/sources/aeolus/dossier.md`, tier-7 sober) already exists and is complete; the
+  `source_registry` row SEED is a ledgered operator action (config + INSERT when D9 wires sources).
+- **E.3 / E.5 — DONE (merged), no new build.** The persona runner-loop (`run_due_personas`) +
+  scoring-scope (`resolved_persona_stats` + the §10 Slice-3 handoff) merged into main via
+  `persona-live-integration` (operator-confirmed 2026-06-14). The remaining review-folding is Track A's.
 - **e2e** — recorded forecast → F6→F7→F8→persist→F9 scores vs recorded realized temp.
 
 Status (post-E-batch, 2026-06-10): the T3.6 completion claim was FALSIFIED

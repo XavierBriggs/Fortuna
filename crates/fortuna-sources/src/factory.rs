@@ -13,7 +13,7 @@ use std::time::Duration;
 use fortuna_cognition::signals::Source;
 use fortuna_core::clock::Clock;
 
-use crate::aeolus::{aeolus_claimed_time, AeolusSource};
+use crate::aeolus::{aeolus_claimed_time, aeolus_next_run_at, AeolusSource};
 use crate::calendar::{calendar_claimed_time, CalendarFeed, CalendarSource};
 use crate::config::{SourceConfig, SourceKind, SourcesConfig};
 use crate::error::SourcesError;
@@ -21,8 +21,12 @@ use crate::fetch::{FetchCaps, FetchClient, HostPin, ReqwestFetchTransport};
 use crate::nws::{nws_claimed_time, NwsFeed, NwsSource};
 use crate::nws_climate::{nws_climate_claimed_time, NwsClimateSource};
 use crate::rss::{rss_claimed_time, RssSource};
-use crate::scheduler::{ClaimedTimeFn, IngestionScheduler, SourceSchedule};
+use crate::scheduler::{ClaimedTimeFn, IngestionScheduler, ReleaseHintFn, SourceSchedule};
 use crate::validate::StructuralConfig;
+
+/// What `build_adapter` yields: the trait object, its claimed-time extractor,
+/// and an OPT-IN release-aware cadence hint (F4b, §3.4 — `Some` only for Aeolus).
+type BuiltAdapter = (Box<dyn Source>, ClaimedTimeFn, Option<ReleaseHintFn>);
 
 /// Knobs the factory applies uniformly (the daemon supplies them).
 #[derive(Debug, Clone)]
@@ -64,7 +68,7 @@ pub fn build_scheduler(
             reason: "enabled source has no source_registry tier (admit it first)".to_string(),
         })?;
         let domain_tags = domain_of(id);
-        let (source, claimed): (Box<dyn Source>, ClaimedTimeFn) =
+        let (source, claimed, release_hint): BuiltAdapter =
             build_adapter(id, src, factory, &secret_resolver, clock.clone())?;
         let schedule = source_schedule(src, factory, tier, domain_tags);
         let validator_cfg = StructuralConfig {
@@ -72,17 +76,28 @@ pub fn build_scheduler(
             ..Default::default()
         };
         scheduler.register(id.clone(), source, schedule, claimed, validator_cfg);
+        // F4b: opt the source into release-aware cadence iff its adapter
+        // advertises a release hint (only Aeolus, via `next_run_at`). Every
+        // other source keeps its steady config cadence byte-for-byte.
+        if let Some(hint) = release_hint {
+            scheduler.set_release_hint(id, hint);
+        }
     }
     Ok(scheduler)
 }
 
+/// Build a source adapter, returning the trait object, its claimed-time
+/// extractor, and — for sources that advertise one — an OPT-IN release-aware
+/// cadence hint (F4b, §3.4). Only the Aeolus arm returns `Some(..)`
+/// (`aeolus_next_run_at`); every other arm returns `None` so its steady config
+/// cadence is unchanged.
 fn build_adapter(
     id: &str,
     src: &SourceConfig,
     factory: &FactoryConfig,
     secret_resolver: &impl Fn(&str) -> Option<String>,
     clock: Arc<dyn Clock>,
-) -> Result<(Box<dyn Source>, ClaimedTimeFn), SourcesError> {
+) -> Result<BuiltAdapter, SourcesError> {
     let url = src
         .url
         .as_deref()
@@ -99,16 +114,19 @@ fn build_adapter(
                 clock,
             )),
             nws_claimed_time,
+            None,
         )),
         (SourceKind::Nws, Some("afd")) => Ok((
             Box::new(NwsSource::new(id, NwsFeed::AfdProducts, url, client, clock)),
             nws_claimed_time,
+            None,
         )),
         (SourceKind::Nws, Some("climate")) => Ok((
             // The observed daily-extreme grader (F2): the CLI products list URL.
             // Two-hop fetch + its own claimed-time (issuanceTime).
             Box::new(NwsClimateSource::new(id, url, client, clock)),
             nws_climate_claimed_time,
+            None,
         )),
         (SourceKind::Nws, _) => Err(invalid(
             id,
@@ -117,6 +135,7 @@ fn build_adapter(
         (SourceKind::Rss, _) => Ok((
             Box::new(RssSource::new(id, url, client, clock)),
             rss_claimed_time,
+            None,
         )),
         (SourceKind::Calendar, Some("schedule")) => Ok((
             Box::new(CalendarSource::new(
@@ -127,6 +146,7 @@ fn build_adapter(
                 clock,
             )),
             calendar_claimed_time,
+            None,
         )),
         (SourceKind::Calendar, Some("latest")) => Ok((
             Box::new(CalendarSource::new(
@@ -137,6 +157,7 @@ fn build_adapter(
                 clock,
             )),
             calendar_claimed_time,
+            None,
         )),
         (SourceKind::Calendar, _) => Err(invalid(
             id,
@@ -145,6 +166,8 @@ fn build_adapter(
         (SourceKind::Aeolus, _) => Ok((
             Box::new(AeolusSource::new(id, url, client, clock)),
             aeolus_claimed_time,
+            // F4b: Aeolus is the one source that publishes a release hint.
+            Some(aeolus_next_run_at as ReleaseHintFn),
         )),
         (SourceKind::Gdelt, _) => Err(invalid(
             id,
@@ -358,6 +381,51 @@ auth_env = "AEOLUS_API_TOKEN"
         let mut ids = s.source_ids();
         ids.sort_unstable();
         assert_eq!(ids, vec!["aeolus", "nws_climate"]);
+    }
+
+    /// F4b: the factory opts the Aeolus source into release-aware cadence (its
+    /// `next_run_at` hint), and ONLY the Aeolus source — every other kind keeps
+    /// its steady config cadence (no hint set).
+    #[test]
+    fn aeolus_gets_a_release_hint_other_sources_do_not() {
+        const MIX: &str = r#"
+[sources.nws_alerts]
+kind = "nws"
+feed = "alerts"
+url = "https://api.weather.gov/alerts/active?area=TX"
+base_interval = "10m"
+rate_budget_per_min = 30
+
+[sources.fed_press]
+kind = "rss"
+url = "https://www.federalreserve.gov/feeds/press_all.xml"
+base_interval = "30m"
+rate_budget_per_min = 10
+
+[sources.aeolus]
+kind = "aeolus"
+url = "https://aeolus.example.com/v2/forecasts?station=KNYC&variable=tmax"
+base_interval = "6h"
+rate_budget_per_min = 10
+auth_header = "x-api-key"
+auth_env = "AEOLUS_API_TOKEN"
+"#;
+        let cfg = SourcesConfig::from_toml_str(MIX).unwrap();
+        let c = clock();
+        let secrets = |env: &str| (env == "AEOLUS_API_TOKEN").then(|| "test-token".to_string());
+        let s = build_scheduler(&cfg, &factory_cfg(), |_| Some(7), no_domains, secrets, c).unwrap();
+        assert!(
+            s.has_release_hint("aeolus"),
+            "aeolus opts into release cadence"
+        );
+        assert!(
+            !s.has_release_hint("nws_alerts"),
+            "nws keeps steady cadence (no hint)"
+        );
+        assert!(
+            !s.has_release_hint("fed_press"),
+            "rss keeps steady cadence (no hint)"
+        );
     }
 
     #[test]

@@ -30,6 +30,32 @@ use crate::validate::{Candidate, StructuralConfig, StructuralValidator, Verdict}
 /// Layer-1 future-dated check — the per-adapter `nws_/rss_/calendar_claimed_time`.
 pub type ClaimedTimeFn = fn(&RawSignal) -> Option<UtcTimestamp>;
 
+/// A function that extracts a source's advertised next-release time from a
+/// signal — the OPT-IN release-aware cadence hint (F4b, contract §3.4). The
+/// analogue of [`ClaimedTimeFn`], but read AFTER a fetch to schedule the next
+/// poll just after the advertised publish. The only wired implementor is
+/// `aeolus::aeolus_next_run_at`; a source with no hint keeps its steady cadence.
+pub type ReleaseHintFn = fn(&RawSignal) -> Option<UtcTimestamp>;
+
+/// Schedule the next poll JUST AFTER an advertised release (F4b, §3.4), clamped
+/// to a sane band so a missing/past/absurd hint can never break the steady
+/// cadence. Pure (epoch-millis in, epoch-millis out — no clock read): given the
+/// advertised `next_run_ms`, poll at `next_run_ms + lead` (arrive just after the
+/// publish), but never sooner than `now + MIN_FLOOR` (a past/imminent hint →
+/// poll at the floor soon) and never later than `now + 2·base` (an absurdly-far
+/// hint → cap at ~2 steady intervals as a heartbeat).
+fn release_aware_due_ms(next_run_ms: i64, now_ms: i64, base: Duration, lead: Duration) -> i64 {
+    let target = next_run_ms.saturating_add(lead.as_millis() as i64);
+    let floor = now_ms.saturating_add(MIN_FLOOR.as_millis() as i64);
+    let cap = now_ms.saturating_add((base.as_millis() as i64).saturating_mul(2));
+    target.clamp(floor, cap)
+}
+
+/// Arrive just AFTER the advertised publish, not exactly at it.
+const RELEASE_LEAD: Duration = Duration::from_secs(90);
+/// Never poll sooner than this after `now`, even on a past/imminent hint.
+const MIN_FLOOR: Duration = Duration::from_secs(30);
+
 /// Per-source runtime schedule + policy.
 #[derive(Debug, Clone)]
 pub struct SourceSchedule {
@@ -224,6 +250,9 @@ struct Registered {
     source: Box<dyn Source>,
     schedule: SourceSchedule,
     claimed_time: ClaimedTimeFn,
+    /// OPT-IN release-aware cadence hint (F4b, §3.4); `None` keeps the steady
+    /// config cadence byte-for-byte. Set post-`register` via `set_release_hint`.
+    release_hint: Option<ReleaseHintFn>,
     validator: StructuralValidator,
     health: Health,
     /// Epoch millis of the next due poll; `i64::MIN` means "due now".
@@ -277,6 +306,7 @@ impl IngestionScheduler {
             source,
             schedule,
             claimed_time,
+            release_hint: None,
             validator: StructuralValidator::new(validator_config),
             health: Health::Healthy,
             next_due_ms: i64::MIN,
@@ -287,6 +317,17 @@ impl IngestionScheduler {
             last_error: None,
             last_kind: None,
         });
+    }
+
+    /// Opt a registered source into release-aware cadence (F4b, §3.4): after
+    /// each fetch its next poll is scheduled just after the advertised next
+    /// release (via `hint`) instead of the steady config interval. Sources
+    /// without a hint are unchanged. No-op (never panics) if `id` is unknown —
+    /// the factory calls this only for ids it just registered.
+    pub fn set_release_hint(&mut self, id: &str, hint: ReleaseHintFn) {
+        if let Some(reg) = self.sources.iter_mut().find(|r| r.id == id) {
+            reg.release_hint = Some(hint);
+        }
     }
 
     /// Poll every source due at `now`, validate each fetched item, and return
@@ -340,9 +381,20 @@ impl IngestionScheduler {
                         reg.metrics.empty_polls += 1;
                     }
                     let wakes = reg.schedule.trust_tier >= reg.schedule.trigger_floor;
+                    // F4b: the MAX advertised next-release epoch-ms seen this
+                    // poll (opt-in; `None` for sources without a release hint and
+                    // for any item that does not carry one — steady cadence then).
+                    let mut release_at: Option<i64> = None;
                     for signal in signals {
                         let hash = content_hash(&signal.payload);
                         let claimed = (reg.claimed_time)(&signal);
+                        // Read the release hint BEFORE the match moves `signal`.
+                        if let Some(hint) = reg.release_hint {
+                            if let Some(next_run) = hint(&signal) {
+                                let ms = next_run.epoch_millis();
+                                release_at = Some(release_at.map_or(ms, |cur| cur.max(ms)));
+                            }
+                        }
                         // Capture the small, redacted bits BEFORE the match (the
                         // `signal` itself is moved into AcceptedSignal in the
                         // Accept arm; the payload is never dumped wholesale).
@@ -402,8 +454,23 @@ impl IngestionScheduler {
                             summary,
                         });
                     }
-                    let interval = interval_at(&reg.schedule, now);
-                    reg.next_due_ms = now_ms.saturating_add(interval.as_millis() as i64);
+                    // F4b release-aware cadence (§3.4): when a release hint was
+                    // seen, poll just after the advertised next run (clamped to a
+                    // sane band); otherwise the steady config interval — the
+                    // `None` arm is byte-identical to the pre-F4b behavior, so a
+                    // source without a hint is completely unchanged.
+                    reg.next_due_ms = match release_at {
+                        Some(next_run_ms) => release_aware_due_ms(
+                            next_run_ms,
+                            now_ms,
+                            reg.schedule.base_interval,
+                            RELEASE_LEAD,
+                        ),
+                        None => {
+                            let interval = interval_at(&reg.schedule, now);
+                            now_ms.saturating_add(interval.as_millis() as i64)
+                        }
+                    };
                 }
             }
         }
@@ -443,6 +510,17 @@ impl IngestionScheduler {
             }
         }
         false
+    }
+
+    /// Test-only: whether a source has an opt-in release-aware cadence hint
+    /// (F4b). Lets the factory test assert the wiring without a live fetch.
+    #[cfg(test)]
+    pub(crate) fn has_release_hint(&self, source_id: &str) -> bool {
+        self.sources
+            .iter()
+            .find(|r| r.id == source_id)
+            .map(|r| r.release_hint.is_some())
+            .unwrap_or(false)
     }
 
     pub fn health(&self, source_id: &str) -> Option<&Health> {
@@ -1134,5 +1212,163 @@ mod tests {
         );
         assert_eq!(t.funnel.validated_accepted, 1);
         assert_eq!(t.funnel.validated_dropped, 2);
+    }
+
+    // --- F4b release-aware cadence (opt-in; §3.4) ----------------------------
+
+    /// A test release-hint that reads a `next_run` ISO8601 field (stand-in for
+    /// the real `aeolus::aeolus_next_run_at`).
+    fn test_release_hint(s: &RawSignal) -> Option<UtcTimestamp> {
+        s.payload
+            .get("next_run")
+            .and_then(Value::as_str)
+            .and_then(|t| UtcTimestamp::parse_iso8601(t).ok())
+    }
+
+    fn sig_with_next_run(id: &str, next_run_ms: i64) -> RawSignal {
+        RawSignal {
+            kind: "x".to_string(),
+            payload: serde_json::json!({"id": id, "next_run": ts(next_run_ms).to_iso8601()}),
+            received_at: ts(0),
+        }
+    }
+
+    const LEAD_MS: i64 = 90_000; // RELEASE_LEAD
+    const FLOOR_MS: i64 = 30_000; // MIN_FLOOR
+
+    #[test]
+    fn release_aware_due_target_within_band_is_next_run_plus_lead() {
+        // base 1h; next_run 10m out -> 10m + 90s lead, comfortably in
+        // (now+floor, now+2h).
+        let base = Duration::from_secs(3600);
+        let now_ms = 1_000_000;
+        let next_run = now_ms + 600_000; // +10m
+        let due = release_aware_due_ms(next_run, now_ms, base, Duration::from_secs(90));
+        assert_eq!(due, next_run + LEAD_MS);
+    }
+
+    #[test]
+    fn release_aware_due_past_next_run_clamps_to_floor() {
+        // A next_run already in the past -> poll at now+floor (soon), never sooner.
+        let base = Duration::from_secs(3600);
+        let now_ms = 1_000_000;
+        let next_run = now_ms - 500_000; // already past
+        let due = release_aware_due_ms(next_run, now_ms, base, Duration::from_secs(90));
+        assert_eq!(due, now_ms + FLOOR_MS);
+    }
+
+    #[test]
+    fn release_aware_due_far_future_caps_at_two_base_intervals() {
+        // An absurdly-far next_run -> cap at now + 2*base (a heartbeat).
+        let base = Duration::from_secs(3600);
+        let now_ms = 1_000_000;
+        let next_run = now_ms + 10 * 24 * 3_600_000; // +10 days
+        let due = release_aware_due_ms(next_run, now_ms, base, Duration::from_secs(90));
+        assert_eq!(due, now_ms + 2 * 3_600_000);
+    }
+
+    #[tokio::test]
+    async fn release_hint_schedules_next_poll_just_after_advertised_run() {
+        // base 1h; a release hint advertising the next run 10m out. After the
+        // tick, next_due lands at next_run + lead (inside the band), NOT at the
+        // steady now+1h.
+        let now = ts(1_000_000);
+        let next_run_ms = 1_000_000 + 600_000; // +10m
+        let mut s = IngestionScheduler::new();
+        s.register(
+            "src",
+            Box::new(ScriptedSource::new(
+                "src",
+                vec![Ok(vec![sig_with_next_run("a", next_run_ms)])],
+            )),
+            sched(3600, 9, 5), // 1h steady
+            test_claimed,
+            StructuralConfig::default(),
+        );
+        s.set_release_hint("src", test_release_hint);
+        let out = s.tick(now).await;
+        assert_eq!(out.accepted.len(), 1);
+        // next_wake is the release-aware due time, not now+1h.
+        assert_eq!(s.next_wake().unwrap().epoch_millis(), next_run_ms + LEAD_MS);
+    }
+
+    #[tokio::test]
+    async fn release_hint_makes_source_due_after_the_advertised_run_not_before() {
+        // The source must NOT be polled at the old steady tick, only after the
+        // release-aware due time. base 1h; next_run 10m out -> due at +10m+90s.
+        let now = ts(0);
+        let next_run_ms = 600_000; // +10m
+        let mut s = IngestionScheduler::new();
+        s.register(
+            "src",
+            Box::new(ScriptedSource::new(
+                "src",
+                vec![
+                    Ok(vec![sig_with_next_run("a", next_run_ms)]),
+                    Ok(vec![sig_with_next_run("b", next_run_ms + 600_000)]),
+                ],
+            )),
+            sched(3600, 9, 5),
+            test_claimed,
+            StructuralConfig::default(),
+        );
+        s.set_release_hint("src", test_release_hint);
+        assert_eq!(s.tick(now).await.accepted.len(), 1); // first poll
+        let due = next_run_ms + LEAD_MS; // 690_000
+                                         // Just before due: not polled.
+        assert_eq!(s.tick(ts(due - 1)).await.accepted.len(), 0);
+        // At due: polled again.
+        assert_eq!(s.tick(ts(due)).await.accepted.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn source_without_release_hint_keeps_exact_steady_cadence() {
+        // No set_release_hint call -> identical to the pre-F4b steady cadence:
+        // a 60s-interval source is due again at exactly now+60s.
+        let now = ts(0);
+        let mut s = IngestionScheduler::new();
+        s.register(
+            "src",
+            Box::new(ScriptedSource::new(
+                "src",
+                // Payload even carries a `next_run` field, but with no hint set
+                // it is ignored -> steady cadence, proving opt-in.
+                vec![Ok(vec![sig_with_next_run("a", 600_000)])],
+            )),
+            sched(60, 9, 5),
+            test_claimed,
+            StructuralConfig::default(),
+        );
+        s.tick(now).await;
+        assert_eq!(s.next_wake().unwrap().epoch_millis(), 60_000);
+    }
+
+    #[tokio::test]
+    async fn release_hint_returning_none_falls_back_to_steady_cadence() {
+        // Hint set, but the item carries NO `next_run` field -> hint returns
+        // None -> steady cadence (the None arm, byte-identical to pre-F4b).
+        let now = ts(0);
+        let mut s = IngestionScheduler::new();
+        s.register(
+            "src",
+            Box::new(ScriptedSource::new(
+                "src",
+                vec![Ok(vec![sig("x", "a", None)])], // no next_run field
+            )),
+            sched(60, 9, 5),
+            test_claimed,
+            StructuralConfig::default(),
+        );
+        s.set_release_hint("src", test_release_hint);
+        s.tick(now).await;
+        assert_eq!(s.next_wake().unwrap().epoch_millis(), 60_000);
+    }
+
+    #[test]
+    fn set_release_hint_on_unknown_source_is_a_no_op() {
+        let mut s = IngestionScheduler::new();
+        // No source registered; must not panic.
+        s.set_release_hint("nope", test_release_hint);
+        assert!(s.source_ids().is_empty());
     }
 }
