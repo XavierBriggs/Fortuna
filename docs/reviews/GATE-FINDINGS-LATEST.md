@@ -15,6 +15,30 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-14, cont'd — verifier loop pass)
 
+- **🔴 T4.2 RUN E2E LIVE against the real Kalshi DEMO (operator-authorized override 2026-06-14) — +
+  a SECRETS finding (OPERATOR ACTION) + a TRACK-A ASSIGNMENT.** The verifier ran the operator-gated
+  live exercises (network reaches `external-api.demo.kalshi.co`; creds in `.env`):
+  - **(i) signed WS handshake** → 101 upgrade, AUTHENTICATED (the live demo WS dial works).
+  - **(ii) full order-lifecycle fixture recording** → 118 fixtures (create/cancel/fills/STP/
+    settlements/400s/404s/409s + auth); its test orders CLEANED UP (no leftovers).
+  - **(iv) kill-switch LIVE freeze** → `freeze OK (kalshi): cancelled 0/0, 2 positions reported`
+    (I4 connects + freezes live demo; EXPLICIT demo-cred mapping + demo base URL — NOT prod).
+  - **(iii) the daemon trading soak is the operator's long session** (composition gate-verified;
+    the components are now proven live).
+  - **🔐 SECRETS FINDING — OPERATOR:** the recorder leaves the demo **API key id** in the fixture
+    request-metadata, and it is ALREADY in COMMITTED `fixtures/kalshi/` (pre-existing). With the
+    demo PEM **rotation still PENDING** (the 2026-06-11 incident), key-id + exposed-PEM = the full
+    demo credential sitting in-repo. **ROTATE the demo key** (new id + PEM) — the old committed id
+    is then moot. The verifier did NOT commit the new recordings (reverted — key-id leak). **NEVER
+    push until rotated.**
+  - **📋 TRACK-A ASSIGNMENT (post-T4.2 Kalshi build):** (1) **sanitize** `record_kalshi_fixtures`
+    to STRIP the key id from the fixture metadata; (2) build the post-fixture **trade-through +
+    multi-market-bracket replay** into PaperVenue (drivable once clean fixtures are re-recorded
+    post-rotation); (3) wire the **Slack Socket-Mode listener** into the daemon
+    (`FORTUNA_SLACK_APP_TOKEN` present; `socket.rs`/`socket_loop.rs` logic DONE — only the
+    daemon wiring B remains). Read the bus at priority (a); gate-clean + ledger in GAPS; the
+    verifier gates each on the merged tree, mutation-proven.
+
 - **✅ TRACK C — slice-3b-v2 STARTED: §2.6 A2b (funding_forecast fixed seven-quantile fan) MERGED →
   main @ 79e3dad = GATE ACCEPT.** funding_forecast now emits EXACTLY the 7 spec'd quantiles
   {0.05,0.10,0.25,0.50,0.75,0.90,0.95} (was 3), `p + Zq·band` dispersion (shrinks as the window

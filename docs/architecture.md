@@ -19,11 +19,12 @@ recording session (BUILD_PLAN T4.2); the Kinetics perps pipeline (the
 and the daemon composition) MERGED to main 2026-06-13 (`9c4026e`, `72adb7a`,
 `95799cc`) and is INERT in pure-sim until a recorded perp feed is opted in. The
 **demo-flip** (running a Kalshi DEMO at `Stage::Paper`, mock funds, pre-promotion,
-with prod/live still REFUSED at the boot gate) is **in progress on track-c, not
-merged**: Phase 1 (the venue-generic `SimRunner` refactor) is done there, Phase 2
-(`compose_kalshi_runner` + boot gate) is next, and its live run stays
-operator-blocked behind the T4.2 clearance (design `design/kalshi-demo-flip.md` on
-track-c).
+with prod/live still REFUSED at the boot gate) is **MERGED** (Phase 1 venue-generic
+`SimRunner` + Phase 2 `compose_kalshi_runner` + the paper-only boot gate, @`0586bab`).
+The live demo integration is **e2e-verified against the real Kalshi demo** (2026-06-14:
+signed WS handshake authenticated, a full order-lifecycle fixture recording, and the
+I4 kill-switch freeze — all live). The live trading SOAK remains the operator's session;
+prod/live stay refused at the boot gate (I7). Design: `design/kalshi-demo-flip.md`.
 
 Companion docs: [README](../README.md) · [quickstart](quickstart.md) ·
 [verification](verification.md) · [operations](operations.md) ·
