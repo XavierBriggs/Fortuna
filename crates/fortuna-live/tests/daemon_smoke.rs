@@ -131,7 +131,7 @@ async fn daemon_smoke_boot_ticks_signal_shutdown(pool: PgPool) {
     dcfg.validate_bootable().expect("example boots sim");
     let full = FortunaConfig::load_file(example_path).expect("example full-config parses");
 
-    let mut runner = compose_runner(
+    let runner = compose_runner(
         pool.clone(),
         &full,
         &dcfg,
@@ -161,6 +161,7 @@ async fn daemon_smoke_boot_ticks_signal_shutdown(pool: PgPool) {
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
     let mut daily = fortuna_live::daemon::DailyScheduler::new();
 
+    let mut runner = fortuna_live::daemon::ActiveRunner::Sim(runner);
     let (stats, shutdown) = drive(
         &mut runner,
         &mut cadence,
@@ -236,7 +237,7 @@ async fn signal_with_working_orders_cancels_them_and_audits(pool: PgPool) {
     let text = std::fs::read_to_string(example_path).unwrap();
     let dcfg = DaemonToml::parse(&text).unwrap();
     let full = FortunaConfig::load_file(example_path).unwrap();
-    let mut runner = compose_runner(
+    let runner = compose_runner(
         pool.clone(),
         &full,
         &dcfg,
@@ -264,6 +265,7 @@ async fn signal_with_working_orders_cancels_them_and_audits(pool: PgPool) {
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
     let mut daily = fortuna_live::daemon::DailyScheduler::new();
 
+    let mut runner = fortuna_live::daemon::ActiveRunner::Sim(runner);
     let (_stats, shutdown) = drive(
         &mut runner,
         &mut cadence,
@@ -424,7 +426,7 @@ async fn per_segment_refresh_picks_up_a_newly_confirmed_edge(pool: PgPool) {
     // Boot WITH [synthesis] scoped to the sim venue, but with NO edges yet.
     let dcfg = DaemonToml::parse(&format!("{text}\n[synthesis]\nvenue = \"sim\"\n")).unwrap();
 
-    let mut runner = compose_runner(
+    let runner = compose_runner(
         pool.clone(),
         &full,
         &dcfg,
@@ -492,6 +494,7 @@ async fn per_segment_refresh_picks_up_a_newly_confirmed_edge(pool: PgPool) {
     // composition used, so the per-segment reload is scoped identically.
     let synthesis_refresh = dcfg.synthesis.clone().map(|syn| (pool.clone(), syn));
 
+    let mut runner = fortuna_live::daemon::ActiveRunner::Sim(runner);
     let (_stats, _shutdown) = drive(
         &mut runner,
         &mut cadence,
@@ -571,7 +574,7 @@ async fn refresh_failure_keeps_last_known_edges_alerts_and_survives(pool: PgPool
         .await
         .unwrap();
 
-    let mut runner = compose_runner(
+    let runner = compose_runner(
         pool.clone(),
         &full,
         &dcfg,
@@ -631,6 +634,7 @@ async fn refresh_failure_keeps_last_known_edges_alerts_and_survives(pool: PgPool
     let mut daily = fortuna_live::daemon::DailyScheduler::new();
     let syn = dcfg.synthesis.clone().unwrap();
 
+    let mut runner = fortuna_live::daemon::ActiveRunner::Sim(runner);
     let (_stats, _shutdown) = drive(
         &mut runner,
         &mut cadence,
@@ -1058,7 +1062,7 @@ async fn drive_drains_and_persists_the_synthesis_arms_beliefs(pool: PgPool) {
         .unwrap();
 
     let dcfg = DaemonToml::parse(&format!("{text}\n[synthesis]\nvenue = \"sim\"\n")).unwrap();
-    let mut runner = compose_runner(
+    let runner = compose_runner(
         pool.clone(),
         &full,
         &dcfg,
@@ -1105,6 +1109,7 @@ async fn drive_drains_and_persists_the_synthesis_arms_beliefs(pool: PgPool) {
     let mut daily = fortuna_live::daemon::DailyScheduler::new();
     let synthesis_refresh = dcfg.synthesis.clone().map(|syn| (pool.clone(), syn));
 
+    let mut runner = fortuna_live::daemon::ActiveRunner::Sim(runner);
     let (_stats, _shutdown) = drive(
         &mut runner,
         &mut cadence,
@@ -1163,7 +1168,7 @@ async fn drive_drains_and_persists_funding_forecast_scalar_beliefs(pool: PgPool)
     // mech_structural (not veto-enrolled, so no veto mind). It needs no other
     // config — the PerpTicks arrive via the feed below, not the sim venue.
     let dcfg = DaemonToml::parse(&format!("{text}\n[funding_forecast]\n")).unwrap();
-    let mut runner = compose_runner(
+    let runner = compose_runner(
         pool.clone(),
         &full,
         &dcfg,
@@ -1207,6 +1212,7 @@ async fn drive_drains_and_persists_funding_forecast_scalar_beliefs(pool: PgPool)
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
     let mut daily = fortuna_live::daemon::DailyScheduler::new();
 
+    let mut runner = fortuna_live::daemon::ActiveRunner::Sim(runner);
     let (_stats, _shutdown) = drive(
         &mut runner,
         &mut cadence,
@@ -1426,7 +1432,7 @@ async fn drive_runs_daily_reconciliation_at_the_utc_day_boundary(pool: PgPool) {
     let text = std::fs::read_to_string(example_path).unwrap();
     let full = FortunaConfig::load_file(example_path).unwrap();
     let dcfg = DaemonToml::parse(&text).unwrap();
-    let mut runner = compose_runner(
+    let runner = compose_runner(
         pool.clone(),
         &full,
         &dcfg,
@@ -1464,6 +1470,7 @@ async fn drive_runs_daily_reconciliation_at_the_utc_day_boundary(pool: PgPool) {
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
     let mut daily = fortuna_live::daemon::DailyScheduler::new();
 
+    let mut runner = fortuna_live::daemon::ActiveRunner::Sim(runner);
     let (_stats, _shutdown) = drive(
         &mut runner,
         &mut cadence,
@@ -1645,7 +1652,7 @@ async fn drive_runs_the_weekly_review_at_the_week_boundary(pool: PgPool) {
     ))
     .unwrap();
     let review = dcfg.review.clone().expect("the example ships [review]");
-    let mut runner = compose_runner(
+    let runner = compose_runner(
         pool.clone(),
         &full,
         &dcfg,
@@ -1692,6 +1699,7 @@ async fn drive_runs_the_weekly_review_at_the_week_boundary(pool: PgPool) {
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
     let mut daily = fortuna_live::daemon::DailyScheduler::new();
 
+    let mut runner = fortuna_live::daemon::ActiveRunner::Sim(runner);
     let (_stats, _shutdown) = drive(
         &mut runner,
         &mut cadence,
@@ -1808,7 +1816,7 @@ async fn drive_runs_the_monthly_review_at_the_month_boundary(pool: PgPool) {
     ))
     .unwrap();
     let review = dcfg.review.clone().expect("the example ships [review]");
-    let mut runner = compose_runner(
+    let runner = compose_runner(
         pool.clone(),
         &full,
         &dcfg,
@@ -1855,6 +1863,7 @@ async fn drive_runs_the_monthly_review_at_the_month_boundary(pool: PgPool) {
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
     let mut daily = fortuna_live::daemon::DailyScheduler::new();
 
+    let mut runner = fortuna_live::daemon::ActiveRunner::Sim(runner);
     let (_stats, _shutdown) = drive(
         &mut runner,
         &mut cadence,

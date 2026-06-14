@@ -54,7 +54,7 @@
 //! (need belief/review data, S6).
 
 use crate::audit_bridge::PgAuditSink;
-use crate::boot::{BootError, CognitionSection, DaemonToml};
+use crate::boot::{BootError, CognitionSection, DaemonToml, Secret};
 use crate::compose::{calibration_for_scope, synthesis_edges, DegradeScrape, SynthesisSection};
 use crate::run_loop::{run_loop, CadenceDriver, HaltPoller, LoopConfig, LoopStats};
 use fortuna_cognition::context::{content_hash_of, ContextItem, SectionKind};
@@ -85,10 +85,15 @@ use fortuna_runner::synthesis::{SynthesisConfig, SynthesisStrategy};
 use fortuna_runner::{RunnerConfig, RunnerError, SimRunner, Stage, Strategy};
 use fortuna_state::MarkPolicy;
 use fortuna_venues::fees::{FeeSchedule, ScheduleFeeModel};
+use fortuna_venues::kalshi::{
+    KalshiSigner, KalshiTransport, KalshiVenue, ReqwestKalshiTransport, KALSHI_DEMO_BASE_URL,
+};
 use fortuna_venues::sim::{FaultConfig, SimVenue};
-use fortuna_venues::{Market, MarketStatus, SettlementMeta};
+use fortuna_venues::{Market, MarketStatus, SettlementMeta, Venue};
 use sqlx::PgPool;
+use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::Duration;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -116,6 +121,35 @@ fn sim_market(id: &str) -> Result<Market, DaemonError> {
         settlement: SettlementMeta {
             oracle_type: "sim".into(),
             resolution_source: "sim".into(),
+            expected_lag_hours: 2,
+        },
+        volume_contracts: None,
+        payout_per_contract: Cents::new(100),
+    })
+}
+
+/// A minimal `Market` STUB for a `[kalshi].bracket_sets` ticker (demo-flip
+/// Phase 2). The runner needs each bracket ticker in `config.markets` so its
+/// deterministic `tick()` loop fetches the book for it; the REAL metadata
+/// (status, close_at, payout, category) arrives from `venue.markets()` in
+/// `tick()` step 0, which OVERWRITES this stub each tick. So the stub carries
+/// only the identity + conservative defaults (Trading, $1 payout) for the
+/// bootstrap window before the first successful catalog poll — NOT fabricated
+/// ground truth, just a placeholder the venue poll replaces. `volume_contracts`
+/// is None (unknown until the venue says — volume-capped strategies skip).
+fn kalshi_bracket_stub(ticker: &str, venue: &VenueId) -> Result<Market, DaemonError> {
+    Ok(Market {
+        id: MarketId::new(ticker).map_err(|e| DaemonError::Compose {
+            reason: format!("[kalshi] bracket market id {ticker:?}: {e}"),
+        })?,
+        venue: venue.clone(),
+        title: format!("kalshi bracket {ticker}"),
+        category: "weather".into(),
+        status: MarketStatus::Trading,
+        close_at: None,
+        settlement: SettlementMeta {
+            oracle_type: "kalshi_rulebook".into(),
+            resolution_source: "kalshi".into(),
             expected_lag_hours: 2,
         },
         volume_contracts: None,
@@ -449,6 +483,342 @@ pub async fn compose_runner(
     Ok(runner)
 }
 
+/// The per-request HTTP timeout for the live Kalshi demo transport. Generous
+/// (each `tick()` does real HTTP at `tick_interval_ms >= 5000`); a slow request
+/// classifies as `Timeout` (effect-unknown — the caller reconciles) rather than
+/// hanging the loop.
+pub const KALSHI_DEMO_HTTP_TIMEOUT_SECS: u64 = 20;
+
+/// Assemble the Kalshi DEMO composition at `Stage::Paper` (demo-flip Phase 2):
+/// the SAME deterministic core as [`compose_runner`] but over a real
+/// `KalshiVenue` (mock funds, real venue), reading the demo CREDENTIALS from
+/// `env` (NEVER config) and the trading universe / arb world from `[kalshi]`.
+///
+/// CREDENTIALS (house secrets rule): `KALSHI_API_DEMO_KEY_ID` is the
+/// (non-secret) API-key id; `KALSHI_DEMO_PRIVATE_KEY_PATH` is the filesystem
+/// PATH to the RSA private key PEM (the established demo convention — the
+/// fixture recorders read the same two vars). The path is routing data; the
+/// file CONTENT is the SECRET, read here and wrapped in `Secret` so it can
+/// never leak into a log/audit/Debug. The id and the path go through the boot
+/// gate's `required()`/`check_value()` helpers, so an absent var or a
+/// half-edited placeholder (`changeme`, `your-...`, etc.) refuses with the
+/// offending VAR NAME, never its value; a present-but-unreadable path refuses
+/// naming the path (a filesystem location, never the key body).
+///
+/// `clock` is the SAME `Arc<SimClock>` main drives via `RealCadence` (so the
+/// paper runner tracks wall time); it threads into BOTH the transport (request
+/// timestamps) and the venue/journal/audit. The synthesis arm, if composed,
+/// runs at `Stage::Paper` (the demo's promoted stage) — and the runner's
+/// allowlist is `&[Stage::Sim, Stage::Paper]`, so a higher-staged strategy
+/// still cannot board (I7).
+///
+/// Builds the real `ReqwestKalshiTransport` against `KALSHI_DEMO_BASE_URL` and
+/// delegates to [`compose_kalshi_runner_with_transport`] — the transport seam
+/// the tests inject a `MockKalshiTransport` through, so nothing here is reached
+/// by a test against the live API.
+#[allow(clippy::too_many_arguments)]
+pub async fn compose_kalshi_runner(
+    pool: PgPool,
+    full: &FortunaConfig,
+    dcfg: &DaemonToml,
+    start: UtcTimestamp,
+    audit_seed: u64,
+    clock: Arc<fortuna_core::clock::SimClock>,
+    mind: Arc<dyn Mind>,
+    triage: TriageDecision,
+    env: &BTreeMap<String, String>,
+) -> Result<SimRunner<KalshiVenue, PgIntentJournal>, DaemonError> {
+    // KALSHI_API_DEMO_KEY_ID: the API-key id (routing data, not a secret) — but
+    // it still passes check_value so a placeholder ("changeme", "your-...") is
+    // refused, never trusted.
+    let key_id =
+        crate::boot::required(env, "KALSHI_API_DEMO_KEY_ID").map_err(|e| DaemonError::Compose {
+            reason: format!("kalshi demo credential: {e}"),
+        })?;
+    // KALSHI_DEMO_PRIVATE_KEY_PATH: the filesystem PATH to the RSA private key
+    // PEM (the established demo convention — the recorders read the same var).
+    // The PATH is routing data (validate present + non-placeholder via the boot
+    // gate); the file CONTENT is the SECRET. Read it, then IMMEDIATELY wrap in
+    // Secret so the key text cannot be logged/audited/Debug-printed (house
+    // secrets rule). A read failure names the PATH (a filesystem location),
+    // never the key body. The PEM text reaches only KalshiSigner::new below;
+    // nothing else ever holds the bare string.
+    let key_path = crate::boot::required(env, "KALSHI_DEMO_PRIVATE_KEY_PATH").map_err(|e| {
+        DaemonError::Compose {
+            reason: format!("kalshi demo credential: {e}"),
+        }
+    })?;
+    let key_pem =
+        Secret::new(
+            std::fs::read_to_string(&key_path).map_err(|e| DaemonError::Compose {
+                reason: format!("cannot read KALSHI_DEMO_PRIVATE_KEY_PATH ({key_path}): {e}"),
+            })?,
+        );
+
+    // KalshiSigner parses the PEM (PKCS#8 or PKCS#1). The signer redacts the
+    // key in its own Debug; this is the one and only point the PEM is exposed.
+    let signer = KalshiSigner::new(key_pem.expose(), key_id).map_err(|e| DaemonError::Compose {
+        reason: format!("kalshi signer construction: {e}"),
+    })?;
+    let transport_clock: Arc<dyn Clock> = clock.clone();
+    let transport = ReqwestKalshiTransport::new(
+        KALSHI_DEMO_BASE_URL,
+        signer,
+        transport_clock,
+        Duration::from_secs(KALSHI_DEMO_HTTP_TIMEOUT_SECS),
+    )
+    .map_err(|e| DaemonError::Compose {
+        reason: format!("kalshi transport construction: {e}"),
+    })?;
+    compose_kalshi_runner_with_transport(
+        pool,
+        full,
+        dcfg,
+        start,
+        audit_seed,
+        clock,
+        mind,
+        triage,
+        Arc::new(transport),
+    )
+    .await
+}
+
+/// The transport-injection seam (demo-flip Phase 2): everything
+/// [`compose_kalshi_runner`] does AFTER building the HTTP transport. The
+/// production path injects the real `ReqwestKalshiTransport`; the tests inject a
+/// scripted `MockKalshiTransport`, so the composition can be exercised end to
+/// end WITHOUT ever touching the live Kalshi API. Construction itself issues no
+/// venue calls (the catalog is polled lazily in `tick()`), so a Mock with an
+/// empty script is sufficient.
+#[allow(clippy::too_many_arguments)]
+pub async fn compose_kalshi_runner_with_transport(
+    pool: PgPool,
+    full: &FortunaConfig,
+    dcfg: &DaemonToml,
+    start: UtcTimestamp,
+    audit_seed: u64,
+    clock: Arc<fortuna_core::clock::SimClock>,
+    mind: Arc<dyn Mind>,
+    triage: TriageDecision,
+    transport: Arc<dyn KalshiTransport>,
+) -> Result<SimRunner<KalshiVenue, PgIntentJournal>, DaemonError> {
+    let kalshi = dcfg.kalshi.as_ref().ok_or_else(|| DaemonError::Compose {
+        reason: "venue kalshi without [kalshi] section (validate_bootable should have refused)"
+            .to_string(),
+    })?;
+
+    // The KalshiVenue over the configured series (its markets() is scoped to
+    // these). The runner's own catalog (`markets`/`market_meta`) starts empty
+    // for Kalshi — `tick()` polls the live `markets()` and fills it (UNLIKE the
+    // Sim path, which pre-loads the SimVenue catalog in new_with_journal).
+    let venue_clock: Arc<dyn Clock> = clock.clone();
+    let venue = KalshiVenue::new(
+        VenueId::new("kalshi").map_err(|e| DaemonError::Compose {
+            reason: e.to_string(),
+        })?,
+        transport,
+        venue_clock,
+        kalshi.series.clone(),
+    )
+    .map_err(|e| DaemonError::Compose {
+        reason: format!("kalshi venue construction: {e}"),
+    })?;
+
+    // mech_structural's arb world comes from [kalshi].bracket_sets (the demo's
+    // real tickers), NOT [sim]. The strategy needs the id partition; the runner
+    // needs each bracket ticker in `config.markets` so `tick()` FETCHES ITS BOOK
+    // (the deterministic loop iterates the constructor's market list for book
+    // pulls). We seed minimal Market STUBS for those tickers — `tick()` step 0
+    // polls `venue.markets()` and OVERWRITES the metadata (status/close/payout)
+    // with the real venue data each tick, so the stub is only the bootstrap
+    // identity + a conservative Trading status until the first successful poll.
+    let mut sets: Vec<Vec<MarketId>> = Vec::new();
+    let mut markets: Vec<Market> = Vec::new();
+    for set in &kalshi.bracket_sets {
+        let mut ids = Vec::new();
+        for name in set {
+            let m = kalshi_bracket_stub(name, &venue.id())?;
+            ids.push(m.id.clone());
+            markets.push(m);
+        }
+        sets.push(ids);
+    }
+
+    let fees: FeeSchedule = full
+        .fees
+        .get("kalshi")
+        .cloned()
+        .ok_or_else(|| DaemonError::Compose {
+            reason: "[fees.kalshi] missing (the demo prices with it)".to_string(),
+        })
+        .and_then(|v| {
+            v.try_into().map_err(|e| DaemonError::Compose {
+                reason: format!("[fees.kalshi] does not parse as a schedule: {e}"),
+            })
+        })?;
+    let fee_model = ScheduleFeeModel::new(vec![fees]).map_err(|e| DaemonError::Compose {
+        reason: format!("fee schedule rejected: {e}"),
+    })?;
+
+    let mut strategies: Vec<Box<dyn Strategy>> = vec![Box::new(
+        MechStructural::new(MechStructuralConfig {
+            bracket_sets: sets,
+            min_edge_cents_per_set: 2,
+            max_unhedged_notional: Cents::new(5_000),
+            max_leg_open_ms: 60_000,
+            min_completion_edge_bps: 100,
+        })
+        .map_err(|e| DaemonError::Compose {
+            reason: format!("mech_structural rejected its config: {e}"),
+        })?,
+    )];
+
+    // The OPT-IN synthesis arm — composed exactly as compose_runner does, but at
+    // Stage::Paper (the demo's promoted stage; new_with_venue's allowlist admits
+    // it). The edge set + calibration scope are identical (the confirmed-tier
+    // load filtered by [synthesis]); an empty set is VALID (fail closed).
+    let mut synth_calibration_quality: Option<f64> = None;
+    if let Some(syn) = &dcfg.synthesis {
+        let edges = synthesis_edges(&pool, syn)
+            .await
+            .map_err(|e| DaemonError::Compose {
+                reason: format!("synthesis edge load: {e}"),
+            })?;
+        let calibration = if let Some(category) = &syn.category {
+            let (ctx, quality) = calibration_for_scope(
+                &CalibrationParamsRepo::new(pool.clone()),
+                &BeliefsRepo::new(pool.clone()),
+                SYNTH_CALIBRATION_MODEL,
+                SYNTH_CALIBRATION_STRATEGY,
+                category,
+                SYNTH_CALIBRATION_KIND,
+            )
+            .await
+            .map_err(|e| DaemonError::Compose {
+                reason: format!("synthesis calibration load: {e}"),
+            })?;
+            synth_calibration_quality = Some(quality);
+            ctx
+        } else {
+            None
+        };
+        let synth = SynthesisStrategy::new(
+            SynthesisConfig {
+                id: StrategyId::new("synthesis").map_err(|e| DaemonError::Compose {
+                    reason: format!("synthesis strategy id: {e}"),
+                })?,
+                edges,
+                comparator: ComparatorConfig {
+                    min_edge_cents: 5,
+                    required_tier: EdgeTier::Confirmed,
+                },
+                triage,
+                shadow_quota: 0,
+                calibration,
+                // The demo runs the synthesis arm at Paper (not Sim) — the one
+                // documented stage difference from compose_runner.
+                stage: Stage::Paper,
+            },
+            mind,
+        );
+        strategies.push(Box::new(synth));
+    }
+
+    // The OPT-IN mech_extremes fade + its reduce-only veto (StubVetoMind until
+    // the real veto mind lands), mirroring compose_runner.
+    let mut veto_mind: Option<Arc<dyn VetoMind>> = None;
+    let mut veto_strategies: Vec<StrategyId> = Vec::new();
+    if let Some(mx) = &dcfg.mech_extremes {
+        let strat = MechExtremes::new(MechExtremesConfig {
+            extreme_min_cents: mx.extreme_min_cents.unwrap_or(90),
+            bias_premium_cents: mx.bias_premium_cents.unwrap_or(2),
+            max_volume_contracts: mx.max_volume_contracts.unwrap_or(100_000),
+            min_ms_to_close: mx.min_ms_to_close.unwrap_or(3_600_000),
+        })
+        .map_err(|e| DaemonError::Compose {
+            reason: format!("mech_extremes rejected its config: {e}"),
+        })?;
+        veto_strategies.push(strat.id());
+        veto_mind = Some(Arc::new(StubVetoMind::allow_all()));
+        strategies.push(Box::new(strat));
+    }
+
+    // The OPT-IN perp producers (inert until a PerpTick producer feeds them),
+    // mirroring compose_runner.
+    if dcfg.funding_forecast.is_some() {
+        strategies.push(Box::new(FundingForecast::new().map_err(|e| {
+            DaemonError::Compose {
+                reason: format!("funding_forecast rejected its config: {e}"),
+            }
+        })?));
+    }
+    if let Some(peb) = &dcfg.perp_event_basis {
+        let cfg = crate::compose::build_perp_event_basis_config(peb).map_err(|e| {
+            DaemonError::Compose {
+                reason: format!("perp_event_basis ladder invalid: {e}"),
+            }
+        })?;
+        strategies.push(Box::new(PerpEventBasis::new(cfg).map_err(|e| {
+            DaemonError::Compose {
+                reason: format!("perp_event_basis rejected its config: {e}"),
+            }
+        })?));
+    }
+
+    let envelopes = full
+        .envelopes
+        .iter()
+        .map(|(k, v)| (k.clone(), Cents::new(*v)))
+        .collect();
+
+    let config = RunnerConfig {
+        seed: audit_seed,
+        gate_config: full.gates.clone(),
+        exec_policy: fortuna_exec::ExecPolicy::default(),
+        envelopes,
+        max_daily_loss: Cents::new(full.gates.global.max_daily_loss_cents),
+        fee_model,
+        // The bracket-ticker stubs (above): `tick()` iterates these to fetch each
+        // book; step 0's venue.markets() poll refreshes their metadata each tick.
+        markets,
+        // Paper starting cash is informational only for the runner's own books
+        // — the KalshiVenue's balance() is authoritative (account()), so this
+        // is not the demo's real balance.
+        starting_cash: Cents::new(1_000_000),
+        // No SimVenue faults on a real-venue path (the venue owns its own
+        // failure surface); new_with_venue does not read this.
+        faults: None,
+        mark_policy: MarkPolicy {
+            max_book_age_ms: 60_000,
+            max_spread_cents: 20,
+        },
+        max_sets_per_proposal: 50,
+        kelly_fraction: full.sizing.kelly_fraction,
+        veto_mind,
+        veto_strategies,
+    };
+
+    let journal_clock: Arc<dyn Clock> = clock.clone();
+    let journal = PgIntentJournal::new(pool.clone(), "kalshi", journal_clock.clone());
+    let sink = PgAuditSink::spawn(pool, journal_clock, audit_seed);
+    let mut runner = SimRunner::new_with_venue(
+        config,
+        strategies,
+        Box::new(sink),
+        start,
+        journal,
+        venue,
+        clock,
+        &[Stage::Sim, Stage::Paper],
+    )
+    .await?;
+    if let Some(quality) = synth_calibration_quality {
+        runner.set_calibration_quality("synthesis", quality);
+    }
+    Ok(runner)
+}
+
 /// HaltsRepo-backed poller for the run loop (the durable halt store the
 /// operator CLI writes; the daemon only ever APPLIES halts — re-arms are
 /// CLI-only out-of-band, I2).
@@ -495,6 +865,330 @@ fn edge_refresh_transition(failed: bool, refresh_failing: &mut bool, failures: &
     }
 }
 
+/// The active venue runner (demo-flip Phase 2). `compose_runner` returns
+/// `SimRunner<SimVenue, _>` and `compose_kalshi_runner` returns
+/// `SimRunner<KalshiVenue, _>` — two DISTINCT types — so `drive()` (and main's
+/// between-segments closure) need ONE type to hold either. This enum is that
+/// type; the `impl` below delegates every method `drive()` + the closure call
+/// to the SAME method on whichever `SimRunner<V, J>` it wraps. Each arm's
+/// signature is identical regardless of `V`, so the delegation is mechanical —
+/// EXCEPT the two SimVenue-only board reads (`boards_json`, `rota_views`), which
+/// fork: the Sim arm builds the FULL views (byte-identical to today); the Kalshi
+/// arm builds the venue-AGNOSTIC subset (no `boards_json`/`views_from`), serving
+/// only what it can stand behind (never a fabricated board).
+pub enum ActiveRunner {
+    Sim(SimRunner<SimVenue, PgIntentJournal>),
+    Kalshi(SimRunner<KalshiVenue, PgIntentJournal>),
+}
+
+impl ActiveRunner {
+    /// The injected clock (both variants carry `Arc<SimClock>`). `drive()` reads
+    /// `Clock::now(self.clock().as_ref())` for the belief-id epoch + the daily/
+    /// weekly/monthly boundaries; main's closure reads it for `generated_at`.
+    pub fn clock(&self) -> &Arc<fortuna_core::clock::SimClock> {
+        match self {
+            ActiveRunner::Sim(r) => &r.clock,
+            ActiveRunner::Kalshi(r) => &r.clock,
+        }
+    }
+
+    /// Aggregated run counters (the degrade scrape + digests read these).
+    pub fn counters(&self) -> fortuna_runner::RunCounters {
+        match self {
+            ActiveRunner::Sim(r) => r.counters(),
+            ActiveRunner::Kalshi(r) => r.counters(),
+        }
+    }
+
+    /// The composed synthesis arm's live edge count (None for a mechanically-
+    /// only daemon) — the read companion to `refresh_synthesis_edges`, asserted
+    /// by the daemon smoke that a per-segment refresh took.
+    pub fn synthesis_edge_count(&self) -> Option<usize> {
+        match self {
+            ActiveRunner::Sim(r) => r.synthesis_edge_count(),
+            ActiveRunner::Kalshi(r) => r.synthesis_edge_count(),
+        }
+    }
+
+    /// Inject one external `PerpTick` for the next `tick()` (slice-4e feed).
+    pub fn inject_perp_tick(
+        &mut self,
+        venue: VenueId,
+        market: MarketId,
+        marks: fortuna_core::perp::PerpMarks,
+        funding: fortuna_core::perp::FundingObservation,
+    ) {
+        match self {
+            ActiveRunner::Sim(r) => r.inject_perp_tick(venue, market, marks, funding),
+            ActiveRunner::Kalshi(r) => r.inject_perp_tick(venue, market, marks, funding),
+        }
+    }
+
+    /// Push a freshly loaded confirmed edge set into the synthesis arm (S4).
+    pub fn refresh_synthesis_edges(
+        &mut self,
+        edges: &[fortuna_cognition::cycle::EdgeView],
+    ) -> Option<usize> {
+        match self {
+            ActiveRunner::Sim(r) => r.refresh_synthesis_edges(edges),
+            ActiveRunner::Kalshi(r) => r.refresh_synthesis_edges(edges),
+        }
+    }
+
+    /// Drain buffered binary belief drafts for composition-side persistence.
+    pub fn drain_pending_beliefs(
+        &mut self,
+    ) -> Vec<(StrategyId, fortuna_cognition::beliefs::BeliefDraft)> {
+        match self {
+            ActiveRunner::Sim(r) => r.drain_pending_beliefs(),
+            ActiveRunner::Kalshi(r) => r.drain_pending_beliefs(),
+        }
+    }
+
+    /// Drain buffered scalar belief drafts for composition-side persistence.
+    pub fn drain_pending_scalar_beliefs(
+        &mut self,
+    ) -> Vec<(
+        StrategyId,
+        fortuna_cognition::scalar_beliefs::ScalarBeliefDraft,
+    )> {
+        match self {
+            ActiveRunner::Sim(r) => r.drain_pending_scalar_beliefs(),
+            ActiveRunner::Kalshi(r) => r.drain_pending_scalar_beliefs(),
+        }
+    }
+
+    /// Record an externally-raised alert on the audit trail.
+    pub fn apply_external_alert(&mut self, kind: &str, message: &str) {
+        match self {
+            ActiveRunner::Sim(r) => r.apply_external_alert(kind, message),
+            ActiveRunner::Kalshi(r) => r.apply_external_alert(kind, message),
+        }
+    }
+
+    /// The graceful-shutdown contract (cancel working orders + final audit row).
+    pub async fn shutdown(&mut self) -> Result<fortuna_runner::ShutdownReport, RunnerError> {
+        match self {
+            ActiveRunner::Sim(r) => r.shutdown().await,
+            ActiveRunner::Kalshi(r) => r.shutdown().await,
+        }
+    }
+
+    /// Run ONE drive segment of the loop (delegates to the generic `run_loop`
+    /// over whichever inner runner). `run_loop` is already venue-generic
+    /// (`run_loop<V, J, C, P>`), so the Sim and Kalshi arms invoke the SAME loop
+    /// body — the only difference is which `tick()` (which venue) runs inside.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_loop_segment<C: CadenceDriver, P: HaltPoller>(
+        &mut self,
+        cadence: &mut C,
+        poller: &mut P,
+        cfg: &LoopConfig,
+        max_wakes: Option<u64>,
+        stop: &mut tokio::sync::oneshot::Receiver<()>,
+        last_halt: &mut Option<String>,
+    ) -> Result<LoopStats, RunnerError> {
+        match self {
+            ActiveRunner::Sim(r) => {
+                run_loop(r, cadence, poller, cfg, max_wakes, stop, last_halt).await
+            }
+            ActiveRunner::Kalshi(r) => {
+                run_loop(r, cadence, poller, cfg, max_wakes, stop, last_halt).await
+            }
+        }
+    }
+
+    /// Route degrade alerts to Slack and audit each (delegates to the generic
+    /// `route_alerts` over whichever inner runner — the runner is the audit sink
+    /// for the fallback path).
+    pub async fn route_alerts(
+        &mut self,
+        router: Option<&fortuna_ops::SlackRouter>,
+        alerts: &[(fortuna_ops::MessageKind, String)],
+    ) -> usize {
+        match self {
+            ActiveRunner::Sim(r) => route_alerts(router, r, alerts).await,
+            ActiveRunner::Kalshi(r) => route_alerts(router, r, alerts).await,
+        }
+    }
+
+    /// The rich daily digest line (delegates to the generic `rich_daily_digest`).
+    pub fn rich_daily_digest(&self, now: UtcTimestamp) -> String {
+        match self {
+            ActiveRunner::Sim(r) => rich_daily_digest(r, now),
+            ActiveRunner::Kalshi(r) => rich_daily_digest(r, now),
+        }
+    }
+
+    /// The daily reconciliation cycle (delegates to the generic helper).
+    pub async fn run_daily_reconciliation(
+        &mut self,
+        pool: &PgPool,
+        mind: &dyn Mind,
+        now: UtcTimestamp,
+        id_base: u64,
+    ) -> Result<bool, DaemonError> {
+        match self {
+            ActiveRunner::Sim(r) => run_daily_reconciliation(r, pool, mind, now, id_base).await,
+            ActiveRunner::Kalshi(r) => run_daily_reconciliation(r, pool, mind, now, id_base).await,
+        }
+    }
+
+    /// The weekly review cycle (delegates to the generic helper).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_weekly_review(
+        &mut self,
+        pool: &PgPool,
+        mind: &dyn Mind,
+        review: &crate::compose::ReviewSection,
+        synth_category: Option<&str>,
+        start: UtcTimestamp,
+        now: UtcTimestamp,
+    ) -> Result<WeeklyReview, DaemonError> {
+        match self {
+            ActiveRunner::Sim(r) => {
+                run_weekly_review(r, pool, mind, review, synth_category, start, now).await
+            }
+            ActiveRunner::Kalshi(r) => {
+                run_weekly_review(r, pool, mind, review, synth_category, start, now).await
+            }
+        }
+    }
+
+    /// The monthly review cycle (delegates to the generic helper).
+    pub async fn run_monthly_review(
+        &mut self,
+        pool: &PgPool,
+        envelopes: &std::collections::BTreeMap<String, i64>,
+        now: UtcTimestamp,
+    ) -> Result<MonthlyReview, DaemonError> {
+        match self {
+            ActiveRunner::Sim(r) => run_monthly_review(r, pool, envelopes, now).await,
+            ActiveRunner::Kalshi(r) => run_monthly_review(r, pool, envelopes, now).await,
+        }
+    }
+
+    /// A fresh Prometheus registry from the runner's metric export (the generic
+    /// `registry_from` — venue-agnostic, identical for both arms). main's closure
+    /// renders the Prometheus text + the telemetry board off this.
+    pub fn metrics_registry(&self) -> fortuna_ops::metrics::MetricsRegistry {
+        match self {
+            ActiveRunner::Sim(r) => registry_from(r),
+            ActiveRunner::Kalshi(r) => registry_from(r),
+        }
+    }
+
+    /// The legacy positions/ops boards (`DashboardSnapshot.boards`). SimVenue-only
+    /// (`boards_json` reads the sim venue's synchronous ground-truth totals), so:
+    ///   - Sim    => the real boards, BYTE-IDENTICAL to today.
+    ///   - Kalshi => an HONEST stub `{}` (the real venue's account/positions
+    ///     board is async — `Venue::account()`/`positions()` — and the ROTA
+    ///     `views.money` panel already serves the agnostic account subset; a
+    ///     fabricated board here would read to an operator as ground truth).
+    pub fn boards_json(&self) -> serde_json::Value {
+        match self {
+            ActiveRunner::Sim(r) => r.boards_json(),
+            ActiveRunner::Kalshi(_) => serde_json::json!({}),
+        }
+    }
+
+    /// The ROTA `views` payload (`DashboardSnapshot.views`). This is the
+    /// Sim-vs-Kalshi fork:
+    ///   - Sim    => `views_from(r, generated_at)` — the FULL panel set
+    ///     (health/settlement/money/gates/streams/strategies/working_orders),
+    ///     BYTE-IDENTICAL to today (main's closure then adds `["telemetry"]` and
+    ///     merges the ingest boards exactly as before).
+    ///   - Kalshi => the venue-AGNOSTIC subset: the panels sourceable WITHOUT
+    ///     `boards_json`/`views_from` (which are SimVenue-only) — health (halt
+    ///     state + fill-latency quantiles + venue error count, from `counters()`/
+    ///     `active_halt()`), gates (total + per-check rejections), streams (venue
+    ///     API errors). The money/settlement/positions panels are emitted as an
+    ///     HONEST "unavailable" (the live-venue account/settlement views need the
+    ///     async `Venue` reads — a Phase-2 follow-on), never a fabricated zero.
+    ///     `telemetry` is added by the caller (same registry path as Sim).
+    pub fn rota_views(&self, generated_at: &str) -> serde_json::Value {
+        match self {
+            ActiveRunner::Sim(r) => crate::views::views_from(r, generated_at),
+            ActiveRunner::Kalshi(r) => kalshi_rota_views(r, generated_at),
+        }
+    }
+}
+
+/// The venue-AGNOSTIC ROTA view subset for the Kalshi (paper) runner — the
+/// panels derivable from the runner's PORTABLE read accessors (`counters()`,
+/// `active_halt()`, `rejections_by_check()`), with NO call to the SimVenue-only
+/// `boards_json`/`views_from`. Panels that need the venue's account/positions/
+/// settlement ground truth are emitted as an explicit `available: false`
+/// "unavailable" (the live-venue account view is the async `Venue::account()`/
+/// `positions()` read — a Phase-2 follow-on), never a fabricated value. Pure +
+/// clock-free (the caller passes `generated_at`), so the between-segments
+/// `try_write` stays panic-free, mirroring `views_from`.
+fn kalshi_rota_views<J: fortuna_exec::IntentJournal + Send>(
+    runner: &SimRunner<KalshiVenue, J>,
+    generated_at: &str,
+) -> serde_json::Value {
+    let c = runner.counters();
+    let quant = |p: f64| match c.fill_latency.quantile_ms(p) {
+        Some(ms) => serde_json::json!(ms),
+        None => serde_json::Value::Null,
+    };
+    let (halt_active, halt_reason) = match runner.active_halt() {
+        Some(reason) => (true, serde_json::Value::String(reason)),
+        None => (false, serde_json::Value::Null),
+    };
+    let rejections_by_check: Vec<serde_json::Value> = runner
+        .rejections_by_check()
+        .into_iter()
+        .map(|(check, count)| serde_json::json!({ "check": check, "count": count }))
+        .collect();
+    serde_json::json!({
+        "health": {
+            "generated_at": generated_at,
+            "stage": "paper",
+            "venue": "kalshi",
+            "halt_active": halt_active,
+            "halt_reason": halt_reason,
+            "rearm_requires_restart": halt_active,
+            "ticks_total": c.ticks,
+            "last_tick_age_ms": serde_json::Value::Null,
+            "fill_latency_p90_ms": quant(0.90),
+            "fill_latency_p95_ms": quant(0.95),
+            "fill_latency_p99_ms": quant(0.99),
+            "dead_man_last_ping_age_secs": serde_json::Value::Null,
+            "venues": [ {
+                "id": "kalshi",
+                "healthy": c.venue_api_errors == 0,
+                "api_error_count": c.venue_api_errors,
+            } ],
+        },
+        "gates": {
+            "generated_at": generated_at,
+            "total_rejections": c.gate_rejections,
+            "rejections_by_check": rejections_by_check,
+        },
+        "streams": {
+            "generated_at": generated_at,
+            "venue_api_errors_total": c.venue_api_errors,
+            "venues": [ { "id": "kalshi" } ],
+        },
+        // HONEST-UNAVAILABLE (never fabricated): the live-venue account, money,
+        // settlement and positions panels need the async Venue reads
+        // (account()/positions()/settlements_since) — a Phase-2 follow-on. An
+        // operator sees "unavailable", not a zero they would read as truth.
+        "money": {
+            "generated_at": generated_at,
+            "available": false,
+            "basis": "kalshi-paper",
+            "reason": "live-venue account view (async Venue::account) is a Phase-2 follow-on",
+        },
+        "settlement": {
+            "generated_at": generated_at,
+            "available": false,
+            "reason": "live-venue settlement view is a Phase-2 follow-on",
+        },
+    })
+}
+
 /// Drive the composed runner in SEGMENTS until the stop signal fires,
 /// then run the graceful-shutdown contract. Between segments the caller
 /// refreshes whatever needs refreshing (the metrics snapshot in main); the
@@ -522,13 +1216,17 @@ pub struct ReviewWiring {
 
 #[allow(clippy::too_many_arguments)]
 pub async fn drive<C: CadenceDriver, P: HaltPoller>(
-    runner: &mut SimRunner<SimVenue, PgIntentJournal>,
+    // demo-flip Phase 2: an ActiveRunner (Sim or Kalshi), not a bare
+    // SimRunner<SimVenue, _> — `drive()` and the closure delegate every runner
+    // call through the enum so the SAME loop drives either venue. The Sim arm's
+    // delegation is 1:1 with the prior direct calls, so the sim path is unchanged.
+    runner: &mut ActiveRunner,
     cadence: &mut C,
     poller: &mut P,
     loop_cfg: &LoopConfig,
     wakes_per_segment: u64,
     stop: &mut tokio::sync::oneshot::Receiver<()>,
-    mut between_segments: impl FnMut(&SimRunner<SimVenue, PgIntentJournal>, &LoopStats),
+    mut between_segments: impl FnMut(&ActiveRunner, &LoopStats),
     scrape: &mut DegradeScrape,
     slack: Option<&fortuna_ops::SlackRouter>,
     daily: &mut DailyScheduler,
@@ -580,7 +1278,7 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     // collide ACROSS runs (a later restart starts at a larger epoch), and the
     // per-persist increment keeps them unique WITHIN a run. (A full ULID is the
     // ledgered req-6 refinement; persist_beliefs documents the same.)
-    let mut belief_id_base = Clock::now(runner.clock.as_ref()).epoch_millis().max(0) as u64;
+    let mut belief_id_base = Clock::now(runner.clock().as_ref()).epoch_millis().max(0) as u64;
     // slice-4d: the SCALAR-belief id monotonic base, seeded identically to
     // `belief_id_base` (drive-start epoch — unique across runs; the per-persist
     // increment keeps them unique within a run). Its OWN counter so the scalar
@@ -595,16 +1293,16 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
             let (venue, market, marks, funding) = feed.next_tick();
             runner.inject_perp_tick(venue, market, marks, funding);
         }
-        let stats = run_loop(
-            runner,
-            cadence,
-            poller,
-            loop_cfg,
-            Some(wakes_per_segment),
-            stop,
-            &mut last_halt,
-        )
-        .await?;
+        let stats = runner
+            .run_loop_segment(
+                cadence,
+                poller,
+                loop_cfg,
+                Some(wakes_per_segment),
+                stop,
+                &mut last_halt,
+            )
+            .await?;
         total.ticks += stats.ticks;
         total.halt_polls += stats.halt_polls;
         total.poll_failures += stats.poll_failures;
@@ -672,7 +1370,7 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
             // is lost on failure (re-buffering is a ledgered refinement).
             let drained = runner.drain_pending_beliefs();
             if !drained.is_empty() {
-                let now_iso = Clock::now(runner.clock.as_ref()).to_iso8601();
+                let now_iso = Clock::now(runner.clock().as_ref()).to_iso8601();
                 match persist_beliefs(pool, &drained, &now_iso, belief_id_base).await {
                     Ok(persisted) => belief_id_base += persisted as u64,
                     Err(e) => alerts.push((
@@ -699,7 +1397,7 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
         if let Some(spool) = &scalar_belief_persist {
             let scalar_drained = runner.drain_pending_scalar_beliefs();
             if !scalar_drained.is_empty() {
-                let now_iso = Clock::now(runner.clock.as_ref()).to_iso8601();
+                let now_iso = Clock::now(runner.clock().as_ref()).to_iso8601();
                 match persist_scalar_beliefs(
                     spool,
                     &scalar_drained,
@@ -719,41 +1417,37 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                 }
             }
         }
-        total_send_failures += route_alerts(slack, runner, &alerts).await;
+        total_send_failures += runner.route_alerts(slack, &alerts).await;
 
         // Daily boundary (req 5 tail): on each new UTC day, emit the
         // end-of-day digest to #fortuna-digest + an audit row. The daily
         // RECONCILIATION re-run and the weekly/monthly cognition reviews
         // are the remaining req-5 surface (ledgered).
-        let now = Clock::now(runner.clock.as_ref());
+        let now = Clock::now(runner.clock().as_ref());
         if daily.due(now) {
-            let digest = rich_daily_digest(runner, now);
-            total_send_failures +=
-                route_alerts(slack, runner, &[(fortuna_ops::MessageKind::Digest, digest)]).await;
+            let digest = runner.rich_daily_digest(now);
+            total_send_failures += runner
+                .route_alerts(slack, &[(fortuna_ops::MessageKind::Digest, digest)])
+                .await;
             // T4.1/M2 (spec 5.8): the daily reconciliation re-run rides the SAME
             // boundary as the digest (one due() check fires both). It reads the
             // day + writes the journal; NO orders (structural). A DB failure
             // alerts but never crashes the boundary; a stub mind self-skips.
             if let Some((recon_pool, recon_mind)) = reconciliation.as_ref() {
                 let recon_id_base = now.epoch_millis().max(0) as u64;
-                if let Err(e) = run_daily_reconciliation(
-                    runner,
-                    recon_pool,
-                    recon_mind.as_ref(),
-                    now,
-                    recon_id_base,
-                )
-                .await
+                if let Err(e) = runner
+                    .run_daily_reconciliation(recon_pool, recon_mind.as_ref(), now, recon_id_base)
+                    .await
                 {
-                    total_send_failures += route_alerts(
-                        slack,
-                        runner,
-                        &[(
-                            fortuna_ops::MessageKind::Ops,
-                            format!("daily reconciliation FAILED: {e}"),
-                        )],
-                    )
-                    .await;
+                    total_send_failures += runner
+                        .route_alerts(
+                            slack,
+                            &[(
+                                fortuna_ops::MessageKind::Ops,
+                                format!("daily reconciliation FAILED: {e}"),
+                            )],
+                        )
+                        .await;
                 }
             }
         }
@@ -765,16 +1459,16 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
         // never promotes). A failure alerts but never crashes the boundary.
         if let Some(rw) = reviews.as_mut() {
             if rw.weekly.due(now) {
-                match run_weekly_review(
-                    runner,
-                    &rw.pool,
-                    rw.mind.as_ref(),
-                    &rw.review,
-                    rw.synth_category.as_deref(),
-                    rw.start,
-                    now,
-                )
-                .await
+                match runner
+                    .run_weekly_review(
+                        &rw.pool,
+                        rw.mind.as_ref(),
+                        &rw.review,
+                        rw.synth_category.as_deref(),
+                        rw.start,
+                        now,
+                    )
+                    .await
                 {
                     Ok(wr) => {
                         let summary = format!(
@@ -791,18 +1485,18 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                 format!("weekly lesson candidate (operator review): {}", cand.body),
                             ));
                         }
-                        total_send_failures += route_alerts(slack, runner, &msgs).await;
+                        total_send_failures += runner.route_alerts(slack, &msgs).await;
                     }
                     Err(e) => {
-                        total_send_failures += route_alerts(
-                            slack,
-                            runner,
-                            &[(
-                                fortuna_ops::MessageKind::Ops,
-                                format!("weekly review FAILED: {e}"),
-                            )],
-                        )
-                        .await;
+                        total_send_failures += runner
+                            .route_alerts(
+                                slack,
+                                &[(
+                                    fortuna_ops::MessageKind::Ops,
+                                    format!("weekly review FAILED: {e}"),
+                                )],
+                            )
+                            .await;
                     }
                 }
             }
@@ -811,7 +1505,10 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
             // #digest + the operator drills (kill-switch test, backup restore) to
             // #ops (I7 — operator action). A failure alerts but never crashes.
             if rw.monthly.due(now) {
-                match run_monthly_review(runner, &rw.pool, &rw.envelopes, now).await {
+                match runner
+                    .run_monthly_review(&rw.pool, &rw.envelopes, now)
+                    .await
+                {
                     Ok(mr) => {
                         let summary = format!(
                             "FORTUNA monthly review — {} allocation rec(s); pnl {}c, fees {}c, \
@@ -829,18 +1526,18 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                 format!("monthly operator task (I7): {item}"),
                             ));
                         }
-                        total_send_failures += route_alerts(slack, runner, &msgs).await;
+                        total_send_failures += runner.route_alerts(slack, &msgs).await;
                     }
                     Err(e) => {
-                        total_send_failures += route_alerts(
-                            slack,
-                            runner,
-                            &[(
-                                fortuna_ops::MessageKind::Ops,
-                                format!("monthly review FAILED: {e}"),
-                            )],
-                        )
-                        .await;
+                        total_send_failures += runner
+                            .route_alerts(
+                                slack,
+                                &[(
+                                    fortuna_ops::MessageKind::Ops,
+                                    format!("monthly review FAILED: {e}"),
+                                )],
+                            )
+                            .await;
                     }
                 }
             }
@@ -1096,8 +1793,11 @@ pub async fn persist_scalar_beliefs(
 ///
 /// SLICE 1 (this commit): the helper + its tests. Wiring it into drive()'s
 /// daily block (alongside the digest) is slice 2 (GAPS NEXT-ITEM plan).
-pub async fn run_daily_reconciliation(
-    runner: &mut SimRunner<SimVenue, PgIntentJournal>,
+pub async fn run_daily_reconciliation<
+    V: fortuna_venues::Venue + 'static,
+    J: fortuna_exec::IntentJournal + Send,
+>(
+    runner: &mut SimRunner<V, J>,
     pool: &PgPool,
     mind: &dyn Mind,
     now: UtcTimestamp,
@@ -1184,8 +1884,11 @@ pub async fn run_daily_reconciliation(
 /// summary of the day's fills + open positions as one AccountState item.
 /// (Originating-beliefs context is a ledgered follow-on — slice 1 reconciles
 /// the fills + positions the runner exposes directly.)
-fn reconciliation_context(
-    runner: &SimRunner<SimVenue, PgIntentJournal>,
+fn reconciliation_context<
+    V: fortuna_venues::Venue + 'static,
+    J: fortuna_exec::IntentJournal + Send,
+>(
+    runner: &SimRunner<V, J>,
     now: UtcTimestamp,
 ) -> Vec<ContextItem> {
     let c = runner.counters();
@@ -1224,8 +1927,11 @@ fn reconciliation_context(
 /// SLICE B1 (this commit): the helper + tests. drive() wiring + Slack routing
 /// are slice B2. Returns Ok(true) when the review ran.
 #[allow(clippy::too_many_arguments)]
-pub async fn run_weekly_review(
-    runner: &mut SimRunner<SimVenue, PgIntentJournal>,
+pub async fn run_weekly_review<
+    V: fortuna_venues::Venue + 'static,
+    J: fortuna_exec::IntentJournal + Send,
+>(
+    runner: &mut SimRunner<V, J>,
     pool: &PgPool,
     mind: &dyn Mind,
     review: &crate::compose::ReviewSection,
@@ -1347,8 +2053,11 @@ pub async fn run_weekly_review(
 
 /// Minimal weekly-review framing context (the spec-5.8 inputs are the
 /// calibration + strategy records; this is what the mind reads for commentary).
-fn weekly_review_context(
-    runner: &SimRunner<SimVenue, PgIntentJournal>,
+fn weekly_review_context<
+    V: fortuna_venues::Venue + 'static,
+    J: fortuna_exec::IntentJournal + Send,
+>(
+    runner: &SimRunner<V, J>,
     now: UtcTimestamp,
 ) -> Vec<ContextItem> {
     let c = runner.counters();
@@ -1379,8 +2088,11 @@ fn weekly_review_context(
 /// serves longer runs. Built for M2 completeness (spec 218).
 ///
 /// SLICE C1 (this commit): the helper + test. drive() wiring is slice C2.
-pub async fn run_monthly_review(
-    runner: &mut SimRunner<SimVenue, PgIntentJournal>,
+pub async fn run_monthly_review<
+    V: fortuna_venues::Venue + 'static,
+    J: fortuna_exec::IntentJournal + Send,
+>(
+    runner: &mut SimRunner<V, J>,
     pool: &PgPool,
     envelopes: &std::collections::BTreeMap<String, i64>,
     now: UtcTimestamp,

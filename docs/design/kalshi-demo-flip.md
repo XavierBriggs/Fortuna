@@ -120,8 +120,10 @@ Self-contained; lands gate-clean; sim path byte-identical. Files + steps:
   `validate_bootable` kalshi arm: `stage="paper"` allowed; `sim`/`live_min`/
   `scaled` refused; require `[kalshi]` non-empty. `venue="sim"` requires
   `stage="sim"`.
-- `daemon.rs`: `compose_kalshi_runner(...)` — reads `KALSHI_DEMO_KEY_ID` +
-  `KALSHI_DEMO_KEY_PEM` from env (Secret-wrapped, never logged); builds
+- `daemon.rs`: `compose_kalshi_runner(...)` — reads `KALSHI_API_DEMO_KEY_ID` +
+  `KALSHI_DEMO_PRIVATE_KEY_PATH` from env (the established recorder convention:
+  the path is routing data, the file CONTENT is the secret, read + Secret-wrapped
+  here, never logged); builds
   `KalshiSigner` + `ReqwestKalshiTransport(KALSHI_DEMO_BASE_URL)` + `KalshiVenue`;
   `RealClock`-driven `SimClock`; `Stage::Paper`; real Kalshi markets from
   `[kalshi]`; `new_with_venue(..., &[Stage::Sim, Stage::Paper])`. Plus the
@@ -146,8 +148,9 @@ UNTOUCHED — `new()` still routes through `&[Stage::Sim]`). DST harness touches
 
 ## Operator-blocked (code builds; live run waits)
 
-1. Demo credentials: `KALSHI_DEMO_KEY_ID` + `KALSHI_DEMO_KEY_PEM` (operator
-   generates on the Kalshi demo portal → `.env`).
+1. Demo credentials: `KALSHI_API_DEMO_KEY_ID` + `KALSHI_DEMO_PRIVATE_KEY_PATH`
+   (operator generates on the Kalshi demo portal, saves the PEM to a gitignored
+   file → `.env` points the path var at it). Same two vars the recorders read.
 2. Fixture clearance (GAPS Kalshi section, T4.2): the 27-item checklist must close
    before the daemon runs against the real demo API.
 3. `[kalshi].series` tickers (from a demo-account inspection).

@@ -2648,6 +2648,20 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
         self.strategies.iter().map(|s| s.id()).collect()
     }
 
+    /// The composed strategies' (id, stage) in registration order (I7 read
+    /// seam): WHICH stage each booted arm runs at. The stage allowlist is
+    /// enforced at construction, but a composition still chooses each arm's
+    /// stage — the demo-flip's Kalshi path runs the synthesis arm at
+    /// `Stage::Paper` while the Sim path runs it at `Stage::Sim`; this exposes
+    /// that choice for the composition's tests (and future promotion/ROTA
+    /// views). Pure read; no money-path effect.
+    pub fn strategy_stages(&self) -> Vec<(StrategyId, Stage)> {
+        self.strategies
+            .iter()
+            .map(|s| (s.id(), s.stage()))
+            .collect()
+    }
+
     /// Push a freshly loaded confirmed-tier edge set into the composed
     /// synthesis arm (S4 per-segment refresh; the daemon calls this once per
     /// `drive()` segment — synthesis-edge-source-decision req 2). Returns the

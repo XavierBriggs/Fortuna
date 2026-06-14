@@ -20,19 +20,20 @@
 
 use async_trait::async_trait;
 use fortuna_core::bus::BusEvent;
-use fortuna_core::clock::UtcTimestamp;
+use fortuna_core::clock::{SimClock, UtcTimestamp};
 use fortuna_core::market::{MarketId, StrategyId, VenueId};
 use fortuna_core::money::Cents;
-use fortuna_exec::ExecPolicy;
+use fortuna_exec::{ExecPolicy, MemoryJournal};
 use fortuna_runner::{
     CoreHandle, MemoryAuditSink, Proposal, RunnerConfig, RunnerError, SimRunner, Stage, Strategy,
     StrategyKind, StrategyMetrics,
 };
 use fortuna_state::MarkPolicy;
 use fortuna_venues::fees::{FeeSchedule, ScheduleFeeModel};
-use fortuna_venues::sim::FaultConfig;
+use fortuna_venues::sim::{FaultConfig, SimVenue};
 use fortuna_venues::{Market, MarketStatus, SettlementMeta};
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 fn t0() -> UtcTimestamp {
     UtcTimestamp::parse_iso8601("2026-06-10T12:00:00.000Z").unwrap()
@@ -313,6 +314,97 @@ fn i7_sim_runner_new_still_refuses_paper_staged_strategies() {
         Err(other) => panic!("expected StageViolation for Paper, got {other}"),
         Ok(_) => {
             panic!("SimRunner::new accepted a Paper-staged strategy — the sim default path no longer pins &[Stage::Sim] (A3/I7 regression)")
+        }
+    }
+}
+
+/// Build a SimVenue + SimClock for the `new_with_venue` allowlist tests. A
+/// SimVenue (not a live venue) keeps these tests off any network while still
+/// exercising the EXACT construction seam the Kalshi demo path uses — the
+/// allowlist check is venue-agnostic (it reads only `strategy.stage()`), so a
+/// SimVenue proves it identically.
+fn sim_venue_and_clock(config: &RunnerConfig) -> (SimVenue, Arc<SimClock>) {
+    let clock = Arc::new(SimClock::new(t0()));
+    let venue = SimVenue::new(
+        VenueId::new("sim").unwrap(),
+        clock.clone(),
+        config.fee_model.clone(),
+        FaultConfig::none(config.seed),
+        config.starting_cash,
+    );
+    (venue, clock)
+}
+
+/// ADD-ONLY (demo-flip Phase 2, I7): the Kalshi demo path constructs the runner
+/// via `new_with_venue(..., &[Stage::Sim, Stage::Paper])`. That seam MUST ACCEPT
+/// a `Stage::Paper` strategy — and ONLY because the allowlist explicitly admits
+/// Paper, never because the stage gate was weakened. The companion test below
+/// proves the SAME seam still REFUSES LiveMin/Scaled even with the Paper-opened
+/// allowlist, so opening Paper does not open the live stages.
+#[tokio::test]
+async fn i7_new_with_venue_accepts_paper_when_allowlist_admits_it() {
+    let mut config = runner_config();
+    // new_with_venue does NOT read config.faults (faults are a SimVenue concept
+    // owned by new_with_journal); the Kalshi path sets it None. Mirror that.
+    config.faults = None;
+    let (venue, clock) = sim_venue_and_clock(&config);
+    let result = SimRunner::new_with_venue(
+        config,
+        vec![Box::new(StagedStrategy {
+            stage: Stage::Paper,
+        })],
+        Box::new(MemoryAuditSink::default()),
+        t0(),
+        MemoryJournal::default(),
+        venue,
+        clock,
+        &[Stage::Sim, Stage::Paper],
+    )
+    .await;
+    assert!(
+        result.is_ok(),
+        "new_with_venue(&[Sim, Paper]) must ACCEPT a Paper-staged strategy (the demo seam): {:?}",
+        result.err()
+    );
+}
+
+/// ADD-ONLY (demo-flip Phase 2, I7): the Paper-opened allowlist still REFUSES
+/// the live stages. Opening Paper for the demo must NOT silently admit LiveMin
+/// or Scaled — promotion to live capital is the forward-validation gate's job
+/// (a human action), never a side effect of the demo allowlist.
+#[tokio::test]
+async fn i7_new_with_venue_refuses_live_stages_even_with_paper_allowlist() {
+    for stage in [Stage::LiveMin, Stage::Scaled] {
+        let mut config = runner_config();
+        config.faults = None;
+        let (venue, clock) = sim_venue_and_clock(&config);
+        let result = SimRunner::new_with_venue(
+            config,
+            vec![Box::new(StagedStrategy { stage })],
+            Box::new(MemoryAuditSink::default()),
+            t0(),
+            MemoryJournal::default(),
+            venue,
+            clock,
+            &[Stage::Sim, Stage::Paper],
+        )
+        .await;
+        match result {
+            Err(RunnerError::StageViolation {
+                strategy,
+                stage: violated,
+            }) => {
+                assert_eq!(strategy.to_string(), "staged_probe");
+                assert_eq!(
+                    violated, stage,
+                    "the demo allowlist &[Sim, Paper] must still refuse {stage:?}"
+                );
+            }
+            Err(other) => panic!("expected StageViolation for {stage:?}, got {other}"),
+            Ok(_) => panic!(
+                "new_with_venue(&[Sim, Paper]) admitted a {stage:?}-staged strategy — opening \
+                 Paper for the demo must NOT open the live stages (I7 regression)"
+            ),
         }
     }
 }
