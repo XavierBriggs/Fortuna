@@ -644,6 +644,33 @@ unit tests could not catch (the live socket round-trip was the one untested seam
   venue=kalshi un-refuse) and live order/exec round-trips. This exercise was demo
   market-data only.
 
+## TRACK A — F7 LIVE PLUG-IN SLICE 2 DONE: drive() weather plug-in wired (operator "finish everything", 2026-06-14)
+
+The F7 seam now RUNS in the live daemon. `drive()`'s `[discovery]` block (BEFORE the synthesis
+edge-refresh, so an auto-confirmed Direct edge prices the same segment) reads fresh `aeolus.forecast`
+signals → parse (untrusted: parse_response→parse_envelope, defect+skip on failure) → `station_series`
+→ `weather_source.day_set` → ACTIVE markets → `market_to_bucket` → `aeolus_bucket_edges` → persist
+propose-only beliefs (`persist_beliefs` creates the `aeolus:{ticker}` events for the edge FK) + 1:1
+auto-confirmed Direct edges (`insert_edge`, proposed_by `aeolus_bucket_match`). `DiscoveryWiring.
+weather_source` is `Some` ONLY on venue=kalshi (built from the shared signed transport via the extracted
+`build_kalshi_demo_transport`), `None` on sim ⇒ INERT. IDEMPOTENT (per-market `current_edges_for_market`
+dedup). Alert-and-continue, never panics; belief propose-only (I6), order still gated (I1). 3 `#[sqlx::test]`
+e2e (happy 6/6 + idempotent re-drive, drop-a-market mutation 5/5, settled-day→0). Full battery green
+(fmt + clippy --workspace --all-targets -D warnings + test --workspace 0-failed + run-dst 200).
+
+FOLLOW-ONS (ledgered, not blockers):
+- BELIEF-REFRESH-PER-RUN: the per-market edge-dedup also gates the BELIEF, so a later Aeolus run (new
+  run_at, updated μ/σ) for an already-edged market does NOT persist a refreshed belief — the edge
+  (mapping) is created once; the belief is not re-drafted. Mirrors the market-back dedup posture. A
+  refresh-aware belief persist (re-draft on a new run_at while reusing the edge) is the follow-on.
+- WEATHER STRATEGY ATTRIBUTION: F7 beliefs attribute to the discovery strategy (`world-forward`), shared
+  with the other discovery beliefs; a dedicated weather strategy id (cleaner F9/I7 scoring isolation) is
+  a follow-on. The EDGE carries its own `proposed_by = aeolus_bucket_match`, so F7 edges are already
+  distinguishable.
+- F7 EVENTS use the minimal-row pattern (persist_beliefs' `synthesis`-tagged event), enriched later —
+  consistent with the watch:/market-back events. The belief evidence + horizon (settles_after) carry the
+  real weather grounding; richer event resolution metadata (NWS station/authority) is the follow-on.
+
 ## TRACK A — F7 LIVE PLUG-IN SLICE 1 DONE: the Kalshi day-set source (operator "finish everything", 2026-06-14)
 
 `fortuna-venues::kalshi::weather` — the read-only live half of the F7 seam (the matcher needs a LIVE

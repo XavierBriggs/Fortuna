@@ -41,6 +41,11 @@ use fortuna_cognition::events::{EdgeProposal, MappingType};
 use fortuna_core::market::MarketId;
 use fortuna_venues::kalshi::dto::KalshiMarket;
 
+/// The signal `kind` the Aeolus source emits (the raw `aeolus.forecast/v2`
+/// envelope, carried as untrusted DATA). The F7 live weather plug-in reads
+/// exactly this kind from the signals ledger.
+pub const AEOLUS_FORECAST_SIGNAL_KIND: &str = "aeolus.forecast";
+
 /// The grounded NWS-station → Kalshi temperature-series map (contract: F7
 /// discovery). The ONLY confirmed pairing is Central Park / KNYC → `KXHIGHNY`
 /// (proved by `fixtures/kalshi/markets__high_temp.json`, whose rules name
