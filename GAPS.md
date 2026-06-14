@@ -18,6 +18,23 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK C — triage mutation-coverage follow-ons CLOSED (verifier bus 2026-06-13) (2026-06-14)
+
+The verifier's 2 NON-BLOCKING test-hardening follow-ons (GATE-FINDINGS "⚙️ TRACK C — 2
+NON-BLOCKING test-hardening follow-ons") are DONE, mutation-proven this iteration:
+1. **Triage cost CEIL** — added `anthropic_triage_cost_ceils_a_fractional_token_vector`
+   (input 1100 / output 1040 tok → ceil 2 + 6 = 8¢). The prior `..._costs_from_usage` test
+   used 1000/1000 → exact 1.0/5.0 legs, so a ceil→floor/round/trunc mutation could not red.
+   PROVEN: removing the `+ 999_999` ceil bias reds the NEW test only (left 6, right 8); the
+   old test stayed green (the gap, confirmed).
+2. **Malformed-path DEBIT** — added `anthropic_triage_malformed_output_still_debits_the_budget`
+   asserting the budget books the burned tokens even when the verdict errors (`record_spend`
+   precedes the escalate parse). Exposed via a new read-only
+   `AnthropicTriageMind::spent_today_cents()` (mirrors `AnthropicMind`'s; no behavior change).
+   PROVEN: zeroing the debit reds the NEW test only (left 0, right 6).
+Both land cleanly on main: `cycle.rs` + `tests/mind.rs` are byte-identical track-c↔main (the
+3-tier merged as-is), so these additive changes carry forward with zero re-integration.
+
 ## TRACK C — Kalshi demo-flip Phase 1 + Phase 2 CODE DONE; live run operator-gated (2026-06-14)
 
 The demo-flip is BLUEPRINTED (docs/design/kalshi-demo-flip.md — Explore-traced +

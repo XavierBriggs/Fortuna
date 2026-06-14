@@ -18,6 +18,19 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
+- **Triage tier — 2 mutation-coverage follow-ons closed** (`fortuna-cognition`,
+  test-hardening per the verifier bus 2026-06-13; additive): (1) a fractional-token
+  cost vector (`anthropic_triage_cost_ceils_a_fractional_token_vector`, input 1100 /
+  output 1040 tok) pins the triage cost CEIL — the prior test used 1000/1000 → exact
+  1.0/5.0 legs, so a ceil→floor/round/trunc mutation did NOT red; the new vector
+  asserts 8¢ (floor/round/trunc undercharge to 6 or 7). (2) a new assertion that the
+  malformed-output path STILL debits the budget
+  (`anthropic_triage_malformed_output_still_debits_the_budget` — `record_spend`
+  precedes the verdict parse, so burned tokens book even when the verdict errors),
+  exposed via a read-only `AnthropicTriageMind::spent_today_cents()` accessor mirroring
+  `AnthropicMind`'s. BOTH mutation-proven IN THIS ITERATION: the ceil→floor mutation
+  reds (1) only; zeroing the debit reds (2) only. Behavior unchanged — the impl was
+  already correct; these pin it so a future regression reds.
 - **Demo-flip Phase 2 — `compose_kalshi_runner` + `ActiveRunner` + boot gate**
   (`fortuna-live` + `fortuna-runner`, additive — docs/design/kalshi-demo-flip.md):
   a `venue = "kalshi" / stage = "paper"` daemon that composes a real `KalshiVenue`

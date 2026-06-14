@@ -387,6 +387,17 @@ impl<T: MindTransport> AnthropicTriageMind<T> {
         }
         s
     }
+
+    /// Read-only view of the triage budget's day spend (mirrors
+    /// `AnthropicMind::spent_today_cents`). The triage tier books its spend
+    /// BEFORE parsing the verdict, so a malformed/declined output still debits;
+    /// this exposes that cumulative spend for tests and observability.
+    pub fn spent_today_cents(&self) -> i64 {
+        self.budget
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .spent_today_cents()
+    }
 }
 
 #[async_trait]
