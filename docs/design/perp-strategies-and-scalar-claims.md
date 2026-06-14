@@ -149,6 +149,22 @@ PerpTick {
 }
 ```
 
+**Instrument — `market` is demo-vs-prod, the SAME underlying (cross-slice confirm,
+2026-06-14, grounded in `docs/research/venue/kinetics-perps-2026-06-10/research.md`).**
+"Kinetics" is Kalshi's perpetual product (the Kalshi `/margin` API — NOT a separate venue;
+`fortuna-venues/src/kinetics/mod.rs:1`, recorder host `external-api.demo.kalshi.co`). The
+BTC perp lists as **`KXBTCPERP` in PROD** (research §3 line 133: 0.0001 BTC, BRTI index) and
+**`KXBTCPERP1` in DEMO** (research §3 line 202: demo tickers carry a `1` suffix). They are the
+SAME contract, differing only by environment. **Both strategies are environment-driven, NOT
+hardcoded:** `funding_forecast` keys on `PerpTick.market` (whatever the feed carries — only its
+test/fixture constants say `KXBTCPERP1`), and `perp_event_basis.perp_market` is a config field
+(the basis kernel is instrument-agnostic — an f64 mark + bins). So a demo capture carries
+`KXBTCPERP1`, a prod capture carries `KXBTCPERP`, and neither producer is mis-pointed; "0
+`KXBTCPERP1` rows in a real (prod) Kalshi capture" is expected. **Fixture-hygiene rule:** any
+NEW unified/paired fixture must use ONE environment's ticker consistently across the perp + the
+funding series — the committed funding fixtures are demo `KXBTCPERP1`, the basis paired-cycle is
+prod-aligned `KXBTCPERP`; each is internally consistent, but never mix the two in one cycle.
+
 `FundingObservation` carries the venue's recorded funding **estimate** (the running TWAP)
 + `next_funding_time` + `reference_price` (the CF Benchmarks index). The premium proxy is
 then `PerpMarks.venue_settlement − FundingObservation.reference_price` — settlement comes

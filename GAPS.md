@@ -885,6 +885,23 @@ instruments on two venues) must be GROUNDED in the recorder config + docs/resear
 reliance — NOT guessed here (never-invent-venue-behavior). Deferred to the strategy-wiring slice; logged
 so it is not lost. Does not block slice-3b-kernel.
 
+CROSS-SLICE FINDING — ✅ CONFIRMED + RESOLVED (operator-directed, 2026-06-14; grounded, not guessed):
+`KXBTCPERP1` and `KXBTCPERP` are the SAME underlying BTC perpetual — `KXBTCPERP1` is the DEMO ticker
+(Kalshi's demo listing carries a `1` suffix), `KXBTCPERP` is the PROD ticker. GROUNDED in
+docs/research/venue/kinetics-perps-2026-06-10/research.md §3: line 133 (PROD `KXBTCPERP`, 0.0001 BTC,
+BRTI index) + lines 202-207 ("Demo listing set differs ... tickers carry a `1` suffix (KXBTCPERP1...)").
+"Kinetics" = Kalshi's `/margin` perp product, NOT a separate venue (`fortuna-venues/src/kinetics/mod.rs:1`;
+recorder host `external-api.demo.kalshi.co` + the Kalshi demo creds). NEITHER strategy is mis-pointed:
+`funding_forecast` keys on `PerpTick.market` (feed-driven — the `KXBTCPERP1` literals are ONLY test/fixture
+constants, e.g. funding_forecast.rs tests, kinetics_ws.rs, perp_dst.rs), `perp_event_basis.perp_market` is a
+CONFIG field, and the basis kernel is instrument-agnostic (f64 mark + bins). So "0 `KXBTCPERP1` rows in a
+real (prod) Kalshi capture" is EXPECTED, not a defect. RESIDUAL = fixture hygiene ONLY: the committed
+funding fixtures are demo (`KXBTCPERP1`), the basis paired-cycle is prod-aligned (`KXBTCPERP`) — each
+internally consistent; any NEW unified/paired fixture (e.g. the A2d SLICE 3 co-recorded funding+realized,
+or the v2 e2e) must use ONE env's ticker consistently across the perp + the funding series. Mapping
+documented in docs/design/perp-strategies-and-scalar-claims.md (the PerpTick "Instrument" note). This
+CLOSES the verifier's cross-slice finding.
+
 ## TRACK C — LIVE BRACKET-FORMAT INVESTIGATION (operator-directed: "drive it yourself, demo keys"): the design's bracket series was WRONG (2026-06-13)
 
 The operator directed me to drive the KXBTC bracket-structure investigation myself off the live
