@@ -27,6 +27,12 @@ pub enum BootError {
 pub struct Secret(String);
 
 impl Secret {
+    /// Wrap a secret value (crate-internal: compose code wraps env-sourced
+    /// secrets like the Kalshi demo PEM so they redact in Debug/Display).
+    pub(crate) fn new(value: String) -> Secret {
+        Secret(value)
+    }
+
     pub fn expose(&self) -> &str {
         &self.0
     }
@@ -73,7 +79,7 @@ const PLACEHOLDER_MARKS: [&str; 6] = [
     "user:password",
 ];
 
-fn check_value(var: &str, value: &str) -> Result<String, BootError> {
+pub(crate) fn check_value(var: &str, value: &str) -> Result<String, BootError> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
         return Err(BootError::PlaceholderEnv {
@@ -93,7 +99,7 @@ fn check_value(var: &str, value: &str) -> Result<String, BootError> {
     Ok(trimmed.to_string())
 }
 
-fn required(env: &BTreeMap<String, String>, var: &str) -> Result<String, BootError> {
+pub(crate) fn required(env: &BTreeMap<String, String>, var: &str) -> Result<String, BootError> {
     let value = env.get(var).ok_or_else(|| BootError::MissingEnv {
         var: var.to_string(),
     })?;
@@ -128,9 +134,40 @@ pub fn validate_env(env: &BTreeMap<String, String>) -> Result<RequiredEnv, BootE
 #[serde(deny_unknown_fields)]
 pub struct DaemonSection {
     pub venue: String,
+    /// The validation stage the daemon runs at (spec Section 11, I7). Default
+    /// `"sim"` for back-compat (every committed config predating the demo-flip
+    /// omits it and means Sim). The boot gate cross-checks this against `venue`:
+    /// `venue = "sim"` REQUIRES `stage = "sim"`, and the Kalshi demo runs ONLY
+    /// at `stage = "paper"` (LiveMin/Scaled are refused — promotion is a human
+    /// action through the forward-validation gate, I7).
+    #[serde(default = "default_stage")]
+    pub stage: String,
     pub tick_interval_ms: u64,
     pub halt_poll_ms: u64,
     pub metrics_bind: String,
+}
+
+/// The default validation stage when `[daemon].stage` is omitted: `"sim"`.
+/// Back-compat — pre-demo-flip configs have no `stage` field and mean Sim.
+fn default_stage() -> String {
+    "sim".into()
+}
+
+/// The `[kalshi]` config section (demo-flip Phase 2). Its PRESENCE is required
+/// for the Kalshi demo (`venue = "kalshi", stage = "paper"`); `series` is the
+/// trading universe `KalshiVenue` lists markets for, and `bracket_sets` is the
+/// mech_structural arb world (mirrors `[sim].bracket_sets`). Demo credentials
+/// (`KALSHI_API_DEMO_KEY_ID` + `KALSHI_DEMO_PRIVATE_KEY_PATH`) come from the
+/// environment, NEVER this section (house secrets rule).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KalshiSection {
+    /// Series tickers FORTUNA trades; `KalshiVenue::markets()` is scoped to
+    /// these (an empty list yields an empty catalog — refused at boot).
+    pub series: Vec<String>,
+    /// Bracket sets for mech_structural (the demo's arb world), each a list of
+    /// market tickers that partition one event (mirrors `[sim].bracket_sets`).
+    pub bracket_sets: Vec<Vec<String>>,
 }
 
 /// The `[cognition]` section as the daemon reads it (other consumers may
@@ -340,6 +377,7 @@ struct RawToml {
     daemon: Option<DaemonSection>,
     cognition: Option<CognitionSection>,
     sim: Option<SimSection>,
+    kalshi: Option<KalshiSection>,
     synthesis: Option<crate::compose::SynthesisSection>,
     mech_extremes: Option<crate::compose::MechExtremesSection>,
     funding_forecast: Option<crate::compose::FundingForecastSection>,
@@ -356,6 +394,11 @@ pub struct DaemonToml {
     pub daemon: DaemonSection,
     pub cognition: CognitionSection,
     pub sim: Option<SimSection>,
+    /// Optional `[kalshi]` section (demo-flip Phase 2). REQUIRED (non-empty
+    /// `series`) when `venue = "kalshi", stage = "paper"`; absent/empty for the
+    /// Sim daemon. Carries the demo trading universe + bracket arb world; the
+    /// demo CREDENTIALS are env-only, never here.
+    pub kalshi: Option<KalshiSection>,
     /// Optional `[synthesis]` opt-in. Its PRESENCE composes the synthesis
     /// strategy into the daemon (S3b); its fields only FILTER the confirmed
     /// edge set. Absent => the daemon runs mechanically-only (fail closed).
@@ -416,6 +459,7 @@ impl DaemonToml {
             daemon,
             cognition,
             sim: raw.sim,
+            kalshi: raw.kalshi,
             synthesis: raw.synthesis,
             mech_extremes: raw.mech_extremes,
             funding_forecast: raw.funding_forecast,
@@ -431,6 +475,19 @@ impl DaemonToml {
     pub fn validate_bootable(&self) -> Result<(), BootError> {
         match self.daemon.venue.as_str() {
             "sim" => {
+                // The Sim venue runs ONLY at Stage::Sim — a "sim"+non-sim-stage
+                // config is a mis-wiring (e.g. someone set stage = "paper" but
+                // left venue = "sim"); refuse it rather than silently running the
+                // sim world at a promoted stage.
+                if self.daemon.stage != "sim" {
+                    return Err(BootError::BadConfig {
+                        reason: format!(
+                            "venue = \"sim\" requires stage = \"sim\" (got stage = {:?}); the \
+                             Sim venue does not run at a promoted stage",
+                            self.daemon.stage
+                        ),
+                    });
+                }
                 let empty = self
                     .sim
                     .as_ref()
@@ -444,18 +501,64 @@ impl DaemonToml {
                     });
                 }
             }
-            "kalshi" => {
-                return Err(BootError::VenueNotBootable {
-                    venue: "kalshi".to_string(),
-                    reason: "adapter is cleared for Sim development only until operator \
-                             fixture clearance completes (GAPS.md Kalshi section; T4.2)"
-                        .to_string(),
-                });
-            }
+            "kalshi" => match self.daemon.stage.as_str() {
+                // The demo runs at Paper: mock funds, real venue, pre-promotion.
+                // It REQUIRES a [kalshi] section with a non-empty series list
+                // (the trading universe KalshiVenue lists markets for; an empty
+                // catalog would be a silently-inert daemon). Credentials are
+                // env-only, gated later in compose_kalshi_runner (not here — the
+                // boot gate is pure over config, never reads the environment).
+                "paper" => {
+                    let series_ok = self
+                        .kalshi
+                        .as_ref()
+                        .map(|k| !k.series.is_empty())
+                        .unwrap_or(false);
+                    if !series_ok {
+                        return Err(BootError::BadConfig {
+                            reason: "venue = \"kalshi\", stage = \"paper\" requires a [kalshi] \
+                                     section with a non-empty series list (the demo trading \
+                                     universe)"
+                                .to_string(),
+                        });
+                    }
+                }
+                // Sim stage on the Kalshi venue is a mis-wiring: the sim world is
+                // venue = "sim". The Kalshi adapter only boots at Paper here.
+                "sim" => {
+                    return Err(BootError::VenueNotBootable {
+                        venue: "kalshi".to_string(),
+                        reason: "venue=kalshi requires stage=paper (the Kalshi demo runs at \
+                                 Stage::Paper; the Sim world is venue=\"sim\")"
+                            .to_string(),
+                    });
+                }
+                // Live promotion (real funds) is NOT a config flip: it needs the
+                // forward-validation gate (I7), an operator action out of band.
+                "live_min" | "scaled" => {
+                    return Err(BootError::VenueNotBootable {
+                        venue: "kalshi".to_string(),
+                        reason: format!(
+                            "venue=kalshi stage={:?} is refused: promotion past Paper needs the \
+                             forward-validation gate (a human action, I7) — the daemon never \
+                             auto-promotes to live capital",
+                            self.daemon.stage
+                        ),
+                    });
+                }
+                other => {
+                    return Err(BootError::BadConfig {
+                        reason: format!(
+                            "venue=kalshi has unknown stage {other:?} (expected sim/paper/\
+                             live_min/scaled)"
+                        ),
+                    });
+                }
+            },
             other => {
                 return Err(BootError::VenueNotBootable {
                     venue: other.to_string(),
-                    reason: "unknown venue; sim is the only bootable venue in T4.1".to_string(),
+                    reason: "unknown venue; sim and kalshi are the only known venues".to_string(),
                 });
             }
         }

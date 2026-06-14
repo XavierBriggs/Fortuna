@@ -3,6 +3,34 @@
 Open items the implementation defers, lacks, or needs from the operator. Acceptance
 requires this file to contain ONLY operator-blocked items, each with exact unblock steps.
 
+## TRACK C — demo-flip Phase 2 GATE-BLOCK remediation DONE: merged main + reconciled drive() (2026-06-14)
+
+RESPONSE to the verifier's ⛔ demo-flip Phase 2 GATE BLOCK ("stale-base integration; drive()
+structural conflict with track-a's ingestion wiring"). REMEDIATION COMPLETE per the verifier's recipe:
+- MERGED current main (@ccd732a) into track-c (a MERGE, not a rebase — sidesteps the revert-19b3888
+  duplicate-commit trap). Exactly ONE conflict, as predicted: `daemon.rs` `drive()`. Everything else
+  auto-merged (CHANGELOG/GAPS/config/boot/main/views/daemon_smoke).
+- RESOLVED `drive()`: the SIGNATURE auto-merged correctly (git took OURS's `runner: &mut ActiveRunner`
+  + `between_segments: FnMut(&ActiveRunner, ..)` AND THEIRS's `personas`/`discovery` params). The BODY
+  conflict was OURS's one-line `route_alerts` vs THEIRS's persona + world-forward-discovery blocks.
+  UNIONED: kept THEIRS's persona + BOTH discovery ingestion blocks; used OURS's
+  `runner.route_alerts(slack, &alerts)` method form (single segment-level routing); converted 3
+  `runner.clock` field accesses → `runner.clock()` (the ActiveRunner method).
+- The verifier's PREDICTED `digest_snapshot`/`positions` delegations were NOT needed — those calls
+  live in SimRunner-typed helpers (`reconciliation_context`, `run_weekly_review`) reached via
+  ActiveRunner's review delegations; the compiler confirms (clean build, no missing-method error).
+- DESIGN CALL (verifier item 4): the ingestion/persona loops run whenever `personas`/`discovery` is
+  `Some` (config-gated), INDEPENDENT of the Sim/Kalshi arm — the verifier's conservative default
+  ("yes, gated by config"). SAFE: the loops are I6 propose-only (persist beliefs/events/edges, NO
+  order path), so venue-agnostic execution adds no order risk under the Kalshi (demo) arm.
+- MERGE FALLOUT FIXED: track-a's 3 new `daemon_smoke` wiring tests called `drive()` with a bare
+  `SimRunner`; wrapped them in `ActiveRunner::Sim(..)` (matching the existing sites) + dropped the
+  now-unused `mut` (clippy `-D warnings`).
+- BATTERY (full merged tree): fmt + clippy --workspace --all-targets -D warnings GREEN; test
+  --workspace GREEN (all unit + integration incl. the daemon_smoke `drive()` loop tests + track-a's 3
+  wiring tests); run-dst GREEN. Protected crate UNTOUCHED by this merge (the pre-cleared add-only i7
+  change rode the Phase 2 commit @8d11b43). Ready for the verifier's re-gate of the clean merged result.
+
 ## TRACK E — AEOLUS WEATHER→BELIEF (F5–F9), reassigned C → E 2026-06-14 (branch track-e-aeolus)
 
 Building the deterministic Aeolus temperature pipeline (the statistical counterpart to the
@@ -76,6 +104,70 @@ the first e-gate missed. F1-F3 were closed and re-gated (f-batch-gate, ACCEPT-WI
 Minors closed at head). Everything below is an OPERATOR action. One Minor stays disclosed: the
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
+
+## TRACK C — triage mutation-coverage follow-ons CLOSED (verifier bus 2026-06-13) (2026-06-14)
+
+The verifier's 2 NON-BLOCKING test-hardening follow-ons (GATE-FINDINGS "⚙️ TRACK C — 2
+NON-BLOCKING test-hardening follow-ons") are DONE, mutation-proven this iteration:
+1. **Triage cost CEIL** — added `anthropic_triage_cost_ceils_a_fractional_token_vector`
+   (input 1100 / output 1040 tok → ceil 2 + 6 = 8¢). The prior `..._costs_from_usage` test
+   used 1000/1000 → exact 1.0/5.0 legs, so a ceil→floor/round/trunc mutation could not red.
+   PROVEN: removing the `+ 999_999` ceil bias reds the NEW test only (left 6, right 8); the
+   old test stayed green (the gap, confirmed).
+2. **Malformed-path DEBIT** — added `anthropic_triage_malformed_output_still_debits_the_budget`
+   asserting the budget books the burned tokens even when the verdict errors (`record_spend`
+   precedes the escalate parse). Exposed via a new read-only
+   `AnthropicTriageMind::spent_today_cents()` (mirrors `AnthropicMind`'s; no behavior change).
+   PROVEN: zeroing the debit reds the NEW test only (left 0, right 6).
+Both land cleanly on main: `cycle.rs` + `tests/mind.rs` are byte-identical track-c↔main (the
+3-tier merged as-is), so these additive changes carry forward with zero re-integration.
+
+## TRACK C — Kalshi demo-flip Phase 1 + Phase 2 CODE DONE; live run operator-gated (2026-06-14)
+
+The demo-flip is BLUEPRINTED (docs/design/kalshi-demo-flip.md — Explore-traced +
+architect-validated) and BOTH code phases are landed battery-green:
+- PHASE 1 (committed, 4-ahead of main): `Venue::account()` (de4d2d8) + the
+  `SimRunner<V: Venue = SimVenue, J>` generalization (f8e3ad3). The runner drives ANY venue;
+  the SIM PATH IS PROVEN BYTE-IDENTICAL (the whole DST corpus replays unchanged).
+- PHASE 2 (this commit): `compose_kalshi_runner` (+ a `_with_transport` mock seam) reading the
+  ESTABLISHED demo creds `KALSHI_API_DEMO_KEY_ID` + `KALSHI_DEMO_PRIVATE_KEY_PATH` (the SAME two
+  vars the fixture recorders read — the path is routing data, the file CONTENT is the
+  `Secret`-wrapped RSA key, never logged; a missing/placeholder var OR an unreadable path all
+  refuse naming only the VAR/path, never the key body) + the `[daemon].stage` boot gate
+  (kalshi@paper allowed; sim/live_min/scaled refused, I7) + an `ActiveRunner` enum + main
+  routing. Tests drive a MockKalshiTransport (NEVER the live API). Full battery green (fmt,
+  clippy --workspace --all-targets -D warnings, test --workspace, run-dst).
+
+PROTECTED-CRATE WAIVE PENDING (loop §5 — any `fortuna-invariants` touch is an automatic BLOCK
+pending operator waive): Phase 1+2 ADDED 3 I7 tests to `i7_promotion_gates.rs` (pinning that the
+generalized seam refuses Paper by default, ACCEPTS Paper ONLY via the explicit
+`new_with_venue(&[Sim,Paper])` allowlist, and STILL refuses LiveMin/Scaled — all STRENGTHEN I7)
++ a mechanical `faults: FaultConfig::none(7)` → `Some(..)` adaptation in the non-assertion
+`runner_config()` helper (forced by Phase 1's `RunnerConfig.faults: Option<FaultConfig>`). NO
+assertion weakened/deleted/renamed/modified — pure additions + a type wrapper (CLAUDE.md
+explicitly permits ADDING tests). Mirrors the track-E E.3c waive precedent. One operator action
+to waive at the gate.
+
+VERIFIER INTEGRATION NOTE: track-c (Phase 1 4-ahead + this Phase 2 commit) is built on a base
+that PREDATES main's absorption of (a) my own merged 3-tier + slice-4 work and (b) track-A's
+opt-in discovery wiring in `drive()`/`main.rs` (main is ~55 ahead). Gating Phase 1/2 onto main
+will conflict in fortuna-live `main.rs`/`daemon.rs` with track-A's additive wiring — KEEP BOTH
+(track-A's discovery loops are opt-in/default-off; the `ActiveRunner` routing is the venue
+switch around them). This is the SAME cross-track integration the verifier did for my prior 4
+track-C merges; flagged here so the gate expects it.
+
+OPERATOR-GATED for the LIVE demo run (NOT the code): the demo creds are in the operator's `.env`
+on main (`KALSHI_API_DEMO_KEY_ID` + `KALSHI_DEMO_PRIVATE_KEY_PATH`); the T4.2 fixture-clearance
+checklist (27 items) and the `[kalshi].series` tickers (from a demo-account inspection) still
+stand. The operator gave in-chat permission to drive read-only demo fetches, BUT loop §5
+reserves demo-mode start for the operator's morning and the re-armed loop §1b points the
+overnight queue at perps T5.B7/B8 — so this loop PREPARED + committed the code and did NOT
+autonomously run live credentials against the external venue. RUNBOOK (one operator command,
+read-only): set `[daemon] venue="kalshi" stage="paper"` + a real `[kalshi]` section
+(`series` + `bracket_sets`) in `config/fortuna.toml`, then `cargo run -p fortuna-live` with the
+`.env` loaded — it boots, authenticates, and polls markets/books from the demo API. No order is
+placed at boot (the catalog poll in `tick()` is read-only); to keep it read-only do not let a
+`[synthesis]`/strategy arm propose against the live demo until the fixture checklist closes.
 
 ## TRACK C — 3-tier cognition COMPLETE: registry + synthesis/reconciliation/triage (2026-06-13)
 

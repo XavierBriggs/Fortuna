@@ -121,13 +121,34 @@ allow_stub_mind = false
 ping_interval_secs = 60
 
 [daemon]                   # T4.1: the live composition daemon
-venue = "sim"              # the ONLY bootable venue until kalshi fixture clearance (T4.2)
-tick_interval_ms = 1000
+venue = "sim"              # "sim" (requires stage="sim") or "kalshi" (requires stage="paper")
+stage = "sim"              # I7 validation stage: sim | paper | live_min | scaled.
+                           # venue="sim" REQUIRES stage="sim". The Kalshi DEMO runs at
+                           # stage="paper" (mock funds, real venue); live_min/scaled are
+                           # REFUSED at boot — promotion is a human action through the
+                           # forward-validation gate (I7), never a config flip.
+tick_interval_ms = 1000    # for venue="kalshi" raise to >= 5000 (each tick does real HTTP)
 halt_poll_ms = 500         # ASSUMPTIONS pin: halt-state poll <= 500ms
 metrics_bind = "127.0.0.1:9187"   # GET-only Prometheus; wider exposure is operator config
 
 [sim]                      # the Sim venue's market world (venue = "sim" requires it)
 bracket_sets = [["SIM-BKT-LO", "SIM-BKT-MID", "SIM-BKT-HI"]]
+
+# The Kalshi DEMO arb world (demo-flip Phase 2). Uncomment + set venue = "kalshi"
+# and stage = "paper" above to run the daemon against the Kalshi demo (mock funds,
+# real venue). REQUIRED then: a non-empty `series` (the trading universe markets
+# are listed for) and `bracket_sets` (the mech_structural arb sets — real demo
+# tickers that partition each event). The demo CREDENTIALS are env-only, NEVER
+# here: KALSHI_API_DEMO_KEY_ID (the key id) + KALSHI_DEMO_PRIVATE_KEY_PATH (the
+# filesystem PATH to the RSA private key PEM — the file CONTENT is a SECRET,
+# never logged/audited/committed). These are the SAME two vars the fixture
+# recorders read. Obtain the key from the Kalshi demo portal, save the PEM to a
+# gitignored file, and point the path var at it via .env / an EnvironmentFile.
+# Tickers below are
+# illustrative placeholders — replace with a demo-account inspection.
+# [kalshi]
+# series = ["KXHIGHNY"]
+# bracket_sets = [["KXHIGHNY-26JUN13-B60", "KXHIGHNY-26JUN13-B63", "KXHIGHNY-26JUN13-B66"]]
 
 # --- Opt-in perp strategies (slice 4c) -------------------------------------
 # Both are INERT until a producer injects perp PerpTicks (the live kinetics

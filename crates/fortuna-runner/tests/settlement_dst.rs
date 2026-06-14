@@ -275,7 +275,7 @@ fn runner_config(seed: u64) -> RunnerConfig {
         fee_model: fee_model(),
         markets: vec![settle_market("KXS"), settle_market("KXS2")],
         starting_cash: Cents::new(1_000_000),
-        faults: FaultConfig::none(seed),
+        faults: Some(FaultConfig::none(seed)),
         mark_policy: MarkPolicy {
             max_book_age_ms: 86_400_000,
             max_spread_cents: 20,
@@ -366,7 +366,7 @@ fn run_scenario(seed: u64) -> Result<ScenarioResult, String> {
         })
     };
     let mut config = runner_config(seed);
-    config.faults = faults;
+    config.faults = Some(faults);
     let mut runner = SimRunner::new(config, vec![strategy], Box::new(audit.clone()), t0())
         .map_err(|e| format!("construction: {e}"))?;
 

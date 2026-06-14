@@ -655,3 +655,55 @@ async fn anthropic_triage_malformed_output_surfaces() {
         "missing escalate surfaces, got {err:?}"
     );
 }
+
+#[tokio::test]
+async fn anthropic_triage_cost_ceils_a_fractional_token_vector() {
+    // MUTATION GUARD for the cost ceil. The escalate_true test above uses
+    // 1000/1000 tokens → exact 1.0/5.0 cost legs, so a ceil->floor/round/trunc
+    // mutation would still yield 6 and NOT red. Pick token counts whose per-Mtok
+    // cost is fractional in (0, 0.5) on BOTH legs, so ONLY ceil (round UP — fees
+    // always against us) gives the asserted total; floor/round/trunc undercharge.
+    //   input  1100 tok x 1000 c/Mtok = 1.1 -> ceil 2 (floor/round 1)
+    //   output 1040 tok x 5000 c/Mtok = 5.2 -> ceil 6 (floor/round 5)
+    let resp = api_response(&json!({"escalate": true, "reason": "x"}), 1100, 1040);
+    let mind = AnthropicTriageMind::new(
+        config(),
+        MockTransport::new(vec![(200, resp)]),
+        CostBudget::new(1_000, 100_000),
+        triage_clock(),
+    );
+    let a = mind.assess("evt-1", &[]).await.unwrap();
+    assert_eq!(
+        a.cost_cents, 8,
+        "ceil(1.1)=2 + ceil(5.2)=6 = 8; a floor/round/trunc cost mutation undercharges to 6 or 7"
+    );
+}
+
+#[tokio::test]
+async fn anthropic_triage_malformed_output_still_debits_the_budget() {
+    // MUTATION GUARD for the spend ordering. The triage tier books its cost
+    // BEFORE parsing the verdict (record_spend precedes the escalate extraction),
+    // so a malformed output that surfaces an error STILL debits the tokens it
+    // burned — tokens were spent whether or not the verdict parsed. Move
+    // record_spend after the parse and this assert reds (spent stays 0 on the
+    // error path).
+    let resp = api_response(&json!({"reason": "no verdict field"}), 1000, 1000);
+    let mind = AnthropicTriageMind::new(
+        config(),
+        MockTransport::new(vec![(200, resp)]),
+        CostBudget::new(1_000, 100_000),
+        triage_clock(),
+    );
+    let err = mind.assess("evt-1", &[]).await.unwrap_err();
+    assert!(
+        matches!(err, TriageError::Provider { .. }),
+        "missing escalate surfaces, got {err:?}"
+    );
+    // ceil(1000*1000/1e6) + ceil(1000*5000/1e6) = 1 + 5 = 6 cents — booked despite
+    // the parse failure.
+    assert_eq!(
+        mind.spent_today_cents(),
+        6,
+        "the malformed-output path still debits the tokens it burned"
+    );
+}

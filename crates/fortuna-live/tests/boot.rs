@@ -222,9 +222,12 @@ fn perp_sections_are_optional_and_parse_through_to_daemon_toml() {
 }
 
 #[test]
-fn venue_kalshi_refuses_until_fixture_clearance() {
-    // Kickoff hard requirement 7 / GAPS: sim is the only bootable venue
-    // in T4.1; kalshi refuses WITH the reason.
+fn venue_kalshi_at_sim_stage_refuses_requiring_paper() {
+    // Demo-flip Phase 2: the Kalshi venue boots ONLY at stage = "paper". The
+    // committed example omits `stage` (defaults to "sim"), so flipping venue to
+    // kalshi WITHOUT also setting stage = "paper" is refused with the
+    // stage-requirement reason (the FULL paper-boot path is covered in the
+    // dedicated boot_gate.rs suite, which never hits the live API).
     let example = include_str!("../../../config/fortuna.example.toml");
     let cfg = DaemonToml::parse(&example.replace("venue = \"sim\"", "venue = \"kalshi\""))
         .expect("parse is fine; the refusal is a boot check");
@@ -232,11 +235,11 @@ fn venue_kalshi_refuses_until_fixture_clearance() {
         Err(BootError::VenueNotBootable { venue, reason }) => {
             assert_eq!(venue, "kalshi");
             assert!(
-                reason.contains("fixture"),
-                "reason must cite fixture clearance: {reason}"
+                reason.contains("stage=paper"),
+                "reason must cite the paper-stage requirement: {reason}"
             );
         }
-        other => panic!("kalshi must refuse to boot, got {other:?}"),
+        other => panic!("kalshi at the default (sim) stage must refuse, got {other:?}"),
     }
 }
 

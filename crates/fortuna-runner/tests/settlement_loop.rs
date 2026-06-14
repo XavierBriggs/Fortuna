@@ -229,7 +229,7 @@ fn world(seed: u64) -> World {
         fee_model: fee_model(),
         markets: vec![settle_market("KXS")],
         starting_cash: Cents::new(1_000_000),
-        faults: FaultConfig::none(seed),
+        faults: Some(FaultConfig::none(seed)),
         mark_policy: MarkPolicy {
             max_book_age_ms: 86_400_000,
             max_spread_cents: 90,
@@ -473,7 +473,9 @@ fn settlement_processing_is_byte_deterministic() {
             .reverse_settlement(&mkt("KXS"), Side::No)
             .unwrap();
         tick(&mut w);
-        w.runner.report().unwrap().recording_jsonl
+        futures::executor::block_on(w.runner.report())
+            .unwrap()
+            .recording_jsonl
     };
     assert_eq!(run(), run());
 }

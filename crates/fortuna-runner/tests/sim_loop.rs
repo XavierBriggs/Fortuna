@@ -101,7 +101,7 @@ fn runner_config(seed: u64) -> RunnerConfig {
             bracket_market("BKT-HI"),
         ],
         starting_cash: Cents::new(1_000_000),
-        faults: FaultConfig::none(seed),
+        faults: Some(FaultConfig::none(seed)),
         mark_policy: MarkPolicy {
             max_book_age_ms: 60_000,
             max_spread_cents: 20,
@@ -204,7 +204,7 @@ fn mech_structural_captures_a_bracket_arb_end_to_end() {
 
     // The arb realizes: 100c/set minus ~93c cost minus fees > 0, and the
     // venue cash agrees with our books.
-    let report = r.report().unwrap();
+    let report = futures::executor::block_on(r.report()).unwrap();
     let pnl_net_of_fees = report.realized_pnl.checked_sub(report.fees_paid).unwrap();
     assert!(
         pnl_net_of_fees > Cents::ZERO,
@@ -257,7 +257,7 @@ fn run_scripted(seed: u64) -> (String, Cents) {
     r.venue().settle_market(&mkt("BKT-MID"), Side::Yes).unwrap();
     r.apply_settlement(&mkt("BKT-MID"), Side::Yes, Cents::new(100))
         .unwrap();
-    let report = r.report().unwrap();
+    let report = futures::executor::block_on(r.report()).unwrap();
     (report.recording_jsonl, report.final_cash)
 }
 
@@ -497,7 +497,7 @@ fn thin_edge_below_gate_floor_is_rejected_by_the_gates() {
     // 99c + fees: each leg's net edge lands below the 100bps floor.
     assert_eq!(report.orders_submitted, 0);
     assert!(report.gate_rejections >= 1 || report.proposals == 0);
-    let report2 = r.report().unwrap();
+    let report2 = futures::executor::block_on(r.report()).unwrap();
     assert_eq!(report2.realized_pnl, Cents::ZERO);
 }
 
@@ -509,7 +509,10 @@ fn fill_latency_is_measured_from_submit_to_execution() {
     // the NEXT tick — with 500ms between ticks, submit->fill latency is a
     // real, nonzero, deterministic number even in Sim.
     let mut cfg = runner_config(77);
-    cfg.faults.ack_delay_pm = 1_000;
+    cfg.faults = Some(FaultConfig {
+        ack_delay_pm: 1_000,
+        ..FaultConfig::none(77)
+    });
     let mut r = SimRunner::new(
         cfg,
         vec![strategy()],
@@ -605,7 +608,10 @@ fn fill_latency_is_measured_from_submit_to_execution() {
 
     // Deterministic: the same seed reproduces the same latency stats.
     let mut cfg2 = runner_config(77);
-    cfg2.faults.ack_delay_pm = 1_000;
+    cfg2.faults = Some(FaultConfig {
+        ack_delay_pm: 1_000,
+        ..FaultConfig::none(77)
+    });
     let mut r2 = SimRunner::new(
         cfg2,
         vec![strategy()],

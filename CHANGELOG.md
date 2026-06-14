@@ -18,6 +18,59 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
+- **Triage tier — 2 mutation-coverage follow-ons closed** (`fortuna-cognition`,
+  test-hardening per the verifier bus 2026-06-13; additive): (1) a fractional-token
+  cost vector (`anthropic_triage_cost_ceils_a_fractional_token_vector`, input 1100 /
+  output 1040 tok) pins the triage cost CEIL — the prior test used 1000/1000 → exact
+  1.0/5.0 legs, so a ceil→floor/round/trunc mutation did NOT red; the new vector
+  asserts 8¢ (floor/round/trunc undercharge to 6 or 7). (2) a new assertion that the
+  malformed-output path STILL debits the budget
+  (`anthropic_triage_malformed_output_still_debits_the_budget` — `record_spend`
+  precedes the verdict parse, so burned tokens book even when the verdict errors),
+  exposed via a read-only `AnthropicTriageMind::spent_today_cents()` accessor mirroring
+  `AnthropicMind`'s. BOTH mutation-proven IN THIS ITERATION: the ceil→floor mutation
+  reds (1) only; zeroing the debit reds (2) only. Behavior unchanged — the impl was
+  already correct; these pin it so a future regression reds.
+- **Demo-flip Phase 2 — `compose_kalshi_runner` + `ActiveRunner` + boot gate**
+  (`fortuna-live` + `fortuna-runner`, additive — docs/design/kalshi-demo-flip.md):
+  a `venue = "kalshi" / stage = "paper"` daemon that composes a real `KalshiVenue`
+  (mock funds, real DEMO venue) over the SAME deterministic `SimRunner` core made
+  venue-generic in Phase 1. `compose_kalshi_runner` (+ a `_with_transport`
+  injection seam the tests drive a `MockKalshiTransport` through — NEVER the live
+  API) reads the ESTABLISHED demo creds `KALSHI_API_DEMO_KEY_ID` +
+  `KALSHI_DEMO_PRIVATE_KEY_PATH` (the SAME two vars the fixture recorders read —
+  the path is routing data, the file CONTENT is the `Secret`-wrapped, never-logged
+  RSA key); builds `KalshiSigner` + `ReqwestKalshiTransport(KALSHI_DEMO_BASE_URL)`
+  + `KalshiVenue`; runs the synthesis arm at `Stage::Paper` with the runner
+  allowlist `&[Stage::Sim, Stage::Paper]` (I7: LiveMin/Scaled still refused at
+  construction). An `ActiveRunner` enum {Sim, Kalshi} + delegation resolves the
+  `compose_runner`/`compose_kalshi_runner` return-type split; `main.rs` routes by
+  `[daemon].venue`. The boot gate (`validate_bootable`): `venue = "kalshi"`
+  REQUIRES `stage = "paper"` + a `[kalshi]` section; sim/live_min/scaled refused
+  (promotion is a human action, I7). Sim path byte-unchanged (A3 — DST corpus
+  replays identically). `fortuna-invariants` ADD-ONLY: 2 new I7 tests pin the new
+  seam (`new_with_venue(&[Sim, Paper])` ACCEPTS Paper ONLY via the explicit
+  allowlist, still REFUSES LiveMin/Scaled) + a mechanical `faults → Option`
+  adaptation in a non-assertion helper — no assertion weakened (operator-waive
+  flagged in GAPS). The CODE is complete + battery-green (fmt, clippy --workspace
+  --all-targets -D warnings, test --workspace, run-dst); the LIVE demo run stays
+  operator-gated (creds in `.env` + the T4.2 fixture checklist + `[kalshi].series`
+  tickers — the operator flips demo in the morning).
+- **Demo-flip Phase 1 — SimRunner is now venue-generic** (`fortuna-runner` +
+  `fortuna-venues` + `fortuna-live`, additive — docs/design/kalshi-demo-flip.md):
+  `SimRunner<J>` → `SimRunner<V: Venue = SimVenue, J>`, so the runner drives ANY
+  `Venue`, not just the sim. A new `Venue::account() -> (cash, reserved)` (default
+  `balance()` + 0; SimVenue delegates to `inspect_totals`) replaces the 3
+  SimVenue-only `inspect_totals` calls in the runner. A venue-injecting
+  `new_with_venue(.., venue, clock, allowed_stages)` is the seam; `new_with_journal`
+  routes THROUGH it with a SimVenue + `&[Stage::Sim]` (ONE construction path → the sim
+  path is byte-identical, A3). `report()` is now async; `RunnerConfig.faults` is
+  `Option`. SIM PATH PROVEN byte-unchanged: the full DST corpus (run-dst exit 0) + the
+  156-result workspace suite green, and an ADD-ONLY invariant pins that `SimRunner::new`
+  STILL refuses `Stage::Paper` (the Kalshi demo opens Paper only via the explicit
+  `new_with_venue` seam — Phase 2). The KalshiVenue adapter is already trait-complete,
+  so Phase 2 (`compose_kalshi_runner` + boot gate) is the remaining code; the live demo
+  run is operator-blocked (demo creds + the T4.2 fixture checklist).
 - **3-tier cognition models + ModelRegistry + triage seam** (`fortuna-cognition` +
   `fortuna-live` + `fortuna-runner`, additive — spec 5.9 tiering): `[cognition]` now
   carries three REAL model fields — `synthesis_model` (deep, default Opus), `mid_model`

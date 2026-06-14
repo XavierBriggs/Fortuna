@@ -13,7 +13,7 @@ use fortuna_core::market::Contracts;
 use fortuna_ledger::PgIntentJournal;
 use fortuna_live::audit_bridge::PgAuditSink;
 use fortuna_runner::SimRunner;
-use fortuna_venues::sim::FaultConfig;
+use fortuna_venues::sim::{FaultConfig, SimVenue};
 use fortuna_venues::PriceLevel;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -23,7 +23,7 @@ use common::{mkt, runner_config, strategy, t0};
 
 /// Books with ONE contract of depth at each ask: the marketable legs
 /// partially fill and the REMAINDER RESTS — acked, working orders.
-fn set_thin_arb_books(r: &SimRunner<PgIntentJournal>) {
+fn set_thin_arb_books(r: &SimRunner<SimVenue, PgIntentJournal>) {
     let lvl = |p: i64, q: i64| PriceLevel {
         price: fortuna_core::money::Cents::new(p),
         qty: Contracts::new(q),
@@ -35,12 +35,12 @@ fn set_thin_arb_books(r: &SimRunner<PgIntentJournal>) {
     }
 }
 
-async fn compose(pool: &PgPool, faults: FaultConfig) -> SimRunner<PgIntentJournal> {
+async fn compose(pool: &PgPool, faults: FaultConfig) -> SimRunner<SimVenue, PgIntentJournal> {
     let clock: Arc<dyn Clock> = Arc::new(SimClock::new(t0()));
     let journal = PgIntentJournal::new(pool.clone(), "sim", clock.clone());
     let sink = PgAuditSink::spawn(pool.clone(), clock, 7);
     let mut cfg = runner_config(42);
-    cfg.faults = faults;
+    cfg.faults = Some(faults);
     SimRunner::new_with_journal(cfg, vec![strategy()], Box::new(sink), t0(), journal)
         .await
         .unwrap()

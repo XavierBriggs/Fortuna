@@ -78,8 +78,8 @@ pub trait HaltPoller {
 /// gate finding 2026-06-11 — the per-segment reset was the second-gate
 /// scope bug). The gates stay halted regardless of whether we re-audit.
 #[allow(clippy::too_many_arguments)]
-pub async fn run_loop<J, C, P>(
-    runner: &mut SimRunner<J>,
+pub async fn run_loop<V, J, C, P>(
+    runner: &mut SimRunner<V, J>,
     cadence: &mut C,
     poller: &mut P,
     cfg: &LoopConfig,
@@ -88,6 +88,7 @@ pub async fn run_loop<J, C, P>(
     last_halt: &mut Option<String>,
 ) -> Result<LoopStats, RunnerError>
 where
+    V: fortuna_venues::Venue + 'static,
     J: IntentJournal + Send,
     C: CadenceDriver,
     P: HaltPoller,

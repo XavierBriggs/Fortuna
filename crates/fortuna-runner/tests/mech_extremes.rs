@@ -427,7 +427,7 @@ fn fade_rests_maker_side_through_the_full_loop_with_veto() {
         fee_model: fee_model(),
         markets: vec![market("KXEXT", Some(50_000))],
         starting_cash: Cents::new(1_000_000),
-        faults: FaultConfig::none(37),
+        faults: Some(FaultConfig::none(37)),
         mark_policy: MarkPolicy {
             max_book_age_ms: 60_000,
             max_spread_cents: 20,

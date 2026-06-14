@@ -13,12 +13,12 @@
 
 use anyhow::{bail, Context, Result};
 use fortuna_cognition::mind::{ModelTier, ReqwestMindTransport};
-use fortuna_core::clock::{Clock, RealClock};
+use fortuna_core::clock::{Clock, RealClock, SimClock};
 use fortuna_live::boot::{validate_env, DaemonToml};
 use fortuna_live::compose::DegradeScrape;
 use fortuna_live::daemon::{
-    compose_runner, default_degrade_thresholds, drive, mind_from_env, registry_from,
-    triage_from_env, PgHaltPoller, SYNTH_MIND_TIMEOUT_SECS,
+    compose_kalshi_runner, compose_runner, default_degrade_thresholds, drive, mind_from_env,
+    triage_from_env, ActiveRunner, PgHaltPoller, SYNTH_MIND_TIMEOUT_SECS,
 };
 use fortuna_live::run_loop::{LoopConfig, RealCadence};
 use fortuna_ops::dashboard::{serve_dashboard, DashboardSnapshot};
@@ -135,23 +135,70 @@ async fn main() -> Result<()> {
     } else {
         eprintln!("fortuna-live: cognition minds = StubMind (no ANTHROPIC_API_KEY; inert)");
     }
-    let mut runner = compose_runner(
-        pool.clone(),
-        &full,
-        &dcfg,
-        start,
-        start_ms as u64,
-        synthesis_mind.clone(),
-        triage,
-    )
-    .await
-    .context("composition")?;
-    eprintln!("fortuna-live: composed (venue=sim, markets from [sim], journal+audit in Postgres)");
+    // Demo-flip Phase 2: route on the booted venue. venue="kalshi" (gated to
+    // stage="paper" by the boot check above) composes the KalshiVenue demo
+    // runner — reading the demo CREDENTIALS from `env` (Secret-wrapped PEM,
+    // never logged) — and wraps it ActiveRunner::Kalshi; every other (sim) venue
+    // composes the Sim runner as before, wrapped ActiveRunner::Sim. The
+    // ActiveRunner enum lets ONE drive() + ONE between-segments closure drive
+    // either; the Sim arm is the unchanged sim path.
+    let mut active_runner = match dcfg.daemon.venue.as_str() {
+        "kalshi" => {
+            // The paper runner's clock: the SAME Arc<SimClock> RealCadence
+            // advances by wall-elapsed ms (so the demo tracks real time). The
+            // Sim path builds its clock inside compose_runner from `start`; for
+            // Kalshi we build it here and thread it into the venue/transport.
+            let clock = Arc::new(SimClock::new(start));
+            let runner = compose_kalshi_runner(
+                pool.clone(),
+                &full,
+                &dcfg,
+                start,
+                start_ms as u64,
+                clock,
+                synthesis_mind.clone(),
+                triage,
+                &env,
+            )
+            .await
+            .context("kalshi composition")?;
+            eprintln!(
+                "fortuna-live: composed (venue=kalshi, stage=paper, series from [kalshi], \
+                 demo creds from env, journal+audit in Postgres)"
+            );
+            ActiveRunner::Kalshi(runner)
+        }
+        _ => {
+            let runner = compose_runner(
+                pool.clone(),
+                &full,
+                &dcfg,
+                start,
+                start_ms as u64,
+                synthesis_mind.clone(),
+                triage,
+            )
+            .await
+            .context("composition")?;
+            eprintln!(
+                "fortuna-live: composed (venue=sim, markets from [sim], journal+audit in Postgres)"
+            );
+            ActiveRunner::Sim(runner)
+        }
+    };
+
+    // The dashboard stage string follows the booted venue/stage (sim => "sim";
+    // the Kalshi demo => "paper").
+    let dashboard_stage = if dcfg.daemon.venue == "kalshi" {
+        "paper".to_string()
+    } else {
+        "sim".to_string()
+    };
 
     // Metrics endpoint (GET-only; bind from config — localhost default).
     let snapshot = Arc::new(RwLock::new(DashboardSnapshot {
         generated_at: start.to_iso8601(),
-        stage: "sim".to_string(),
+        stage: dashboard_stage,
         metrics_text: String::new(),
         boards: serde_json::json!({}),
         views: serde_json::json!({}),
@@ -244,7 +291,7 @@ async fn main() -> Result<()> {
     }
 
     let mut cadence = RealCadence {
-        clock: runner.clock.clone(),
+        clock: active_runner.clock().clone(),
     };
     // S4: when [synthesis] is configured, hand drive() the pool + its filters
     // so the loop re-loads the confirmed edge set per segment (req 2). Built
@@ -486,13 +533,13 @@ async fn main() -> Result<()> {
                 &config_text,
                 sec,
                 ipool,
-                runner.clock.clone(),
+                active_runner.clock().clone(),
             )
             .await
             .context("ingestion wiring")?;
             let (tx, rx) = tokio::sync::oneshot::channel::<()>();
             let tick = std::time::Duration::from_millis(sec.tick_ms);
-            let clk = runner.clock.clone();
+            let clk = active_runner.clock().clone();
             let telemetry_writer = ingest_telemetry.clone();
             eprintln!("fortuna-live: news-aggregation ingestion ACTIVE (validator live on the ingest path)");
             (
@@ -516,22 +563,27 @@ async fn main() -> Result<()> {
     // empty telemetry — the daemon snapshot is byte-unchanged in that case).
     let ingest_telemetry_for_segments = ingest_telemetry.clone();
     let (stats, shutdown) = drive(
-        &mut runner,
+        &mut active_runner,
         &mut cadence,
         &mut poller,
         &loop_cfg,
         60, // segment = 60 wakes (~30s at the 500ms poll): metrics refresh cadence
         &mut stop_rx,
-        move |r, _seg| {
+        move |r: &ActiveRunner, _seg| {
             // Build everything BEFORE taking the write lock (R8: minimise
             // time the snapshot is held). T4.3 ROTA slice 2: the daemon
             // shapes the per-view JSON the rota handlers serve verbatim
-            // (R2 — fortuna-ops never depends on the runner).
-            let generated_at = fortuna_core::clock::Clock::now(r.clock.as_ref()).to_iso8601();
-            let registry = registry_from(r);
+            // (R2 — fortuna-ops never depends on the runner). demo-flip Phase 2:
+            // the runner is an ActiveRunner; for the Sim arm `boards_json` +
+            // `rota_views` are the SAME full views as before (BYTE-IDENTICAL),
+            // and for the Kalshi arm they are the venue-agnostic subset (no
+            // SimVenue-only board reads). The telemetry pane + ingest merge below
+            // are venue-agnostic and apply identically to both arms.
+            let generated_at = fortuna_core::clock::Clock::now(r.clock().as_ref()).to_iso8601();
+            let registry = r.metrics_registry();
             let metrics_text = registry.render_prometheus();
             let boards = r.boards_json();
-            let mut views = fortuna_live::views::views_from(r, &generated_at);
+            let mut views = r.rota_views(&generated_at);
             // Mission item 6: the telemetry pane — the same MetricsRegistry the
             // /metrics exposition is rendered from, shaped into a ROTA board (R2: the
             // daemon shapes; fortuna-ops serves it via read_view, never parsing text).

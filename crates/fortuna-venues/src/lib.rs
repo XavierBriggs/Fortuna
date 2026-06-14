@@ -99,6 +99,16 @@ pub trait Venue: Send + Sync {
     async fn open_orders(&self) -> Result<Vec<OpenOrder>, VenueError>;
     /// Available (unreserved) cash as reported by the venue.
     async fn balance(&self) -> Result<Cents, VenueError>;
+    /// Available cash AND the capital currently RESERVED (committed to working
+    /// orders) — the drawdown monitor (I2) and the account dashboard read this.
+    /// Default: `(balance(), 0)` for venues with no separate reservation-ledger
+    /// API (every real venue + the fixture-gated stubs, which propagate their
+    /// `balance()` refusal). `SimVenue` OVERRIDES this to surface its exact
+    /// reserved capital, so the sim path's numbers stay byte-identical to the
+    /// prior `inspect_totals` read (A3).
+    async fn account(&self) -> Result<(Cents, Cents), VenueError> {
+        Ok((self.balance().await?, Cents::ZERO))
+    }
     /// Fills at or after `cursor`. Delivery is at-least-once: pages may
     /// re-deliver; consumers dedup on `fill_id`.
     async fn fills_since(&self, cursor: Cursor) -> Result<FillPage, VenueError>;
