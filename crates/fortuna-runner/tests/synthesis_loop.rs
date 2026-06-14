@@ -106,7 +106,7 @@ fn runner_config(seed: u64) -> RunnerConfig {
         fee_model: fee_model(),
         markets: vec![market("KX-A")],
         starting_cash: Cents::new(1_000_000),
-        faults: FaultConfig::none(seed),
+        faults: Some(FaultConfig::none(seed)),
         mark_policy: MarkPolicy {
             max_book_age_ms: 60_000,
             max_spread_cents: 20,

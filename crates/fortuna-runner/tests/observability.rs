@@ -102,7 +102,7 @@ fn arb_runner() -> SimRunner {
             bracket_market("BKT-HI"),
         ],
         starting_cash: Cents::new(1_000_000),
-        faults: FaultConfig::none(99),
+        faults: Some(FaultConfig::none(99)),
         mark_policy: MarkPolicy {
             max_book_age_ms: 60_000,
             max_spread_cents: 20,
@@ -198,7 +198,7 @@ async fn dashboards_and_digest_render_from_sim_data() {
     assert!(text.contains("fortuna_halt_active 0"));
 
     // The arb realizes positive PnL and the metric agrees with the books.
-    let report = runner.report().unwrap();
+    let report = runner.report().await.unwrap();
     assert!(report.realized_pnl > Cents::ZERO);
     assert!(text.contains(&format!(
         "fortuna_realized_pnl_cents{{strategy=\"mech_structural\"}} {}",

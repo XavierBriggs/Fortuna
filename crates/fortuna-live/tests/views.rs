@@ -373,10 +373,10 @@ async fn money_view_committed_is_non_zero_when_capital_is_reserved() {
     // cash but never fill — settled stays at the full starting cash while
     // committed holds the 4361 reservation and no position is booked.
     let mut cfg = runner_config(11);
-    cfg.faults = FaultConfig {
+    cfg.faults = Some(FaultConfig {
         ack_delay_pm: 1000,
         ..FaultConfig::none(11)
-    };
+    });
     let mut r = SimRunner::new(cfg, vec![strategy()], Box::new(NullSink), t0()).unwrap();
     set_arb_books(&r);
     r.tick().await.unwrap();
@@ -447,10 +447,10 @@ async fn strategies_view_carries_per_strategy_pnl_from_the_digest() {
 #[tokio::test]
 async fn working_orders_view_lists_the_resting_intents() {
     let mut cfg = runner_config(11);
-    cfg.faults = FaultConfig {
+    cfg.faults = Some(FaultConfig {
         ack_delay_pm: 1000,
         ..FaultConfig::none(11)
-    };
+    });
     let mut r = SimRunner::new(cfg, vec![strategy()], Box::new(NullSink), t0()).unwrap();
     set_arb_books(&r);
     r.tick().await.unwrap();

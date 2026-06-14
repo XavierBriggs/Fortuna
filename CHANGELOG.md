@@ -18,6 +18,21 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
+- **Demo-flip Phase 1 — SimRunner is now venue-generic** (`fortuna-runner` +
+  `fortuna-venues` + `fortuna-live`, additive — docs/design/kalshi-demo-flip.md):
+  `SimRunner<J>` → `SimRunner<V: Venue = SimVenue, J>`, so the runner drives ANY
+  `Venue`, not just the sim. A new `Venue::account() -> (cash, reserved)` (default
+  `balance()` + 0; SimVenue delegates to `inspect_totals`) replaces the 3
+  SimVenue-only `inspect_totals` calls in the runner. A venue-injecting
+  `new_with_venue(.., venue, clock, allowed_stages)` is the seam; `new_with_journal`
+  routes THROUGH it with a SimVenue + `&[Stage::Sim]` (ONE construction path → the sim
+  path is byte-identical, A3). `report()` is now async; `RunnerConfig.faults` is
+  `Option`. SIM PATH PROVEN byte-unchanged: the full DST corpus (run-dst exit 0) + the
+  156-result workspace suite green, and an ADD-ONLY invariant pins that `SimRunner::new`
+  STILL refuses `Stage::Paper` (the Kalshi demo opens Paper only via the explicit
+  `new_with_venue` seam — Phase 2). The KalshiVenue adapter is already trait-complete,
+  so Phase 2 (`compose_kalshi_runner` + boot gate) is the remaining code; the live demo
+  run is operator-blocked (demo creds + the T4.2 fixture checklist).
 - **3-tier cognition models + ModelRegistry + triage seam** (`fortuna-cognition` +
   `fortuna-live` + `fortuna-runner`, additive — spec 5.9 tiering): `[cognition]` now
   carries three REAL model fields — `synthesis_model` (deep, default Opus), `mid_model`

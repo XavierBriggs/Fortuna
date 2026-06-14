@@ -209,7 +209,7 @@ fn runner_config(seed: u64, faults: FaultConfig) -> RunnerConfig {
         fee_model: fee_model(),
         markets: MARKETS.iter().map(|m| market(m)).collect(),
         starting_cash: Cents::new(1_000_000),
-        faults,
+        faults: Some(faults),
         mark_policy: MarkPolicy {
             max_book_age_ms: 60_000,
             max_spread_cents: 20,
@@ -336,7 +336,8 @@ fn run_scenario(seed: u64) -> Result<ScenarioResult, String> {
         ));
     }
     // Invariant 4: the money plane stays reportable.
-    let report = runner.report().map_err(|e| format!("report failed: {e}"))?;
+    let report =
+        futures::executor::block_on(runner.report()).map_err(|e| format!("report failed: {e}"))?;
 
     Ok(ScenarioResult {
         recording: report.recording_jsonl,

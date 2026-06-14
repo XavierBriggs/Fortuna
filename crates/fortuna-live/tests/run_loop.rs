@@ -10,6 +10,7 @@ use fortuna_ledger::PgIntentJournal;
 use fortuna_live::audit_bridge::PgAuditSink;
 use fortuna_live::run_loop::{run_loop, CadenceDriver, HaltPoller, LoopConfig};
 use fortuna_runner::{AuditSink, RunnerError, SimRunner};
+use fortuna_venues::sim::SimVenue;
 use sqlx::PgPool;
 use std::sync::Arc;
 
@@ -57,7 +58,7 @@ impl HaltPoller for ScriptedPoller {
     }
 }
 
-async fn compose(pool: &PgPool) -> SimRunner<PgIntentJournal> {
+async fn compose(pool: &PgPool) -> SimRunner<SimVenue, PgIntentJournal> {
     let clock: Arc<dyn Clock> = Arc::new(SimClock::new(t0()));
     let journal = PgIntentJournal::new(pool.clone(), "sim", clock.clone());
     let sink = PgAuditSink::spawn(pool.clone(), clock, 7);

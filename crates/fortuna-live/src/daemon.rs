@@ -85,7 +85,7 @@ use fortuna_runner::synthesis::{SynthesisConfig, SynthesisStrategy};
 use fortuna_runner::{RunnerConfig, RunnerError, SimRunner, Stage, Strategy};
 use fortuna_state::MarkPolicy;
 use fortuna_venues::fees::{FeeSchedule, ScheduleFeeModel};
-use fortuna_venues::sim::FaultConfig;
+use fortuna_venues::sim::{FaultConfig, SimVenue};
 use fortuna_venues::{Market, MarketStatus, SettlementMeta};
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -245,7 +245,7 @@ pub async fn compose_runner(
     // StubTriageMind::allow_all). `TriageDecision::AlwaysAccept` for the smokes that
     // do not exercise triage. Used only when a `[synthesis]` arm is composed.
     triage: TriageDecision,
-) -> Result<SimRunner<PgIntentJournal>, DaemonError> {
+) -> Result<SimRunner<SimVenue, PgIntentJournal>, DaemonError> {
     let sim = dcfg.sim.as_ref().ok_or_else(|| DaemonError::Compose {
         reason: "venue sim without [sim] section (validate_bootable should have refused)"
             .to_string(),
@@ -423,7 +423,7 @@ pub async fn compose_runner(
         fee_model,
         markets,
         starting_cash: Cents::new(1_000_000),
-        faults: FaultConfig::none(audit_seed),
+        faults: Some(FaultConfig::none(audit_seed)),
         mark_policy: MarkPolicy {
             max_book_age_ms: 60_000,
             max_spread_cents: 20,
@@ -522,13 +522,13 @@ pub struct ReviewWiring {
 
 #[allow(clippy::too_many_arguments)]
 pub async fn drive<C: CadenceDriver, P: HaltPoller>(
-    runner: &mut SimRunner<PgIntentJournal>,
+    runner: &mut SimRunner<SimVenue, PgIntentJournal>,
     cadence: &mut C,
     poller: &mut P,
     loop_cfg: &LoopConfig,
     wakes_per_segment: u64,
     stop: &mut tokio::sync::oneshot::Receiver<()>,
-    mut between_segments: impl FnMut(&SimRunner<PgIntentJournal>, &LoopStats),
+    mut between_segments: impl FnMut(&SimRunner<SimVenue, PgIntentJournal>, &LoopStats),
     scrape: &mut DegradeScrape,
     slack: Option<&fortuna_ops::SlackRouter>,
     daily: &mut DailyScheduler,
@@ -896,8 +896,8 @@ pub fn default_degrade_thresholds() -> DegradeThresholds {
 /// `inc_counter` on a fresh registry cannot fail; a sample the registry
 /// refuses is skipped rather than panicking (metrics are diagnostics,
 /// never a crash source).
-pub fn registry_from<J: fortuna_exec::IntentJournal + Send>(
-    runner: &SimRunner<J>,
+pub fn registry_from<V: fortuna_venues::Venue + 'static, J: fortuna_exec::IntentJournal + Send>(
+    runner: &SimRunner<V, J>,
 ) -> fortuna_ops::metrics::MetricsRegistry {
     let mut m = fortuna_ops::metrics::MetricsRegistry::new();
     for sample in runner.metrics_export() {
@@ -1097,7 +1097,7 @@ pub async fn persist_scalar_beliefs(
 /// SLICE 1 (this commit): the helper + its tests. Wiring it into drive()'s
 /// daily block (alongside the digest) is slice 2 (GAPS NEXT-ITEM plan).
 pub async fn run_daily_reconciliation(
-    runner: &mut SimRunner<PgIntentJournal>,
+    runner: &mut SimRunner<SimVenue, PgIntentJournal>,
     pool: &PgPool,
     mind: &dyn Mind,
     now: UtcTimestamp,
@@ -1185,7 +1185,7 @@ pub async fn run_daily_reconciliation(
 /// (Originating-beliefs context is a ledgered follow-on — slice 1 reconciles
 /// the fills + positions the runner exposes directly.)
 fn reconciliation_context(
-    runner: &SimRunner<PgIntentJournal>,
+    runner: &SimRunner<SimVenue, PgIntentJournal>,
     now: UtcTimestamp,
 ) -> Vec<ContextItem> {
     let c = runner.counters();
@@ -1225,7 +1225,7 @@ fn reconciliation_context(
 /// are slice B2. Returns Ok(true) when the review ran.
 #[allow(clippy::too_many_arguments)]
 pub async fn run_weekly_review(
-    runner: &mut SimRunner<PgIntentJournal>,
+    runner: &mut SimRunner<SimVenue, PgIntentJournal>,
     pool: &PgPool,
     mind: &dyn Mind,
     review: &crate::compose::ReviewSection,
@@ -1348,7 +1348,7 @@ pub async fn run_weekly_review(
 /// Minimal weekly-review framing context (the spec-5.8 inputs are the
 /// calibration + strategy records; this is what the mind reads for commentary).
 fn weekly_review_context(
-    runner: &SimRunner<PgIntentJournal>,
+    runner: &SimRunner<SimVenue, PgIntentJournal>,
     now: UtcTimestamp,
 ) -> Vec<ContextItem> {
     let c = runner.counters();
@@ -1380,7 +1380,7 @@ fn weekly_review_context(
 ///
 /// SLICE C1 (this commit): the helper + test. drive() wiring is slice C2.
 pub async fn run_monthly_review(
-    runner: &mut SimRunner<PgIntentJournal>,
+    runner: &mut SimRunner<SimVenue, PgIntentJournal>,
     pool: &PgPool,
     envelopes: &std::collections::BTreeMap<String, i64>,
     now: UtcTimestamp,
@@ -1456,9 +1456,12 @@ pub async fn run_monthly_review(
 /// failure is counted in the return so the caller can escalate via the
 /// dead-man path (spec: Slack delivery failure escalates) — wiring that
 /// escalation is the ledgered next step.
-pub async fn route_alerts<J: fortuna_exec::IntentJournal + Send>(
+pub async fn route_alerts<
+    V: fortuna_venues::Venue + 'static,
+    J: fortuna_exec::IntentJournal + Send,
+>(
     router: Option<&fortuna_ops::SlackRouter>,
-    runner: &mut SimRunner<J>,
+    runner: &mut SimRunner<V, J>,
     alerts: &[(fortuna_ops::MessageKind, String)],
 ) -> usize {
     let mut send_failures = 0usize;
@@ -1625,8 +1628,11 @@ impl MonthlyScheduler {
 /// with the weekly/monthly cognition reviews, is the remaining req-5 surface —
 /// ledgered; it needs belief/review data that flows only once synthesis is in
 /// the daemon (edge-source design-blocked).
-pub fn terse_daily_digest<J: fortuna_exec::IntentJournal + Send>(
-    runner: &SimRunner<J>,
+pub fn terse_daily_digest<
+    V: fortuna_venues::Venue + 'static,
+    J: fortuna_exec::IntentJournal + Send,
+>(
+    runner: &SimRunner<V, J>,
     now: fortuna_core::clock::UtcTimestamp,
 ) -> String {
     let iso = now.to_iso8601();
@@ -1650,8 +1656,11 @@ pub fn terse_daily_digest<J: fortuna_exec::IntentJournal + Send>(
 /// rendered by `fortuna_ops::digest::compose_daily_digest`. Replaces the terse
 /// one-liner in drive's daily-boundary block; the runner composes the raw
 /// inputs (digest_snapshot), this maps them to the ops layer's DigestInputs.
-pub fn rich_daily_digest<J: fortuna_exec::IntentJournal + Send>(
-    runner: &SimRunner<J>,
+pub fn rich_daily_digest<
+    V: fortuna_venues::Venue + 'static,
+    J: fortuna_exec::IntentJournal + Send,
+>(
+    runner: &SimRunner<V, J>,
     now: fortuna_core::clock::UtcTimestamp,
 ) -> String {
     use fortuna_ops::digest::{compose_daily_digest, DigestInputs, StrategyDigestRow};

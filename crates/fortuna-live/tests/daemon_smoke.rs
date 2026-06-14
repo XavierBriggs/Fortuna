@@ -18,6 +18,7 @@ use fortuna_live::daemon::{compose_runner, default_degrade_thresholds, drive};
 use fortuna_live::run_loop::{CadenceDriver, HaltPoller, LoopConfig};
 use fortuna_ops::FortunaConfig;
 use fortuna_runner::SimRunner;
+use fortuna_venues::sim::SimVenue;
 use fortuna_venues::PriceLevel;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -92,13 +93,13 @@ impl HaltPoller for NeverHalted {
     }
 }
 
-fn arb_books(r: &SimRunner<PgIntentJournal>) {
+fn arb_books(r: &SimRunner<SimVenue, PgIntentJournal>) {
     books(r, 80);
 }
 
 /// `ask_depth` = 1 leaves a RESTING remainder per leg (working orders at
 /// stop) — the SIGTERM-contract vector (cancel working orders on signal).
-fn books(r: &SimRunner<PgIntentJournal>, ask_depth: i64) {
+fn books(r: &SimRunner<SimVenue, PgIntentJournal>, ask_depth: i64) {
     let lvl = |p: i64, q: i64| PriceLevel {
         price: Cents::new(p),
         qty: Contracts::new(q),

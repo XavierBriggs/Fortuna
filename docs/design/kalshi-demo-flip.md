@@ -1,9 +1,11 @@
 # Kalshi demo-flip — design (track C)
 
-Status: BLUEPRINT (Explore-traced + architect-validated 2026-06-14). Authoritative
-design artifact for the demo-flip. Phase 1 is buildable now; Phase 2's code is
-buildable now but its *live run* is operator-blocked (demo credentials + fixture
-clearance). Authority chain: docs/spec.md > CLAUDE.md > this doc.
+Status: **Phase 1 DONE** (commits: de4d2d8 `Venue::account()` + the
+`SimRunner<V: Venue = SimVenue, J>` generalization — landed gate-clean; the DST
+corpus is byte-identical, so A3 holds). **Phase 2** (`compose_kalshi_runner` +
+boot gate + `ActiveRunner`) is buildable now; its *live run* is operator-blocked
+(demo credentials + the T4.2 fixture checklist). Explore-traced + architect-validated
+2026-06-14. Authority chain: docs/spec.md > CLAUDE.md > this doc.
 
 ## Goal
 

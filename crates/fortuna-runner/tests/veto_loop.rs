@@ -259,7 +259,7 @@ fn world_with(
         fee_model: fee_model(),
         markets: vec![fade_market("KXFADE")],
         starting_cash: Cents::new(1_000_000),
-        faults: FaultConfig::none(seed),
+        faults: Some(FaultConfig::none(seed)),
         mark_policy: MarkPolicy {
             max_book_age_ms: 60_000,
             max_spread_cents: 20,
@@ -475,7 +475,7 @@ fn veto_enabled_strategy_without_a_mind_is_a_construction_error() {
         fee_model: fee_model(),
         markets: vec![fade_market("KXFADE")],
         starting_cash: Cents::new(1_000_000),
-        faults: FaultConfig::none(23),
+        faults: Some(FaultConfig::none(23)),
         mark_policy: MarkPolicy {
             max_book_age_ms: 60_000,
             max_spread_cents: 20,
@@ -515,7 +515,7 @@ fn multileg_proposal_from_veto_enrolled_strategy_is_suppressed_whole() {
         fee_model: fee_model(),
         markets: vec![fade_market("KXFADE")],
         starting_cash: Cents::new(1_000_000),
-        faults: FaultConfig::none(31),
+        faults: Some(FaultConfig::none(31)),
         mark_policy: MarkPolicy {
             max_book_age_ms: 60_000,
             max_spread_cents: 20,
@@ -566,7 +566,9 @@ fn same_seed_same_script_byte_identical_recordings() {
         w.runner
             .apply_settlement(&mkt("KXFADE"), Side::Yes, Cents::new(100))
             .unwrap();
-        w.runner.report().unwrap().recording_jsonl
+        futures::executor::block_on(w.runner.report())
+            .unwrap()
+            .recording_jsonl
     };
     let a = run();
     let b = run();

@@ -43,6 +43,7 @@ use fortuna_exec::IntentJournal;
 use fortuna_gates::GateCheck;
 use fortuna_runner::SimRunner;
 use fortuna_sources::{FunnelCounts, IngestionTelemetry, SignalRecord, SourceTelemetry};
+use fortuna_venues::sim::SimVenue;
 use serde_json::{json, Value};
 
 /// Render a market `Side` as the lowercase token the ROTA board displays.
@@ -69,7 +70,10 @@ fn action_str(a: Action) -> &'static str {
 /// closure, which holds the runner's injected clock) and stamped into every
 /// view per the §5 contract — keeping this function pure and clock-free so
 /// the library never reads a clock and the unit tests stay deterministic.
-pub fn views_from<J: IntentJournal + Send>(runner: &SimRunner<J>, generated_at: &str) -> Value {
+pub fn views_from<J: IntentJournal + Send>(
+    runner: &SimRunner<SimVenue, J>,
+    generated_at: &str,
+) -> Value {
     let c = runner.counters();
     let boards = runner.boards_json();
     let ops = &boards["ops"];

@@ -50,7 +50,12 @@ pub struct RunnerConfig {
     pub fee_model: ScheduleFeeModel,
     pub markets: Vec<Market>,
     pub starting_cash: Cents,
-    pub faults: FaultConfig,
+    /// SimVenue-only fault injection (DST world arms). `Some(..)` on the
+    /// `new_with_journal` (SimVenue) path; `None` on `new_with_venue`, where
+    /// the venue is supplied and faults belong to the venue itself (Kalshi has
+    /// no fault arms). `new_with_journal` REQUIRES `Some` (a `None` there is a
+    /// construction error — the sim world cannot be built faultless-by-omission).
+    pub faults: Option<FaultConfig>,
     pub mark_policy: MarkPolicy,
     /// Max sets per arb proposal (belt to the gates' braces).
     pub max_sets_per_proposal: i64,
@@ -98,14 +103,19 @@ pub struct RunnerReport {
     pub fees_paid: Cents,
 }
 
-/// The Phase 0 composition over the sim venue. Journal-generic since
-/// T4.1: the daemon composes the SAME runner over `PgIntentJournal`
-/// (durable intents in Postgres); everything else defaults to
-/// `MemoryJournal` and is byte-identical to the pre-widening behavior.
-pub struct SimRunner<J: IntentJournal + Send = MemoryJournal> {
+/// The Phase 0 composition over a venue. Journal-generic since T4.1: the
+/// daemon composes the SAME runner over `PgIntentJournal` (durable intents in
+/// Postgres). Venue-generic since the demo-flip (Phase 1): `V` defaults to
+/// `SimVenue`, so `SimRunner` and `SimRunner<SimVenue, J>` both resolve to the
+/// pre-generalization type and stay byte-identical (A3). The param order is
+/// `<V, J>` (V first) so the historical single-arg form `SimRunner<J>` keeps
+/// J as the journal slot via the `V = SimVenue` default — NO; that resolution
+/// would bind J into the V slot. Single-arg callers were migrated to the
+/// explicit `SimRunner<SimVenue, J>` form; bare `SimRunner` still works.
+pub struct SimRunner<V: Venue = SimVenue, J: IntentJournal + Send = MemoryJournal> {
     pub clock: Arc<SimClock>,
     bus: EventBus,
-    venue: SimVenue,
+    venue: V,
     gates: GatePipeline,
     manager: OrderManager<J>,
     positions: PositionBook,
@@ -362,28 +372,106 @@ impl SimRunner {
     }
 }
 
-impl<J: IntentJournal + Send> SimRunner<J> {
+/// The stage-allowlist check (I7 at construction): every composed strategy's
+/// stage must appear in `allowed`. The Sim default path passes `&[Stage::Sim]`
+/// (refusing Paper/LiveMin/Scaled exactly as the pre-generalization inline
+/// check did); the demo-flip's Kalshi path passes `&[Stage::Sim, Stage::Paper]`.
+/// Extracted from the inline loop so the one rule serves both constructors.
+fn check_stage_allowlist(
+    strategies: &[Box<dyn Strategy>],
+    allowed: &[Stage],
+) -> Result<(), RunnerError> {
+    for s in strategies {
+        if !allowed.contains(&s.stage()) {
+            return Err(RunnerError::StageViolation {
+                strategy: s.id(),
+                stage: s.stage(),
+            });
+        }
+    }
+    Ok(())
+}
+
+impl<J: IntentJournal + Send> SimRunner<SimVenue, J> {
     /// The daemon constructor (T4.1): same composition, caller-supplied
     /// durable journal. Journal-before-network is the exec contract;
     /// supplying `PgIntentJournal` makes the trail survive a crash.
     /// ASYNC because recovery reads the journal (real IO for Postgres) —
     /// a blocking wrapper here deadlocks tokio (learned the hard way).
+    ///
+    /// Builds the SimVenue + SimClock and delegates to `new_with_venue` with
+    /// `&[Stage::Sim]` — ONE construction code path, so the sim composition is
+    /// byte-identical to (and shares every invariant with) the injected-venue
+    /// path (A3). The SimVenue catalog is pre-loaded HERE (`add_market` is
+    /// SimVenue-specific); `new_with_venue` only mirrors `config.markets` into
+    /// the runner's own `markets`/`market_meta`, never touching the venue.
     pub async fn new_with_journal(
+        mut config: RunnerConfig,
+        strategies: Vec<Box<dyn Strategy>>,
+        audit: Box<dyn AuditSink>,
+        start: UtcTimestamp,
+        journal: J,
+    ) -> Result<SimRunner<SimVenue, J>, RunnerError> {
+        // The sim world is built from `config.faults` (DST arms); requiring
+        // Some here keeps the injected-venue path (faults = None) from ever
+        // silently constructing a faultless sim world by omission. Take it out
+        // (the rest of `config` flows on to `new_with_venue` by value).
+        let faults = config.faults.take().ok_or_else(|| RunnerError::Config {
+            reason: "new_with_journal (SimVenue path) requires config.faults = Some(..)".into(),
+        })?;
+        let clock = Arc::new(SimClock::new(start));
+        let venue = SimVenue::new(
+            VenueId::new("sim").map_err(|e| RunnerError::Config {
+                reason: e.to_string(),
+            })?,
+            clock.clone(),
+            config.fee_model.clone(),
+            faults,
+            config.starting_cash,
+        );
+        for m in &config.markets {
+            venue.add_market(m.clone());
+        }
+        SimRunner::new_with_venue(
+            config,
+            strategies,
+            audit,
+            start,
+            journal,
+            venue,
+            clock,
+            &[Stage::Sim],
+        )
+        .await
+    }
+}
+
+impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
+    /// The venue-injecting constructor (demo-flip Phase 1): takes a
+    /// already-built venue + clock and the per-composition stage allowlist.
+    /// `new_with_journal` routes through here with a SimVenue + SimClock +
+    /// `&[Stage::Sim]`, so the sim path is byte-identical; the Kalshi demo path
+    /// (Phase 2) passes a `KalshiVenue` + `&[Stage::Sim, Stage::Paper]`.
+    ///
+    /// Does NOT build a venue and does NOT read `config.faults` (faults are a
+    /// SimVenue concept owned by `new_with_journal`). The runner's catalog
+    /// (`markets`/`market_meta`) mirrors `config.markets`; for the Sim path the
+    /// venue catalog was pre-loaded by `new_with_journal`, for Kalshi the
+    /// venue's own `markets()` polls the live API in `tick()`.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn new_with_venue(
         config: RunnerConfig,
         strategies: Vec<Box<dyn Strategy>>,
         audit: Box<dyn AuditSink>,
         start: UtcTimestamp,
         journal: J,
-    ) -> Result<SimRunner<J>, RunnerError> {
-        // I7 sliver: a Sim runner accepts only Sim-staged strategies.
-        for s in &strategies {
-            if s.stage() != Stage::Sim {
-                return Err(RunnerError::StageViolation {
-                    strategy: s.id(),
-                    stage: s.stage(),
-                });
-            }
-        }
+        venue: V,
+        clock: Arc<SimClock>,
+        allowed_stages: &[Stage],
+    ) -> Result<SimRunner<V, J>, RunnerError> {
+        let _ = start; // the clock already carries `start`; kept for symmetry.
+                       // I7 at construction: a runner accepts only allowed-stage strategies.
+        check_stage_allowlist(&strategies, allowed_stages)?;
         // A veto-enrolled strategy with no mind configured must not boot:
         // the veto is part of the strategy's spec'd shape (Section 6), and
         // skipping it silently would un-measure the thing being measured.
@@ -399,20 +487,9 @@ impl<J: IntentJournal + Send> SimRunner<J> {
                 ),
             });
         }
-        let clock = Arc::new(SimClock::new(start));
-        let venue = SimVenue::new(
-            VenueId::new("sim").map_err(|e| RunnerError::Config {
-                reason: e.to_string(),
-            })?,
-            clock.clone(),
-            config.fee_model.clone(),
-            config.faults,
-            config.starting_cash,
-        );
         let mut market_ids = Vec::new();
         let mut market_meta = BTreeMap::new();
         for m in &config.markets {
-            venue.add_market(m.clone());
             market_ids.push(m.id.clone());
             market_meta.insert(m.id.clone(), m.clone());
         }
@@ -500,7 +577,7 @@ impl<J: IntentJournal + Send> SimRunner<J> {
         &self.settlements
     }
 
-    pub fn venue(&self) -> &SimVenue {
+    pub fn venue(&self) -> &V {
         &self.venue
     }
 
@@ -1387,7 +1464,7 @@ impl<J: IntentJournal + Send> SimRunner<J> {
 
     async fn check_drawdown(&mut self) -> Result<(), RunnerError> {
         // Equity = venue cash (total incl. reserved) + conservative marks.
-        let (cash, _, _, _) = self.venue.inspect_totals();
+        let (cash, _reserved) = self.venue.account().await?;
         let mut marks = Cents::ZERO;
         for p in self.positions.positions() {
             let mark = mark_lots(
@@ -1527,9 +1604,11 @@ impl<J: IntentJournal + Send> SimRunner<J> {
         }
     }
 
-    /// Final accounting for reports/tests.
-    pub fn report(&self) -> Result<RunnerReport, RunnerError> {
-        let (cash, _, _, _) = self.venue.inspect_totals();
+    /// Final accounting for reports/tests. ASYNC since the demo-flip: cash now
+    /// comes from the generic `Venue::account()` (an `async` trait method) so
+    /// the report works over any venue, not just the synchronous SimVenue read.
+    pub async fn report(&self) -> Result<RunnerReport, RunnerError> {
+        let (cash, _reserved) = self.venue.account().await?;
         let mut realized = Cents::ZERO;
         let mut fees = Cents::ZERO;
         for p in self.positions.positions() {
@@ -2474,47 +2553,6 @@ impl<J: IntentJournal + Send> SimRunner<J> {
         samples
     }
 
-    /// Read-only board data for the dashboard (positions + ops boards).
-    pub fn boards_json(&self) -> serde_json::Value {
-        let positions: Vec<serde_json::Value> = self
-            .positions
-            .positions()
-            .map(|p| {
-                serde_json::json!({
-                    "market": p.market.to_string(),
-                    "yes": p.yes.qty,
-                    "no": p.no.qty,
-                    "realized_pnl_cents": p.realized_pnl.raw(),
-                    "fees_cents": p.fees_paid.raw(),
-                    "lifecycle": format!("{:?}", p.lifecycle),
-                })
-            })
-            .collect();
-        let c = self.counters;
-        // SIM-ONLY account block (design R6): cash + reserved exposure from the
-        // venue's ground-truth totals. §5's floating/total need the mark loop
-        // (not yet exposed), so the dashboard reports those null — never faked.
-        let (cash, reserved, _, _) = self.venue.inspect_totals();
-        serde_json::json!({
-            "positions": positions,
-            "account": {
-                "cash_cents": cash.raw(),
-                "reserved_cents": reserved.raw(),
-            },
-            "ops": {
-                "ticks": c.ticks,
-                "halt_active": self.gates.halts().global_halted().is_some(),
-                "discrepancies": c.discrepancies,
-                "settlements_overdue": self.overdue_alerted.len(),
-                "capital_in_limbo_cents": self
-                    .settlements
-                    .capital_in_limbo()
-                    .map(|x| x.raw())
-                    .unwrap_or(-1),
-            },
-        })
-    }
-
     /// Compose the rich daily digest's raw inputs (S6b) — per-strategy PnL/
     /// fees/fills/exposure + the honesty numbers + veto accounting — from the
     /// runner's own state. The daemon maps this to `fortuna_ops` DigestInputs
@@ -2677,6 +2715,57 @@ impl<J: IntentJournal + Send> SimRunner<J> {
     }
 }
 
+/// SimVenue-specialized reads. `boards_json`'s account block is SIM-ONLY
+/// (design R6): it reads the SimVenue's synchronous ground-truth totals
+/// (`inspect_totals`) so the dashboard stays a pure, clock-free, NON-async
+/// accessor — `views_from` and the daemon's sync `between_segments` closure
+/// depend on that. The generic `Venue::account()` is `async`, so a venue-
+/// agnostic board would force this read (and its callers) async; offering
+/// `boards_json` ONLY for `V = SimVenue` keeps the sim path byte-identical
+/// (A3) and defers the Kalshi board to Phase 2 (the `ActiveRunner` seam).
+impl<J: IntentJournal + Send> SimRunner<SimVenue, J> {
+    /// Read-only board data for the dashboard (positions + ops boards).
+    pub fn boards_json(&self) -> serde_json::Value {
+        let positions: Vec<serde_json::Value> = self
+            .positions
+            .positions()
+            .map(|p| {
+                serde_json::json!({
+                    "market": p.market.to_string(),
+                    "yes": p.yes.qty,
+                    "no": p.no.qty,
+                    "realized_pnl_cents": p.realized_pnl.raw(),
+                    "fees_cents": p.fees_paid.raw(),
+                    "lifecycle": format!("{:?}", p.lifecycle),
+                })
+            })
+            .collect();
+        let c = self.counters;
+        // SIM-ONLY account block (design R6): cash + reserved exposure from the
+        // venue's ground-truth totals. §5's floating/total need the mark loop
+        // (not yet exposed), so the dashboard reports those null — never faked.
+        let (cash, reserved, _, _) = self.venue.inspect_totals();
+        serde_json::json!({
+            "positions": positions,
+            "account": {
+                "cash_cents": cash.raw(),
+                "reserved_cents": reserved.raw(),
+            },
+            "ops": {
+                "ticks": c.ticks,
+                "halt_active": self.gates.halts().global_halted().is_some(),
+                "discrepancies": c.discrepancies,
+                "settlements_overdue": self.overdue_alerted.len(),
+                "capital_in_limbo_cents": self
+                    .settlements
+                    .capital_in_limbo()
+                    .map(|x| x.raw())
+                    .unwrap_or(-1),
+            },
+        })
+    }
+}
+
 fn notional_plus_worst_fee(
     fees: &ScheduleFeeModel,
     price: Cents,
@@ -2696,4 +2785,99 @@ fn notional_plus_worst_fee(
             reason: format!("fee: {e}"),
         })?;
     Ok(cost.checked_add(taker.max(maker).max(Cents::ZERO))?)
+}
+
+#[cfg(test)]
+mod a3_type_level {
+    //! Type-level A3 guard for the demo-flip Phase 1 generalization: the
+    //! defaulted `SimRunner` MUST resolve to `SimRunner<SimVenue, MemoryJournal>`
+    //! and the historical `SimRunner::new(...)` MUST produce that exact type with
+    //! the prior default behavior. If the param order or the defaults regress,
+    //! these stop compiling (the binding type-check) or fail (the cash assert).
+    use super::*;
+    use crate::MemoryAuditSink;
+
+    fn minimal_config() -> RunnerConfig {
+        let gate_config = toml::from_str(
+            r#"
+            [global]
+            max_total_exposure_cents = 800000
+            max_daily_loss_cents = 50000
+            min_order_contracts = 1
+            max_order_contracts = 1000
+            price_band_cents = 45
+            max_cross_cents = 10
+            per_market_exposure_cents = 100000
+            per_event_exposure_cents = 150000
+            require_event_mapping = false
+
+            [rate.sim]
+            burst = 100
+            sustained_per_min = 600
+            market_burst = 50
+            market_sustained_per_min = 300
+            "#,
+        )
+        .expect("minimal gate config parses");
+        let fees: fortuna_venues::fees::FeeSchedule = toml::from_str(
+            r#"
+                formula = "quadratic"
+                effective_date = "2026-01-01"
+                taker_coeff = "0.07"
+                maker_coeff = "0.0175"
+            "#,
+        )
+        .expect("fee schedule parses");
+        RunnerConfig {
+            seed: 7,
+            gate_config,
+            exec_policy: fortuna_exec::ExecPolicy::default(),
+            envelopes: BTreeMap::new(),
+            max_daily_loss: Cents::new(50_000),
+            fee_model: ScheduleFeeModel::new(vec![fees]).expect("fee model"),
+            markets: Vec::new(),
+            starting_cash: Cents::new(1_000_000),
+            faults: Some(FaultConfig::none(7)),
+            mark_policy: MarkPolicy {
+                max_book_age_ms: 60_000,
+                max_spread_cents: 20,
+            },
+            max_sets_per_proposal: 50,
+            kelly_fraction: 0.25,
+            veto_mind: None,
+            veto_strategies: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn sim_runner_new_resolves_to_sim_venue_memory_journal_default() {
+        let start = UtcTimestamp::parse_iso8601("2026-06-10T12:00:00.000Z").unwrap();
+        // The historical constructor: the binding's EXPLICIT type pins that
+        // `SimRunner::new` yields `SimRunner<SimVenue, MemoryJournal>` (the
+        // defaults), i.e. the param order is `<V, J>` with both defaulting.
+        let default_runner: SimRunner<SimVenue, MemoryJournal> = SimRunner::new(
+            minimal_config(),
+            Vec::new(),
+            Box::new(MemoryAuditSink::default()),
+            start,
+        )
+        .expect("default SimRunner::new constructs");
+
+        // And the fully-spelled turbofish form resolves to the SAME inherent
+        // `new` (proves `impl SimRunner` == `impl SimRunner<SimVenue, MemoryJournal>`).
+        let spelled = SimRunner::<SimVenue, MemoryJournal>::new(
+            minimal_config(),
+            Vec::new(),
+            Box::new(MemoryAuditSink::default()),
+            start,
+        )
+        .expect("turbofish SimRunner::<SimVenue, MemoryJournal>::new constructs");
+
+        // Old-default behavior: an untraded runner reports starting cash on both.
+        let a = futures::executor::block_on(default_runner.report()).expect("report");
+        let b = futures::executor::block_on(spelled.report()).expect("report");
+        assert_eq!(a.final_cash, Cents::new(1_000_000));
+        assert_eq!(a.final_cash, b.final_cash);
+        assert_eq!(a.realized_pnl, Cents::ZERO);
+    }
 }

@@ -11,7 +11,7 @@ use fortuna_runner::mech_structural::{MechStructural, MechStructuralConfig};
 use fortuna_runner::{RunnerConfig, SimRunner, Strategy};
 use fortuna_state::MarkPolicy;
 use fortuna_venues::fees::{FeeSchedule, ScheduleFeeModel};
-use fortuna_venues::sim::FaultConfig;
+use fortuna_venues::sim::{FaultConfig, SimVenue};
 use fortuna_venues::{Market, MarketStatus, PriceLevel, SettlementMeta};
 use std::collections::BTreeMap;
 
@@ -97,7 +97,7 @@ pub fn runner_config(seed: u64) -> RunnerConfig {
             bracket_market("BKT-HI"),
         ],
         starting_cash: Cents::new(1_000_000),
-        faults: FaultConfig::none(seed),
+        faults: Some(FaultConfig::none(seed)),
         mark_policy: MarkPolicy {
             max_book_age_ms: 60_000,
             max_spread_cents: 20,
@@ -124,7 +124,7 @@ pub fn strategy() -> Box<dyn Strategy> {
 
 // Used by pg_journal/pg_audit, not by every binary that includes common.
 #[allow(dead_code)]
-pub fn set_arb_books<J: IntentJournal + Send>(runner: &SimRunner<J>) {
+pub fn set_arb_books<J: IntentJournal + Send>(runner: &SimRunner<SimVenue, J>) {
     let lvl = |p: i64, q: i64| PriceLevel {
         price: Cents::new(p),
         qty: Contracts::new(q),

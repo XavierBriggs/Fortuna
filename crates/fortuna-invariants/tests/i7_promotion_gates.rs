@@ -135,7 +135,7 @@ fn runner_config() -> RunnerConfig {
         fee_model: fee_model(),
         markets: vec![market("M-1")],
         starting_cash: Cents::new(1_000_000),
-        faults: FaultConfig::none(7),
+        faults: Some(FaultConfig::none(7)),
         mark_policy: MarkPolicy {
             max_book_age_ms: 60_000,
             max_spread_cents: 20,
@@ -280,4 +280,39 @@ fn i7_model_swap_requires_shadow_comparison_record() {
     // operator config change recorded in audit.
     let eval = evaluate_model_swap(&pairs(40, 0.15), &active, &thresholds);
     assert_eq!(eval.verdict, SwapVerdict::PromoteRecommended);
+}
+
+/// ADD-ONLY (demo-flip Phase 1, A3 guard): the venue-generic refactor split
+/// `SimRunner` into `new_with_journal` (SimVenue, `&[Stage::Sim]`) and
+/// `new_with_venue` (any venue, caller-supplied allowlist). The historical
+/// `SimRunner::new(...)` MUST keep routing through the Sim path's
+/// `&[Stage::Sim]` allowlist — so a `Stage::Paper` strategy still cannot board
+/// the default sim runner. (The Kalshi demo path opens Paper ONLY via the
+/// explicit `new_with_venue(..., &[Stage::Sim, Stage::Paper])` seam; the
+/// default constructor never does.) Without the split this was an inline
+/// `s.stage() != Stage::Sim` check; this pins that the extraction preserved it.
+#[test]
+fn i7_sim_runner_new_still_refuses_paper_staged_strategies() {
+    let result = SimRunner::new(
+        runner_config(),
+        vec![Box::new(StagedStrategy {
+            stage: Stage::Paper,
+        })],
+        Box::new(MemoryAuditSink::default()),
+        t0(),
+    );
+    match result {
+        Err(RunnerError::StageViolation { strategy, stage }) => {
+            assert_eq!(strategy.to_string(), "staged_probe");
+            assert_eq!(
+                stage,
+                Stage::Paper,
+                "the default SimRunner::new path must reject Paper via &[Stage::Sim]"
+            );
+        }
+        Err(other) => panic!("expected StageViolation for Paper, got {other}"),
+        Ok(_) => {
+            panic!("SimRunner::new accepted a Paper-staged strategy — the sim default path no longer pins &[Stage::Sim] (A3/I7 regression)")
+        }
+    }
 }

@@ -51,7 +51,7 @@ fn runner_config() -> RunnerConfig {
         fee_model: fee_model(),
         markets: vec![],
         starting_cash: Cents::new(1_000_000),
-        faults: FaultConfig::none(1),
+        faults: Some(FaultConfig::none(1)),
         mark_policy: MarkPolicy {
             max_book_age_ms: 60_000,
             max_spread_cents: 20,
