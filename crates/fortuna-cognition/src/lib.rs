@@ -38,6 +38,7 @@ pub mod context;
 pub mod cycle;
 pub mod discovery;
 pub mod events;
+pub mod funding_baselines;
 pub mod mind;
 pub mod persona;
 pub mod persona_beliefs;

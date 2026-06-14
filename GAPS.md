@@ -3,7 +3,7 @@
 Open items the implementation defers, lacks, or needs from the operator. Acceptance
 requires this file to contain ONLY operator-blocked items, each with exact unblock steps.
 
-## TRACK C — funding_forecast §2.6 A2b DONE (7-quantile fan); A2d (baseline-beat CRPS) is the next slice (2026-06-14)
+## TRACK C — §2.6 A2b DONE (7-quantile fan) + A2d SLICE 1 DONE (carry-forward kernel); A2d SLICE 2/3 next (2026-06-14)
 
 §2.6 A2b (the fixed 7-quantile set) is BUILT + battery-green, per the verifier's "funding_forecast
 scoring is fully buildable+testable now" design-pass adjudication (track C is operator-authorized
@@ -31,15 +31,13 @@ its strategy/wiring):
   `RealizedOutcome::Scalar{value:f64}`, `ScoringRule::score(pred,&outcome)->Result<f64>` (LOWER IS
   BETTER), and `belief_scores(belief_id, rule_id, score)` rows. The kernel REUSES this — no scoring-math
   to write.
-- SLICE 1 (clean, isolated, pure — DO THIS FIRST): a new `funding_baselines.rs` kernel in
-  fortuna-cognition. `fn compare_against_carry_forward(forecast: &PredictiveDistribution,
-  estimate: f64, realized: f64) -> Result<BaselineComparison>`: builds the carry-forward baseline as a
-  DEGENERATE Scalar at `estimate` over the SAME 7 q-levels (all v=estimate — validate_scalar-clean:
-  q strictly increasing, v equal⇒non-decreasing), scores BOTH via `CrpsPinballRule` against
-  `RealizedOutcome::Scalar{realized}`, returns `{forecast_crps, carry_forward_crps, beats_carry_forward:
-  forecast_crps < carry_forward_crps}`. ADVERSARIAL unit tests (mutation-proven): a forecast centered on
-  realized BEATS carry-forward; a forecast far from realized but carry-forward near it does NOT; the
-  comparison is COMPUTED. Pure f64-forecast, zero money/DB/loop touch.
+- SLICE 1 — ✅ DONE (this commit): `fortuna-cognition::funding_baselines::compare_against_carry_forward(
+  forecast, estimate, realized) -> Result<CarryForwardComparison>` builds the carry-forward baseline as a
+  DEGENERATE Scalar at `estimate` over the forecast's SAME q-levels, scores BOTH via `CrpsPinballRule`
+  against `RealizedOutcome::Scalar{realized}`, returns `{forecast_crps, carry_forward_crps,
+  beats_carry_forward: forecast_crps < carry_forward_crps}` (strict `<` — a TIE does not beat). 5
+  adversarial tests, MUTATION-PROVEN (flip `<` → exactly the 2 directional tests red). Pure f64-forecast,
+  zero money/DB/loop touch; reuses the scoring engine. Full battery green.
 - SLICE 2 (follow-on): the last-realized-rate baseline (degenerate at the last realized rate) +
   random-walk (DEFINE precisely — recommend: last observed estimate as the point forecast with the
   RW-scaled band, or a degenerate at the last value; pick one, document, mutation-pin). Extend the kernel
