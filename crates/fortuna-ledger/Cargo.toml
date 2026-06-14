@@ -18,3 +18,6 @@ async-trait = { workspace = true }
 tokio = { workspace = true }
 toml = { workspace = true }
 fortuna-cognition = { path = "../fortuna-cognition" }
+# dev-only: the e2e grades a RECORDED NWS CLI product through the real F2 grader
+# (no cycle — fortuna-sources depends on cognition+core, not ledger).
+fortuna-sources = { path = "../fortuna-sources" }

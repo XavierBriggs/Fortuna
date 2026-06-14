@@ -16,6 +16,50 @@ FULL workspace battery as the commit gate.
 
 ---
 
+## Weather scoring bridge — resolve+score Aeolus beliefs vs the NWS grade (CLOSE THE LOOP) (this commit)
+
+The F9 reliability LOOP, closed: every open Aeolus weather belief now resolves + scores against the
+INDEPENDENT realized NWS temperature once its window closes. The standalone resolver
+`resolve_and_score_weather_beliefs(pool, now, score_id_base)` in `crates/fortuna-live/src/daemon.rs`
+mirrors `resolve_and_score_funding_beliefs` (NOT yet wired into `drive()` — that one-line additive call
+is Track A's, coordinated). Per DUE open belief it:
+1. routes to ITS NWS CLI product by the forecast's grading station (`cli_serves_station` matches the
+   AWIPS id `CLI{nws_station_id}` as a whole token — never a substring),
+2. grades the realized daily high/low from the product's raw text via the Track-D grader
+   `nws_cli_realized` (NEVER Aeolus — the V4 self-grading caution),
+3. binary brackets: Brier the belief's OWN persisted `p` against the realized `ge`/`lt` outcome
+   (`aeolus_resolve::score_bracket`) and `resolve_and_score`,
+4. the scalar μ/σ belief: CRPS its persisted quantile fan vs the realized value + one `crps_pinball`
+   `belief_scores` row.
+
+DESIGN DECISION (calibration-safe, divergence from the handoff sketch's `score_reliability(&fc, …)`):
+score the PERSISTED `p`/quantiles off the belief row, NOT a re-parsed `aeolus.forecast` signal — so
+reliability scores exactly what FORTUNA believed. Today `p == p_raw`, so this is numerically identical
+to the μ/σ re-derivation; once a weather-calibration layer makes `p ≠ p_raw`, grading the persisted `p`
+is the correct behavior. This mirrors the funding resolver's reconstruct-from-the-belief-row pattern.
+A grade the bridge cannot place (missing/ambiguous/jammed CLI, unparseable hint, unknown variable) ⇒
+the belief stays OPEN, never fabricated (spec 5.12).
+
+New surface (all additive, invariants untouched):
+- `crates/fortuna-cognition/src/aeolus_resolve.rs` (pure): `cli_serves_station`, `parse_bracket_hint`,
+  `realized_f_for`, `score_bracket`; reuses `aeolus_reliability::bracket_outcome` (made `pub` — one
+  outcome rule, no drift) + `beliefs::brier_score`.
+- F8 `aeolus_beliefs::provenance` now stamps `nws_station_id` (the grading station) so the resolver
+  routes off the persisted row alone — never by re-parsing the source forecast.
+- `fortuna_ledger::BeliefsRepo::open_aeolus_weather_due(now_iso, limit)` + `OpenWeatherBelief` (the
+  work queue; mirrors `ScalarBeliefsRepo::unresolved_due`).
+
+Verified: 8 cognition unit tests (`aeolus_resolve`), 2 ledger tests (`open_weather_due`: filters +
+limit/order), 4 live integration tests (`weather_resolve`: happy 14 brackets + 1 scalar resolve vs the
+recorded Troutdale 91°F grade, idempotent re-run, unroutable station stays OPEN, jammed CLI grades to
+None ⇒ OPEN), and the upgraded `aeolus_e2e` (the `realized = 88.0` stub replaced by the real F2 grader
+over the recorded Troutdale CLI). Full workspace battery + DST green (see commit). Seams ledgered in
+GAPS: the missing recorded NYC CLI (`CLINYC`) fixture, multi-station CLI, weather-belief CLV,
+negative-threshold hints, the bounded CLI scan.
+
+Shared-doc touches: GAPS.md (bridge handoff → DONE + new sub-seams). The `drive()` wiring handoff to
+Track A is the only remaining open item for this loop.
+
 ## F7 bucket-matching — Aeolus μ/σ → Kalshi tradeable buckets (Track-E side) (this commit)
 
 Closes the F7 venue impedance (raised by Track-A on real demo data): Aeolus emits a cumulative

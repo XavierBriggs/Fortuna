@@ -656,6 +656,7 @@ dependencies = [
  "fortuna-core",
  "fortuna-exec",
  "fortuna-gates",
+ "fortuna-sources",
  "fortuna-venues",
  "serde",
  "serde_json",

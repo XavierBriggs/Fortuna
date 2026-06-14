@@ -1156,6 +1156,15 @@ scheduler is shared with D9). The skill/persona layer is a separate session
       reuse C's prob_claims/v1 + scalar_beliefs; do not touch C's perp/discovery files.)
       F5 identity-tuple dedup, F6 strict v2 parser + pinned-erf μ/σ→p, F7 world-forward
       match, F8 belief→calibration→gates→sizing, F9 Layer-3 empirical scoring.
+- [x] ✅ DONE (track-E weather scoring bridge — CLOSE THE LOOP) — `resolve_and_score_weather_beliefs`
+      (fortuna-live daemon.rs, standalone, mirrors the funding resolver; NOT yet wired into
+      `drive()` — that one-line call is Track A's). Routes each DUE open Aeolus belief to its NWS
+      CLI product by grading station (`aeolus_resolve::cli_serves_station`), grades via the Track-D
+      `nws_cli_realized`, and resolves binary brackets (Brier of the PERSISTED p) + the scalar μ/σ
+      belief (CRPS) vs the realized °F; None ⇒ OPEN, never fabricated. New: `aeolus_resolve.rs`
+      (pure), F8 stamps `nws_station_id`, `BeliefsRepo::open_aeolus_weather_due`. Verified 8 unit +
+      2 ledger + 4 live + upgraded e2e (real grader); full battery + DST green. Seams (NYC CLI
+      fixture, multi-station, CLV, drive() wiring) ledgered in GAPS.
 
 ### Track D — ingestion observability (data surface; contract: docs/design/ingestion-observability-contract.md §2)
 
