@@ -228,6 +228,21 @@ pub trait Strategy: Send {
     fn refresh_edges(&mut self, _edges: &[fortuna_cognition::cycle::EdgeView]) -> Option<usize> {
         None
     }
+    /// Point-in-time diagnostic GAUGE samples this strategy wants surfaced on
+    /// the metrics export (T5.B8). The runner appends them, in strategy
+    /// registration order, to its own [`runner::metrics_export`] samples; the
+    /// ops layer maps them into its registry exactly like the runner's own
+    /// samples (the runner stays free of any telemetry dependency). Each is an
+    /// integer gauge (`counter: false`) with a `&'static str` name + help and
+    /// per-instance values carried in the `labels` — see [`runner::MetricSample`].
+    /// Default empty (the same additive shape `drain_beliefs`/`refresh_edges`
+    /// use), so every existing strategy is unaffected and keeps compiling; only
+    /// a strategy with diagnostics to publish (perp basis-v2's A10 numbers)
+    /// overrides it. This is a READ (it does not drain/clear); the runner may
+    /// call it every export.
+    fn metric_samples(&self) -> Vec<crate::runner::MetricSample> {
+        Vec::new()
+    }
 }
 
 /// Where audit records go. The Postgres-backed writer satisfies this in the

@@ -19,12 +19,89 @@
 //!   [`V2Eval`] snapshot; it PROPOSED NOTHING (the per-bin EV gate was deferred),
 //!   and used the per-step σ DIRECTLY as the model dispersion (a stand-in for the
 //!   τ-regime σ).
-//! - **V4 (steps 4+5: A5 horizon gating + A4/A8 EV gate) — THIS SLICE, the first
-//!   that PROPOSES.** Replaces V3's per-step σ stand-in with the τ-regime-scaled
+//! - **V4 (steps 4+5: A5 horizon gating + A4/A8 EV gate) — the first that
+//!   PROPOSES.** Replaces V3's per-step σ stand-in with the τ-regime-scaled
 //!   σ_τ (A5), adds the three load-bearing vetoes (>48h horizon, τ-unknown, stale
 //!   anchor), and emits ONE UNSIZED maker leg per ladder bin whose per-bin EV
 //!   clears the threshold (A4+A8). Still Sim-stage, still unsized (I6/I7); the EV
 //!   is an honest f64 edge claim, NEVER a size.
+//! - **V5 (step 6: A7 measured informativeness + A10 diagnostic emission) — THIS
+//!   SLICE, the LAST v2 slice.** Stops ASSUMING the perp leads the bracket and
+//!   MEASURES it: per CANDIDATE bin it computes an [`InfoVerdict`] from quote
+//!   FRESHNESS (the cross-instrument-comparable signal), and folds it into the V4
+//!   EV gate — `BracketLeads` (the bracket bin is strictly fresher than the perp,
+//!   both fresh) HARD-VETOES the bin, `Unfavorable` (perp absent/stale, either
+//!   side stale, or no bracket book) RAISES the bin's `adverse` by
+//!   `info_adverse_penalty` before re-applying the SAME strict EV gate, and
+//!   `PerpFavorable` leaves the V4 gate unchanged. It also ships the A10
+//!   diagnostic NUMBERS: the implied-vs-model CDF sup-distance ([`V2Eval::cdf_divergence`])
+//!   and per-bin the verdict + perp/bracket ages + spread/depth (recorded, NOT
+//!   gated). A7 can ONLY make the gate MORE conservative (down-weight or veto,
+//!   never up-size or up-weight); still Sim-stage, still unsized (I6/I7).
+//!
+//! # A7 — measured informativeness (V5: "measure that the perp leads, don't assume")
+//!
+//! "Trade toward the perp" only holds when the perp price actually LEADS the
+//! bracket. V5 measures it per CANDIDATE bin and forms an [`InfoVerdict`] from the
+//! cleanly cross-instrument-comparable signal — quote FRESHNESS:
+//!
+//! - **perp side age** = `core.now − perp_freshness`, where `perp_freshness` is the
+//!   perp book's `as_of` IF `core.books.get(&cfg.perp_market)` is present, ELSE the
+//!   tick's own `funding.obs_at` (always available — the daemon may feed only the
+//!   `PerpTick`, never a perp book, so the conservative default is the tick capture
+//!   time). bracket side age = `core.now − bracket_book.as_of` (the candidate bin's
+//!   own book).
+//! - **[`InfoVerdict::BracketLeads`]**: the bracket bin is STRICTLY fresher than the
+//!   perp (`bracket_age < perp_age`) AND BOTH are fresh (`age ≤ info_max_age_ms`).
+//!   The bracket is better-informed ⇒ do NOT trade toward a lagging perp.
+//! - **[`InfoVerdict::Unfavorable`]**: the perp book is ABSENT, OR either side is
+//!   STALE (`age > info_max_age_ms`), OR the bracket bin has no book. The
+//!   conservative default — when you cannot establish the perp leads, treat it as
+//!   NOT perp-favorable.
+//! - **[`InfoVerdict::PerpFavorable`]**: otherwise (the perp is at least as fresh as
+//!   the bracket, both fresh).
+//!
+//! How the verdict folds into the V4 EV gate, per bin (step 10):
+//! - `BracketLeads` AND `cfg.info_veto_on_bracket_leads` ⇒ VETO the bin (no
+//!   proposal). With the flag `false` it instead DOWN-WEIGHTS (the `Unfavorable`
+//!   penalty path) — never up-weights.
+//! - `Unfavorable` ⇒ recompute EV with `adverse + info_adverse_penalty`, then apply
+//!   the SAME strict `EV > ev_threshold` gate (a bin can still clear if its edge
+//!   overcomes the penalty).
+//! - `PerpFavorable` ⇒ no change (the V4 EV gate as-is).
+//!
+//! **DC-6 DATA CAVEAT (load-bearing).** The [`OrderBook`] carries only a WHOLE-BOOK
+//! `as_of` — there is NO per-level quote age. So FRESHNESS is whole-book, and that
+//! is the GATE. The perp-vs-bracket SPREAD and top-of-book DEPTH that §3.3 A7 also
+//! names are in DIFFERENT units across the two instruments (perp price
+//! ten-thousandths vs bracket YES-cents), so they are NOT a sound cross-instrument
+//! gate — they are RECORDED as A10 diagnostics (`BinEv` spread/depth fields) only,
+//! never gated on. The conservative default (missing/stale ⇒ NOT `PerpFavorable`)
+//! bites whenever the perp book is unplumbed, so the strategy is correct whether or
+//! not a perp book is fed.
+//!
+//! # A10 — full-CDF diagnostics (V5: C produces the numbers; B displays — §9 split)
+//!
+//! V5 ships the DATA half of A10: a single scalar [`V2Eval::cdf_divergence`] — the
+//! Kolmogorov-style SUP-distance (max absolute difference) between the IMPLIED
+//! cumulative distribution (from the ladder's `BracketBin::prob`, price-ordered)
+//! and the MODEL cumulative distribution (from the `q_j` vector, already in
+//! canonical price order). `None` when `q_j` is empty (the tick did not price). The
+//! per-bin [`BinEv`] additionally carries its [`InfoVerdict`], the perp/bracket
+//! ages, and the bracket-bin spread/depth (recorded, not gated). The verdict + the
+//! divergence are woven into the proposal `thesis` (the provenance). The richer
+//! named-`MetricSample` emission + the realized band-coverage metric are DEFERRED
+//! to the telemetry slice (T5.B8); the ROTA §9.2 DISPLAY is track-B — V5 ships the
+//! numbers in the snapshot + thesis (the data half of the §9 data-vs-view split).
+//!
+//! # Rung-0 fallback (the architectural fallback §3.3 names; doc-only)
+//!
+//! v2 DEGRADES to "propose nothing" whenever its richer inputs are
+//! unavailable/stale/incoherent (σ not ready, anchor stale, ladder incoherent,
+//! horizon Disabled, Δ unmeasured, perp not-leading). The rung-0
+//! [`crate::perp_event_basis`] strategy (separately registered) remains the
+//! FALLBACK basis path: both coexist, and v2 activates ONLY when its inputs are
+//! present and coherent. (No code here — this is the spec's named coexistence.)
 //!
 //! # Discipline (the house invariants this respects — identical to rung-0)
 //!
@@ -121,14 +198,20 @@
 //! 2. **A6 anchor + A5 + A3.** S₀ = the BRTI reference in BTC dollars; σ_τ is the
 //!    horizon-scaled dispersion (per the regime); `q_j = bracket_fair_probs(bins,
 //!    {anchor:S₀, sigma:σ_τ})`.
-//! 3. **A4+A8 EV gate.** For each priced bin (mapped back to its catalog market
-//!    by STRIKE — `bracket_fair_probs` returns canonical PRICE order, not catalog
-//!    order), `EV_j = q_j − ask_j − fee_j − slippage − reserve − adverse`; a bin
-//!    clears only when `EV_j > ev_threshold` (strict), has a takeable ASK, and a
-//!    best BID to join. Each clearing bin emits ONE unsized `Passive`/`Buy`/`Yes`
-//!    maker leg joining its best bid (deduped on `(market, limit_cents)`).
-//! 4. **A10 diagnostic.** The rung-0 implied median ([`compute_basis`]) for the
-//!    SAME bins is stored as a HEALTH metric — NOT a signal, never a gate.
+//! 3. **A7 measured informativeness + A4+A8 EV gate.** For each priced bin (mapped
+//!    back to its catalog market by STRIKE — `bracket_fair_probs` returns canonical
+//!    PRICE order, not catalog order), compute the A7 [`InfoVerdict`] from quote
+//!    FRESHNESS and fold it into the EV: `EV_j = q_j − ask_j − fee_j − slippage −
+//!    reserve − adverse_eff` where `adverse_eff = adverse (+ info_adverse_penalty
+//!    when Unfavorable)`; a `BracketLeads` verdict VETOES the bin (or down-weights
+//!    when `info_veto_on_bracket_leads` is off). A bin clears only when `EV_j >
+//!    ev_threshold` (strict), is NOT A7-vetoed, has a takeable ASK, and a best BID
+//!    to join. Each clearing bin emits ONE unsized `Passive`/`Buy`/`Yes` maker leg
+//!    joining its best bid (deduped on `(market, limit_cents)`).
+//! 4. **A10 diagnostics.** The rung-0 implied median ([`compute_basis`]) and the
+//!    implied-vs-model CDF sup-distance ([`V2Eval::cdf_divergence`]) for the SAME
+//!    bins are stored as HEALTH metrics — NOT signals, never gates; per-bin the A7
+//!    verdict + perp/bracket ages + spread/depth ride [`BinEv`].
 //!
 //! The full [`V2Eval`] is stored in `last_eval`; the clearing legs are returned.
 
@@ -186,9 +269,31 @@ pub enum HorizonRegime {
     Disabled,
 }
 
+/// A7 (V5): the per-CANDIDATE-bin relative-informativeness verdict, derived from
+/// quote FRESHNESS (the cross-instrument-comparable signal; see the module doc's
+/// DC-6 caveat). It can only make the EV gate MORE conservative: `BracketLeads`
+/// vetoes (or down-weights), `Unfavorable` down-weights, `PerpFavorable` leaves the
+/// V4 gate as-is. The conservative DEFAULT is NEVER `PerpFavorable`: when the perp
+/// book is absent or either side is stale, the verdict is `Unfavorable`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum InfoVerdict {
+    /// The perp is at least as fresh as the bracket and BOTH are fresh ⇒ trading
+    /// toward the perp is informationally sound; the V4 EV gate applies unchanged.
+    PerpFavorable,
+    /// The perp cannot be established as the leader: its book is ABSENT, OR either
+    /// side is STALE (`age > info_max_age_ms`), OR the bracket bin has no book ⇒
+    /// raise `adverse` by `info_adverse_penalty` and re-apply the strict EV gate.
+    Unfavorable,
+    /// The bracket bin is STRICTLY fresher than the perp and BOTH are fresh ⇒ the
+    /// bracket is better-informed; do NOT trade toward a lagging perp. Vetoes the
+    /// bin when `info_veto_on_bracket_leads`, else down-weights it.
+    BracketLeads,
+}
+
 /// Construction config for [`PerpEventBasisV2`] (catalog-driven; the σ knobs are
 /// the DC-1 defaults, all overridable). Later v2 slices ADD fields (the τ-regime
-/// knobs for A5, the EV-gate margins for A4/A8); that is additive and fine.
+/// knobs for A5, the EV-gate margins for A4/A8, the A7 freshness knobs for V5);
+/// that is additive and fine.
 #[derive(Debug, Clone)]
 pub struct PerpEventBasisV2Config {
     /// The perp whose `PerpTick` triggers the evaluation (e.g. `"KXBTCPERP"`).
@@ -247,15 +352,35 @@ pub struct PerpEventBasisV2Config {
     pub reserve: f64,
     /// A8: the maker adverse-selection penalty in probability-units — a passive
     /// bid fills preferentially when flow is informed against it, so the realized
-    /// fill is worse than `q_j − ask_j` implies. V4 uses a CONSTANT baseline;
-    /// V5/A7 will upgrade it per-bin from relative informativeness. Default
-    /// `0.01`.
+    /// fill is worse than `q_j − ask_j` implies. This is the BASELINE adverse; V5's
+    /// A7 ADDS `info_adverse_penalty` to it per-bin when the relative
+    /// informativeness is [`InfoVerdict::Unfavorable`] (A7 only raises it, never
+    /// lowers). Default `0.01`.
     pub adverse: f64,
     /// A4 / amendment C: the maker fee COEFFICIENT for the fee-trap round-trip
     /// fee `2 · ceil(fee_coeff · P · (1−P) · 100) / 100` (P = the YES ask in
     /// probability-units). The Kalshi quadratic maker rate; default `0.0175`.
     /// The cents-rounded-UP ceil is the fee-trap — a promo-$0 never lowers it.
     pub fee_coeff: f64,
+
+    // ── A7: measured-informativeness knobs (V5; DC-6 defaults, all overridable) ──
+    /// A7 / DC-6: the freshness ceiling in epoch-millis. A perp OR bracket book
+    /// whose age (`core.now − as_of`) exceeds this is STALE; a stale side cannot
+    /// establish the perp leads ⇒ [`InfoVerdict::Unfavorable`]. BRTI updates
+    /// ~1/sec, so a book older than this lags the index materially; default
+    /// `5_000`.
+    pub info_max_age_ms: i64,
+    /// A7 / A8: the per-bin adverse-selection DOWN-WEIGHT added to the EV `adverse`
+    /// term when the relative informativeness is [`InfoVerdict::Unfavorable`] (or
+    /// `BracketLeads` with the veto flag off). A7 can only make the gate MORE
+    /// conservative, so this is ADDED, never subtracted. Default `0.02`.
+    pub info_adverse_penalty: f64,
+    /// A7: when `true` (default), a bin whose bracket book STRICTLY leads the perp
+    /// (both fresh) is HARD-VETOED — no proposal, regardless of EV. When `false`,
+    /// such a bin is instead DOWN-WEIGHTED (the `info_adverse_penalty` path), never
+    /// up-weighted. Default `true` (the conservative choice: do not trade toward a
+    /// lagging perp at all).
+    pub info_veto_on_bracket_leads: bool,
 }
 
 /// One bin's A4+A8 EV-gate result, recorded for diagnostics (A10) and pinned by
@@ -270,12 +395,38 @@ pub struct BinEv {
     /// A4: the executable YES ASK in probability-units (`ask_cents / 100`), or
     /// `None` when the bin had no ask to take toward (then it is never proposed).
     pub ask: Option<f64>,
-    /// A4+A8: the per-bin EV `q − ask − fee − slippage − reserve − adverse`, or
-    /// `None` when there was no ask to price against.
+    /// A4+A8: the per-bin EV `q − ask − fee − slippage − reserve − adverse_eff`,
+    /// or `None` when there was no ask to price against. `adverse_eff` is the
+    /// EFFECTIVE adverse (the config `adverse` PLUS the A7 `info_adverse_penalty`
+    /// when the verdict is [`InfoVerdict::Unfavorable`], else the config `adverse`).
     pub ev: Option<f64>,
     /// Whether THIS bin was emitted as a proposal (EV cleared the strict
-    /// threshold AND a best YES bid existed to join AND the regime priced).
+    /// threshold AND a best YES bid existed to join AND the regime priced AND the
+    /// A7 verdict did not VETO it).
     pub proposed: bool,
+    /// A7 (V5): the relative-informativeness verdict for THIS bin (freshness-based;
+    /// DC-6). Drives the veto/down-weight; recorded for diagnostics + the thesis.
+    pub info: InfoVerdict,
+    /// A7 (V5): the EFFECTIVE adverse term actually used in [`Self::ev`] — the
+    /// config `adverse` plus the `info_adverse_penalty` when down-weighted, else the
+    /// config `adverse`. Recorded so a test/telemetry can see the A7 effect on EV.
+    pub adverse_eff: f64,
+    /// A7/A10 (V5): the perp side age in epoch-millis (`core.now − perp_freshness`)
+    /// the verdict used, or `None` when `core.now − perp_freshness` underflowed (a
+    /// future `as_of`/`obs_at` — treated as fresh/age 0 by the verdict; recorded as
+    /// `None` here). Diagnostic only — the verdict is the gate.
+    pub perp_age_ms: Option<i64>,
+    /// A7/A10 (V5): the bracket-bin book age in epoch-millis (`core.now −
+    /// book.as_of`), or `None` when the bin had no book (then the verdict is
+    /// `Unfavorable`) or the subtraction underflowed. Diagnostic only.
+    pub bracket_age_ms: Option<i64>,
+    /// A10 (V5): the bracket bin's YES spread in cents (`best_ask − best_bid`), or
+    /// `None` when a side is missing. RECORDED only — different units from the perp
+    /// spread, so NOT a cross-instrument gate (DC-6 caveat).
+    pub bracket_spread_cents: Option<i64>,
+    /// A10 (V5): the bracket bin's top-of-book DEPTH in contracts (best-bid qty +
+    /// best-ask qty present). RECORDED only — never gated (DC-6 caveat).
+    pub bracket_depth_contracts: i64,
 }
 
 /// A PUBLIC-readable snapshot of the most recent v2 evaluation (A10 data; the
@@ -326,6 +477,12 @@ pub struct V2Eval {
     /// metric, NOT a signal). `None` when the ladder has no finite median (empty
     /// / all-zero / open-tail-crossing), exactly as [`compute_basis`] returns.
     pub median_diagnostic: Option<f64>,
+    /// A10 (V5): the implied-vs-model CDF SUP-distance (Kolmogorov-style): the MAX
+    /// absolute difference between the IMPLIED cumulative (from `BracketBin::prob`,
+    /// price-ordered) and the MODEL cumulative (from `q_j`, already price-ordered),
+    /// across the price-ordered bins. A HEALTH metric, NOT a signal/gate. `None`
+    /// when `q_j` is empty (the tick did not price — nothing to compare).
+    pub cdf_divergence: Option<f64>,
     /// The number of per-step log-returns folded into the EWMA so far (the
     /// "readiness" counter; always ≥ `min_vol_obs` when a `V2Eval` exists).
     pub obs_count: usize,
@@ -633,11 +790,14 @@ impl PerpEventBasisV2 {
     }
 
     /// A4+A8: the per-bin EV in probability-units
-    /// `q − ask − fee_round_trip(ask) − slippage − reserve − adverse`. Pure
+    /// `q − ask − fee_round_trip(ask) − slippage − reserve − adverse_eff`. Pure
     /// forecast-domain f64; the strict `> ev_threshold` decision lives in the
-    /// caller (mirroring the rung-0 fee-trap strictness).
-    fn ev_for_bin(&self, q: f64, ask: f64) -> f64 {
-        q - ask - self.fee_round_trip(ask) - self.cfg.slippage - self.cfg.reserve - self.cfg.adverse
+    /// caller (mirroring the rung-0 fee-trap strictness). `adverse_eff` is supplied
+    /// by the caller: the config `adverse` for a [`InfoVerdict::PerpFavorable`] bin,
+    /// or `adverse + info_adverse_penalty` for an A7-down-weighted bin (V5). A7 can
+    /// only RAISE it (more conservative), never lower it.
+    fn ev_for_bin(&self, q: f64, ask: f64, adverse_eff: f64) -> f64 {
+        q - ask - self.fee_round_trip(ask) - self.cfg.slippage - self.cfg.reserve - adverse_eff
     }
 
     /// A5: the REPRESENTATIVE horizon regime + τ for the ladder, for the ONE σ_τ
@@ -687,6 +847,185 @@ impl PerpEventBasisV2 {
     /// per strike); `None` for a strike with no catalog match.
     fn catalog_entry_for(&self, kind: &BracketStrike) -> Option<(&MarketId, &BracketStrike)> {
         self.cfg.ladder.iter().find(|(_, strike)| *strike == kind)
+    }
+
+    /// A7 (V5): a book's AGE in epoch-millis (`now − book.as_of`), or `None` when
+    /// the book is absent OR `as_of` is in the FUTURE (a non-monotone/clock-skewed
+    /// capture — the subtraction would go negative). A future/equal `as_of` is the
+    /// freshest possible case, so a `None` here is treated by the verdict as age 0
+    /// (fresh), NEVER as stale — the conservative side for the side being measured
+    /// is "as fresh as possible", and the OTHER guards (absent perp book / no
+    /// bracket book) carry the Unfavorable default where freshness is unknowable.
+    /// `core.now`/`as_of` are both injected-clock `UtcTimestamp`s (no `SystemTime`).
+    fn book_age_ms(now: UtcTimestamp, book: Option<&OrderBook>) -> Option<i64> {
+        let book = book?;
+        let age = now.epoch_millis() - book.as_of.epoch_millis();
+        if age < 0 {
+            None
+        } else {
+            Some(age)
+        }
+    }
+
+    /// A7 (V5): the PERP side freshness instant in epoch-millis — the perp book's
+    /// `as_of` IF `core.books.get(&cfg.perp_market)` is present, ELSE the tick's own
+    /// `funding.obs_at` (always available). The daemon may feed only the `PerpTick`
+    /// and no perp book, so `obs_at` is the conservative fallback freshness; the
+    /// ABSENCE of the perp book is signalled separately to `info_verdict` (it forces
+    /// `Unfavorable`). Returns `(freshness_ms, perp_book_present)`.
+    fn perp_freshness_ms(
+        &self,
+        core: &CoreHandle<'_>,
+        funding_obs_at: UtcTimestamp,
+    ) -> (i64, bool) {
+        match core.books.get(&self.cfg.perp_market) {
+            Some(book) => (book.as_of.epoch_millis(), true),
+            None => (funding_obs_at.epoch_millis(), false),
+        }
+    }
+
+    /// A7 (V5): the per-CANDIDATE-bin relative-informativeness verdict from
+    /// FRESHNESS (the cross-instrument-comparable signal; DC-6 — spread/depth are
+    /// different units, recorded not gated). Inputs: `now` (the injected clock),
+    /// `perp_fresh_ms` + `perp_present` (from [`Self::perp_freshness_ms`]), and the
+    /// candidate bin's own `bracket_book`. Pure function of those + `cfg`.
+    ///
+    /// - perp ABSENT ⇒ [`InfoVerdict::Unfavorable`] (cannot establish the perp leads).
+    /// - the bracket bin has NO book ⇒ `Unfavorable`.
+    /// - either side STALE (`age > info_max_age_ms`) ⇒ `Unfavorable`.
+    /// - the bracket bin STRICTLY fresher than the perp (`bracket_age < perp_age`),
+    ///   both fresh ⇒ [`InfoVerdict::BracketLeads`].
+    /// - otherwise (perp at least as fresh as the bracket, both fresh) ⇒
+    ///   [`InfoVerdict::PerpFavorable`].
+    ///
+    /// The conservative default is NEVER `PerpFavorable` when the perp leadership
+    /// cannot be established (absent/stale ⇒ `Unfavorable`).
+    fn info_verdict(
+        &self,
+        now: UtcTimestamp,
+        perp_fresh_ms: i64,
+        perp_present: bool,
+        bracket_book: Option<&OrderBook>,
+    ) -> InfoVerdict {
+        // The perp book absent ⇒ cannot establish the perp leads ⇒ Unfavorable.
+        if !perp_present {
+            return InfoVerdict::Unfavorable;
+        }
+        // The bracket bin has no book ⇒ Unfavorable (freshness unknowable on it).
+        let Some(_) = bracket_book else {
+            return InfoVerdict::Unfavorable;
+        };
+        // perp age = now − perp_fresh_ms; a future/equal perp `as_of` is age 0
+        // (freshest). A non-monotone perp capture (now < as_of) clamps to 0.
+        let perp_age = (now.epoch_millis() - perp_fresh_ms).max(0);
+        // bracket age: a future/equal bracket `as_of` is age 0 (freshest).
+        let bracket_age = Self::book_age_ms(now, bracket_book).unwrap_or(0);
+
+        // Either side STALE ⇒ cannot trust the comparison ⇒ Unfavorable.
+        if perp_age > self.cfg.info_max_age_ms || bracket_age > self.cfg.info_max_age_ms {
+            return InfoVerdict::Unfavorable;
+        }
+        // Both fresh: if the bracket is STRICTLY fresher, the bracket leads.
+        if bracket_age < perp_age {
+            InfoVerdict::BracketLeads
+        } else {
+            InfoVerdict::PerpFavorable
+        }
+    }
+
+    /// A10 (V5): the bracket bin's YES SPREAD in cents (`best_ask − best_bid`), or
+    /// `None` when a side is missing. RECORDED diagnostic only (DC-6: different
+    /// units from the perp spread ⇒ never a cross-instrument gate).
+    fn bin_spread_cents(book: Option<&OrderBook>) -> Option<i64> {
+        let book = book?;
+        let bid = book.yes_bids.first()?.price.raw();
+        let ask = book.yes_asks.first()?.price.raw();
+        Some(ask - bid)
+    }
+
+    /// A10 (V5): the bracket bin's top-of-book DEPTH in contracts (best-bid qty +
+    /// best-ask qty, each counted only if present). RECORDED diagnostic only.
+    fn bin_depth_contracts(book: Option<&OrderBook>) -> i64 {
+        let Some(book) = book else {
+            return 0;
+        };
+        let bid_q = book.yes_bids.first().map_or(0, |l| l.qty.raw());
+        let ask_q = book.yes_asks.first().map_or(0, |l| l.qty.raw());
+        bid_q + ask_q
+    }
+
+    /// A10 (V5): the within-rank price-ordering KEY mirroring the kernel's
+    /// `order_key` (a `between` bin by its `floor`, each open tail by its single
+    /// strike). Used to place the IMPLIED bins in the SAME canonical price order the
+    /// `q_j` vector already carries, so [`Self::cdf_divergence`] compares aligned
+    /// cumulatives. (`order_key`/`order_rank` are module-private in the kernel; this
+    /// mirrors them verbatim — the same ADD-ONLY mirroring the kernel itself uses.)
+    fn order_key(kind: &BracketStrike) -> f64 {
+        match kind {
+            BracketStrike::Less { cap } => *cap,
+            BracketStrike::Between { floor, .. } => *floor,
+            BracketStrike::Greater { floor } => *floor,
+        }
+    }
+
+    /// A10 (V5): the price-ordering RANK mirroring the kernel's `order_rank` (open
+    /// `less` tail 0, `between` bins 1, open `greater` tail 2).
+    fn order_rank(kind: &BracketStrike) -> u8 {
+        match kind {
+            BracketStrike::Less { .. } => 0,
+            BracketStrike::Between { .. } => 1,
+            BracketStrike::Greater { .. } => 2,
+        }
+    }
+
+    /// A10 (V5): the implied-vs-model CDF SUP-distance (a Kolmogorov-style
+    /// statistic): the MAX absolute difference between the IMPLIED cumulative (the
+    /// running sum of `BracketBin::prob`, in canonical price order) and the MODEL
+    /// cumulative (the running sum of `q_j`, ALREADY in canonical price order),
+    /// taken across the price-ordered bins. A pure forecast-domain `f64` HEALTH
+    /// metric — NEVER a signal/gate.
+    ///
+    /// `None` when `q_j` is EMPTY (the tick did not price — nothing to compare). A
+    /// non-finite running difference (e.g. a NaN `prob` leaking from a degenerate
+    /// quote) degrades to `None` rather than poisoning the snapshot. The two
+    /// vectors are aligned by SHARED canonical price order (the `q_j` order); a bin
+    /// present in one and not the other is impossible here (both derive from the
+    /// SAME ladder strikes), but a length mismatch also degrades to `None`.
+    fn cdf_divergence(bins: &[BracketBin], q_j: &[BracketFairProb]) -> Option<f64> {
+        if q_j.is_empty() {
+            return None;
+        }
+        // The model q_j is already price-ordered (the kernel re-sorts). Order the
+        // implied bins the SAME way (canonical rank then key) so the cumulatives
+        // align bin-for-bin.
+        let mut implied: Vec<&BracketBin> = bins.iter().collect();
+        implied.sort_by(|a, b| {
+            Self::order_rank(&a.kind)
+                .cmp(&Self::order_rank(&b.kind))
+                .then_with(|| {
+                    Self::order_key(&a.kind)
+                        .partial_cmp(&Self::order_key(&b.kind))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+        });
+        if implied.len() != q_j.len() {
+            return None;
+        }
+        let mut cum_implied = 0.0_f64;
+        let mut cum_model = 0.0_f64;
+        let mut sup = 0.0_f64;
+        for (ib, mp) in implied.iter().zip(q_j.iter()) {
+            cum_implied += ib.prob;
+            cum_model += mp.q;
+            let d = (cum_implied - cum_model).abs();
+            if !d.is_finite() {
+                return None;
+            }
+            if d > sup {
+                sup = d;
+            }
+        }
+        Some(sup)
     }
 }
 
@@ -825,20 +1164,41 @@ impl Strategy for PerpEventBasisV2 {
             _ => (Vec::new(), sigma_step),
         };
 
-        // 10. A4+A8 PER-BIN EV gate. For each priced bin, map it back to its
-        //     catalog `(MarketId, book)` by STRIKE (the kernel returns canonical
-        //     PRICE order, NOT catalog order, so position is meaningless), compute
-        //     `EV_j = q − ask − fee − slippage − reserve − adverse`, and emit ONE
-        //     unsized `Passive`/`Buy`/`Yes` maker leg joining the bin's best BID
-        //     when `EV_j > ev_threshold` (strict) AND an ask exists AND a bid
-        //     exists AND the bin's OWN regime is not Disabled. Dedup on
-        //     `(market, limit_cents)`.
+        // 9b. A10 (V5): the implied-vs-model CDF sup-distance over the SAME bins +
+        //     the model q_j (both in canonical price order). A HEALTH metric, not a
+        //     gate; `None` when q_j is empty (the tick did not price). Computed once
+        //     here so the per-bin thesis can carry it (the provenance).
+        let cdf_divergence = Self::cdf_divergence(&bins, &q_j);
+
+        // 10. A4+A8 PER-BIN EV gate, now A7-MEASURED (V5). For each priced bin, map
+        //     it back to its catalog `(MarketId, book)` by STRIKE (the kernel
+        //     returns canonical PRICE order, NOT catalog order, so position is
+        //     meaningless); compute the A7 [`InfoVerdict`] from FRESHNESS (DC-6),
+        //     fold it into the EV (`BracketLeads` ⇒ veto-or-downweight,
+        //     `Unfavorable` ⇒ `adverse + info_adverse_penalty`, `PerpFavorable` ⇒
+        //     unchanged); then `EV_j = q − ask − fee − slippage − reserve −
+        //     adverse_eff`, and emit ONE unsized `Passive`/`Buy`/`Yes` maker leg
+        //     joining the bin's best BID when `EV_j > ev_threshold` (strict) AND an
+        //     ask exists AND a bid exists AND the bin's OWN regime is not Disabled
+        //     AND A7 did not veto. Dedup on `(market, limit_cents)`.
+        //
+        //     The PERP freshness instant is computed ONCE (the perp book's `as_of`
+        //     if present, else `funding.obs_at`); its ABSENCE forces every bin's
+        //     verdict to `Unfavorable` (the conservative default — A7 never
+        //     perp-favorable-by-default).
+        let (perp_fresh_ms, perp_present) = self.perp_freshness_ms(core, funding.obs_at);
+        let perp_age_ms = if perp_present {
+            Some((core.now.epoch_millis() - perp_fresh_ms).max(0))
+        } else {
+            None
+        };
         let mut proposals: Vec<Proposal> = Vec::new();
         let mut bin_evs: Vec<BinEv> = Vec::with_capacity(q_j.len());
         for fp in &q_j {
             // Map this priced bin back to its catalog market by exact strike
             // equality (strikes are copied verbatim from the catalog, so `==`
-            // holds). A bin with no catalog match cannot be addressed/joined.
+            // holds). A bin with no catalog match cannot be addressed/joined ⇒ its
+            // freshness is unknowable ⇒ the conservative `Unfavorable` verdict.
             let Some((market, _strike)) = self.catalog_entry_for(&fp.kind) else {
                 bin_evs.push(BinEv {
                     kind: fp.kind,
@@ -846,13 +1206,46 @@ impl Strategy for PerpEventBasisV2 {
                     ask: None,
                     ev: None,
                     proposed: false,
+                    info: InfoVerdict::Unfavorable,
+                    adverse_eff: self.cfg.adverse,
+                    perp_age_ms,
+                    bracket_age_ms: None,
+                    bracket_spread_cents: None,
+                    bracket_depth_contracts: 0,
                 });
                 continue;
             };
             let market = market.clone();
             let book = core.books.get(&market);
 
-            // The executable YES ask (the price you take toward). No ask ⇒ skip.
+            // A7 (V5): the per-bin informativeness verdict + the A10 freshness/
+            // spread/depth diagnostics. The verdict is the GATE; spread/depth are
+            // RECORDED only (DC-6 — different units from the perp, not comparable).
+            let info = self.info_verdict(core.now, perp_fresh_ms, perp_present, book);
+            let bracket_age_ms = Self::book_age_ms(core.now, book);
+            let bracket_spread_cents = Self::bin_spread_cents(book);
+            let bracket_depth_contracts = Self::bin_depth_contracts(book);
+
+            // A7 ⇒ the EFFECTIVE adverse + whether the bin is VETOED. A7 can ONLY
+            // make the gate more conservative: `Unfavorable` raises `adverse`;
+            // `BracketLeads` either VETOES (flag on) or down-weights like
+            // `Unfavorable` (flag off); `PerpFavorable` leaves the V4 gate as-is.
+            let (adverse_eff, info_veto) = match info {
+                InfoVerdict::PerpFavorable => (self.cfg.adverse, false),
+                InfoVerdict::Unfavorable => {
+                    (self.cfg.adverse + self.cfg.info_adverse_penalty, false)
+                }
+                InfoVerdict::BracketLeads => {
+                    if self.cfg.info_veto_on_bracket_leads {
+                        (self.cfg.adverse, true)
+                    } else {
+                        (self.cfg.adverse + self.cfg.info_adverse_penalty, false)
+                    }
+                }
+            };
+
+            // The executable YES ask (the price you take toward). No ask ⇒ skip
+            // (but still record the A7 verdict + diagnostics for this priced bin).
             let Some(ask) = Self::bin_ask(book) else {
                 bin_evs.push(BinEv {
                     kind: fp.kind,
@@ -860,10 +1253,18 @@ impl Strategy for PerpEventBasisV2 {
                     ask: None,
                     ev: None,
                     proposed: false,
+                    info,
+                    adverse_eff,
+                    perp_age_ms,
+                    bracket_age_ms,
+                    bracket_spread_cents,
+                    bracket_depth_contracts,
                 });
                 continue;
             };
-            let ev = self.ev_for_bin(fp.q, ask);
+            // EV with the A7-effective adverse (V5). A7 raises adverse_eff only
+            // (more conservative); a bin can still clear if its edge overcomes it.
+            let ev = self.ev_for_bin(fp.q, ask, adverse_eff);
 
             // Per-bin regime veto (mixed-ladder safety): a bin whose own horizon
             // is Disabled is never proposed even if the representative priced.
@@ -871,11 +1272,12 @@ impl Strategy for PerpEventBasisV2 {
                 self.classify_regime(core.markets.get(&market).and_then(|m| m.close_at), core.now);
 
             // The EV must STRICTLY clear, a best bid must exist to join (maker-
-            // only cannot rest without a price), and the bin's regime must price.
+            // only cannot rest without a price), the bin's regime must price, AND
+            // A7 must not have VETOED the bin (BracketLeads under the veto flag).
             let clears = ev > self.cfg.ev_threshold;
             let best_bid = Self::bin_best_bid(book);
             let mut proposed = false;
-            if clears && bin_regime != HorizonRegime::Disabled {
+            if clears && !info_veto && bin_regime != HorizonRegime::Disabled {
                 if let Some(limit) = best_bid {
                     // Dedup: the identical (market, limit) leg fires once until
                     // the bin or its best bid moves.
@@ -894,11 +1296,13 @@ impl Strategy for PerpEventBasisV2 {
                             urgency: Urgency::Passive,
                             manifest_hash: None,
                             thesis: format!(
-                                "perp/bracket basis v2 (A4+A8 EV): regime {regime:?}, \
-                                 τ {tau_h:.2}h, σ_τ {sigma:.5}; bin {kind:?} q {q:.4} \
-                                 vs YES ask {ask:.4} ⇒ EV {ev:.4} (> thr {thr:.4}); join \
-                                 YES bid {limit} on {market} (fair {fair} = round(q·100) \
-                                 clamped, UNSIZED — the harness sizes, I6)",
+                                "perp/bracket basis v2 (A4+A8 EV, A7 {info:?}): regime \
+                                 {regime:?}, τ {tau_h:.2}h, σ_τ {sigma:.5}; bin {kind:?} \
+                                 q {q:.4} vs YES ask {ask:.4} ⇒ EV {ev:.4} (> thr {thr:.4}, \
+                                 adverse_eff {adv:.4}); CDF-div {cdf}; join YES bid {limit} \
+                                 on {market} (fair {fair} = round(q·100) clamped, UNSIZED — \
+                                 the harness sizes, I6)",
+                                info = info,
                                 regime = bin_regime,
                                 tau_h = repr_tau_ms.unwrap_or(0) as f64 / 3_600_000.0,
                                 sigma = sigma_used,
@@ -907,6 +1311,10 @@ impl Strategy for PerpEventBasisV2 {
                                 ask = ask,
                                 ev = ev,
                                 thr = self.cfg.ev_threshold,
+                                adv = adverse_eff,
+                                cdf = cdf_divergence
+                                    .map(|d| format!("{d:.4}"))
+                                    .unwrap_or_else(|| "n/a".to_string()),
                                 limit = limit,
                                 market = market,
                                 fair = fair,
@@ -923,6 +1331,12 @@ impl Strategy for PerpEventBasisV2 {
                 ask: Some(ask),
                 ev: Some(ev),
                 proposed,
+                info,
+                adverse_eff,
+                perp_age_ms,
+                bracket_age_ms,
+                bracket_spread_cents,
+                bracket_depth_contracts,
             });
         }
 
@@ -941,6 +1355,7 @@ impl Strategy for PerpEventBasisV2 {
             q_j,
             bin_evs,
             median_diagnostic,
+            cdf_divergence,
             obs_count: self.return_count,
         });
 
@@ -949,5 +1364,155 @@ impl Strategy for PerpEventBasisV2 {
 
     fn metrics(&self) -> StrategyMetrics {
         self.metrics
+    }
+
+    /// T5.B8: emit the A10 diagnostic snapshot ([`V2Eval`]) as headline
+    /// point-in-time GAUGE [`MetricSample`]s, so the dashboard/Prometheus surface
+    /// can read what the model last saw, scaled, and priced. V5 DEFERRED this
+    /// "richer named-`MetricSample` emission" to this telemetry slice; it is the
+    /// metrics-export half of the §9 data-vs-view split (C produced the numbers in
+    /// `last_eval`; this ships them).
+    ///
+    /// # The dashboard contract (every sample; INTEGER-ONLY — ratios/decodings are
+    /// the dashboard's, per the Explore "integer-only; ratios computed by the
+    /// dashboard"). Every sample carries a `market=<perp_market>` label so multiple
+    /// perps never collide; the metric NAMES are `&'static str` literals (the
+    /// per-instance value rides the labels, never the name).
+    ///
+    /// | metric | scale (decode) | meaning |
+    /// |---|---|---|
+    /// | `fortuna_perp_basis_v2_active` | as-is (0/1) | 1 when a [`V2Eval`] exists (σ ready + a matching tick seen); 0 otherwise. The ONLY sample emitted when no eval exists. |
+    /// | `fortuna_perp_basis_v2_cdf_divergence_tenthou` | ÷10_000 | A10 implied-vs-model CDF sup-distance (∈[0,2]) in ten-thousandths. Omitted when `cdf_divergence` is `None` (the tick did not price) or non-finite. |
+    /// | `fortuna_perp_basis_v2_sigma_tau_micro` | ÷1_000_000 | A5 horizon-scaled dispersion σ_τ in micro-units (for a `Disabled` tick this is the per-step σ_step — see [`V2Eval::sigma_tau`]). Omitted when non-finite. |
+    /// | `fortuna_perp_basis_v2_anchor_dollars` | as-is (whole $) | A6 BRTI settlement anchor S₀ in whole BTC dollars (`round`). Omitted when non-finite. |
+    /// | `fortuna_perp_basis_v2_horizon_ms` | as-is (ms) | A5 τ = `close_at − now` for the representative bracket. Omitted when `tau_ms` is `None` (τ unknown). |
+    /// | `fortuna_perp_basis_v2_obs_count` | as-is | DC-1 readiness counter (log-returns folded; always ≥ `min_vol_obs` here). |
+    /// | `fortuna_perp_basis_v2_anchor_stale` | as-is (0/1) | A6 stale-anchor flag (1 ⇒ the whole tick was disabled). |
+    /// | `fortuna_perp_basis_v2_regime` | as-is (0/1) | A5 horizon regime, as a one-hot gauge: value 1 carrying an extra `regime=direct\|vol_adjusted\|disabled` label. |
+    ///
+    /// SCALE DISCIPLINE (the f64→i64 bridges; [`MetricSample::value`] is `i64`, the
+    /// A10 numbers are f64): each f64 is multiplied by its fixed scale and
+    /// `.round() as i64`; a NON-FINITE f64 SKIPS that sample (never an undefined
+    /// cast). This is telemetry (diagnostic integers), NOT money — no `Cents`. Kept
+    /// to the HEADLINE set (≈8 samples); per-bin [`BinEv`] emission is a deliberate
+    /// follow-on (it needs a bounded label set), NOT this slice. No
+    /// `panic`/`unwrap`/`expect`.
+    fn metric_samples(&self) -> Vec<crate::runner::MetricSample> {
+        let market_label = || {
+            (
+                "market".to_string(),
+                self.cfg.perp_market.as_str().to_string(),
+            )
+        };
+        // No eval yet (σ not ready / no matching tick): emit ONLY active=0, so the
+        // dashboard can distinguish "inactive" from "missing series" without a
+        // stale/undefined reading on the other gauges.
+        let Some(eval) = self.last_eval.as_ref() else {
+            return vec![crate::runner::MetricSample {
+                name: "fortuna_perp_basis_v2_active",
+                help: "1 when the perp basis-v2 strategy has a current A10 eval (σ ready); else 0",
+                counter: false,
+                labels: vec![market_label()],
+                value: 0,
+            }];
+        };
+
+        let mut out: Vec<crate::runner::MetricSample> = Vec::new();
+
+        // active=1: an eval exists this export.
+        out.push(crate::runner::MetricSample {
+            name: "fortuna_perp_basis_v2_active",
+            help: "1 when the perp basis-v2 strategy has a current A10 eval (σ ready); else 0",
+            counter: false,
+            labels: vec![market_label()],
+            value: 1,
+        });
+
+        // cdf_divergence (∈[0,2]) ×10_000 → ten-thousandths. Some+finite only.
+        if let Some(div) = eval.cdf_divergence {
+            if div.is_finite() {
+                out.push(crate::runner::MetricSample {
+                    name: "fortuna_perp_basis_v2_cdf_divergence_tenthou",
+                    help: "A10 implied-vs-model CDF sup-distance, x10000 (divide by 10000; \
+                           in [0,2]); absent when the tick did not price",
+                    counter: false,
+                    labels: vec![market_label()],
+                    value: (div * 10_000.0).round() as i64,
+                });
+            }
+        }
+
+        // sigma_tau ×1_000_000 → micro. Finite only.
+        if eval.sigma_tau.is_finite() {
+            out.push(crate::runner::MetricSample {
+                name: "fortuna_perp_basis_v2_sigma_tau_micro",
+                help: "A5 horizon-scaled dispersion sigma_tau, x1000000 (divide by 1000000); \
+                       per-step sigma on a Disabled tick",
+                counter: false,
+                labels: vec![market_label()],
+                value: (eval.sigma_tau * 1_000_000.0).round() as i64,
+            });
+        }
+
+        // anchor (BTC dollars) → whole dollars. Finite only.
+        if eval.anchor.is_finite() {
+            out.push(crate::runner::MetricSample {
+                name: "fortuna_perp_basis_v2_anchor_dollars",
+                help: "A6 BRTI settlement anchor S0 in whole BTC dollars (rounded)",
+                counter: false,
+                labels: vec![market_label()],
+                value: eval.anchor.round() as i64,
+            });
+        }
+
+        // horizon τ (ms) as-is. Some only (None ⇒ τ unknown ⇒ omit).
+        if let Some(tau_ms) = eval.tau_ms {
+            out.push(crate::runner::MetricSample {
+                name: "fortuna_perp_basis_v2_horizon_ms",
+                help: "A5 horizon tau = close_at - now for the representative bracket (ms); \
+                       absent when tau is unknown",
+                counter: false,
+                labels: vec![market_label()],
+                value: tau_ms,
+            });
+        }
+
+        // obs_count as-is.
+        out.push(crate::runner::MetricSample {
+            name: "fortuna_perp_basis_v2_obs_count",
+            help: "DC-1 readiness counter: per-step log-returns folded into the sigma EWMA",
+            counter: false,
+            labels: vec![market_label()],
+            value: eval.obs_count as i64,
+        });
+
+        // anchor_stale 0/1.
+        out.push(crate::runner::MetricSample {
+            name: "fortuna_perp_basis_v2_anchor_stale",
+            help: "A6 stale-anchor flag: 1 when the BRTI anchor was stale (tick disabled)",
+            counter: false,
+            labels: vec![market_label()],
+            value: i64::from(eval.anchor_stale),
+        });
+
+        // regime: one-hot gauge value 1 with a regime=<name> label.
+        let regime_name = match eval.regime {
+            HorizonRegime::Direct => "direct",
+            HorizonRegime::VolAdjusted => "vol_adjusted",
+            HorizonRegime::Disabled => "disabled",
+        };
+        out.push(crate::runner::MetricSample {
+            name: "fortuna_perp_basis_v2_regime",
+            help: "A5 horizon regime as a one-hot gauge: value 1 with a \
+                   regime=direct|vol_adjusted|disabled label",
+            counter: false,
+            labels: vec![
+                market_label(),
+                ("regime".to_string(), regime_name.to_string()),
+            ],
+            value: 1,
+        });
+
+        out
     }
 }

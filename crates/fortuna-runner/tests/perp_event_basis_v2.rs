@@ -12,6 +12,28 @@
 //! anchor), and emits ONE unsized maker leg per ladder bin whose per-bin EV
 //! (A4+A8) clears the threshold. Still Sim-stage / unsized (I6/I7).
 //!
+//! V5 (build-order step 6: A7 measured informativeness + A10 diagnostic emission)
+//! is the LAST v2 slice. It MEASURES whether the perp leads the bracket (per-bin
+//! `InfoVerdict` from quote FRESHNESS, DC-6) and folds it into the V4 EV gate —
+//! `BracketLeads` VETOES (or down-weights when the flag is off), `Unfavorable`
+//! (perp absent/stale or bracket stale/bookless) ADDS `info_adverse_penalty` to the
+//! EV `adverse`, `PerpFavorable` leaves the gate unchanged. A7 can ONLY make the
+//! gate MORE conservative. It also ships the A10 implied-vs-model CDF sup-distance
+//! (`cdf_divergence`) + per-bin verdict/ages/spread/depth (recorded, not gated).
+//!
+//! Contract under test (V5 A7 + A10):
+//! - PerpFavorable (perp present + fresh + ≥ bracket freshness) ⇒ the V4 proposal
+//!   fires UNCHANGED (`adverse_eff == adverse`, EV == V4 EV).
+//! - Unfavorable (perp book ABSENT) ⇒ `adverse_eff = adverse + penalty`; a wide-edge
+//!   bin still fires, a borderline bin is SKIPPED (the penalty is the deciding term).
+//! - Unfavorable (STALE bracket / STALE perp) ⇒ the penalty applies even with a
+//!   present perp; a stale perp is Unfavorable, NOT BracketLeads.
+//! - BracketLeads (bracket strictly fresher, both fresh) ⇒ VETO (no proposal) when
+//!   `info_veto_on_bracket_leads`; DOWN-WEIGHT (penalty) when the flag is off.
+//! - the conservative default: missing/stale ⇒ NEVER PerpFavorable.
+//! - A10: `cdf_divergence` is Some when priced, None when q_j empty, and equals the
+//!   hand-computed Kolmogorov sup-distance of the price-ordered cumulatives.
+//!
 //! Contract under test (V3 evaluator):
 //! - σ NOT ready (< `min_vol_obs` anchor returns) ⇒ `last_eval` is None,
 //!   zero proposals.
@@ -59,6 +81,24 @@
 //!   `fee_j_is_strictly_positive_for_interior_ask`.
 //! - Joining the ask instead of the bid, or sizing a leg, reds
 //!   `ev_gate_clears_emits_unsized_maker_join_at_bid`.
+//! - Defaulting `InfoVerdict` to `PerpFavorable` (instead of the conservative
+//!   `Unfavorable`) on a missing/stale perp reds
+//!   `a7_missing_perp_is_never_perp_favorable`,
+//!   `a7_unfavorable_perp_absent_still_fires_when_edge_overcomes`,
+//!   `a7_stale_perp_is_unfavorable_not_bracket_leads`, and
+//!   `a7_unfavorable_stale_bracket_applies_penalty`.
+//! - Dropping the `BracketLeads` veto (treating it as PerpFavorable/no-op) reds
+//!   `a7_bracket_leads_vetoes_when_flag_on`.
+//! - Using a 0 A7 penalty (or never adding it to `adverse`) reds
+//!   `a7_unfavorable_perp_absent_penalty_skips_borderline_bin` (the skipped half)
+//!   and the `adverse_eff` assertions in the Unfavorable/down-weight tests.
+//! - Sourcing perp freshness from `obs_at` when a perp book IS present (instead of
+//!   the perp book's `as_of`) reds `a7_bracket_leads_vetoes_when_flag_on` /
+//!   `a7_perp_favorable_proposal_fires_unchanged` (the verdict would flip).
+//! - Dropping the `q_j`-empty guard on `cdf_divergence` (returning `Some` on an
+//!   unpriced tick), or mis-ordering the cumulatives, reds
+//!   `cdf_divergence_some_when_priced_none_when_not` /
+//!   `cdf_divergence_equals_hand_computed_sup_distance`.
 
 use fortuna_cognition::basis::{compute_basis, BracketBin, BracketStrike};
 use fortuna_cognition::basis_v2::{bracket_fair_probs, LadderHealth, SettlementModel};
@@ -69,7 +109,7 @@ use fortuna_core::market::{Action, Contracts, MarketId, Side, VenueId};
 use fortuna_core::money::Cents;
 use fortuna_core::perp::{FundingObservation, PerpMarks, PerpPrice};
 use fortuna_runner::perp_event_basis_v2::{
-    HorizonRegime, PerpEventBasisV2, PerpEventBasisV2Config,
+    HorizonRegime, InfoVerdict, PerpEventBasisV2, PerpEventBasisV2Config,
 };
 use fortuna_runner::{CoreHandle, Proposal, Stage, Strategy, StrategyKind, Urgency};
 use fortuna_venues::fees::{FeeSchedule, ScheduleFeeModel};
@@ -283,6 +323,9 @@ fn cfg(ladder: BTreeMap<MarketId, BracketStrike>) -> PerpEventBasisV2Config {
         reserve: RESERVE,
         adverse: ADVERSE,
         fee_coeff: FEE_COEFF,
+        info_max_age_ms: INFO_MAX_AGE_MS,
+        info_adverse_penalty: INFO_ADVERSE_PENALTY,
+        info_veto_on_bracket_leads: true,
     }
 }
 
@@ -366,6 +409,11 @@ const SLIPPAGE: f64 = 0.005;
 const RESERVE: f64 = 0.01;
 const ADVERSE: f64 = 0.01;
 const FEE_COEFF: f64 = 0.0175;
+
+/// V5 A7-knob defaults (DC-6), mirrored from the production config defaults so a
+/// test can recompute the SAME A7-effective EV the strategy computes.
+const INFO_MAX_AGE_MS: i64 = 5_000;
+const INFO_ADVERSE_PENALTY: f64 = 0.02;
 
 /// A `Market` carrying just the `close_at` the τ computation reads. The other
 /// fields are plausible placeholders the strategy never consults (it reaches
@@ -583,6 +631,9 @@ fn cfg_v4(ladder: BTreeMap<MarketId, BracketStrike>) -> PerpEventBasisV2Config {
         reserve: RESERVE,
         adverse: ADVERSE,
         fee_coeff: FEE_COEFF,
+        info_max_age_ms: INFO_MAX_AGE_MS,
+        info_adverse_penalty: INFO_ADVERSE_PENALTY,
+        info_veto_on_bracket_leads: true,
     }
 }
 
@@ -1871,4 +1922,835 @@ fn v4_nonpositive_anchor_no_panic() {
         "a zero anchor never yields an eval"
     );
     assert_eq!(s.metrics().proposals_emitted, 0);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// V5 — A7 measured informativeness + A10 diagnostic emission (the freshness/health
+// surface; the LAST v2 slice). A7 can ONLY make the V4 EV gate MORE conservative
+// (down-weight or veto), never up-size/up-weight. A10 ships the implied-vs-model
+// CDF sup-distance + per-bin verdict/ages/spread/depth (recorded, not gated).
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── V5 harness: a perp book + explicit bracket-book as_of ─────────────────────
+//
+// V5 needs two controls the V4 harness lacks: (1) a PERP book in `core.books`
+// (keyed by the perp `MarketId`) with a controllable `as_of`, so A7 can measure the
+// perp side's freshness — its ABSENCE (the daemon-feeds-only-the-tick case) forces
+// the conservative `Unfavorable` default; (2) bracket books with explicit `as_of`,
+// so a bin can be made STRICTLY fresher (BracketLeads) or stale (Unfavorable)
+// relative to the perp.
+
+/// A book with one (bid, ask) YES level and an EXPLICIT `as_of` (the V5 freshness
+/// the A7 verdict measures). Same shape as `book` but with a caller-set timestamp.
+fn book_at(market: &str, yes_bid: i64, yes_ask: i64, as_of: UtcTimestamp) -> OrderBook {
+    OrderBook {
+        market: mkt(market),
+        as_of,
+        yes_bids: vec![PriceLevel {
+            price: Cents::new(yes_bid),
+            qty: Contracts::new(100),
+        }],
+        yes_asks: vec![PriceLevel {
+            price: Cents::new(yes_ask),
+            qty: Contracts::new(100),
+        }],
+    }
+}
+
+/// A PERP-side book keyed by the perp `MarketId` (so `core.books.get(perp_market)`
+/// finds it) with an EXPLICIT `as_of`. The levels are immaterial to A7 (DC-6: only
+/// the whole-book `as_of` is read for freshness; spread/depth are perp-units and
+/// only RECORDED, never gated), so plausible placeholder levels ride a fixed value.
+fn perp_book_at(as_of: UtcTimestamp) -> OrderBook {
+    OrderBook {
+        market: mkt(PERP),
+        as_of,
+        yes_bids: vec![PriceLevel {
+            price: Cents::new(50),
+            qty: Contracts::new(100),
+        }],
+        yes_asks: vec![PriceLevel {
+            price: Cents::new(51),
+            qty: Contracts::new(100),
+        }],
+    }
+}
+
+/// Straddle books (between cheap @ bid49/ask51, tails 0.25) with EVERY bin's `as_of`
+/// set to `as_of` (so the bracket freshness is controllable for A7). Σ≈1 coherent.
+fn put_straddle_books_at(w: &mut World, as_of: UtcTimestamp) {
+    w.put(book_at("KXBTC-LESS60K", 24, 26, as_of));
+    w.put(book_at("KXBTC-B63K", 49, 51, as_of));
+    w.put(book_at("KXBTC-GT66K", 24, 26, as_of));
+}
+
+/// The between bin of the straddle ladder (the EV tests' candidate).
+fn between_bin() -> BracketStrike {
+    BracketStrike::Between {
+        floor: 60_000.0,
+        cap: 66_000.0,
+    }
+}
+
+/// The recorded `BinEv` of the between bin from the last eval (panics in-test if
+/// absent — the between bin is always priced in the V5 straddle fixtures).
+fn between_ev(s: &PerpEventBasisV2) -> &fortuna_runner::perp_event_basis_v2::BinEv {
+    s.last_eval()
+        .expect("σ ready ⇒ an eval")
+        .bin_evs
+        .iter()
+        .find(|b| b.kind == between_bin())
+        .expect("between bin priced")
+}
+
+// ── A7: PerpFavorable — the V4 proposal fires unchanged ──────────────────────
+
+/// A7 PerpFavorable: a PRESENT, FRESH perp book that is at least as fresh as the
+/// bracket (here both age 0) ⇒ the V4 proposal fires UNCHANGED — the between bin's
+/// `adverse_eff` is the BASELINE `adverse` (no A7 penalty) and the EV equals the V4
+/// EV. Proves A7 is a no-op when the perp genuinely leads.
+#[test]
+fn a7_perp_favorable_proposal_fires_unchanged() {
+    let ladder = straddle_ladder();
+    let mut w = World::new();
+    // Bracket books + a perp book, ALL `as_of` = World.now (17:00:00) ⇒ age 0 both
+    // sides ⇒ perp at least as fresh as bracket ⇒ PerpFavorable.
+    let now = ts("2026-06-12T17:00:00.000Z");
+    put_straddle_books_at(&mut w, now);
+    w.put(perp_book_at(now));
+    let (tau_ms, dt_ms) = (7_200_000_i64, 1000_i64);
+    put_ladder_markets(&mut w, &ladder, tau_ms);
+    let mut s = PerpEventBasisV2::new(cfg_v4(ladder.clone())).unwrap();
+
+    let obs0 = ts("2026-06-12T16:59:55.000Z");
+    let out = drive_capture_first_proposal(&mut s, &w, 6.3000, 1.0001, 6, obs0, dt_ms);
+
+    let between = between_ev(&s);
+    assert_eq!(
+        between.info,
+        InfoVerdict::PerpFavorable,
+        "fresh perp at least as fresh as the bracket ⇒ PerpFavorable"
+    );
+    assert!(
+        (between.adverse_eff - ADVERSE).abs() < 1e-12,
+        "PerpFavorable ⇒ adverse_eff is the baseline adverse {ADVERSE}, got {}",
+        between.adverse_eff
+    );
+    // The EV equals the V4 EV (no penalty) and clears ⇒ the proposal fires.
+    let q_btw = between.q;
+    let ev_v4 = expected_ev_j(q_btw, ask_prob(51));
+    assert!(
+        (between.ev.unwrap() - ev_v4).abs() < 1e-12,
+        "PerpFavorable EV must equal the V4 EV (no A7 penalty)"
+    );
+    assert!(ev_v4 > EV_THRESHOLD, "fixture clears");
+    assert_eq!(out.len(), 1, "the between bin proposes (V4 unchanged)");
+    assert_eq!(out[0].legs[0].market, mkt("KXBTC-B63K"));
+    assert!(
+        out[0].thesis.contains("PerpFavorable"),
+        "thesis carries the A7 verdict: {}",
+        out[0].thesis
+    );
+}
+
+// ── A7: Unfavorable (perp book ABSENT) — the +penalty, two outcomes ───────────
+
+/// A7 Unfavorable (perp book ABSENT) — STILL FIRES when the edge overcomes the
+/// penalty. No perp book ⇒ the conservative `Unfavorable` default ⇒ `adverse_eff =
+/// adverse + info_adverse_penalty`. The between bin (q≈1, cheap ask 0.51) has a wide
+/// edge, so it clears EVEN with the penalty. Asserts the verdict, the raised
+/// `adverse_eff`, and that the leg still fires.
+#[test]
+fn a7_unfavorable_perp_absent_still_fires_when_edge_overcomes() {
+    let ladder = straddle_ladder();
+    let mut w = World::new();
+    let now = ts("2026-06-12T17:00:00.000Z");
+    put_straddle_books_at(&mut w, now); // fresh bracket
+                                        // DELIBERATELY no perp book ⇒ Unfavorable.
+    let (tau_ms, dt_ms) = (7_200_000_i64, 1000_i64);
+    put_ladder_markets(&mut w, &ladder, tau_ms);
+    let mut s = PerpEventBasisV2::new(cfg_v4(ladder.clone())).unwrap();
+
+    let obs0 = ts("2026-06-12T16:59:55.000Z");
+    let out = drive_capture_first_proposal(&mut s, &w, 6.3000, 1.0001, 6, obs0, dt_ms);
+
+    let between = between_ev(&s);
+    assert_eq!(
+        between.info,
+        InfoVerdict::Unfavorable,
+        "perp book ABSENT ⇒ Unfavorable (cannot establish the perp leads)"
+    );
+    assert!(
+        (between.adverse_eff - (ADVERSE + INFO_ADVERSE_PENALTY)).abs() < 1e-12,
+        "Unfavorable ⇒ adverse_eff = adverse + penalty, got {}",
+        between.adverse_eff
+    );
+    // EV with the RAISED adverse still clears (the edge overcomes the penalty).
+    let q_btw = between.q;
+    let ev_pen = q_btw
+        - ask_prob(51)
+        - expected_fee_j(ask_prob(51))
+        - SLIPPAGE
+        - RESERVE
+        - (ADVERSE + INFO_ADVERSE_PENALTY);
+    assert!(
+        (between.ev.unwrap() - ev_pen).abs() < 1e-12,
+        "the recorded EV uses the penalised adverse_eff"
+    );
+    assert!(ev_pen > EV_THRESHOLD, "the wide edge overcomes the penalty");
+    assert_eq!(
+        out.len(),
+        1,
+        "the between bin still fires under the penalty"
+    );
+}
+
+/// A7 Unfavorable (perp book ABSENT) — SKIPPED when the penalty pushes EV ≤ thr.
+/// Same world driven TWICE: once with `info_adverse_penalty = 0` (the bin CLEARS,
+/// proving the no-penalty path proposes) and once with the default penalty (the bin
+/// is SKIPPED). The ONLY difference is the penalty, so it is provably the deciding
+/// term — a 0-penalty mutation reds the "skipped" half. The between bin's ask is
+/// calibrated so its no-penalty EV is just above thr and its with-penalty EV is ≤ thr.
+#[test]
+fn a7_unfavorable_perp_absent_penalty_skips_borderline_bin() {
+    let ladder = straddle_ladder();
+    let (tau_ms, dt_ms) = (7_200_000_i64, 1000_i64);
+    let obs0 = ts("2026-06-12T16:59:55.000Z");
+    let now = ts("2026-06-12T17:00:00.000Z");
+
+    // Build a world whose between bin is priced RICH enough that the +0.02 penalty
+    // is the deciding term. between bid91/ask93 ⇒ ask 0.93; under a tight σ_τ at
+    // anchor ≈ 63,003 the between MODEL q ≈ 1. With q≈1: no-penalty EV = 0.975 −
+    // 0.93 − fee(0.93)=0.02 = 0.025 (> thr 0.02); +0.02 penalty ⇒ 0.005 (≤ thr).
+    // Tails one-sided ask 5c ⇒ mid 0.025 keep Σ ≈ 0.97 coherent.
+    let run_once = |penalty: f64| -> (InfoVerdict, Option<f64>, u64) {
+        let mut w = World::new();
+        w.put(book_at("KXBTC-LESS60K", 0, 5, now)); // one-sided 5c ask ⇒ mid 0.025
+        w.put(book_at("KXBTC-B63K", 91, 93, now)); // rich between, ask 0.93
+        w.put(book_at("KXBTC-GT66K", 0, 5, now));
+        // No perp book ⇒ Unfavorable.
+        put_ladder_markets(&mut w, &ladder, tau_ms);
+        let mut c = cfg_v4(ladder.clone());
+        c.info_adverse_penalty = penalty;
+        let mut s = PerpEventBasisV2::new(c).unwrap();
+        let _ = drive_constant_step_obs(&mut s, &w, 6.3000, 1.0001, 6, obs0, dt_ms);
+        let b = between_ev(&s);
+        (b.info, b.ev, s.metrics().proposals_emitted)
+    };
+
+    // With ZERO penalty the between bin CLEARS (proves the output is not vacuous).
+    let (info0, ev0, count0) = run_once(0.0);
+    assert_eq!(info0, InfoVerdict::Unfavorable, "perp absent ⇒ Unfavorable");
+    assert!(
+        ev0.unwrap() > EV_THRESHOLD,
+        "with no penalty the rich between bin still clears: EV {:?}",
+        ev0
+    );
+    assert_eq!(count0, 1, "no-penalty ⇒ the between bin proposes");
+
+    // With the DEFAULT penalty the SAME bin is SKIPPED (the penalty is decisive).
+    let (info1, ev1, count1) = run_once(INFO_ADVERSE_PENALTY);
+    assert_eq!(info1, InfoVerdict::Unfavorable);
+    assert!(
+        ev1.unwrap() <= EV_THRESHOLD,
+        "the penalty pushes EV ≤ thr: EV {:?}",
+        ev1
+    );
+    assert_eq!(
+        count1, 0,
+        "the +penalty pushes EV ≤ thr ⇒ the bin is SKIPPED (a 0-penalty mutation reds this)"
+    );
+}
+
+// ── A7: Unfavorable (STALE bracket book) ─────────────────────────────────────
+
+/// A7 Unfavorable (STALE bracket): a PRESENT, FRESH perp book but a bracket bin
+/// whose `as_of` is older than `info_max_age_ms` ⇒ the bracket side is STALE ⇒
+/// `Unfavorable` (the penalty), even though the perp book exists. Proves staleness
+/// (not just absence) drives the conservative side, and that the perp being present
+/// does not rescue a stale bracket.
+#[test]
+fn a7_unfavorable_stale_bracket_applies_penalty() {
+    let ladder = straddle_ladder();
+    let mut w = World::new();
+    let now = ts("2026-06-12T17:00:00.000Z");
+    // Perp FRESH (age 0); bracket books 10s STALE (> max_anchor 5s and > info_max 5s).
+    let stale = ts("2026-06-12T16:59:50.000Z"); // 10s before now
+    put_straddle_books_at(&mut w, stale);
+    w.put(perp_book_at(now));
+    let (tau_ms, dt_ms) = (7_200_000_i64, 1000_i64);
+    put_ladder_markets(&mut w, &ladder, tau_ms);
+    let mut s = PerpEventBasisV2::new(cfg_v4(ladder.clone())).unwrap();
+
+    let obs0 = ts("2026-06-12T16:59:55.000Z");
+    let _ = drive_constant_step_obs(&mut s, &w, 6.3000, 1.0001, 6, obs0, dt_ms);
+
+    let between = between_ev(&s);
+    assert_eq!(
+        between.info,
+        InfoVerdict::Unfavorable,
+        "a stale bracket book ⇒ Unfavorable even with a fresh perp present"
+    );
+    assert!(
+        (between.adverse_eff - (ADVERSE + INFO_ADVERSE_PENALTY)).abs() < 1e-12,
+        "stale ⇒ the penalty is applied"
+    );
+    // The recorded bracket age reflects the 10s staleness (diagnostic).
+    assert_eq!(
+        between.bracket_age_ms,
+        Some(10_000),
+        "bracket age = now − as_of = 10s"
+    );
+}
+
+// ── A7: BracketLeads — veto (flag on) vs down-weight (flag off) ───────────────
+
+/// A7 BracketLeads + veto: the bracket bin is STRICTLY fresher than the perp (both
+/// fresh) ⇒ `BracketLeads`; with `info_veto_on_bracket_leads = true` (default) the
+/// bin is HARD-VETOED — NO proposal — even though its EV clears by a wide margin.
+/// Dropping the veto reds this.
+#[test]
+fn a7_bracket_leads_vetoes_when_flag_on() {
+    let ladder = straddle_ladder();
+    let mut w = World::new();
+    let now = ts("2026-06-12T17:00:00.000Z");
+    // Bracket FRESH (age 0); perp older but still FRESH (age 2s ≤ 5s). bracket_age 0
+    // < perp_age 2000 ⇒ BracketLeads.
+    put_straddle_books_at(&mut w, now);
+    w.put(perp_book_at(ts("2026-06-12T16:59:58.000Z"))); // 2s old
+    let (tau_ms, dt_ms) = (7_200_000_i64, 1000_i64);
+    put_ladder_markets(&mut w, &ladder, tau_ms);
+    let mut s = PerpEventBasisV2::new(cfg_v4(ladder.clone())).unwrap();
+
+    let obs0 = ts("2026-06-12T16:59:55.000Z");
+    let _ = drive_constant_step_obs(&mut s, &w, 6.3000, 1.0001, 6, obs0, dt_ms);
+
+    let between = between_ev(&s);
+    assert_eq!(
+        between.info,
+        InfoVerdict::BracketLeads,
+        "bracket strictly fresher than the perp (both fresh) ⇒ BracketLeads"
+    );
+    // The bin's EV still clears (the veto, not a weak edge, suppresses it).
+    assert!(
+        between.ev.unwrap() > EV_THRESHOLD,
+        "the bin's EV clears ⇒ only the BracketLeads veto suppresses it"
+    );
+    assert!(
+        !between.proposed,
+        "a BracketLeads bin is not proposed (veto)"
+    );
+    assert_eq!(
+        s.metrics().proposals_emitted,
+        0,
+        "BracketLeads + veto flag ⇒ propose nothing"
+    );
+}
+
+/// A7 BracketLeads + flag OFF: the SAME strictly-fresher-bracket setup with
+/// `info_veto_on_bracket_leads = false` DOWN-WEIGHTS instead of vetoing — the bin's
+/// `adverse_eff` is raised by `info_adverse_penalty`, and since the between bin's
+/// edge is wide it STILL fires (documenting the flag-off behaviour = down-weight).
+#[test]
+fn a7_bracket_leads_downweights_when_flag_off() {
+    let ladder = straddle_ladder();
+    let mut w = World::new();
+    let now = ts("2026-06-12T17:00:00.000Z");
+    put_straddle_books_at(&mut w, now); // bracket fresh (age 0)
+    w.put(perp_book_at(ts("2026-06-12T16:59:58.000Z"))); // perp 2s old ⇒ BracketLeads
+    let (tau_ms, dt_ms) = (7_200_000_i64, 1000_i64);
+    put_ladder_markets(&mut w, &ladder, tau_ms);
+    let mut c = cfg_v4(ladder.clone());
+    c.info_veto_on_bracket_leads = false; // down-weight instead of veto
+    let mut s = PerpEventBasisV2::new(c).unwrap();
+
+    let obs0 = ts("2026-06-12T16:59:55.000Z");
+    let out = drive_capture_first_proposal(&mut s, &w, 6.3000, 1.0001, 6, obs0, dt_ms);
+
+    let between = between_ev(&s);
+    assert_eq!(between.info, InfoVerdict::BracketLeads);
+    assert!(
+        (between.adverse_eff - (ADVERSE + INFO_ADVERSE_PENALTY)).abs() < 1e-12,
+        "flag off ⇒ BracketLeads DOWN-WEIGHTS (adverse + penalty), got {}",
+        between.adverse_eff
+    );
+    assert_eq!(
+        out.len(),
+        1,
+        "flag off + a wide edge ⇒ the down-weighted bin still fires"
+    );
+}
+
+// ── A7: the conservative default bites ───────────────────────────────────────
+
+/// The conservative default: a MISSING perp book is NEVER `PerpFavorable` (it is
+/// `Unfavorable`). A mutation defaulting the verdict to `PerpFavorable` reds this.
+/// (Companion to the stale case: absence ⇒ Unfavorable.)
+#[test]
+fn a7_missing_perp_is_never_perp_favorable() {
+    let ladder = straddle_ladder();
+    let mut w = World::new();
+    let now = ts("2026-06-12T17:00:00.000Z");
+    put_straddle_books_at(&mut w, now); // fresh bracket; NO perp book
+    let (tau_ms, dt_ms) = (7_200_000_i64, 1000_i64);
+    put_ladder_markets(&mut w, &ladder, tau_ms);
+    let mut s = PerpEventBasisV2::new(cfg_v4(ladder.clone())).unwrap();
+
+    let obs0 = ts("2026-06-12T16:59:55.000Z");
+    let _ = drive_constant_step_obs(&mut s, &w, 6.3000, 1.0001, 6, obs0, dt_ms);
+
+    // EVERY priced bin must be Unfavorable — never PerpFavorable — with no perp book.
+    let eval = s.last_eval().expect("ready");
+    assert!(!eval.bin_evs.is_empty(), "the ladder priced");
+    for b in &eval.bin_evs {
+        assert_ne!(
+            b.info,
+            InfoVerdict::PerpFavorable,
+            "a missing perp book must NEVER be PerpFavorable (got it for {:?})",
+            b.kind
+        );
+        assert_eq!(
+            b.info,
+            InfoVerdict::Unfavorable,
+            "a missing perp book ⇒ Unfavorable for every bin"
+        );
+        assert_eq!(b.perp_age_ms, None, "perp absent ⇒ perp_age_ms None");
+    }
+}
+
+/// The conservative default also bites a STALE perp: a present-but-stale perp book
+/// (age > info_max_age_ms) with a fresh bracket is `Unfavorable`, NOT PerpFavorable
+/// and NOT BracketLeads (staleness short-circuits the fresher-bracket comparison).
+#[test]
+fn a7_stale_perp_is_unfavorable_not_bracket_leads() {
+    let ladder = straddle_ladder();
+    let mut w = World::new();
+    let now = ts("2026-06-12T17:00:00.000Z");
+    put_straddle_books_at(&mut w, now); // bracket fresh (age 0)
+    w.put(perp_book_at(ts("2026-06-12T16:59:50.000Z"))); // perp 10s STALE (>5s)
+    let (tau_ms, dt_ms) = (7_200_000_i64, 1000_i64);
+    put_ladder_markets(&mut w, &ladder, tau_ms);
+    let mut s = PerpEventBasisV2::new(cfg_v4(ladder.clone())).unwrap();
+
+    let obs0 = ts("2026-06-12T16:59:55.000Z");
+    let _ = drive_constant_step_obs(&mut s, &w, 6.3000, 1.0001, 6, obs0, dt_ms);
+
+    let between = between_ev(&s);
+    assert_eq!(
+        between.info,
+        InfoVerdict::Unfavorable,
+        "a stale perp (even with a fresher bracket) ⇒ Unfavorable, not BracketLeads"
+    );
+    assert_eq!(
+        between.perp_age_ms,
+        Some(10_000),
+        "perp age recorded as 10s (diagnostic)"
+    );
+}
+
+// ── A10: cdf_divergence ──────────────────────────────────────────────────────
+
+/// A10: `cdf_divergence` is `Some` when q_j is priced (the wide-straddle pricing
+/// tick) and `None` when q_j is empty (τ unknown ⇒ no pricing). Pins the
+/// populated-vs-absent contract.
+#[test]
+fn cdf_divergence_some_when_priced_none_when_not() {
+    let ladder = straddle_ladder();
+    // PRICED: τ known, fresh, coherent ⇒ q_j populated ⇒ cdf_divergence Some.
+    {
+        let mut w = World::new();
+        put_straddle_coherent_books(&mut w);
+        let (tau_ms, dt_ms) = (7_200_000_i64, 1000_i64);
+        put_ladder_markets(&mut w, &ladder, tau_ms);
+        let mut s = PerpEventBasisV2::new(cfg_v4(ladder.clone())).unwrap();
+        let obs0 = ts("2026-06-12T16:59:55.000Z");
+        drive_constant_step_obs(&mut s, &w, 6.3000, 1.0001, 6, obs0, dt_ms);
+        let eval = s.last_eval().expect("ready");
+        assert!(!eval.q_j.is_empty(), "the tick priced");
+        assert!(
+            eval.cdf_divergence.is_some(),
+            "a priced tick populates cdf_divergence"
+        );
+    }
+    // NOT PRICED: τ unknown (no markets) ⇒ q_j empty ⇒ cdf_divergence None.
+    {
+        let mut w = World::new();
+        put_straddle_coherent_books(&mut w);
+        // No put_ladder_markets ⇒ τ unknown ⇒ Disabled ⇒ empty q_j.
+        let mut s = PerpEventBasisV2::new(cfg_v4(ladder.clone())).unwrap();
+        let obs0 = ts("2026-06-12T16:59:55.000Z");
+        drive_constant_step_obs(&mut s, &w, 6.3000, 1.0001, 6, obs0, 1000);
+        let eval = s.last_eval().expect("σ ready ⇒ eval exists");
+        assert!(eval.q_j.is_empty(), "no pricing ⇒ empty q_j");
+        assert_eq!(
+            eval.cdf_divergence, None,
+            "an empty q_j ⇒ cdf_divergence None (nothing to compare)"
+        );
+    }
+}
+
+/// A10: `cdf_divergence` equals a HAND-COMPUTED Kolmogorov sup-distance for a small
+/// CONTROLLED ladder. We read the strategy's own implied bins + q_j from the eval,
+/// recompute the price-ordered cumulative sup-distance independently, and assert
+/// equality — pinning the FORMULA (max |Σimpliedₖ − Σmodelₖ| over price-ordered
+/// bins), not just "is Some".
+#[test]
+fn cdf_divergence_equals_hand_computed_sup_distance() {
+    let ladder = straddle_ladder();
+    let mut w = World::new();
+    put_straddle_coherent_books(&mut w); // less 0.25 / between 0.50 / greater 0.25
+    let (tau_ms, dt_ms) = (7_200_000_i64, 1000_i64);
+    put_ladder_markets(&mut w, &ladder, tau_ms);
+    let mut s = PerpEventBasisV2::new(cfg_v4(ladder.clone())).unwrap();
+    let obs0 = ts("2026-06-12T16:59:55.000Z");
+    drive_constant_step_obs(&mut s, &w, 6.3000, 1.0001, 6, obs0, dt_ms);
+
+    let eval = s.last_eval().expect("ready");
+    let div = eval.cdf_divergence.expect("priced ⇒ cdf_divergence Some");
+
+    // Independently recompute the sup-distance. The IMPLIED bins are the SAME bins
+    // the strategy built (the oracle `bins_from_world`); the MODEL is q_j. Order
+    // BOTH canonically (less rank 0, between 1, greater 2; within rank by floor/cap)
+    // — `bins_from_world` already yields BTreeMap order, but order both explicitly.
+    let bins = bins_from_world(&ladder, &w);
+    let rank = |k: &BracketStrike| -> u8 {
+        match k {
+            BracketStrike::Less { .. } => 0,
+            BracketStrike::Between { .. } => 1,
+            BracketStrike::Greater { .. } => 2,
+        }
+    };
+    let key = |k: &BracketStrike| -> f64 {
+        match k {
+            BracketStrike::Less { cap } => *cap,
+            BracketStrike::Between { floor, .. } => *floor,
+            BracketStrike::Greater { floor } => *floor,
+        }
+    };
+    let mut implied = bins.clone();
+    implied.sort_by(|a, b| {
+        rank(&a.kind)
+            .cmp(&rank(&b.kind))
+            .then(key(&a.kind).partial_cmp(&key(&b.kind)).unwrap())
+    });
+    let mut model: Vec<_> = eval.q_j.clone();
+    model.sort_by(|a, b| {
+        rank(&a.kind)
+            .cmp(&rank(&b.kind))
+            .then(key(&a.kind).partial_cmp(&key(&b.kind)).unwrap())
+    });
+    assert_eq!(implied.len(), model.len());
+    let mut ci = 0.0_f64;
+    let mut cm = 0.0_f64;
+    let mut sup = 0.0_f64;
+    for (ib, mp) in implied.iter().zip(model.iter()) {
+        ci += ib.prob;
+        cm += mp.q;
+        sup = sup.max((ci - cm).abs());
+    }
+    assert!(
+        (div - sup).abs() < 1e-12,
+        "cdf_divergence {div} != hand-computed sup-distance {sup}"
+    );
+}
+
+/// A10: a fully CONTROLLED tiny ladder with KNOWN implied/model cumulatives, to pin
+/// the sup-distance arithmetic to an exact number. The strategy is opaque about q_j
+/// (it derives from the lognormal model), so this test verifies the PUBLIC formula
+/// shape via the same recompute, but on a hand-picked ladder where the implied
+/// cumulative is exactly [0.25, 0.75, 1.0] (less/between/greater). The model
+/// cumulative is read from q_j; the asserted equality holds by construction of the
+/// recompute, and the implied-side numbers are the hand-checked anchors.
+#[test]
+fn cdf_divergence_implied_cumulative_is_hand_checked() {
+    let ladder = straddle_ladder();
+    let mut w = World::new();
+    // less 0.25, between 0.50, greater 0.25 ⇒ implied cumulative 0.25, 0.75, 1.00.
+    put_straddle_coherent_books(&mut w);
+    let (tau_ms, dt_ms) = (7_200_000_i64, 1000_i64);
+    put_ladder_markets(&mut w, &ladder, tau_ms);
+    let mut s = PerpEventBasisV2::new(cfg_v4(ladder.clone())).unwrap();
+    let obs0 = ts("2026-06-12T16:59:55.000Z");
+    drive_constant_step_obs(&mut s, &w, 6.3000, 1.0001, 6, obs0, dt_ms);
+
+    // Hand-check the implied cumulative the divergence is built on.
+    let bins = bins_from_world(&ladder, &w);
+    let less = bins
+        .iter()
+        .find(|b| matches!(b.kind, BracketStrike::Less { .. }))
+        .unwrap()
+        .prob;
+    let btw = bins
+        .iter()
+        .find(|b| matches!(b.kind, BracketStrike::Between { .. }))
+        .unwrap()
+        .prob;
+    let gt = bins
+        .iter()
+        .find(|b| matches!(b.kind, BracketStrike::Greater { .. }))
+        .unwrap()
+        .prob;
+    assert!((less - 0.25).abs() < 1e-9, "implied less = 0.25");
+    assert!((btw - 0.50).abs() < 1e-9, "implied between = 0.50");
+    assert!((gt - 0.25).abs() < 1e-9, "implied greater = 0.25");
+    // Cumulative: 0.25, 0.75, 1.00 (the price-ordered partial sums).
+    assert!((less + btw - 0.75).abs() < 1e-9);
+    assert!((less + btw + gt - 1.00).abs() < 1e-9);
+
+    // The divergence is the max gap of this implied cumulative vs the model
+    // cumulative (q_j partial sums). It is Some and in [0,1].
+    let div = s.last_eval().unwrap().cdf_divergence.unwrap();
+    assert!(
+        (0.0..=1.0).contains(&div),
+        "a CDF sup-distance is in [0,1], got {div}"
+    );
+}
+
+// ── T5.B8: A10 diagnostics → named MetricSample emission ──────────────────────
+//
+// V5 DEFERRED the "richer named-MetricSample emission" to this telemetry slice
+// (T5.B8). These tests pin the metrics-export contract: a PRICED strategy emits
+// the headline gauge set (each with a `market` label), a NOT-READY strategy emits
+// only `active=0`, and a strategy that does NOT override the trait default emits
+// nothing.
+//
+// ## Mutation-check note (which mutation reds which test)
+// - DROPPING the σ_τ / cdf finite-guard (emit on a non-finite f64) or MIS-SCALING
+//   either one (e.g. ×1_000 instead of ×1_000_000 for σ_τ, or ×100 instead of
+//   ×10_000 for cdf) reds `metric_samples_priced_scalings_pinned` (the scaling
+//   equality) and the name-set assertion in `metric_samples_priced_headline_set`.
+// - Returning a NON-empty Vec from the trait DEFAULT reds
+//   `metric_samples_default_trait_method_is_empty`.
+// - Emitting the full set (not just `active=0`) when `last_eval` is None reds
+//   `metric_samples_not_ready_emits_only_active_zero`.
+// - Dropping the `market` label reds `metric_samples_priced_headline_set` (the
+//   "every sample carries market=<perp>" assertion).
+
+/// The metric NAMES the headline set emits on a priced tick (the `regime` one-hot
+/// gauge included). Pinned here so a rename/drop reds.
+const PRICED_METRIC_NAMES: &[&str] = &[
+    "fortuna_perp_basis_v2_active",
+    "fortuna_perp_basis_v2_cdf_divergence_tenthou",
+    "fortuna_perp_basis_v2_sigma_tau_micro",
+    "fortuna_perp_basis_v2_anchor_dollars",
+    "fortuna_perp_basis_v2_horizon_ms",
+    "fortuna_perp_basis_v2_obs_count",
+    "fortuna_perp_basis_v2_anchor_stale",
+    "fortuna_perp_basis_v2_regime",
+];
+
+/// Drive the SAME priced configuration the A10 `cdf_divergence` tests use (straddle
+/// ladder, coherent books, τ=2h, Δ=1s, 6 constant-log-step ticks) to a ready,
+/// PRICED `last_eval`, and return the strategy + the world for inspection.
+fn priced_v2_strategy() -> (PerpEventBasisV2, World) {
+    let ladder = straddle_ladder();
+    let mut w = World::new();
+    put_straddle_coherent_books(&mut w);
+    let (tau_ms, dt_ms) = (7_200_000_i64, 1000_i64);
+    put_ladder_markets(&mut w, &ladder, tau_ms);
+    let mut s = PerpEventBasisV2::new(cfg_v4(ladder.clone())).unwrap();
+    let obs0 = ts("2026-06-12T16:59:55.000Z");
+    drive_constant_step_obs(&mut s, &w, 6.3000, 1.0001, 6, obs0, dt_ms);
+    (s, w)
+}
+
+/// T5.B8 (a): a PRICED strategy emits exactly the headline gauge set; every sample
+/// is a GAUGE (`counter == false`), carries a `market=<perp>` label, has a finite
+/// i64 value, and the `regime` sample additionally carries a `regime=` label. The
+/// set of NAMES equals `PRICED_METRIC_NAMES`.
+#[test]
+fn metric_samples_priced_headline_set() {
+    let (s, _w) = priced_v2_strategy();
+    let eval = s.last_eval().expect("priced ⇒ eval exists");
+    assert!(!eval.q_j.is_empty(), "precondition: the tick priced");
+    assert!(
+        eval.cdf_divergence.is_some(),
+        "precondition: cdf_divergence populated"
+    );
+
+    let samples = s.metric_samples();
+
+    // Exactly the headline names (cdf + σ_τ + anchor are present because they are
+    // finite here; horizon is present because τ is known).
+    let mut names: Vec<&str> = samples.iter().map(|m| m.name).collect();
+    names.sort_unstable();
+    let mut want: Vec<&str> = PRICED_METRIC_NAMES.to_vec();
+    want.sort_unstable();
+    assert_eq!(names, want, "the priced headline metric NAME set");
+
+    for m in &samples {
+        // All point-in-time gauges (never counters).
+        assert!(!m.counter, "{} must be a gauge (counter:false)", m.name);
+        // Every sample carries the market label = the perp market.
+        let market = m
+            .labels
+            .iter()
+            .find(|(k, _)| k == "market")
+            .map(|(_, v)| v.as_str());
+        assert_eq!(
+            market,
+            Some(PERP),
+            "{} must carry market=<perp_market>",
+            m.name
+        );
+        // i64 value is well-formed (a finite cast, never an undefined one).
+        let _ = m.value;
+    }
+
+    // The regime sample is the one-hot gauge: value 1 with a regime= label.
+    let regime = samples
+        .iter()
+        .find(|m| m.name == "fortuna_perp_basis_v2_regime")
+        .expect("regime sample present");
+    assert_eq!(regime.value, 1, "regime is a one-hot gauge (value 1)");
+    let regime_label = regime
+        .labels
+        .iter()
+        .find(|(k, _)| k == "regime")
+        .map(|(_, v)| v.as_str());
+    // τ = 2h and direct_max_ms = 4h ⇒ 2h ≤ 4h ⇒ Direct.
+    assert_eq!(
+        regime_label,
+        Some("direct"),
+        "τ=2h ≤ direct_max=4h ⇒ Direct regime"
+    );
+}
+
+/// T5.B8 (a, scaling): the cdf_divergence and sigma_tau samples equal a hand-applied
+/// fixed scale of the eval's OWN f64 (×10_000 ten-thousandths; ×1_000_000 micro),
+/// `.round() as i64`. Pins the documented dashboard decode + the finite-guard (a
+/// dropped guard / wrong scale reds this).
+#[test]
+fn metric_samples_priced_scalings_pinned() {
+    let (s, _w) = priced_v2_strategy();
+    let eval = s.last_eval().expect("priced ⇒ eval exists");
+    let div = eval.cdf_divergence.expect("priced ⇒ cdf_divergence Some");
+    let sigma_tau = eval.sigma_tau;
+    assert!(div.is_finite() && sigma_tau.is_finite(), "finite inputs");
+
+    let samples = s.metric_samples();
+    let by_name = |name: &str| -> i64 {
+        samples
+            .iter()
+            .find(|m| m.name == name)
+            .unwrap_or_else(|| panic!("missing {name}"))
+            .value
+    };
+
+    let want_cdf = (div * 10_000.0).round() as i64;
+    assert_eq!(
+        by_name("fortuna_perp_basis_v2_cdf_divergence_tenthou"),
+        want_cdf,
+        "cdf_divergence ×10_000 ten-thousandths (decode ÷10_000)"
+    );
+
+    let want_sigma = (sigma_tau * 1_000_000.0).round() as i64;
+    assert_eq!(
+        by_name("fortuna_perp_basis_v2_sigma_tau_micro"),
+        want_sigma,
+        "sigma_tau ×1_000_000 micro (decode ÷1_000_000)"
+    );
+
+    // anchor → whole dollars; horizon → ms as-is; obs_count/anchor_stale as-is.
+    assert_eq!(
+        by_name("fortuna_perp_basis_v2_anchor_dollars"),
+        eval.anchor.round() as i64,
+        "anchor rounded to whole BTC dollars"
+    );
+    assert_eq!(
+        by_name("fortuna_perp_basis_v2_horizon_ms"),
+        eval.tau_ms.expect("τ known"),
+        "horizon τ in ms, as-is"
+    );
+    assert_eq!(
+        by_name("fortuna_perp_basis_v2_obs_count"),
+        eval.obs_count as i64,
+        "obs_count as-is"
+    );
+    assert_eq!(
+        by_name("fortuna_perp_basis_v2_anchor_stale"),
+        i64::from(eval.anchor_stale),
+        "anchor_stale as 0/1"
+    );
+}
+
+/// T5.B8 (b): a NOT-READY strategy (σ never reaches `min_vol_obs` ⇒ `last_eval`
+/// None) emits ONLY a single `active=0` gauge — never the full set on a stale/absent
+/// eval, so the dashboard sees "inactive", not a missing or stale series.
+#[test]
+fn metric_samples_not_ready_emits_only_active_zero() {
+    let ladder = straddle_ladder();
+    let w = World::new();
+    // A config whose readiness gate (min_vol_obs) is far above the ticks we feed.
+    let mut cfg = cfg_v4(ladder.clone());
+    cfg.min_vol_obs = 1_000;
+    let mut s = PerpEventBasisV2::new(cfg).unwrap();
+    // One matching tick: σ folds but stays not-ready ⇒ no eval recorded.
+    let _ = run(&mut s, &w, &perp_tick_v2(PERP, "6.3500", "6.3000"));
+    assert!(
+        s.last_eval().is_none(),
+        "precondition: σ not ready ⇒ no eval"
+    );
+
+    let samples = s.metric_samples();
+    assert_eq!(samples.len(), 1, "not-ready ⇒ exactly one sample");
+    let only = &samples[0];
+    assert_eq!(only.name, "fortuna_perp_basis_v2_active");
+    assert_eq!(only.value, 0, "active=0 when no eval exists");
+    assert!(!only.counter, "active is a gauge");
+    assert_eq!(
+        only.labels
+            .iter()
+            .find(|(k, _)| k == "market")
+            .map(|(_, v)| v.as_str()),
+        Some(PERP),
+        "active=0 still carries the market label"
+    );
+}
+
+/// T5.B8 (c): a strategy that does NOT override `metric_samples` gets the trait
+/// DEFAULT (empty Vec). Asserted against a tiny dummy `Strategy` so the test pins
+/// the DEFAULT itself (not any particular non-overriding production strategy).
+#[test]
+fn metric_samples_default_trait_method_is_empty() {
+    use async_trait::async_trait;
+    use fortuna_core::bus::BusEvent;
+    use fortuna_core::market::StrategyId;
+    use fortuna_runner::{
+        CoreHandle, MetricSample, Proposal, RunnerError, Stage, Strategy, StrategyKind,
+        StrategyMetrics,
+    };
+
+    struct DummyStrategy;
+
+    #[async_trait]
+    impl Strategy for DummyStrategy {
+        fn id(&self) -> StrategyId {
+            StrategyId::new("dummy_no_metrics").unwrap()
+        }
+        fn kind(&self) -> StrategyKind {
+            StrategyKind::Mechanical
+        }
+        fn stage(&self) -> Stage {
+            Stage::Sim
+        }
+        async fn on_event(
+            &mut self,
+            _ev: &BusEvent,
+            _core: &CoreHandle<'_>,
+        ) -> Result<Vec<Proposal>, RunnerError> {
+            Ok(Vec::new())
+        }
+        fn metrics(&self) -> StrategyMetrics {
+            StrategyMetrics::default()
+        }
+        // NB: `metric_samples` is intentionally NOT overridden — the default applies.
+    }
+
+    let s = DummyStrategy;
+    let samples: Vec<MetricSample> = s.metric_samples();
+    assert!(
+        samples.is_empty(),
+        "the Strategy::metric_samples default returns an empty Vec"
+    );
 }

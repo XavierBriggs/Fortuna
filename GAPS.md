@@ -111,7 +111,7 @@ by the controller). σ/τ are CALLER-injected; the kernel invents nothing. The v
 all are Sim-stage I7 knobs that gate nothing live but must be operator-endorsed before treated as a real
 edge claim):
 
-**V3+V4 STATUS (2026-06-14): the v2 MODEL + HORIZON-GATED EV layers are BUILT** — a new propose-only, Sim-stage,
+**V3+V4+V5 STATUS (2026-06-14): the v2 STRATEGY is COMPLETE (§3.3 A3/A6/A9/A5/A4/A8/A7/A10)** — a new propose-only, Sim-stage,
 DATA-ONLY `fortuna-runner::perp_event_basis_v2` strategy wires the kernel onto live data (A6 BRTI anchor +
 A9 no-arb gate + A3 q_j + A10 median-as-diagnostic), proposing NOTHING (the EV gate is V4). It IMPLEMENTS
 **DC-1** (the σ EWMA estimator in strategy state + all its knobs; defaults as below) and wires **DC-5**'s
@@ -124,11 +124,18 @@ strategy to be correct. **V4 (the second commit) BUILT A5 horizon regimes + A4/A
 `core.markets.close_at` (DC-4 in-lane), `σ_τ = σ_step·√(τ/Δ)`, the >48h / τ-unknown / stale-anchor vetoes,
 and the per-bin EV gate (DC-3 WIRED: ev_threshold 0.02, slippage ½-tick, reserve 0.01, adverse 0.01,
 fee-trap maker coeff 0.0175) emitting UNSIZED maker legs on clearing bins — the FIRST v2 slice that proposes.
-DC-2 (Φ precision) stays done-in-kernel; **DC-6 (A7 informativeness weights) remains for V5**; all stay
-operator-endorse-before-edge-claim. Remaining build order: V5 = A7 measured informativeness + A10 diagnostic
-emission (the LAST v2 slice). NO compose.rs wire-in yet (the track-A
-`[perp_event_basis_v2]` registration is a documented follow-on, like the kernel + the resolve_and_score
-`drive()` wire).
+DC-2 (Φ precision) stays done-in-kernel. **V5 (the third commit) BUILT A7 measured informativeness + A10
+diagnostics — the v2 strategy is now COMPLETE**: per-bin `InfoVerdict` from whole-book freshness (DC-6 WIRED:
+info_max_age_ms 5000, info_adverse_penalty 0.02, info_veto_on_bracket_leads true; perp-vs-bracket spread/depth
+recorded NOT gated — different units), feeding the EV gate conservatively-only (BracketLeads⇒veto,
+Unfavorable⇒+penalty, never up-weight); the model-vs-implied CDF sup-distance + verdict + freshness/spread/depth
+in the V2Eval snapshot + thesis (the §9 data half). All six DC defaults (DC-1..DC-6) are now IMPLEMENTED +
+config-overridable; all stay operator-endorse-before-edge-claim. **What REMAINS for v2 is NOT track-C code**:
+(a) operator endorsement of the DC defaults before any DECLARED edge (I7), (b) a v2 paired-cycle e2e fixture
+(operator/recorder — BRTI reference_price+ts, a settlement close_at, a mark series/σ; the kernel slices are
+synthetic-green, synthetic ≠ e2e-validated), and (c) the track-A `[perp_event_basis_v2]` compose registration
+(a documented follow-on, like the kernel + the resolve_and_score `drive()` wire) + the T5.B8 telemetry
+MetricSample emission + the track-B ROTA §9.2 display. NO compose.rs wire-in was made here.
 - **DC-1 σ source (A3/A5)** — §3.3 says "σ from realized vol of the perp-mark series scaled by √τ" but NO
   perp-mark series is buffered anywhere. NEEDS: the rolling buffer + estimator. (Rec: a bounded N=64
   rolling `settlement_mark` buffer in the strategy state; σ = EWMA(λ=0.94) stddev of log-returns; require

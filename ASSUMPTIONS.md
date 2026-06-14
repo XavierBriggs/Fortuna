@@ -3,6 +3,51 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## TRACK C — T5.B8 telemetry (perp basis-v2 A10 → MetricSamples) (2026-06-14; interprets design §8 + §9 data-vs-view)
+
+- **`MetricSample.value` is i64, so f64 diagnostics are emitted at a FIXED documented scale the dashboard
+  divides back** (the existing "integer-only; ratios computed by the dashboard" convention): cdf_divergence
+  ×10_000 (ten-thousandths), sigma_tau ×1_000_000 (micro), anchor → whole rounded BTC dollars; tau_ms/obs_count
+  as-is; anchor_stale + active as 0/1; regime as a one-hot gauge (value 1 + a `regime=` label). Every f64→i64
+  cast is `.is_finite()`-guarded (a non-finite f64 SKIPS that sample, never a garbage `as i64`). The scale is
+  in each metric's `help` string. Interprets §8 (integer metrics).
+- **Not-ready emits a single `active=0` (not an empty Vec)** so the dashboard distinguishes an INACTIVE
+  strategy (σ not ready) from a missing/down series. Each sample carries a `market=<perp_market>` label so
+  multiple perps never collide on the same `&'static str` metric name. Interprets §8.
+- **Per-bin `BinEv` emission + the margin-state telemetry (utilization/funding-accrual/liquidation) are
+  DEFERRED** — per-bin needs a bounded label set; margin telemetry needs the daemon/paper to wire `MarginSim`.
+  The new `Strategy::metric_samples()` seam (default empty) is the extension point for both. The ROTA §9.2
+  perps panel that renders these is TRACK-B's `rota.rs`. Interprets §9 (C produces numbers, B displays).
+
+## TRACK C — perp basis-v2 SLICE V5 (A7 informativeness + A10 diagnostics) (2026-06-14; interprets design §3.3 + DC-6)
+
+- **A7 gates on whole-book FRESHNESS only (DC-6 DATA CAVEAT).** `OrderBook` carries a single whole-book
+  `as_of`, no per-level age; and perp-vs-bracket SPREAD/DEPTH are different units (perp ten-thousandths vs
+  YES-cents), so they are RECORDED as A10 diagnostics, never used as a cross-instrument gate. Freshness
+  (perp `as_of`/`obs_at` vs bracket `as_of`) is the gate. Interprets §3.3 A7 + its DATA CAVEAT.
+- **Perp-side freshness = the perp book `as_of` when `core.books[perp_market]` is present, else
+  `funding.obs_at`** (always available). The perp book may be unplumbed (the daemon may feed only the
+  `PerpTick`); its ABSENCE forces `Unfavorable`, so the strategy is correct with or without a perp book.
+  A future/equal `as_of` (now ≤ as_of) is age 0 (freshest), never stale — the absent/stale guards carry the
+  conservative `Unfavorable` where freshness is genuinely unknowable; this never fabricates the perp leading.
+  Interprets §3.3 A7 conservative default + spec 5.11 (untrusted timestamps).
+- **A7 modifies the EV gate conservatively-ONLY**: PerpFavorable ⇒ unchanged; Unfavorable ⇒ `adverse +=
+  info_adverse_penalty`; BracketLeads ⇒ veto (flag on) or +penalty (flag off). It never lowers adverse or
+  up-sizes. DC-6 defaults: `info_max_age_ms` 5000 (BRTI ~1/sec), `info_adverse_penalty` 0.02,
+  `info_veto_on_bracket_leads` true. All config-overridable. Interprets §3.3 A7/A8.
+- **A10 `cdf_divergence` = the Kolmogorov sup-distance** `max_k |Σ_{j≤k} implied_j − Σ_{j≤k} q_j|` over the
+  bins in the kernel's CANONICAL price order (rank Less<Between<Greater, within-rank by cap/floor/floor —
+  mirrored locally since the kernel's `order_rank`/`order_key` are module-private, the same add-only
+  mirroring `basis_v2` itself uses against `basis.rs`); `None` on empty/degenerate/length-mismatch. A health
+  metric, never a gate. Interprets §3.3 A10.
+- **The richer named-`MetricSample` emission + the realized band-coverage metric are DEFERRED to T5.B8;
+  the ROTA §9.2 DISPLAY is track-B.** V5 ships the numbers in the `V2Eval` snapshot + the proposal `thesis`
+  (the §9 "C produces the numbers" data half). Interprets §3.3 A10 + the §9 data-vs-view split.
+- **Rung-0 fallback coexistence is doc-only** (module doc): v2 degrades to "propose nothing" on any
+  unavailable/stale/incoherent input, and the rung-0 `perp_event_basis` strategy (separately registered)
+  remains the FALLBACK basis path — both coexist; v2 activates only when its inputs are present + coherent.
+  Interprets §3.3 ("the rung-0 path stays as the fallback").
+
 ## TRACK C — perp basis-v2 SLICE V4 (A5 horizon gating + A4/A8 EV gate) (2026-06-14; interprets design §3.3 + DC-1/DC-3/DC-4)
 
 - **σ_τ = σ_step · √(τ_ms / Δ_ms), clamped to `[sigma_floor, sigma_ceiling]`** (the lognormal-in-log-price
