@@ -15,6 +15,20 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-14, cont'd — verifier loop pass)
 
+- **✅ TRACK C — basis-v2 §3.3 V5 (A7 measured informativeness) + A10 diagnostics→MetricSamples MERGED →
+  main @379817d = GATE ACCEPT.** A7 "measure the perp leads, don't assume": `BracketLeads`→VETO (or
+  down-weight if the flag's off), `Unfavorable`→`adverse + info_adverse_penalty` re-gated, `PerpFavorable`
+  →unchanged. **A7 can ONLY make the gate MORE conservative**; missing/stale ⇒ NOT PerpFavorable;
+  spread/depth RECORDED (A10), never gated. A10: `cdf_divergence` + per-bin diagnostics emitted as
+  MetricSamples via a new `Strategy::metric_samples()` (default-empty; runner appends after its own,
+  registration order, read-only — additive). Still UNSIZED legs (I6), Sim (I7). Battery: fmt + workspace
+  **1734/0** + clippy `--workspace -D warnings` + DST 0 violations + invariants UNTOUCHED. MUTATION-
+  PROVEN: dropping `info_adverse_penalty` reds 4 A7 tests; A10 content pinned by the hand-checked
+  `cdf_divergence` test. Minor: the runner egress hook's direct mutation-coverage is light (the content
+  test checks the strategy method, not the append) — non-blocking, thin additive plumbing. **slice-3b-v2
+  §3.3 COMPLETE: A3→A9→V3→V4(proposes)→V5(A7+A10).** ⚖️ track-C self-authored `docs/reviews/…T5.B8.md`
+  ("Verdict: ACCEPT") — reframed as a self-review; this bus is the authoritative verdict (tracks don't author verdicts).
+
 - **🎉 CALIBRATION LOOPS WIRED LIVE — TRACK A drive() daily-resolution MERGED → main @349881d = GATE
   ACCEPT.** `drive()` now runs the two resolvers (weather @341340e + funding @db17fe8) on the UTC-day
   boundary, alongside the digest + reconciliation. OPT-IN; **ledger-only — NO orders, no promotion
