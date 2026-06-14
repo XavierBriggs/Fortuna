@@ -30,9 +30,16 @@ Contract: `docs/design/aeolus-fortuna-source-contract.md` (rev 3). Changelog:
   `ScalarBeliefDraft` (pinned μ/σ quantile fan, `degF`) for CRPS. I6 propose-only (no exec fields).
   Reviewer-checked (the "harness-stamps provenance" flag verified a false alarm — producers stamp
   provenance, scoring keys on it; matches persona_beliefs + reconciliation). `in_bracket` skipped+counted.
-- **F9** — Layer-3 reliability scoring (Brier + CRPS vs realized temp, per (model, scope)). KNOWN
-  SEAM: the productText→realized-daily-high extraction (F2) is NOT in cognition; F9 takes the
-  realized temp as an input and the extraction is seamed (e2e uses a recorded realized value).
+- **F9 — Layer-3 reliability scoring — DONE (this commit).** `aeolus_reliability::score_reliability`
+  → per-(model,scope) Brier (binary brackets vs realized 0/1) + CRPS (F8's μ/σ fan vs realized),
+  reusing `brier_score`/`CrpsPinballRule`. Validated against the fixture (outcomes split 8/6 at
+  realized 88; CRPS grows for a colder realized). SEAM still open (operator/Track-D): the
+  productText→realized-daily-high extraction (F2) is NOT in cognition — F9 takes the realized temp as
+  input; the e2e supplies a recorded value. A future F2 cognition grader (NWS-CLI productText → °F)
+  closes it.
+- **e2e (NEXT)** — the assignment's gate: a recorded forecast → F6 parse → F5 dedup → F7 match → F8
+  beliefs PERSIST (ScalarBeliefsRepo/BeliefsRepo) → F9 scores vs a recorded realized temp + persists
+  the score (BeliefScoresRepo). Calibration validated, not asserted.
 - **e2e** — recorded forecast → F6→F7→F8→persist→F9 scores vs recorded realized temp.
 
 Status (post-E-batch, 2026-06-10): the T3.6 completion claim was FALSIFIED

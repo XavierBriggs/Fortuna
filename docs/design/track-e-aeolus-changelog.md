@@ -16,7 +16,35 @@ FULL workspace battery as the commit gate.
 
 ---
 
-## F8 — propose-only belief emission (binary brackets + scalar μ/σ fan) (this commit)
+## F9 — Layer-3 empirical reliability scoring (Brier + CRPS vs realized) (this commit)
+
+New `crates/fortuna-cognition/src/aeolus_reliability.rs`: `score_reliability(&AeolusForecast,
+realized_f) -> AeolusReliability`. THE LOOP (contract §5 Layer 3): FORTUNA INDEPENDENTLY re-scores
+every Aeolus belief at settlement against the realized temperature (the independent NWS grader, NOT
+Aeolus — V4 self-grading caution). Per `(model, scope)` = `{model_id:"aeolus", model_version,
+station, variable, target_date}` (mirrors the F8 provenance the ROTA scorecard groups by):
+
+- **Binary Brier** per `ge`/`lt` bracket: outcome = realized integer high satisfies the bracket
+  (`ge t ⟺ realized ≥ t`), `brier = brier_score(p_fortuna, outcome)` (the belief's own μ/σ
+  probability, recomputed via the F6 helpers — the SAME math F8 emitted).
+- **Scalar CRPS** of F8's μ/σ quantile fan vs the realized value via the pinned `CrpsPinballRule`
+  (the SAME scalar object F8 emits). `crps: Option<f64>` (None only on a post-parse-impossible
+  scoring error — never a panic).
+
+SEAM (GAPS): the realized value is an INPUT; extracting the official daily high/low from the NWS-CLI
+`productText` (the F2 grader) is a source-side concern not yet in cognition — F9 takes the graded
+value, the e2e supplies a RECORDED one. Pure + deterministic; no Clock::now.
+
+Built directly (the scoring reuses `brier_score` + `CrpsPinballRule` + the F6/F8 building blocks),
+tests-first. 4 tests against the recorded fixture (μ≈87.35/σ≈1.90): a realized high of 88 satisfies
+ge81..88 (8 true) and not ge89..94 (6 false); each brier is exactly `(p−outcome)²`; confident+correct
+tails (ge81/ge94) score Brier <1e-3; the integer boundary (realized=87 ⟹ ge87 true, ge88 false); a
+colder realized (80) flips all outcomes and grows the CRPS. Verified: `cargo test -p fortuna-cognition
+--test aeolus_reliability` 4/4; full workspace clippy + test (see commit).
+
+Shared-doc touches: none (new file only).
+
+## F8 — propose-only belief emission (binary brackets + scalar μ/σ fan) (commit 142d762)
 
 New `crates/fortuna-cognition/src/aeolus_beliefs.rs`: `emit_aeolus_beliefs(&AeolusForecast) ->
 AeolusBeliefs { binary: Vec<BeliefDraft>, scalar: ScalarBeliefDraft, skipped_in_bracket }`. The
