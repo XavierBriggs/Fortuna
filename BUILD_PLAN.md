@@ -1178,10 +1178,14 @@ scheduler is shared with D9). The skill/persona layer is a separate session
       to tighten the poll cadence around forecast issuance. DEFERRED to Phase B —
       a scheduling refinement, NOT the gate's reachability/validation ask (which
       F4 closes). Today the Aeolus source polls on its configured base_interval.
-- [ ] F10 registry row + Layer-0 dossier (docs/research/sources/aeolus/, stating
+- [x] F10 registry row + Layer-0 dossier (docs/research/sources/aeolus/, stating
       MEASURED reality not an unproven edge, per contract §1/§5) + v1→v2 fixture
       migration (keep v1 behind "schema absent ⇒ v1"; aeolus_eval T2.7 stays
       green; do NOT weaken it).
+      ✅ DONE (track-e-f10-e5): v1↔v2 schema dispatch `aeolus_forecast::parse_versioned`
+      (absent⇒v1 reconciliation::AeolusEnvelope, kept green/unweakened; v2⇒strict F6 parse;
+      else UnknownSchema) + 3 tests; dossier pre-existing/complete (tier-7 sober, measured
+      reality); source_registry ROW = ledgered operator seed (values in GAPS).
 - [x] ✅ DONE (track-E Aeolus F5–F9 merged @bdea003) — (cognition; OWNER = TRACK E as of 2026-06-14, reassigned from C — operator-
       directed; E owns the weather domain. New disjoint fortuna-cognition modules;
       reuse C's prob_claims/v1 + scalar_beliefs; do not touch C's perp/discovery files.)
@@ -1278,15 +1282,20 @@ at E.3 (the PersonaOutcome no-order/size field-surface pin) under operator waive
       domain_analysis_context_item (the artifact as a high-priority DATA context item for the
       synthesis Mind); shared-enum safety verified; 3 tests; full battery green. The
       fortuna_persona_beliefs_total metric folds into the §19 PersonaCounters at the live wiring.]
-- [ ] E.5 Scoring scope extension — ScopeKey + weekly-review promote/retire proposal (baseline +
+- [x] E.5 Scoring scope extension — ScopeKey + weekly-review promote/retire proposal (baseline +
       market comparison; recommendation-only); resolved_beliefs/clv_bp metrics.
-      [E.5a DONE this commit: fortuna_cognition::persona_scoring — PersonaScope + score_persona
+      [E.5a DONE: fortuna_cognition::persona_scoring — PersonaScope + score_persona
       (Brier/quality/CLV via the existing calibration primitives) + propose_promotion (the §11
-      beat-both-baselines gate: Evaluating/Promotable/RetireCandidate; recommendation-only, I7);
-      9 tests; full battery green. BOUNDARY (Fit-validation §21): additive parallel PersonaScope —
-      folding persona dims into the shared review::ScopeKey + the daemon weekly-review wiring is a
-      GATED Track-A coordination (GAPS). REMAINING E.5: the ScopeKey/daemon wiring (Track-A coord)
-      + the resolved_beliefs/clv_bp metric labels (fold into §19 at wiring).]
+      beat-both-baselines gate: Evaluating/Promotable/RetireCandidate; recommendation-only, I7).
+      E.5-REMAINDER DONE (track-e-f10-e5): the weekly-review FOLDING entry point
+      `persona_scoring::weekly_persona_proposals(&[PersonaReviewInput], min_resolved) ->
+      Vec<PersonaPromotionProposal>` — one call folds every registered (persona, version); +2 tests;
+      handoff §8 updated to call it. Per Fit-validation §21 this is the ADDITIVE PARALLEL realization
+      (scores by PersonaScope alongside the synthesis review::ScopeKey) — it does NOT edit the shared
+      `ScopeKey` struct, whose literal is in Track-A's daemon composition (extending its fields would
+      break daemon.rs:1024, which the loop forbids touching unilaterally). REMAINING = Track-A daemon
+      coordination ONLY: call `weekly_persona_proposals` in drive()'s weekly review + route to
+      #fortuna-review (the §8 handoff); + the resolved_beliefs/clv_bp metric labels fold into §19 at wiring.]
 - [x] E.6 End-to-end meteorologist proof over Aeolus (+ NWS/fixture) + the macro mechanism test;
       the §11 evaluation gate wired; full battery green.
       (DONE this commit: crates/fortuna-ledger/tests/persona_e2e.rs — one #[sqlx::test] wires the

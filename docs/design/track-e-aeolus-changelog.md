@@ -88,6 +88,33 @@ full workspace clippy + test (see commit). Track-A builds the venue half (discov
 → `Direct` edges → `drive()` world-forward wiring) against the recorded Kalshi fixture, mutation-proven.
 
 Shared-doc touches: none (new contract doc + module).
+## F10 — v1↔v2 schema dispatch + registry/dossier (this commit)
+
+Operator-directed residual (2026-06-14). Three parts:
+
+- **v1→v2 fixture migration (the build):** `aeolus_forecast::parse_versioned(body) ->
+  AeolusEnvelopeVersion` routes a raw Aeolus envelope by its OPTIONAL `schema` field (contract §9):
+  `schema` ABSENT ⇒ **V1** (the legacy `reconciliation::AeolusEnvelope` — the `aeolus_eval` T2.7
+  fixture path, kept alive and NOT weakened); `schema == "aeolus.forecast/v2"` ⇒ the strict **V2**
+  parse (reusing F6's `RawEnvelope`+`validate`); any other schema ⇒ `UnknownSchema` (the §8
+  co-evolution tripwire, never silently treated as v1). `V2` is boxed (it's ~4× the v1 envelope;
+  the `Box` auto-derefs for the accessors). 3 dispatch tests (v1 sample → V1, recorded v2 → V2,
+  bogus schema → error); the v1 `aeolus_eval`/`reconciliation` suite (4 tests) is UNTOUCHED and
+  green. Additive: `reconciliation.rs` (the v1 parser) is not modified.
+- **Layer-0 dossier:** already complete (`docs/research/sources/aeolus/dossier.md`, tier-7 SOBER,
+  authored 2026-06-13) — states the MEASURED reality (contract §1/§5): μ commodity (~4–8% worse
+  than raw GEFS), edge over raw is calibration, market edge unproven; admit HIGH on authenticity,
+  MODEST empirical tier, Layer 3 earns it. No change needed; confirmed accurate vs the captured
+  fixtures. (BUILD_PLAN F10 box ticked.)
+- **source_registry row:** a ledgered OPERATOR SEED action (per the dossier Decision + GAPS) — the
+  exact admission values (source_id `aeolus`, tier `7`, domain `weather`, `auth_env =
+  AEOLUS_API_TOKEN`, https-only host pinned [stable host TBD — currently an ephemeral tunnel],
+  resolution-eligible NO) are recorded in GAPS for the operator to apply when D9 wires sources.
+
+Verified: `cargo test -p fortuna-cognition --test aeolus_forecast` 21/21 + `--test reconciliation`
+4/4 (aeolus_eval untouched); full workspace clippy + test (see commit).
+
+Shared-doc touches: none (the dossier is Track-E-owned + pre-existing).
 
 ## F4b — release-aware cadence (Aeolus scheduler consumes next_run_at) (commit ef3ddb0)
 

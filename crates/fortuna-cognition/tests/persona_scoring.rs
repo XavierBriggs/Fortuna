@@ -2,8 +2,8 @@
 //! the beat-both-baselines promote/retire PROPOSAL (recommendation-only, I7).
 
 use fortuna_cognition::persona_scoring::{
-    propose_promotion, score_persona, Baseline, PersonaScope, PersonaScopeRecord, PersonaScorecard,
-    PromotionVerdict,
+    propose_promotion, score_persona, weekly_persona_proposals, Baseline, PersonaReviewInput,
+    PersonaScope, PersonaScopeRecord, PersonaScorecard, PromotionVerdict,
 };
 
 fn scope() -> PersonaScope {
@@ -142,4 +142,65 @@ fn the_prior_version_comparison_is_reported() {
         60,
     );
     assert_eq!(p2.beats_prior_version, Some(false));
+}
+
+// ---- E.5 remainder: the weekly-review persona folding entry point ----------
+
+/// A record of `n` identical `(p, outcome)` samples + `clv` (a known Brier/CLV).
+fn record_of(p: f64, outcome: bool, n: usize, clv: f64) -> PersonaScopeRecord {
+    PersonaScopeRecord {
+        scope: scope(),
+        samples: vec![(p, outcome); n],
+        clv_bps: vec![clv; n],
+    }
+}
+
+#[test]
+fn weekly_persona_proposals_folds_each_scope_in_order() {
+    let baselines = (Baseline { brier_mean: 0.20 }, Baseline { brier_mean: 0.19 });
+    let inputs = vec![
+        // below the floor → Evaluating (zero-capital).
+        PersonaReviewInput {
+            record: record_of(0.6, true, 30, 10.0),
+            prior: None,
+            no_persona: baselines.0,
+            market: baselines.1,
+        },
+        // ≥ floor, Brier 0.01 beats both baselines, +CLV → Promotable.
+        PersonaReviewInput {
+            record: record_of(0.9, true, 60, 42.0),
+            prior: None,
+            no_persona: baselines.0,
+            market: baselines.1,
+        },
+        // ≥ floor, Brier 0.81 cannot beat the baselines → RetireCandidate.
+        PersonaReviewInput {
+            record: record_of(0.1, true, 60, 42.0),
+            prior: None,
+            no_persona: baselines.0,
+            market: baselines.1,
+        },
+    ];
+    let proposals = weekly_persona_proposals(&inputs, 60);
+    assert_eq!(
+        proposals.len(),
+        3,
+        "one proposal per scope, order preserved"
+    );
+    assert_eq!(
+        proposals[0].verdict,
+        PromotionVerdict::Evaluating {
+            resolved: 30,
+            needed: 60
+        }
+    );
+    assert_eq!(proposals[1].verdict, PromotionVerdict::Promotable);
+    assert_eq!(proposals[2].verdict, PromotionVerdict::RetireCandidate);
+    // Recommendation-only (I7): verdict + rationale, no mutation surface.
+    assert!(!proposals[1].rationale.is_empty());
+}
+
+#[test]
+fn weekly_persona_proposals_is_empty_for_no_scopes() {
+    assert!(weekly_persona_proposals(&[], 60).is_empty());
 }

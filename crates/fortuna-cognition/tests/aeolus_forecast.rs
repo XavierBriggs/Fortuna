@@ -14,13 +14,19 @@
 
 use fortuna_cognition::aeolus_forecast::{
     bracket_prob_ge, bracket_prob_lt, bracket_range_prob, parse_envelope, parse_response,
-    AeolusError, Comparison, Units, Variable,
+    parse_versioned, AeolusEnvelopeVersion, AeolusError, Comparison, Units, Variable,
 };
 use fortuna_core::clock::UtcTimestamp;
 
 const FIXTURE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../fixtures/sources/aeolus/knyc_tmax.json"
+));
+
+/// The committed v1 envelope (no `schema` field) — the aeolus_eval T2.7 fixture.
+const V1_FIXTURE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../fixtures/aeolus/sample_envelope.json"
 ));
 
 /// Clamp epsilon used by the implementation (probabilities live in
@@ -313,5 +319,52 @@ fn parse_response_rejects_a_malformed_member() {
     assert!(matches!(
         parse_response(&bad),
         Err(AeolusError::NonPositiveSigma { .. })
+    ));
+}
+
+// ---- F10: v1↔v2 schema dispatch (contract §9 migration) -------------------
+
+#[test]
+fn parse_versioned_routes_v1_when_schema_absent() {
+    // The committed sample_envelope.json has NO `schema` field → v1, keeping the
+    // aeolus_eval fixture path alive (never weakened).
+    match parse_versioned(V1_FIXTURE).expect("the v1 sample envelope parses") {
+        AeolusEnvelopeVersion::V1(env) => {
+            assert_eq!(env.station, "KNYC");
+            assert_eq!(env.target_date, "2026-06-12");
+            assert_eq!(
+                env.brackets.len(),
+                3,
+                "v1 brackets carry event_hint + p only"
+            );
+        }
+        AeolusEnvelopeVersion::V2(_) => panic!("schema-absent must dispatch to v1"),
+    }
+}
+
+#[test]
+fn parse_versioned_routes_v2_when_schema_is_the_pinned_string() {
+    // A single recorded v2 envelope (extracted from the response wrapper).
+    let wrapper: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
+    let v2_envelope = serde_json::to_string(&wrapper["forecasts"][0]).unwrap();
+    match parse_versioned(&v2_envelope).expect("the v2 envelope parses") {
+        AeolusEnvelopeVersion::V2(fc) => {
+            assert_eq!(fc.schema(), "aeolus.forecast/v2");
+            assert_eq!(fc.station(), "KNYC");
+            assert_eq!(fc.variable(), Variable::Tmax);
+            assert_eq!(fc.brackets().len(), 14);
+        }
+        AeolusEnvelopeVersion::V1(_) => panic!("schema v2 must dispatch to v2"),
+    }
+}
+
+#[test]
+fn parse_versioned_rejects_an_unknown_schema() {
+    // Any non-v2 schema string is a hard error (the §8 co-evolution tripwire) —
+    // NOT silently treated as v1.
+    let bogus = r#"{"schema":"aeolus.forecast/v3","station":"KNYC","target_date":"2026-06-12","run_at":"2026-06-11T10:00:00.000Z","brackets":[]}"#;
+    assert!(matches!(
+        parse_versioned(bogus),
+        Err(AeolusError::UnknownSchema { .. })
     ));
 }
