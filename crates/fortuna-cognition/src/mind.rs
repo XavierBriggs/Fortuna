@@ -362,10 +362,55 @@ impl MindTransport for ReqwestMindTransport {
     }
 }
 
+/// The cognition model tiers (spec 5.9): each role runs on its tier's model —
+/// SYNTHESIS (the deep belief-formation tier), MID (the daily reconciliation /
+/// reviews), TRIAGE (the fast/cheap trigger path that gates whether a trigger
+/// escalates to deep synthesis).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelTier {
+    Synthesis,
+    Mid,
+    Triage,
+}
+
+/// The single source of truth mapping each cognition role's tier to its model id
+/// (spec 5.9). Built once from `[cognition]` config; the daemon consults it when
+/// it builds each role's mind, so model selection lives in ONE place rather than
+/// scattered per call site. A pure lookup — no IO, no clock.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelRegistry {
+    synthesis: String,
+    mid: String,
+    triage: String,
+}
+
+impl ModelRegistry {
+    pub fn new(
+        synthesis: impl Into<String>,
+        mid: impl Into<String>,
+        triage: impl Into<String>,
+    ) -> ModelRegistry {
+        ModelRegistry {
+            synthesis: synthesis.into(),
+            mid: mid.into(),
+            triage: triage.into(),
+        }
+    }
+
+    /// The model id a role on `tier` runs on.
+    pub fn model(&self, tier: ModelTier) -> &str {
+        match tier {
+            ModelTier::Synthesis => &self.synthesis,
+            ModelTier::Mid => &self.mid,
+            ModelTier::Triage => &self.triage,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AnthropicMindConfig {
-    /// Spec 5.9 tiering defaults: synthesis = "claude-fable-5",
-    /// triage = "claude-haiku-4-5". Operator config, not constants.
+    /// Spec 5.9 tiering: the model id is resolved from the [`ModelRegistry`] by
+    /// the role's [`ModelTier`]. Operator config, not constants.
     pub model: String,
     pub max_tokens: i64,
     /// Prices CHANGE; they are config. Cents per million tokens.

@@ -205,6 +205,9 @@ impl Strategy for SynthesisStrategy {
                     CycleError::Context(e) => {
                         ("context", serde_json::json!({ "reason": e.to_string() }))
                     }
+                    CycleError::Triage(e) => {
+                        ("triage", serde_json::json!({ "reason": e.to_string() }))
+                    }
                 };
                 self.pending_degrades.push(DegradeRecord {
                     event_id: event_id.clone(),

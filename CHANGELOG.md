@@ -18,6 +18,28 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
+- **3-tier cognition models + ModelRegistry + triage seam** (`fortuna-cognition` +
+  `fortuna-live` + `fortuna-runner`, additive — spec 5.9 tiering): `[cognition]` now
+  carries three REAL model fields — `synthesis_model` (deep, default Opus), `mid_model`
+  (NEW, default Sonnet), `triage_model` (promoted from tolerated-but-UNREAD to a real
+  field, default Haiku) — and a `ModelRegistry` in the mind layer (fortuna-cognition) maps
+  each role's tier → model as the SINGLE source of truth the daemon consults. `mind_from_env`
+  is parameterized by model, so each ROLE runs on its tier: synthesis on Opus, and the daily
+  RECONCILIATION now on a SEPARATE `mid_model` mind (Sonnet) instead of borrowing the
+  synthesis Opus mind (the overkill the operator flagged). Each tier binds `AnthropicMind`
+  only with `ANTHROPIC_API_KEY` (else `StubMind`) and shares the `[cognition]` budget rails
+  (per-cycle + daily; reconciliation is once-daily so the daily total rises by at most one
+  mid-tier cycle); I6 propose-only unchanged; sim path byte-unchanged. The TRIAGE SEAM is
+  built: a `TriageMind` trait + `StubTriageMind` (mirroring the veto mind) + a
+  `TriageDecision::Mind` variant whose async `assess` runs the cheap tier in the cognition
+  cycle BEFORE the expensive frontier mind — cost accounted (even on a plain decline), and a
+  provider failure surfaces as `CycleError::Triage` (the synthesis arm degrades mechanical-
+  only, never a coerced verdict). PROVEN: synthesis-mind == Opus + reconciliation-mind ==
+  Sonnet, DISTINCT (MUTATION-PROVEN: route reconciliation on Opus → RED, executed); a
+  parse/default guard; a registry-lookup test; 4 cycle tests (accept→synthesis,
+  decline→no-synthesis, cost-accounted, failure-surfaces). The daemon still composes
+  `AlwaysAccept`; binding the Anthropic Haiku triage on `triage_model` is the immediate
+  follow-on.
 - **Scalar-belief EGRESS persisted + Sim-soak PerpTick FEED** (slices 4d + 4e,
   `fortuna-live` daemon/main + new `perp_feed`, additive): closes the slice-4
   finding — the producers composed in 4c now actually PRODUCE and PERSIST. Each

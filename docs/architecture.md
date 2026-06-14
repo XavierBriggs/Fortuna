@@ -427,9 +427,14 @@ record; verified end-to-end at the
   the `[mech_extremes]` arm opt-in, enrolled in the reduce-only model veto; the
   `[funding_forecast]` and `[perp_event_basis]` perp arms opt-in (Sim-stage,
   neither veto-enrolled — `funding_forecast` is a zero-capital scalar producer
-  that proposes nothing). The mind is injected: `mind_from_env` builds the
-  Claude-backed `AnthropicMind` when `ANTHROPIC_API_KEY` is present, else the
-  stub (which is itself opt-in via config).
+  that proposes nothing). Cognition is TIERED (spec 5.9): a `ModelRegistry` (the
+  mind layer) maps each role's tier → model as the single source of truth, and
+  `mind_from_env` builds a per-role `AnthropicMind` when `ANTHROPIC_API_KEY` is
+  present, else the stub (itself opt-in) — synthesis on `[cognition].synthesis_model`
+  (Opus), the daily reconciliation on a SEPARATE `mid_model` mind (Sonnet, not a
+  synthesis clone), and the triage tier (a `TriageMind` seam in the cognition cycle
+  that gates the frontier mind) on `triage_model` (Haiku); every tier shares the
+  `[cognition]` budget rails and stays propose-only (I6).
 - **The run loop and segments.** The loop wakes on the halt-poll cadence
   (≤500ms — an external halt applies within half a second), and ticks the
   runner on the runner's own injected clock

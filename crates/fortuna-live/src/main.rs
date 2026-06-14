@@ -12,7 +12,7 @@
 //! path by firing the same channel.
 
 use anyhow::{bail, Context, Result};
-use fortuna_cognition::mind::ReqwestMindTransport;
+use fortuna_cognition::mind::{ModelTier, ReqwestMindTransport};
 use fortuna_core::clock::{Clock, RealClock};
 use fortuna_live::boot::{validate_env, DaemonToml};
 use fortuna_live::compose::DegradeScrape;
@@ -77,6 +77,14 @@ async fn main() -> Result<()> {
     // the `synthesis_cents` envelope + `[gates.per_strategy.synthesis]`, so a
     // keyed mind + the opt-in [synthesis] section trades; the default StubMind
     // (no key) proposes nothing.
+    // Spec 5.9 cognition tiering: ONE registry maps each role's tier → model; the
+    // daemon builds each role's mind on its tier's model. The daily reconciliation
+    // runs on the MID tier (Sonnet) — a SEPARATE mind, NOT the synthesis (Opus)
+    // clone it used to be. Each tier gets its OWN transport (the API key reaches
+    // only the transport, never config/logs); an absent key drops every tier to
+    // StubMind together. All tiers share the `[cognition]` budget rails (per_cycle
+    // + daily) and stay propose-only (I6 intact).
+    let model_registry = dcfg.cognition.model_registry();
     let synthesis_transport = match validated.anthropic_api_key.as_ref() {
         Some(_) => Some(
             ReqwestMindTransport::from_env(std::time::Duration::from_secs(SYNTH_MIND_TIMEOUT_SECS))
@@ -84,11 +92,32 @@ async fn main() -> Result<()> {
         ),
         None => None,
     };
-    let synthesis_mind = mind_from_env(&dcfg.cognition, synthesis_transport, Arc::new(RealClock));
+    let synthesis_mind = mind_from_env(
+        &dcfg.cognition,
+        model_registry.model(ModelTier::Synthesis),
+        synthesis_transport,
+        Arc::new(RealClock),
+    );
+    let mid_transport = match validated.anthropic_api_key.as_ref() {
+        Some(_) => Some(
+            ReqwestMindTransport::from_env(std::time::Duration::from_secs(SYNTH_MIND_TIMEOUT_SECS))
+                .context("anthropic reconciliation (mid-tier) transport")?,
+        ),
+        None => None,
+    };
+    let reconciliation_mind = mind_from_env(
+        &dcfg.cognition,
+        model_registry.model(ModelTier::Mid),
+        mid_transport,
+        Arc::new(RealClock),
+    );
     if validated.anthropic_api_key.is_some() {
-        eprintln!("fortuna-live: synthesis mind = AnthropicMind (live; model from [cognition])");
+        eprintln!(
+            "fortuna-live: cognition tiers = synthesis {} / reconciliation {} (AnthropicMind, live)",
+            dcfg.cognition.synthesis_model, dcfg.cognition.mid_model
+        );
     } else {
-        eprintln!("fortuna-live: synthesis mind = StubMind (no ANTHROPIC_API_KEY; inert)");
+        eprintln!("fortuna-live: cognition minds = StubMind (no ANTHROPIC_API_KEY; inert)");
     }
     let mut runner = compose_runner(
         pool.clone(),
@@ -233,10 +262,11 @@ async fn main() -> Result<()> {
         ),
         None => None,
     };
-    // T4.1/M2 (spec 5.8): the daily reconciliation reuses the SAME synthesis
-    // mind (one build, not a second) — a stub mind self-skips. Built BEFORE
-    // `pool` moves into the halt poller below.
-    let reconciliation = Some((pool.clone(), synthesis_mind.clone()));
+    // T4.1/M2 (spec 5.8) + 3-tier cognition (spec 5.9): the daily reconciliation
+    // runs on the MID tier — the SEPARATE `reconciliation_mind` (mid_model/Sonnet)
+    // built above, NOT a clone of the synthesis Opus mind. A stub mind (no key)
+    // self-skips. Built BEFORE `pool` moves into the halt poller below.
+    let reconciliation = Some((pool.clone(), reconciliation_mind));
     // T4.1/M2 slice B2: the opt-in [review] weekly-review wiring, reusing the
     // synthesis mind + [synthesis].category + the boot time (paper_days). Absent
     // [review] => None => no weekly review fires. Built BEFORE `pool` moves.

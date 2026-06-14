@@ -20,8 +20,9 @@
 
 use fortuna_cognition::beliefs::Freshness;
 use fortuna_cognition::cycle::{
-    compare_beliefs_to_markets, haircut_kelly_fraction, BeliefView, ComparatorConfig,
-    DecisionCycle, EdgeView, MarketQuote, ShadowSampler, TriageDecision, TriageVerdict,
+    compare_beliefs_to_markets, haircut_kelly_fraction, BeliefView, ComparatorConfig, CycleError,
+    DecisionCycle, EdgeView, MarketQuote, ShadowSampler, StubTriageMind, TriageDecision,
+    TriageVerdict,
 };
 use fortuna_cognition::events::{EdgeTier, MappingType};
 use fortuna_cognition::mind::{MindOutput, StubMind};
@@ -297,6 +298,111 @@ async fn declined_trigger_skips_the_mind_unless_shadow_sampled() {
     assert_eq!(second.triage, TriageVerdict::Declined);
     assert!(!second.shadow, "quota exhausted: plain decline");
     assert!(second.beliefs.is_empty(), "no mind call at all");
+}
+
+#[tokio::test]
+async fn mind_triage_accept_runs_the_frontier_mind() {
+    // Spec 5.9 cheap-tier seam: a Mind-backed triage that ACCEPTS escalates to the
+    // frontier mind exactly like AlwaysAccept — beliefs produced + candidates
+    // derived. Proves the Mind variant routes Accept through the full cycle.
+    let mind = StubMind::scripted(vec![stub_output()]);
+    let triage = TriageDecision::Mind(std::sync::Arc::new(StubTriageMind::scripted(vec![(
+        "evt-1".to_string(),
+        TriageVerdict::Accepted,
+    )])));
+    let mut cycle = DecisionCycle::new(triage, ShadowSampler::new(1), config())
+        .with_calibration(near_identity_calibration());
+
+    let outcome = cycle
+        .run(
+            "evt-1",
+            &mind,
+            &[],
+            &[edge("KXA", "evt-1", MappingType::Direct, true)],
+            &[quote("KXA", 58, 60)],
+            t("2026-06-11T12:00:00.000Z"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(outcome.triage, TriageVerdict::Accepted);
+    assert_eq!(outcome.beliefs.len(), 1, "accept -> the frontier mind ran");
+    assert_eq!(
+        outcome.candidates.len(),
+        1,
+        "fair 70 vs ask 60 => candidate"
+    );
+}
+
+#[tokio::test]
+async fn mind_triage_decline_skips_the_frontier_mind() {
+    // A Mind-backed triage that DECLINES (shadow quota 0, so no shadow run) gates
+    // the frontier mind OUT — no beliefs, no candidates. The cheap tier saved the
+    // expensive call. NON-VACUOUS: the frontier mind has an output ready; an empty
+    // belief set can only mean it was never called.
+    let mind = StubMind::scripted(vec![stub_output()]);
+    let triage = TriageDecision::Mind(std::sync::Arc::new(StubTriageMind::decline_all()));
+    let mut cycle = DecisionCycle::new(triage, ShadowSampler::new(0), config());
+
+    let outcome = cycle
+        .run(
+            "evt-1",
+            &mind,
+            &[],
+            &[edge("KXA", "evt-1", MappingType::Direct, true)],
+            &[quote("KXA", 58, 60)],
+            t("2026-06-11T12:00:00.000Z"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(outcome.triage, TriageVerdict::Declined);
+    assert!(!outcome.shadow, "quota 0 => plain decline, no shadow");
+    assert!(
+        outcome.beliefs.is_empty(),
+        "decline => the frontier mind never ran"
+    );
+    assert!(outcome.candidates.is_empty());
+}
+
+#[tokio::test]
+async fn mind_triage_cost_is_accounted_even_on_a_plain_decline() {
+    // The cheap-tier triage call COSTS even when it declines (no synthesis). The
+    // outcome's cost_cents carries the triage spend, so the budget sees it.
+    let mind = StubMind::scripted(vec![stub_output()]);
+    let triage = TriageDecision::Mind(std::sync::Arc::new(
+        StubTriageMind::decline_all().with_cost(7),
+    ));
+    let mut cycle = DecisionCycle::new(triage, ShadowSampler::new(0), config());
+
+    let outcome = cycle
+        .run("evt-1", &mind, &[], &[], &[], t("2026-06-11T12:00:00.000Z"))
+        .await
+        .unwrap();
+    assert_eq!(outcome.triage, TriageVerdict::Declined);
+    assert_eq!(
+        outcome.cost_cents, 7,
+        "the triage call's cost is accounted even with no frontier call"
+    );
+}
+
+#[tokio::test]
+async fn mind_triage_provider_failure_surfaces_as_cycle_error() {
+    // A triage provider failure SURFACES (CycleError::Triage) — never silently
+    // coerced to accept or decline. The synthesis strategy degrades on it (its own
+    // test); here the cycle's contract is pinned.
+    let mind = StubMind::scripted(vec![stub_output()]);
+    let triage = TriageDecision::Mind(std::sync::Arc::new(StubTriageMind::failing(
+        "triage provider down",
+    )));
+    let mut cycle = DecisionCycle::new(triage, ShadowSampler::new(1), config());
+
+    let err = cycle
+        .run("evt-1", &mind, &[], &[], &[], t("2026-06-11T12:00:00.000Z"))
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, CycleError::Triage(_)),
+        "a triage failure is a CycleError::Triage, got {err:?}"
+    );
 }
 
 // ---- E1: the calibration layer ACTUALLY adjusts p in the cycle ----

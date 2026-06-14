@@ -89,7 +89,12 @@ effective_date = "2026-04-03"
 channels = ["trading", "alerts", "review", "digest", "ops"]
 
 [cognition]
+# Cognition tiers (spec 5.9): each ROLE runs on its own model — synthesis = the
+# deep belief-formation tier (the example uses the cheaper fable-5; the struct
+# default is Opus), mid = the daily RECONCILIATION on a SEPARATE mind (Sonnet),
+# triage = the fast trigger path (Haiku). All share the [cognition] budget rails.
 synthesis_model = "claude-fable-5"
+mid_model = "claude-sonnet-4-6"
 triage_model = "claude-haiku-4-5"
 daily_budget_cents = 1_500
 # Hard per-decision-cycle ceiling (spec 5.9): every call one cycle makes

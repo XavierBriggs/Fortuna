@@ -3,6 +3,42 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## TRACK C — 3-tier cognition models (2026-06-13; interprets spec 5.9 tiering + I6)
+
+- **Each tier is a SEPARATE mind sharing the [cognition] budget CONFIG, not one
+  shared CostBudget object.** The amendment routes synthesis → synthesis_model
+  (Opus), the daily reconciliation → a SEPARATE mid_model mind (Sonnet), the triage
+  path → triage_model (Haiku). `mind_from_env` builds each with
+  `CostBudget::new(per_cycle_budget_cents, daily_budget_cents)` — the SAME
+  [cognition] caps. Because AnthropicMind OWNS its `Mutex<CostBudget>`, the tiers
+  enforce the caps INDEPENDENTLY. CONSERVATIVE READING of "shares the same budget
+  rails": each tier honors the [cognition] per-cycle + daily caps (no bespoke
+  per-tier budget). The daily cognition TOTAL can exceed one shared 1500c ceiling by
+  at most ONE mid-tier reconciliation cycle — reconciliation runs ONCE per UTC day,
+  each cycle capped at per_cycle_budget_cents — so the practical max is
+  ~daily + per_cycle ≈ 1550c, NOT 2×daily. A SINGLE combined daily ceiling across
+  tiers (one CostBudget shared via `AnthropicMind::decide_with_budget`, mind.rs:474,
+  which exists for exactly this) is a DELIBERATE non-goal here: it would require
+  threading a shared budget through the synthesis loop + run_daily_reconciliation
+  call paths (beyond this additive fortuna-live slice). Ledgered as a refinement if
+  the operator wants one strict ceiling. I6 untouched (minds stay propose-only).
+- **The synthesis_model DEFAULT moved fable-5 → Opus; the committed example keeps
+  fable-5.** The struct default is now the spec-5.9 deep tier (Opus). The example
+  config intentionally keeps the cheaper fable-5 for the template (an explicit value,
+  so the default change is inert there). No test asserts the default — the
+  compose/daemon_smoke "claude-fable-5" assertions are the calibration-SCOPE model
+  constant (SYNTH_CALIBRATION_MODEL), decoupled from cognition.synthesis_model.
+- **The triage tier gates the cycle BEFORE context assembly + the frontier mind, and
+  its cost is accounted even on a plain decline.** `TriageDecision::Mind` runs the cheap
+  triage in `DecisionCycle::run` ahead of `assemble_context`/`mind.decide` — the whole
+  point of a cheap tier is to AVOID the expensive call when it declines. The triage
+  call's `cost_cents` is added to the outcome (a declined cycle's cost = the triage
+  spend; an accepted cycle's = triage + frontier), so the budget sees triage spend. A
+  triage PROVIDER FAILURE surfaces as `CycleError::Triage` (the synthesis arm degrades
+  mechanical-only, like any cognition failure) — NEVER silently coerced to accept/decline.
+  `StubTriageMind::allow_all` is the recall-safe null action (== the prior `AlwaysAccept`)
+  for the no-key composition, so a keyless daemon's triage behavior is byte-unchanged.
+
 ## TRACK C slice 3b — perp_event_basis STRATEGY (propose-only basis legs) (2026-06-13; interprets design §3/§3.1/§7 + I6)
 
 - **Bin probabilities are reconstructed from the runtime `OrderBook` (integer

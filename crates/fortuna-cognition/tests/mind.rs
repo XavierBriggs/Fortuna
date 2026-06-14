@@ -547,3 +547,17 @@ async fn anthropic_mind_enforces_the_cycle_cap_at_the_trait_boundary() {
     dyn_mind.begin_cycle();
     dyn_mind.decide(&ctx()).await.unwrap();
 }
+
+#[test]
+fn model_registry_maps_each_tier_to_its_model() {
+    // Spec 5.9: the tier -> model registry is the single source of truth the
+    // daemon consults per role. DISTINCT lookups — a registry that returned one
+    // model for all tiers (the all-Opus bug) would fail the assert_ne pair.
+    use fortuna_cognition::mind::{ModelRegistry, ModelTier};
+    let r = ModelRegistry::new("claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5");
+    assert_eq!(r.model(ModelTier::Synthesis), "claude-opus-4-8");
+    assert_eq!(r.model(ModelTier::Mid), "claude-sonnet-4-6");
+    assert_eq!(r.model(ModelTier::Triage), "claude-haiku-4-5");
+    assert_ne!(r.model(ModelTier::Synthesis), r.model(ModelTier::Mid));
+    assert_ne!(r.model(ModelTier::Mid), r.model(ModelTier::Triage));
+}
