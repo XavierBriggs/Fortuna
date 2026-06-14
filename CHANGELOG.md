@@ -18,6 +18,23 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
+- **perp basis-v2 §3.3 SLICE V3 — the model layer (A3 + A6 + A9 + σ)** (`fortuna-runner::perp_event_basis_v2`,
+  additive, DATA-ONLY, Sim-stage, proposes NOTHING): a NEW propose-only strategy succeeding rung-0's median
+  signal with the v2 fair-probability model wired onto live `PerpTick`/`OrderBook` data. On each matching
+  `PerpTick` it (A6) anchors on the BRTI reference (`funding.reference_price` ×10000 → BTC dollars, NEVER the
+  perp mark), (DC-1) folds the anchor into a bounded EWMA-σ estimator (N=64 ring, λ=0.94, ≥20 returns to
+  activate, σ clamped to `[floor,ceiling]`), (A9) gates the ladder via `validate_ladder_no_arb` (incoherent ⇒
+  no pricing), (A3) prices the per-bracket `q_j` via `bracket_fair_probs(SettlementModel{anchor,σ})`, and
+  (A10) computes the rung-0 implied median as a DEMOTED health diagnostic — all stored in a public `V2Eval`
+  snapshot for inspection/telemetry. It emits ZERO proposals (the per-bin EV gate is the V4 slice) and never
+  auto-promotes (I7). The √τ horizon-scaling of σ is deliberately deferred to V4/A5; V3 uses the per-step σ so
+  the `q_j` wiring is exercised + testable now. No `panic`/`unwrap`/`expect`; f64 is forecast-domain only (no
+  `Cents` touched — V3 proposes nothing); `bin_prob` reused verbatim from rung-0. 13 adversarial tests
+  (σ-readiness gating, the `q_j`↔kernel wiring pin, the load-bearing A6 anchor-not-mark assertion, the A9
+  incoherent-ladder gate, degenerate-anchor no-panic), MUTATION-PROVEN (pricing off the mark reds the A6 +
+  wiring + degenerate-anchor tests). NO `compose.rs` wire-in — the strategy is unit-tested standalone; the
+  track-A `[perp_event_basis_v2]` registration is a documented follow-on (like the kernel + the `drive()`
+  wire). Slice V3 of 3 (V4 = A5 horizon + A4/A8 EV gate; V5 = A7 informativeness + A10 emission).
 - **A2d SLICE 3 Part 3 — the resolve→score loop** (`fortuna-live::daemon` + `fortuna-ledger`, additive;
   `drive()` UNTOUCHED): `resolve_and_score_funding_beliefs(pool, now, score_id_base)` drains every DUE
   (`horizon <= now`), CAPTURABLE `funding_forecast` scalar belief and, per belief, resolves it set-once
