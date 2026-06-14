@@ -47,10 +47,11 @@ ledger their responses in GAPS, never edit this file.
   fmt/clippy clean; mutation-proven (0.25→0.30 reds the A2b pin). Still proposes-nothing (I6
   vacuous), f64-forecast-never-money, no SystemTime.
   - **slice-3b-v2 PROGRESS (this entry tracks the whole v2 build): A2b ✓ (@79e3dad) · A2d SLICE 1
-    carry-forward baseline kernel ✓ (@0bb6d27 — `funding_baselines.rs`, strict-< tie-doesn't-beat,
-    DATA-ONLY/no-auto-promotion I7, mutation-proven). NEXT: A2d slice-2 (wire the side-by-side
-    score into funding_forecast's belief_scores) → A3+A6 (per-bracket q_j on BRTI) → A9 → A5 →
-    A4+A8 → A7.**
+    carry-forward kernel ✓ (@0bb6d27) · A2d SLICE 2 the 4-baseline unified edge gate ✓ (@c6c2d31 —
+    `compare_against_baselines`, beats_all = strict-< on ALL of {carry-forward, last-rate,
+    estimate-RW, persistence-RW}, mutation-proven, DATA-ONLY/no-auto-promotion I7). NEXT: A2d
+    SLICE 3 (wire the side-by-side score into funding_forecast's belief_scores + the resolve/score
+    loop) → A3+A6 (per-bracket q_j on BRTI) → A9 → A5 → A4+A8 → A7.**
 
 - **🎉✅ TRACK C DEMO-FLIP (Phase 1+2) + triage follow-ons MERGED → main @ 0586bab (+ docs @b3aef5f)
   = GATE ACCEPT. RESOLVES the demo-flip BLOCK below.** fortuna-live can now compose a Kalshi DEMO
