@@ -1,9 +1,9 @@
 # GATE FINDINGS — latest (verifier-owned; every track reads this at priority (a))
 
-State as of 2026-06-13, main @ 0af2758 (docs freshened; tracks A / B / E all DONE/merged; track-C
-demo-flip Phase 1+2 is GATE-BLOCKED pending a rebase — its protected-crate change is pre-cleared
-add-only, but its drive() conflicts structurally with track-a's ingestion wiring; see LATEST; the
-durable integrity claims here were gate-proven at each entry's merge). Main integrity GREEN on the merged tree: fmt +
+State as of 2026-06-14, main @ b3aef5f (🎉 track-C demo-flip Phase 1+2 MERGED = GATE ACCEPT — the
+Kalshi-demo @ Stage::Paper composition, after track-C rebased + reconciled drive(); ALL FOUR
+tracks A/B/C/E are now DONE / 0-ahead; the BLOCK is resolved; see LATEST; the durable integrity
+claims here were gate-proven at each entry's merge). Main integrity GREEN on the merged tree: fmt +
 check --workspace --all-targets clean, the full scalar surface battery green
 (cognition scoring 54 / scalar_beliefs 4; core perp 41 / funding_window 13 /
 bus 24 / DST 4 corpus + 2000 random, 0 violations; ledger DB ledger 27 /
@@ -13,9 +13,32 @@ A BLOCK naming your track preempts your queue. This file is the single
 coordination surface; the verifier rewrites it — tracks ACT on it and
 ledger their responses in GAPS, never edit this file.
 
-## LATEST (2026-06-13, cont'd — verifier loop pass)
+## LATEST (2026-06-14, cont'd — verifier loop pass)
 
-- **⛔ TRACK C — DEMO-FLIP PHASE 2 GATE BLOCK (stale-base integration; NOT a code defect).**
+- **🎉✅ TRACK C DEMO-FLIP (Phase 1+2) + triage follow-ons MERGED → main @ 0586bab (+ docs @b3aef5f)
+  = GATE ACCEPT. RESOLVES the demo-flip BLOCK below.** fortuna-live can now compose a Kalshi DEMO
+  (mock funds, real demo venue) at **Stage::Paper** over the venue-generic `SimRunner`; prod/live
+  stays REFUSED at the boot gate (I7). track-C rebased onto current main + reconciled `drive()`
+  (ActiveRunner × track-a ingestion wiring) — clean merge.
+  - **PROTECTED CRATE add-only (verified line-by-line ×2 — pre-clear + unchanged through reconcile):**
+    3 new I7 tests STRENGTHEN the boundary (SimRunner::new still refuses Paper; new_with_venue opens
+    Paper ONLY via the explicit `&[Sim,Paper]` allowlist; the Paper allowlist STILL refuses
+    LiveMin/Scaled) + 1 mechanical `faults→Option` helper adaptation. No assertion weakened.
+  - BATTERY GREEN: compiles + fmt + clippy --workspace --all-targets -D warnings; invariants
+    (I1-I7 + the 3 new I7); cognition incl. the 2 triage follow-ons (fractional-cost ceil +
+    malformed-path budget debit — closes the 3-tier-ACCEPT gaps); live incl. boot_gate +
+    kalshi_compose (MockKalshiTransport, NEVER the live API) + daemon_smoke (ingestion through
+    ActiveRunner); runner (venue-generic); DST 5+2000, 0 violations (sim byte-unchanged, A3).
+  - MUTATION-PROVEN (the demo-flip safety properties, BOTH I7 layers): disable the runner stage
+    allowlist → i7_new_with_venue_refuses_live + i7_sim_runner_new_still_refuses_paper red; boot
+    gate allows kalshi@live → kalshi_at_live_min/scaled_is_refused tests red.
+  - Secret discipline verified (KALSHI key `Secret`-wrapped, never logged). **LIVE demo run stays
+    OPERATOR-GATED** (demo creds in `.env` + `[kalshi]` series tickers + the T4.2 fixture checklist —
+    the code/gate need none).
+  - **🎉 ALL FOUR TRACKS (A/B/C/E) ARE NOW DONE / 0-AHEAD.** Remaining queues are post-milestone:
+    C = slice-3b-v2 (perp trader v2) + T5.B8 (kill-switch perp flatten); E = F10; B = T4.5 / OBS-2.
+
+- **⛔ TRACK C — DEMO-FLIP PHASE 2 GATE BLOCK (stale-base integration; NOT a code defect).** [RESOLVED ABOVE ✅]
   track-c @8d11b43 (`compose_kalshi_runner` + `ActiveRunner` + boot gate, Stage::Paper) is correct
   on its base, but it was built BEFORE track-a's ingestion wiring merged, so it cannot merge to
   current main as-is. Main UNCHANGED @0af2758 (merge aborted; nothing landed).
