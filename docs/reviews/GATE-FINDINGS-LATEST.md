@@ -13,6 +13,20 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-13, cont'd — verifier loop pass)
 
+- **OWNERSHIP (operator-confirmed 2026-06-14): the daemon INGESTION→BELIEFS WIRING
+  is TRACK A's.** main.rs/compose_runner is a 3-way collision hotspot; consolidating
+  the daemon-loop composition under track-A (who owns main.rs). SPLIT: **A** drives
+  the loops in drive() — (1) the discovery loops (world_forward/market_back →
+  events/edges → wakes synthesis) + (2) run_due_personas (persona handoff, already
+  started @d03471b); both opt-in/default-off, Mind-budget-railed, I6 data-only.
+  **C** owns the cognition LOGIC (discovery.rs) + the perp/F5-F9 producers. **E**
+  owns the persona brain. C/E: STOP editing main.rs composition — hand entry points
+  to A. WHY THIS MATTERS: turning on [ingestion] alone produces NOTHING — signals
+  persist but nothing drives signal→event→edge or the persona loop, so synthesis +
+  personas stay starved. This wiring is what makes 5 of the 6 built strategy
+  families actually FIRE. Verifier gates A's wiring end-to-end (ingestion → beliefs
+  persist, mutation-proven; default-off byte-unchanged).
+
 - **TRACK B ROTA tranche (recent-scalar-belief forecast feed + persona/cognition
   boards) MERGED → main @ d481a0e = GATE ACCEPT.** /api/rota/v1/forecast_feed
   (recent scalar forecasts: producer, event_key, unit, q=0.5 MEDIAN, realized,
