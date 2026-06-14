@@ -3,6 +3,43 @@
 Open items the implementation defers, lacks, or needs from the operator. Acceptance
 requires this file to contain ONLY operator-blocked items, each with exact unblock steps.
 
+## RALPH STOP 2026-06-14T17:34:59Z — Track-E build queue EXHAUSTED (clean stop)
+
+The operator's final handoff — wire the weather scoring bridge ("close the loop") —
+is DONE, gate-clean, committed (`f366987` + docs `9ec22a1` on branch
+`track-e-weather-resolve`, NOT merged — the verifier merges). Full battery green this
+iteration: `cargo fmt --check`, `clippy --workspace --all-targets -D warnings` (exit 0),
+`cargo test --workspace --no-fail-fast` (exit 0, 0 failures / 175 binaries), and
+`scripts/run-dst.sh` (exit 0, 5/5 regression seeds + 2000 random scenarios). The bus's
+"3 OPEN HANDOFFS to actually SCORE weather → the BRIDGE" item is now closed: weather
+beliefs are produced AND scored against the independent NWS grade.
+
+Every remaining Track-E item has its IN-OWNERSHIP part done; the remainders are all
+cross-track or operator-gated (NOT Track-E code I may build), so per implementer-loop §6
+("every priority item is blocked/exhausted — do NOT invent unrequested work; idle-and-
+stopped beats bloat") I am stopping the loop. EXACT remaining handoffs:
+- **drive() wiring (Track A):** the one-line additive call to
+  `resolve_and_score_weather_beliefs` in `drive()`'s resolution tick, next to the F7
+  weather block + `resolve_and_score_funding_beliefs`. Do NOT edit Track A's daemon
+  composition unilaterally — coordinate. Until then the resolver is built/tested but not
+  on the live tick.
+- **NYC CLI fixture (operator/capture):** no recorded `CLINYC` product exists, so the
+  live NYC happy-path is proven only via the recorded Troutdale CLI pairing. CAPTURE:
+  read-only `api.weather.gov/products?type=CLI` filtered to the NYC office (CLINYC,
+  report_date = a knyc target_date) → `fixtures/sources/nws_climate/`.
+- **F10 remainder (Track-D source / operator):** the Aeolus *source* `source_registry`
+  row + v1→v2 fixture migration (schema-dispatch `parse_versioned` + the Layer-0 dossier
+  are already DONE). fortuna-sources is Track D's; the registry seed is per-env operator.
+- **E.5 ScopeKey/daemon wiring (Track-A coord):** `PersonaScope`/`score_persona`/
+  `weekly_persona_proposals` are built (E.5a); the `review::ScopeKey` field edit would
+  break Track A's `daemon.rs:1024` struct literal, so it stays a Track-A-coordinated
+  parallel realization, not a unilateral edit.
+- **Bridge sub-seams (non-blocking, ledgered below):** weather-belief CLV, multi-station
+  CLI, negative-threshold hints, the bounded CLI scan — see the Track-D bridge section.
+
+To RE-ARM: the operator gives a new Track-E handoff (or a BLOCK on the bus names Track E).
+Until then the loop is intentionally idle-and-stopped.
+
 ## TRACK D — NWS-CLI realized-extreme GRADER (F2 long-pole) DONE (2026-06-14) + bridge/registry handoffs
 
 The productText→°F grader that F9 (and every weather belief) depends on is built:
