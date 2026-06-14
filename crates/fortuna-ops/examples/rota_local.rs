@@ -158,10 +158,12 @@ async fn seed(pool: &PgPool) -> Result<(), BoxErr> {
     let prov_plain = json!({
         "model_id": "emos-sar-semos-v3", "run_at": "2026-06-12T18:05:00.000Z", "cost_cents": 1
     });
+    // analysis_id points at the seeded KNYC2 domain-analysis so the Analyses board's
+    // belief-fanout column shows this analysis produced a downstream belief (§20.2).
     let prov_persona = json!({
         "model_id": "claude-sonnet-4-6", "run_at": "2026-06-12T18:06:30.000Z", "cost_cents": 2,
         "persona_id": "meteorologist", "persona_version": 3,
-        "analysis_id": "01J0ANALYSIS000000000NYC",
+        "analysis_id": "01J0ANALYSIS000KNYC2",
         "analysis_content_hash": "a1b2c3d4e5f6a7b8"
     });
 
@@ -508,6 +510,13 @@ async fn seed(pool: &PgPool) -> Result<(), BoxErr> {
     .iter()
     .enumerate()
     {
+        // Unit-appropriate quantile fan so the Forecast Feed's median reads sensibly
+        // against the realized outcome (a rate forecast ~0.0001; a celsius one ~29).
+        let fan = if *unit == "rate" {
+            json!([{"q":0.1,"v":0.00005},{"q":0.5,"v":0.0001},{"q":0.9,"v":0.00018}])
+        } else {
+            json!([{"q":0.1,"v":24.0},{"q":0.5,"v":29.0},{"q":0.9,"v":34.0}])
+        };
         warn_seed(
             "scalar.belief",
             scalars
@@ -515,7 +524,7 @@ async fn seed(pool: &PgPool) -> Result<(), BoxErr> {
                     id,
                     producer,
                     "ev-key",
-                    &json!([{"q":0.1,"v":0.0},{"q":0.5,"v":0.0001},{"q":0.9,"v":0.0003}]),
+                    &fan,
                     unit,
                     "2026-06-13T16:00:00.000Z",
                     &json!({"strategy": producer}),
@@ -542,6 +551,23 @@ async fn seed(pool: &PgPool) -> Result<(), BoxErr> {
                 .await,
         );
     }
+    // A PENDING forecast (no realized value yet) so the Forecast Feed shows the
+    // resolved-vs-pending mix — the "did the vendor call it" detail (newest-first).
+    warn_seed(
+        "scalar.belief.pending",
+        scalars
+            .insert(
+                "01J0SB0000000000PEND1",
+                "aeolus_weather",
+                "KNYC:tmax:2026-06-14",
+                &json!([{"q":0.1,"v":80.0},{"q":0.5,"v":86.0},{"q":0.9,"v":92.0}]),
+                "celsius",
+                "2026-06-14T16:00:00.000Z",
+                &json!({"strategy": "aeolus_weather"}),
+                "2026-06-13T17:30:00.000Z",
+            )
+            .await,
+    );
 
     // A few executed fills for the Recent Fills board (raw INSERT — the fills
     // table is a plain append-only row table; the dashboard reads it read-only).

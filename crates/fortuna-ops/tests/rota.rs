@@ -66,7 +66,7 @@ async fn serve() -> (String, tokio::task::JoinHandle<()>) {
     (format!("http://{addr}"), handle)
 }
 
-const PATHS: [&str; 24] = [
+const PATHS: [&str; 26] = [
     "/rota",
     "/favicon.ico",
     "/assets/rota/logo.svg",
@@ -86,8 +86,10 @@ const PATHS: [&str; 24] = [
     "/api/rota/v1/discovery",
     "/api/rota/v1/personas",
     "/api/rota/v1/persona_scores",
+    "/api/rota/v1/persona_pipeline",
     "/api/rota/v1/analyses",
     "/api/rota/v1/forecasts",
+    "/api/rota/v1/forecast_feed",
     "/api/rota/v1/db",
     "/api/rota/v1/telemetry",
     "/api/rota/v1/audit",
@@ -146,6 +148,7 @@ async fn degraded_surfaces_are_200_with_explicit_unavailable() {
         "discovery",
         "personas",
         "persona_scores",
+        "persona_pipeline",
         "analyses",
         "forecasts",
         "db",
@@ -870,7 +873,9 @@ async fn cognition_serves_seeded_beliefs_and_scopes(pool: sqlx::PgPool) {
             0.71,
             "2026-06-13T00:00:00.000Z",
             &serde_json::json!({"reasoning": "structural underpricing of the middle bracket"}),
-            &serde_json::json!({"model_id": "claude-fable-5", "cost_cents": 12}),
+            &serde_json::json!({"model_id": "claude-fable-5", "cost_cents": 12,
+                "persona_id": "meteorologist", "persona_version": 3,
+                "analysis_id": "01J0ANALYSIS00000NYC", "run_at": "2026-06-12T00:55:00.000Z"}),
             None,
         )
         .await
@@ -914,6 +919,17 @@ async fn cognition_serves_seeded_beliefs_and_scopes(pool: sqlx::PgPool) {
         "the model's persisted reasoning surfaces: {j}"
     );
     assert_eq!(rows[0]["provenance"]["cost_cents"], 12);
+    // §20.3: the LABELED provenance summary surfaces the key fields (which persona/
+    // model/analysis/cost drove the belief) for legible rendering — the whole
+    // provenance is still served alongside (above).
+    assert_eq!(rows[0]["prov"]["model_id"], "claude-fable-5", "{j}");
+    assert_eq!(rows[0]["prov"]["cost_cents"], 12);
+    assert_eq!(
+        rows[0]["prov"]["persona_id"], "meteorologist",
+        "the persona that produced the belief is surfaced: {j}"
+    );
+    assert_eq!(rows[0]["prov"]["persona_version"], 3);
+    assert_eq!(rows[0]["prov"]["analysis_id"], "01J0ANALYSIS00000NYC");
     let scopes = j["calibration_scopes"]["rows"].as_array().unwrap();
     assert_eq!(scopes.len(), 1, "one distinct scope: {j}");
     assert_eq!(scopes[0]["version"], 2, "max version wins: {j}");
@@ -1611,7 +1627,7 @@ async fn personas_board_serves_the_registry_grouped_newest_version_first(pool: s
 // findings/signal_manifest expander — UNTRUSTED model output — is a §20.2 follow-on.)
 #[sqlx::test(migrations = "../fortuna-ledger/migrations")]
 async fn analyses_board_serves_artifacts_newest_first_with_supersession(pool: sqlx::PgPool) {
-    use fortuna_ledger::DomainAnalysesRepo;
+    use fortuna_ledger::{BeliefsRepo, DomainAnalysesRepo};
     let repo = DomainAnalysesRepo::new(pool.clone());
     // A1: the earlier analysis for the region (cost 3¢) — later superseded.
     repo.insert(
@@ -1650,6 +1666,26 @@ async fn analyses_board_serves_artifacts_newest_first_with_supersession(pool: sq
     )
     .await
     .unwrap();
+    // Two beliefs were built FROM analysis A2 (their provenance cites it) — the §20.2
+    // artifact→belief fanout. A1 produced none. The board's `beliefs` column counts them.
+    seed_event(&pool, "01EVENTANALYSESFANOUT00001").await;
+    let beliefs = BeliefsRepo::new(pool.clone());
+    for bid in ["01BELIEFANALYSESFANOUT0001", "01BELIEFANALYSESFANOUT0002"] {
+        beliefs
+            .insert(
+                bid,
+                "2026-06-12T12:00:00.000Z",
+                "01EVENTANALYSESFANOUT00001",
+                0.7,
+                0.65,
+                "2026-06-13",
+                &serde_json::json!({"source": "aeolus.forecast"}),
+                &serde_json::json!({"analysis_id": "01ANALYSISROTA0000000000A2"}),
+                None,
+            )
+            .await
+            .unwrap();
+    }
     let state = RotaState {
         snapshot: empty_snapshot(),
         pool: Some(pool),
@@ -1695,6 +1731,16 @@ async fn analyses_board_serves_artifacts_newest_first_with_supersession(pool: sq
         j["rows"][1]["status"], "superseded",
         "the earlier analysis renders honestly as superseded: {j}"
     );
+    // §20.2 artifact→belief fanout: A2 produced two beliefs, A1 produced none.
+    assert_eq!(
+        j["rows"][0]["beliefs"], 2,
+        "A2's downstream belief fanout: {j}"
+    );
+    assert_eq!(j["rows"][1]["beliefs"], 0, "A1 produced no beliefs: {j}");
+    assert_eq!(
+        j["summary"]["beliefs"], 2,
+        "total fanout across artifacts: {j}"
+    );
 }
 
 // Track-C §9.1 ("the outcomes of the whole process"): the Forecasts scorecard
@@ -1720,10 +1766,12 @@ async fn forecasts_scorecard_aggregates_resolved_scores_per_producer(pool: sqlx:
             0.00003,
         ),
         (
+            // realized 0.0005 falls OUTSIDE the [0, 0.0003] band → 50% coverage for
+            // funding_forecast (belief 1 in-band, belief 2 out).
             "01SBROTA000000000000FF2",
             "funding_forecast",
             "rate",
-            0.00015,
+            0.0005,
             0.00005,
         ),
         (
@@ -1794,6 +1842,17 @@ async fn forecasts_scorecard_aggregates_resolved_scores_per_producer(pool: sqlx:
     assert!(
         (ff_mean - 0.00004).abs() < 1e-9,
         "funding_forecast mean CRPS = (0.00003+0.00005)/2: {j}"
+    );
+    // §9.1 band coverage (the fraction of resolved forecasts whose realized outcome
+    // fell inside the 0.1–0.9 quantile band): aeolus's single forecast missed the band
+    // (0%); funding had 1 of 2 in-band (50%). A real calibration metric, not faked.
+    assert_eq!(
+        j["rows"][0]["coverage_pct"], 0.0,
+        "aeolus realized fell outside its band: {j}"
+    );
+    assert_eq!(
+        j["rows"][1]["coverage_pct"], 50.0,
+        "funding had 1 of 2 forecasts in-band: {j}"
     );
     assert_eq!(j["summary"]["producers"], 2);
     assert_eq!(j["summary"]["rules"], 1);
@@ -2356,4 +2415,221 @@ async fn build_endpoint_serves_the_latest_verdict_and_degrades_without_a_reviews
         serde_json::json!(false),
         "{j}"
     );
+}
+
+// Track-C §9.1 RECENT half ("did the vendor call it?"): the Forecast Feed lists the
+// recent individual scalar forecasts newest-first with the forecast MEDIAN (the q=0.5
+// of the quantile fan, extracted in SQL — the raw fan is never rendered) and the
+// realized outcome / pending status. Seeds one resolved + one pending forecast and
+// asserts the created_at-DESC ordering, the median extraction, the realized value vs
+// the honest null for the pending one, the status, and the summary.
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn forecast_feed_lists_recent_forecasts_with_outcomes(pool: sqlx::PgPool) {
+    use fortuna_ledger::ScalarBeliefsRepo;
+    let sb = ScalarBeliefsRepo::new(pool.clone());
+    // sb1: funding_forecast, RESOLVED (created later → newest-first).
+    sb.insert(
+        "01SBFEED00000000000000FF1",
+        "funding_forecast",
+        "KXBTCPERP:2026-06-13T16:00:00Z",
+        &serde_json::json!([{"q":0.1,"v":0.00005},{"q":0.5,"v":0.0001},{"q":0.9,"v":0.00018}]),
+        "rate",
+        "2026-06-13T16:00:00.000Z",
+        &serde_json::json!({"strategy": "funding_forecast"}),
+        "2026-06-13T15:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    sb.resolve(
+        "01SBFEED00000000000000FF1",
+        0.00012,
+        "2026-06-13T16:00:01.000Z",
+    )
+    .await
+    .unwrap();
+    // sb2: aeolus_weather, PENDING (created earlier; no realized value).
+    sb.insert(
+        "01SBFEED00000000000000AW1",
+        "aeolus_weather",
+        "KNYC:tmax:2026-06-14",
+        &serde_json::json!([{"q":0.1,"v":80.0},{"q":0.5,"v":85.0},{"q":0.9,"v":90.0}]),
+        "celsius",
+        "2026-06-14T16:00:00.000Z",
+        &serde_json::json!({"strategy": "aeolus_weather"}),
+        "2026-06-13T14:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+        reviews_dir: None,
+    };
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/forecast_feed"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "both forecasts served: {j}");
+    assert_eq!(j["summary"]["forecasts"], 2);
+    assert_eq!(j["summary"]["resolved"], 1);
+    assert_eq!(j["summary"]["pending"], 1);
+    // created_at DESC: the funding_forecast (resolved) is newest.
+    assert_eq!(j["rows"][0]["producer"], "funding_forecast");
+    assert_eq!(j["rows"][0]["status"], "resolved");
+    assert!(
+        (j["rows"][0]["median"].as_f64().unwrap() - 0.0001).abs() < 1e-12,
+        "median is the q=0.5 of the fan: {j}"
+    );
+    assert!(
+        (j["rows"][0]["realized"].as_f64().unwrap() - 0.00012).abs() < 1e-12,
+        "realized outcome: {j}"
+    );
+    // The pending forecast shows its median but an HONEST null realized.
+    assert_eq!(j["rows"][1]["producer"], "aeolus_weather");
+    assert_eq!(j["rows"][1]["status"], "pending");
+    assert!(
+        (j["rows"][1]["median"].as_f64().unwrap() - 85.0).abs() < 1e-12,
+        "pending forecast still carries its median: {j}"
+    );
+    assert!(
+        j["rows"][1]["realized"].is_null(),
+        "an unresolved forecast has a null outcome, never a fabricated one: {j}"
+    );
+}
+
+// Track-E §20.4: the Persona Pipeline funnel — per persona, analyses produced →
+// beliefs fanned out → beliefs resolved. Seeds two registered personas, two analyses
+// by the meteorologist (none by the macro_analyst), and three persona-attributed
+// beliefs (2 meteorologist incl. 1 resolved; 1 macro_analyst resolved). Asserts the
+// per-persona funnel counts (incl. honest 0 analyses for the macro_analyst) and the
+// totals.
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn persona_pipeline_funnels_analyses_beliefs_resolved_per_persona(pool: sqlx::PgPool) {
+    use fortuna_ledger::{BeliefsRepo, DomainAnalysesRepo, PersonasRepo};
+    // Registry: two personas (the funnel's universe).
+    let personas = PersonasRepo::new(pool.clone());
+    for (row_id, pid) in [
+        ("01PPLPERSONAROW00000MET", "meteorologist"),
+        ("01PPLPERSONAROW00000MAC", "macro_analyst"),
+    ] {
+        personas
+            .insert(
+                row_id,
+                pid,
+                1,
+                "weather",
+                &serde_json::json!([]),
+                &serde_json::json!([]),
+                "cheap",
+                "methodhash",
+                "findings/v1",
+                "active",
+                None,
+                "2026-06-10T00:00:00.000Z",
+                "2026-06-10T00:00:00.000Z",
+            )
+            .await
+            .unwrap();
+    }
+    // meteorologist produced two analyses; macro_analyst produced none.
+    let analyses = DomainAnalysesRepo::new(pool.clone());
+    for (aid, region) in [
+        ("01PPLANALYSIS000000001", "weather:r1"),
+        ("01PPLANALYSIS000000002", "weather:r2"),
+    ] {
+        analyses
+            .insert(
+                aid,
+                "meteorologist",
+                1,
+                "weather",
+                region,
+                "2026-06-12T05:00:00.000Z",
+                &serde_json::json!([]),
+                &serde_json::json!({}),
+                &format!("hash-{aid}"),
+                "manifest",
+                1,
+                None,
+                "2026-06-12T05:00:00.000Z",
+            )
+            .await
+            .unwrap();
+    }
+    // beliefs: 2 meteorologist (1 resolved), 1 macro_analyst (resolved).
+    seed_event(&pool, "01PPLEVENT00000000000001").await;
+    let beliefs = BeliefsRepo::new(pool.clone());
+    for (bid, persona, resolve) in [
+        ("01PPLBELIEF0000000000MET1", "meteorologist", true),
+        ("01PPLBELIEF0000000000MET2", "meteorologist", false),
+        ("01PPLBELIEF0000000000MAC1", "macro_analyst", true),
+    ] {
+        beliefs
+            .insert(
+                bid,
+                "2026-06-12T12:00:00.000Z",
+                "01PPLEVENT00000000000001",
+                0.6,
+                0.6,
+                "2026-06-13",
+                &serde_json::json!({"source": "x"}),
+                &serde_json::json!({"persona_id": persona}),
+                None,
+            )
+            .await
+            .unwrap();
+        if resolve {
+            beliefs
+                .resolve_and_score(bid, true, 0.1, Some(10.0))
+                .await
+                .unwrap();
+        }
+    }
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+        reviews_dir: None,
+    };
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/persona_pipeline"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "both registered personas: {j}");
+    // persona ASC: macro_analyst, then meteorologist.
+    assert_eq!(j["rows"][0]["persona"], "macro_analyst");
+    assert_eq!(
+        j["rows"][0]["analyses"], 0,
+        "macro_analyst produced no analyses (honest 0 via the LEFT JOIN): {j}"
+    );
+    assert_eq!(j["rows"][0]["beliefs"], 1);
+    assert_eq!(j["rows"][0]["resolved"], 1);
+    assert_eq!(j["rows"][1]["persona"], "meteorologist");
+    assert_eq!(j["rows"][1]["analyses"], 2, "two analyses produced: {j}");
+    assert_eq!(j["rows"][1]["beliefs"], 2, "two beliefs fanned out: {j}");
+    assert_eq!(j["rows"][1]["resolved"], 1, "one of the two resolved: {j}");
+    // Funnel totals.
+    assert_eq!(j["summary"]["personas"], 2);
+    assert_eq!(j["summary"]["analyses"], 2);
+    assert_eq!(j["summary"]["beliefs"], 3);
+    assert_eq!(j["summary"]["resolved"], 2);
 }

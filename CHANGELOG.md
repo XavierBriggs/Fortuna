@@ -783,6 +783,39 @@ with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
   snapshot byte-stable) and ROTA serves it via `read_view` — the handler never parses
   Prometheus text. Completes the operator's single-pane-of-glass across all six
   mission areas (cognition, pipeline, trades, discovery, DB, telemetry).
+- **Forecast Feed board** (`GET /api/rota/v1/forecast_feed`, track-C §9.1 recent half —
+  "did the vendor call it?") — the recent individual scalar forecasts with their realized
+  outcomes, newest-first: producer, event, unit, the forecast median (the q=0.5 of the
+  quantile fan, extracted as a single value in SQL), the realized value (null=pending →
+  honest "—"), and pending/resolved status. The companion to the `/forecasts` aggregate
+  scorecard. A fortuna-ops runtime-sqlx query. UNTRUSTED-DATA BOUNDARY: only the median
+  number is extracted — the raw `quantiles` fan + `provenance` are not exposed. Completes
+  §9.1's two halves (scorecard + feed).
+- **Forecasts scorecard — band coverage** (§9.1 calibration metric): the Forecasts
+  scorecard gains a quantile-band coverage column — per (producer, rule), the fraction
+  of resolved forecasts whose realized outcome fell inside the 0.1–0.9 band (a
+  well-calibrated producer ≈ 80%). Reads only the q0.1/q0.9 boundary numbers from the
+  fan for the band check (the raw fan stays unexposed); a missing quantile degrades
+  honestly to not-covered. Mean CRPS + coverage are now the two calibration measures.
+- **Domain Analyses board — belief fanout** (§20.2): the Analyses board gains a
+  `beliefs` column counting how many beliefs were built from each analysis
+  (`beliefs.provenance ->> 'analysis_id'`) — the cognition pipeline's downstream
+  output per artifact. A correlated `COUNT(*)` (no content exposed; the untrusted-data
+  boundary holds). The full per-belief expander remains a follow-on.
+- **Persona Pipeline board** (`GET /api/rota/v1/persona_pipeline`, track-E §20.4) — per
+  persona, the cognition pipeline funnel: analyses produced → beliefs fanned out →
+  beliefs resolved, over the persona-registry universe (a LEFT-JOIN aggregate; an idle
+  persona reads honest 0s). The conversion at each stage is the pipeline-health signal.
+  Counts only — no content exposed. (Universe is the registry: a persona attributed but
+  not registered is omitted — it still appears in the scorecard.)
+- **Cognition board — provenance legibility** (§20.3 / mission item 1): the per-belief
+  expander now renders a LABELED one-line provenance summary (`persona id@version ·
+  model · cost · analysis · run`) above the raw JSON dump — "which source/persona drove
+  this belief," the reasoning made legible. A `provenance_summary` handler helper
+  extracts the known keys into an additive `prov` field; the JS escapes every value.
+  Pure JSONB field-extraction for display (no cognition computation); the whole
+  provenance is still served. Cross-references the Personas/Analyses boards via the
+  surfaced persona_id/analysis_id.
 - **Strategy P&L board** (`GET /api/rota/v1/strategies`, mission item 3 "realized
   PnL per strategy") — per-strategy realized PnL / fees / fills / open exposure,
   shaped daemon-side from `runner.digest_snapshot()` (the same attribution the

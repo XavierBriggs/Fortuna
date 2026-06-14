@@ -690,6 +690,18 @@ Polymarket research+fixtures, spec v0.9 touch-up).
         SPANS ALL 6 MISSION ITEMS (cognition, pipeline, trades, discovery, DB,
         telemetry). Live prod metrics populate when the daemon runs; help-text + metric
         search are later polish (GAPS).
+  - [x] Forecast Feed board (track-C §9.1 recent half, "did the vendor call it?") —
+        recent_forecasts runtime-sqlx over scalar_beliefs (the recent individual
+        forecasts newest-first: producer, event, unit, the median extracted from the
+        quantile fan, realized outcome / pending status); the companion to the
+        /forecasts scorecard. Untrusted quantiles fan + provenance NOT exposed (only
+        the median number — reviewer-confirmed); fortuna-ops only; DB-backed populated
+        test (resolved + pending, median extraction + honest-null realized); reviewer-
+        clean; battery green EXCEPT the same pre-existing main kinetics_dto red (a first
+        full-workspace run also hit transient createdb contention from concurrent
+        verifier/IDE Postgres load — proven transient by rota 34/34 in isolation + a
+        clean re-run); screenshot-verified (this commit, 21 boards). §9.1's two halves
+        (scorecard + feed) now both live; coverage_bps + sparkline + §9.2 /perps remain.
 
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)

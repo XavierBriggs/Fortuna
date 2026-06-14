@@ -1311,6 +1311,160 @@ Track-B impact: my full-workspace battery is green on EVERYTHING ELSE (1216 pass
 this 1 pre-existing main red / DST exit 0 / daemon_smoke 15/15 / clippy + fmt clean);
 this red is inherited from main, independent of the ROTA work.
 
+### RALPH STOP 2026-06-13T22:13Z — TRACK B (ROTA OBSERVABILITY): mission delivered + merged; ready work exhausted
+Stopping the track-B loop per loop-rule 5 ("every ready board is built and the rest are
+data-blocked on C/D/E — ledger the dependency, don't invent work").
+
+WHAT WAS DELIVERED. The operator's TOTAL OBSERVABILITY mission (all 6 areas — cognition,
+pipeline, trades, discovery, DB, telemetry) is MERGED to main @04d2f5d and GATE-ACCEPTED by
+the verifier (bus: "all 6 mission areas + producer scorecards + ingestion triad; READ-ONLY
+honored; clean merge"). Then 5 MORE gate-ready depth follow-ons were committed on top (unmerged,
+queued for the verifier): Forecast Feed (§9.1 recent half), band coverage (§9.1 calibration),
+analyses belief-fanout (§20.2), Persona Pipeline funnel (§20.4), cognition provenance
+legibility (§20.3 / item 1). 22 boards total. Each: tests-first, code-reviewer-clean, full-
+workspace battery green, screenshot-verified, docs current.
+
+WHY STOP NOW. Every READY board is built + merged. The remaining BOARDS are DATA-BLOCKED:
+- §9.2 `/perps` regime/basis — the perp_event_basis kernel is computed ON-DEMAND, NOT persisted
+  to any table; a ROTA query has nothing to read until track-C persists basis (or a funding-
+  regime table lands). DATA-BLOCKED on track-C.
+- D V4 Vendor Scorecard / V5 Forecast→Outcome / V6 — DATA-BLOCKED on the Layer-3
+  source_reliability cognition job (track-D/cognition), as the ingestion-observability contract
+  states.
+The only NON-blocked remaining items are JS-UI POLISH on already-complete boards — the §20.2
+per-belief EXPANDER (a click-to-expand drill-in; the fanout COUNT already signals it) and the
+§9.1 SPARKLINE (a per-producer trend viz). Both are thin-Rust / JS-heavy enhancements, not new
+boards; grinding them on a complete+merged mission is the "don't invent work" the rule warns
+against. Building them is a fine FUTURE slice if the operator wants the polish — re-activate the
+loop with that directive.
+
+CROSS-TRACK RED STILL OPEN (not track-B; for the verifier/owning track): `fortuna-venues --test
+kinetics_dto every_fixture_parses_into_its_typed_dto` fails on the unclassified
+`paired_cycle_btc_perp_vs_kxbtc` fixture (track-C main @2c17295) — the known fixture-glob trap
+([[fortuna-battery-ops]]); fix is fortuna-venues-side (subdir the derived fixture), outside
+track-B ownership. This is the ONLY red in track-B's full-workspace battery across all 5
+follow-ons.
+
+WHAT RE-ACTIVATES TRACK B: (a) an operator directive for the §20.2 expander / §9.1 sparkline
+polish; (b) track-C persisting perp basis → §9.2 `/perps` unblocks; (c) the Layer-3
+source_reliability job landing → D V4-V6 unblock; (d) any new ROTA gate finding on the bus.
+
+### COGNITION PROVENANCE LEGIBILITY DONE (2026-06-13) — track-E §20.3 / mission item 1
+Made the cognition board's belief expander LEGIBLE (mission item 1's #1 emphasis: "each belief
+with its provenance — which source/persona, model_id, run_at, cost — the reasoning made
+legible"). The expander previously dumped raw provenance JSON; it now renders a LABELED one-line
+summary above it: `persona meteorologist@3 · model claude-sonnet-4-6 · cost $0.02 · analysis
+01J0ANAL · run …`. A `provenance_summary(&Value)` handler helper extracts the known keys
+(persona_id, persona_version, model_id, cost_cents, analysis_id, run_at — SYSTEM-authored
+config, not untrusted model output) into a `prov` field per belief (the WHOLE provenance is
+still served alongside — purely additive); a JS `provLine` renders it, esc()'ing every value.
+PURE JSONB field-extraction for display — no cognition computation (R2 honored), panic-free
+(`Value::get` on a non-object → None → null). fortuna-ops ONLY. The existing
+`cognition_serves_seeded_beliefs_and_scopes` test was enriched (persona provenance seeded →
+asserts the `prov` summary surfaces model/cost/persona_id/version/analysis_id). Reviewer RAN —
+CLEAN (panic-free, all JS values esc()'d, additive, no R2 concern, genuine test). BATTERY: green
+for all track-B work + the workspace EXCEPT the SAME ONE pre-existing main `kinetics_dto` red:
+fmt + clippy --workspace clean, `cargo test --workspace` 1267 passed / 1 pre-existing-main-
+failed, run-dst.sh exit 0. Screenshot-verified (the persona belief's expander shows the labeled
+provenance line). This ties the merged Personas/Analyses boards to the beliefs they produce — the
+analysis_id/persona_id in the line cross-reference those boards. >>> REMAINING-WORK STATE: the
+mission (all 6 areas) is MERGED + GATE-ACCEPTED (@04d2f5d), and the C/E ROTA contracts are now
+substantially complete (§9.1 scorecard+coverage+feed; §20.1 registry+scorecard; §20.2
+browser+fanout; §20.3 this; §20.4 pipeline). The genuinely-remaining items are increasingly
+marginal/complex/data-blocked: the §20.2 per-belief EXPANDER (a click-to-expand UI — JS-heavy,
+thin Rust core), the §9.1 SPARKLINE (a viz — JS-heavy), §9.2 `/perps` regime/basis (the basis
+kernel is computed on-demand, NOT persisted → DATA-BLOCKED until track-C persists it), and the D
+V4/V5/V6 boards (DATA-BLOCKED on the Layer-3 source_reliability job). Track B is near the rule-5
+stop territory; further slices are polish on a complete+merged mission.
+
+### PERSONA PIPELINE DONE (2026-06-13) — track-E §20.4 (post-merge follow-on)
+Built the Persona Pipeline funnel board (`/api/rota/v1/persona_pipeline`) — per persona, the
+cognition PIPELINE at a glance: analyses produced → beliefs fanned out → beliefs resolved (the
+conversion at each stage is the pipeline-health signal). `persona_pipeline(pool)` runtime-sqlx:
+the persona REGISTRY universe (`SELECT DISTINCT persona_id FROM personas`) LEFT JOINed to the
+per-persona analysis count (`domain_analyses`) and the per-persona belief + resolved counts
+(`beliefs.provenance ->> 'persona_id'`, `COUNT(*) FILTER (WHERE status='resolved')`); `COALESCE
+(...,0)::bigint` so a registered-but-idle persona reads honest 0s AND the i64 decode is safe
+(the NUMERIC/decode lesson applied proactively). COUNTS ONLY — no analysis/belief content
+exposed. fortuna-ops ONLY. PATHS[24] + degraded-loop; harness populates it from the existing
+personas + domain_analyses + persona-attributed beliefs (no harness change). DB-backed
+populated-path test (2 personas, 2 meteorologist analyses, 3 persona beliefs incl. 2
+meteorologist/1 resolved + 1 macro resolved → asserts macro 0/1/1, meteorologist 2/2/1, totals).
+Reviewer RAN — CLEAN (LEFT JOIN + COALESCE correct, casts sound, untrusted boundary, no panic,
+genuine test). NOTE (honest design, reviewer-flagged): the funnel's universe is the REGISTRY —
+a persona attributed in beliefs/analyses but NOT registered in `personas` is omitted (it would
+still appear in the scorecard); acceptable (registration precedes production), documented in the
+fn. BATTERY: green for all track-B work + the workspace EXCEPT the SAME ONE pre-existing main
+`kinetics_dto` red: fmt + clippy --workspace clean, `cargo test --workspace` 1267 passed / 1
+pre-existing-main-failed, run-dst.sh exit 0. Screenshot-verified (22 boards; Persona Pipeline
+shows meteorologist 2 analyses→1 belief→1 resolved, macro_analyst 0→1→1).
+
+### ANALYSES BELIEF-FANOUT DONE (2026-06-13) — track-E §20.2 (post-merge follow-on)
+Extended the (now-merged) Domain Analyses board with the artifact→belief FANOUT: a `beliefs`
+column counting how many beliefs were built FROM each analysis (the cognition pipeline's
+downstream output). `recent_analyses` gains a correlated `(SELECT COUNT(*) FROM beliefs b
+WHERE b.provenance ->> 'analysis_id' = da.analysis_id)` (COUNT → bigint → i64, no NUMERIC
+trap — the §9.1-coverage lesson applied) + a `{beliefs}` summary total. STILL metadata only —
+the count exposes no belief content / findings (untrusted-data boundary holds). fortuna-ops
+ONLY. The existing analyses test was extended (seed an event + 2 beliefs citing A2 → asserts
+A2 fanout=2, A1=0, summary=2); harness repoints a persona belief's analysis_id at a seeded
+analysis so the board shows a real fanout (KNYC2 → 1 belief). Reviewer RAN — CLEAN (correlated
+subquery correct, COUNT bigint not numeric, untrusted boundary, no panic, genuine test).
+BATTERY: green for all track-B work + the workspace EXCEPT the SAME ONE pre-existing main
+`kinetics_dto` red: fmt + clippy --workspace clean, `cargo test --workspace` 1266 passed / 1
+pre-existing-main-failed, run-dst.sh exit 0. Screenshot-verified (Analyses board now shows the
+Beliefs column; the open analysis → 1 belief, the superseded → 0). The full §20.2 per-belief
+EXPANDER (the actual fanned-out beliefs with p/status/outcome + the findings/manifest, esc'd)
+remains a follow-on.
+
+### BAND COVERAGE DONE (2026-06-13) — track-C §9.1 calibration metric (post-merge follow-on)
+Extended the (now-merged) Forecasts scorecard with the §9.1 quantile-band COVERAGE metric:
+per (producer, rule), the fraction of resolved forecasts whose realized outcome fell inside
+the 0.1–0.9 band (a well-calibrated producer ≈ 80%; rendered as a percentage column, "Band
+cover % (~80 ideal)"). `forecast_scorecard` gains an `AVG(CASE WHEN realized BETWEEN q0.1 AND
+q0.9 THEN 1 ELSE 0 END)::float8` — the q0.1/q0.9 VALUES (numbers) are read from the `quantiles`
+fan for the band check; the raw fan + provenance are STILL never rendered (untrusted-data
+boundary holds). A NULL quantile degrades honestly to not-covered (0), never a crash. fortuna-
+ops ONLY. The existing forecasts test was extended (funding belief-2 realized nudged out of
+band → asserts aeolus 0% / funding 50% coverage — a real partial-coverage case, not faked).
+GOTCHA fixed: `AVG(CASE ... 1.0 ELSE 0.0 ...)` returns NUMERIC (the literals are numeric), not
+FLOAT8 — the f64-tuple decode reds until `::float8`-cast; the TEST caught it (static review
+missed it — the battery is the gate). Reviewer RAN (clean on the SQL/boundary/no-panic).
+BATTERY: green for all track-B work + the workspace EXCEPT the SAME ONE pre-existing main
+`kinetics_dto` red: fmt + clippy --workspace clean, `cargo test --workspace` 1266 passed / 1
+pre-existing-main-failed, run-dst.sh exit 0. Screenshot-verified (Forecasts board now shows the
+coverage column; both seeded producers in-band → 100%). §9.1 now has scorecard (CRPS +
+coverage) + feed; the sparkline + §9.2 /perps remain.
+
+### FORECAST FEED DONE (2026-06-13) — track-C §9.1 RECENT half (did the vendor call it?)
+Built the Forecast Feed board (`/api/rota/v1/forecast_feed`) — the §9.1 RECENT half (the
+companion to the /forecasts SCORECARD): the recent individual scalar forecasts with their
+realized outcomes, newest-first. `recent_forecasts(pool, limit)` runtime-sqlx over
+`scalar_beliefs`: producer, event_key, unit, the forecast's MEDIAN (the q=0.5 point of the
+`quantiles` fan, extracted as a single `::float8` in SQL — the RAW fan is NEVER rendered),
+`realized_value` (null=pending → honest "—"), pending/resolved status (pill), horizon. +
+view_forecast_feed handler (degrades unavailable HTTP 200, no leak) via boardTable with a
+`{forecasts,resolved,pending}` summary. UNTRUSTED-DATA BOUNDARY: only the median NUMBER is
+extracted; the `quantiles` fan + `provenance` JSONB (untrusted model output) are NOT selected
+or exposed (reviewer-confirmed). fortuna-ops ONLY (audit-tail precedent). PATHS[23] +
+degraded-loop + harness (a PENDING forecast added + the existing forecasts seeded with
+unit-appropriate quantile fans so the median reads sensibly vs the realized outcome). DB-backed
+populated-path test (one resolved + one pending → asserts created_at-DESC ordering, the median
+extraction, realized-vs-honest-null, status, summary; f64 tolerance). Reviewer RAN — CLEAN
+(median subquery correct/safe — graceful-degrade on a malformed fan, fans have unique q's; tuple
+types match incl. Option<f64> medians; round6 Option-preserving; raw fan/provenance not exposed;
+no unwrap/panic; genuine test with the null assertion). BATTERY: green for all track-B work +
+the workspace EXCEPT the SAME ONE pre-existing main `kinetics_dto` red: fmt + clippy --workspace
+clean, `cargo test --workspace` 1266 passed / 1 pre-existing-main-failed, run-dst.sh exit 0,
+forecast_feed + the rota suite 34/34 (isolation). [NOTE — transient-contention episode, NOT a
+defect: a first full-workspace run showed 6 EXTRA `permission denied to create database (42501)`
+failures in DB-heavy tests — the shared Postgres `createdb` flooded by the CONCURRENT verifier/IDE
+sessions ([[fortuna-battery-ops]]); proven transient by rota 34/34 in isolation + a clean re-run
+with 0 contention failures. My code is green.] Screenshot-verified (21 boards; Forecast Feed shows
+forecasts 4 / pending 1 — aeolus median 86→pending, aeolus median 29→realized 30, funding
+~0.0001 rate). The §9.1 contract's two halves (scorecard + feed) are NOW BOTH LIVE. FOLLOW-ONS:
+the sparkline (§9.1; coverage now DONE — see BAND COVERAGE DONE above); §9.2 /perps.
+
 ### TELEMETRY DONE (2026-06-13) — mission item 6 (the Prometheus stack on the console)
 Built the Telemetry board (`/api/rota/v1/telemetry`) — mission item 6, the LAST untouched
 pillar: the metric SERIES the daemon exports (the SAME `MetricsRegistry` the `/metrics`
