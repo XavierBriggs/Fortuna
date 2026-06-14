@@ -253,9 +253,13 @@ impl Default for PersonasSection {
 /// closed). `#[serde(default)]` so omitting the WHOLE section deserializes to the
 /// disabled default, and the tuning knobs each default if omitted.
 ///
-/// COMMIT 1 (world-forward) fields only. A later commit adds market-back
-/// (catalog→edges→synthesis) and EXTENDS this section in place — no market-back
-/// knobs are present yet (an unused field would be dead code today).
+/// COMMIT 1 added the world-forward fields; COMMIT 2 (market-back) extends this
+/// section in place with the deterministic prefilter knobs (category allowlist,
+/// volume floor, category-calibration floor; spec 5.12 "deterministic prefilter").
+/// The prefilter knobs are INERT in prod until the live Kalshi catalog is wired
+/// (T4.2) — `catalog` is empty, so the market-back step is a no-op even when the
+/// section is enabled — but they are read into `PrefilterConfig` at boot regardless
+/// (no dead config).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct DiscoverySection {
@@ -266,6 +270,18 @@ pub struct DiscoverySection {
     /// Signal kinds the world-forward loop reads each segment (empty => the step
     /// reads nothing and is a no-op, like an empty persona reads-set).
     pub signal_kinds: Vec<String>,
+    /// MARKET-BACK prefilter (spec 5.12): only catalog listings whose category is
+    /// in this allowlist survive the deterministic prefilter. Empty => no category
+    /// passes (the market-back step is inert even with a non-empty catalog).
+    pub category_allowlist: Vec<String>,
+    /// MARKET-BACK prefilter (spec 5.12): the venue volume floor; a listing with
+    /// fewer contracts is excluded (illiquid markets are not worth normalizing).
+    pub min_volume_contracts: i64,
+    /// MARKET-BACK prefilter (spec 5.12): the category-calibration floor; a listing
+    /// whose category sits below this quality is excluded (the record says we cannot
+    /// price it yet). The per-category quality map itself is queried at the
+    /// composition (T2.8 calibration record) — empty in prod until that is wired.
+    pub min_category_quality: f64,
 }
 
 impl Default for DiscoverySection {
@@ -276,6 +292,9 @@ impl Default for DiscoverySection {
             window_hours: 48,
             max_signals: 200,
             signal_kinds: Vec::new(),
+            category_allowlist: Vec::new(),
+            min_volume_contracts: 0,
+            min_category_quality: 0.0,
         }
     }
 }

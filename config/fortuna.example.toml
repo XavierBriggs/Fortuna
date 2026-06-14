@@ -205,3 +205,7 @@ bracket_sets = [["SIM-BKT-LO", "SIM-BKT-MID", "SIM-BKT-HI"]]
 # window_hours         = 48      # how far back recent_by_kind reads signals
 # max_signals          = 200     # recent_by_kind LIMIT
 # signal_kinds         = ["aeolus.forecast", "news.headline"]  # the kinds the loop reads
+# # --- market-back prefilter (the catalog is INERT in prod until T4.2 wires the live Kalshi catalog) ---
+# category_allowlist   = ["weather"]  # only these venue-market categories are normalized
+# min_volume_contracts = 100          # listings below this volume floor are skipped
+# min_category_quality = 0.0          # min per-category calibration quality (0.0 = no check)

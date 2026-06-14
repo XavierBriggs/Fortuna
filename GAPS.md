@@ -246,18 +246,26 @@ world-forward first). Status:
   `StrategyId("world-forward")`); fail-closed registry load; no-panic; default-off; e2e
   mutation-proven (None→0→RED); full battery green (1495/0 + run-dst 200 0-viol). This is
   the path that turns ingested SIGNALS into beliefs in PRODUCTION (no venue catalog needed).
-- DISCOVERY part 1b — MARKET-BACK: NEXT commit. Drives `market_back_discovery`
-  (catalog→events→edges→synthesis belief). Auto-confirms LOW-STAKES edges (Direct mapping +
+- DISCOVERY part 1b — MARKET-BACK: DONE (this commit). Drives `market_back_discovery`
+  (catalog→events→edges→synthesis belief), placed BEFORE the synthesis edge-refresh so an
+  auto-confirmed edge is priced the same segment. Auto-confirms LOW-STAKES edges (Direct mapping +
   deterministic score 1.0 + source/horizon match) per spec §5.12:252 ("deterministic checks
   score them; #fortuna-review confirms the HIGH-STAKES ones") with `confirmed_by="discovery:auto"`
-  → wakes the synthesis arm; routes HIGH-STAKES (non-Direct / score<1.0 / cross-venue) to
-  #fortuna-review as PROPOSED. Extends this `[discovery]`/`DiscoveryWiring`.
-  GAP (operator/T4.2): the daemon has NO live venue catalog wired (`drive()` has no
-  `venue.markets()`), so market-back is INERT in production until the Kalshi adapter supplies a
-  catalog (T4.2, operator-gated venue=kalshi). The e2e proves the chain with a test-supplied
-  catalog; prod activates when the catalog lands. (World-forward above is the prod-active
-  signal→belief path meanwhile.) I6 propose-only, Clock-injected, recorded signals only, never
-  fabricate an edge.
+  → wakes the synthesis arm; routes HIGH-STAKES (non-Direct / score<1.0) to #fortuna-review as
+  PROPOSED. Auto-confirmed edges feed only BELIEFS (orders still cross gate I1; I6 propose-only).
+  e2e mutation-proven (full chain; discovery=None→0→RED); full battery green (test --workspace
+  1496/0 + run-dst 200 0-viol). ⇒ The "drive the ingestion→beliefs loops" amendment is COMPLETE
+  (personas + world-forward + market-back).
+  REMAINING PROD GAP (operator/T4.2, NOT a blocker for this slice): the daemon has NO live venue
+  catalog wired (`drive()` has no `venue.markets()`), so market-back is INERT in production
+  (`main.rs` sets `catalog: Vec::new()`) until the Kalshi adapter supplies a catalog (T4.2,
+  operator-gated venue=kalshi). The e2e proves the chain with a test-supplied catalog; prod
+  market-back activates when the catalog lands. World-forward (1a) is the prod-active
+  signal→belief path meanwhile. Also deferred (ledgered): the richer match-before-create
+  events-table query (this rung passes an empty existing-events set, so every survivor normalizes
+  to a NEW event); the per-category calibration-quality map (`category_quality` starts empty →
+  categories score 0.0, failing any positive `min_category_quality` — wire from the T2.8 record
+  when the live catalog lands). Recorded signals only; never fabricate an edge.
 
 DEFERRED (ledgered, not blockers):
 - Persona Slice 3 (weekly-review promote/retire verdict folding via persona_scoring +

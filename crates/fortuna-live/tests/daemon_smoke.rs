@@ -2125,6 +2125,18 @@ async fn discovery_world_forward_persists_watchlist_events_and_beliefs(pool: PgP
         signal_kinds: vec!["aeolus.forecast".to_string()],
         window_hours: 48,
         max_signals: 200,
+        // COMMIT 2 market-back fields: an EMPTY catalog makes the market-back step
+        // inert (this test exercises ONLY the world-forward arm), so the prefilter
+        // and id bases are unused here.
+        prefilter: fortuna_cognition::discovery::PrefilterConfig {
+            category_allowlist: vec![],
+            min_volume_contracts: 0,
+            min_category_quality: 0.0,
+            category_quality: std::collections::BTreeMap::new(),
+        },
+        catalog: vec![],
+        event_id_base: 0,
+        edge_id_base: 0,
     };
 
     // No watch events before the drive.
@@ -2217,5 +2229,259 @@ async fn discovery_world_forward_persists_watchlist_events_and_beliefs(pool: PgP
     assert_eq!(
         scoreable_belief, 1,
         "the belief rides the scoreable watch event (watch:heat-dome-2026-06)"
+    );
+}
+
+/// COMMIT 2 (spec 5.12 market-back; the amendment's gate): the FULL early-arrival
+/// chain end-to-end — catalog -> deterministic prefilter -> mind normalizes a
+/// survivor into a NEW canonical event -> a LOW-STAKES edge (Direct mapping +
+/// deterministic_score 1.0) is AUTO-CONFIRMED (`confirmed_by = 'discovery:auto'`,
+/// spec 5.12:252) -> the SAME-SEGMENT synthesis edge-refresh picks it up -> the
+/// synthesis arm believes on that minted event and DRAFTS a belief that drains +
+/// persists. This stitches the COMMIT-1 world-forward e2e harness (one StopAtCadence
+/// segment) to `drive_drains_and_persists_the_synthesis_arms_beliefs` (the synthesis
+/// drain) and `per_segment_refresh_picks_up_a_newly_confirmed_edge` (the ledger is
+/// the boundary, re-read per segment) — only here the edge is minted by discovery
+/// inside the SAME run, not pre-seeded.
+///
+/// DETERMINISTIC EVENT ID: the market-back block mints the first NEW event as
+/// `format!("01EVT{:021}", event_id_base)` where `event_id_base` is seeded (in the
+/// wiring) from the drive-start epoch. Under SimClock the drive-start is `t0()` =
+/// 2026-06-11T12:00:00.000Z = epoch_ms 1781179200000, so the minted id is the
+/// constant below — which the synthesis `believing_mind` targets, closing the loop
+/// on a RUNTIME-minted id (no fallback needed).
+///
+/// MUTATION PROOF (verified, not just claimed): passing `discovery: None` makes
+/// drive() skip the market-back step entirely, so NO event + NO edge is minted, the
+/// synthesis arm has no edge to believe against, and ALL THREE counts (events, the
+/// auto-confirmed edge, the synthesis belief on the minted event) go to 0 => RED. (I
+/// confirmed this by temporarily flipping the arg to None, observing the RED across
+/// all three assertions, and restoring it to Some.)
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn discovery_market_back_auto_confirms_and_synthesis_drafts_a_belief(pool: PgPool) {
+    use fortuna_cognition::discovery::{DiscoveryBudget, MarketView, PrefilterConfig};
+    use fortuna_cognition::signals::SourceRegistry;
+    use fortuna_core::clock::UtcTimestamp;
+    use fortuna_core::market::StrategyId;
+    use serde_json::json;
+    use std::collections::BTreeMap;
+
+    // The deterministic minted event id (see the doc comment): 01EVT + the
+    // zero-padded(21) t0() epoch_millis (1781179200000). The market-back block
+    // mints the first NEW event at this id; the synthesis believing_mind targets it.
+    const MINTED_EVENT_ID: &str = "01EVT000000001781179200000";
+    let t0_epoch_ms: u64 = t0().epoch_millis().max(0) as u64;
+    let horizon = "2026-06-20T18:00:00.000Z";
+
+    // ---- Boot WITH [synthesis] scoped to sim (so the synthesis arm composes), but
+    //      NO pre-seeded event/edge — the discovery block creates them. ----
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let dcfg = DaemonToml::parse(&format!("{text}\n[synthesis]\nvenue = \"sim\"\n")).unwrap();
+    let full = FortunaConfig::load_file(example_path).expect("example full-config parses");
+    // The SYNTHESIS mind believes on the minted event id (the chain's far end).
+    let mut runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        t0(),
+        99,
+        believing_mind(MINTED_EVENT_ID, 0.70),
+    )
+    .await
+    .expect("composition");
+    assert_eq!(
+        runner.synthesis_edge_count(),
+        Some(0),
+        "booted with no confirmed edges (the discovery block mints the edge)"
+    );
+    // A book for SIM-BKT-LO (the catalog market) so the synth arm's cycle runs once
+    // the edge is confirmed; the other sim markets get books too (arb harness).
+    arb_books(&runner);
+
+    // ---- 1. The catalog: ONE "weather" MarketView for SIM-BKT-LO (a real sim
+    //         market with a book), volume above the floor, resolution_source "nws"
+    //         and close_at == the normalization horizon so the deterministic edge
+    //         check scores 1.0 => high_stakes == false => AUTO-CONFIRM. ----
+    let catalog = vec![MarketView {
+        market_id: "SIM-BKT-LO".to_string(),
+        venue: "sim".to_string(),
+        title: "SIM weather bracket LO".to_string(),
+        category: "weather".to_string(),
+        volume_contracts: Some(5_000),
+        resolution_source: "nws".to_string(),
+        close_at: Some(UtcTimestamp::parse_iso8601(horizon).unwrap()),
+    }];
+
+    // ---- 2. Prefilter allowing "weather" with a calibration record that clears the
+    //         floor (the per-category quality map must list "weather" — an absent
+    //         category scores 0.0 and would be excluded). ----
+    let prefilter = PrefilterConfig {
+        category_allowlist: vec!["weather".to_string()],
+        min_volume_contracts: 100,
+        min_category_quality: 0.1,
+        category_quality: BTreeMap::from([("weather".to_string(), 0.9)]),
+    };
+
+    // ---- 3. The discovery mind: a NormalizationBatch with ONE entry for
+    //         SIM-BKT-LO — matches_event_id null (NEW event), Direct mapping,
+    //         resolution_source "nws" + horizon == close_at => deterministic 1.0 =>
+    //         high_stakes false => auto-confirm. JSON shape copied from
+    //         crates/fortuna-cognition/tests/discovery.rs::normalization_body(). ----
+    let scripted: MindOutput = serde_json::from_value(json!({
+        "beliefs": [],
+        "proposals": [],
+        "journal": {"body": json!({
+            "normalizations": [
+                {
+                    "market_id": "SIM-BKT-LO",
+                    "matches_event_id": null,
+                    "statement": "NYC high temp >= 90F on 2026-06-20",
+                    "resolution_criteria": "NWS Central Park daily climate report",
+                    "resolution_source": "nws",
+                    "horizon": horizon,
+                    "category": "weather",
+                    "mapping": "direct",
+                    "confidence": 0.85
+                }
+            ]
+        }).to_string()},
+        "cost_cents": 1
+    }))
+    .unwrap();
+    let discovery_mind: Arc<dyn Mind> = Arc::new(StubMind::scripted(vec![scripted]));
+
+    // ---- 4. The DiscoveryWiring. signal_kinds = [] is fine (market-back's driver is
+    //         the catalog, not signals). event_id_base/edge_id_base seeded from the
+    //         drive-start epoch (== t0() under SimClock), so the first minted event
+    //         is MINTED_EVENT_ID. registry empty (market-back does not use it). ----
+    let wiring = fortuna_live::daemon::DiscoveryWiring {
+        pool: pool.clone(),
+        mind: discovery_mind,
+        budget: DiscoveryBudget::new(500),
+        registry: SourceRegistry::new(),
+        strategy: StrategyId::new("market-back").unwrap(), // TEST code: unwrap fine
+        signal_kinds: vec![],
+        window_hours: 48,
+        max_signals: 200,
+        prefilter,
+        catalog,
+        event_id_base: t0_epoch_ms,
+        edge_id_base: t0_epoch_ms,
+    };
+
+    // Nothing before the drive: no canonical events, no edges, no beliefs.
+    let events_before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM events")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(events_before, 0, "no events before drive");
+
+    // ---- 5. Run drive() with discovery: Some(wiring) AND synthesis_refresh: Some.
+    //         fire_at 6 / segment 4 == the synthesis-drain template: segment 1's
+    //         post-block mints+confirms the edge, segment 2's ticks draft the belief
+    //         and its post-block drains+persists it (then the stop breaks the loop). --
+    let (tx, mut stop) = tokio::sync::oneshot::channel::<()>();
+    let mut cadence = StopAtCadence {
+        clock: runner.clock.clone(),
+        sleeps: 0,
+        fire_at: 6,
+        tx: Some(tx),
+    };
+    let mut poller = NeverHalted;
+    let loop_cfg = LoopConfig {
+        tick_interval_ms: 1000,
+        halt_poll_ms: 500,
+    };
+    let mut scrape = DegradeScrape::new(default_degrade_thresholds());
+    let mut daily = fortuna_live::daemon::DailyScheduler::new();
+    let synthesis_refresh = dcfg.synthesis.clone().map(|syn| (pool.clone(), syn));
+
+    let (_stats, _shutdown) = drive(
+        &mut runner,
+        &mut cadence,
+        &mut poller,
+        &loop_cfg,
+        4,
+        &mut stop,
+        |_r, _s| {},
+        &mut scrape,
+        None,
+        &mut daily,
+        synthesis_refresh, // the synthesis arm prices the auto-confirmed edge
+        None,              // slice-4d: no scalar producer
+        None,              // reconciliation
+        None,              // reviews
+        None,              // slice-4e: no perp feed
+        None,              // [personas]: none in this discovery e2e
+        // MUTATION PROOF: flip this to `None` and the event + edge + synthesis belief
+        // all stay 0 => RED (no discovery means no edge to believe against).
+        Some(wiring),
+    )
+    .await
+    .expect("daemon drive");
+
+    // ---- 6. Assert the full chain. ----
+    // (a) >= 1 canonical event minted by discovery (the NEW-event draft persisted).
+    let events_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM events")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(
+        events_after >= 1,
+        "discovery minted at least one canonical event (got {events_after})"
+    );
+    let minted_event: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE event_id = $1")
+        .bind(MINTED_EVENT_ID)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        minted_event, 1,
+        "the minted event is at the deterministic id {MINTED_EVENT_ID}"
+    );
+
+    // (b) >= 1 market_event_edges row AUTO-CONFIRMED by discovery (the spec 5.12:252
+    //     low-stakes auto-confirm). The edge points SIM-BKT-LO -> the minted event.
+    let auto_edges: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM market_event_edges WHERE confirmed_by = 'discovery:auto'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        auto_edges >= 1,
+        "discovery auto-confirmed at least one low-stakes edge (got {auto_edges})"
+    );
+    let minted_edge: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM market_event_edges \
+         WHERE market_id = 'SIM-BKT-LO' AND event_id = $1 \
+           AND confirmed_by = 'discovery:auto' AND mapping_type = 'direct'",
+    )
+    .bind(MINTED_EVENT_ID)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        minted_edge, 1,
+        "the auto-confirmed edge is SIM-BKT-LO -> {MINTED_EVENT_ID} (direct)"
+    );
+
+    // (c) >= 1 belief from the synthesis arm on the discovered event — the gate: the
+    //     auto-confirmed edge was refreshed into the synth arm SAME-SEGMENT and the
+    //     believing_mind drafted a belief on it that drained + persisted.
+    let synthesis_belief: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM beliefs WHERE event_id = $1")
+            .bind(MINTED_EVENT_ID)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(
+        synthesis_belief >= 1,
+        "the synthesis arm believed on the discovered event (got {synthesis_belief}) — \
+         the catalog->event->auto-confirmed-edge->synthesis-belief chain is load-bearing"
     );
 }

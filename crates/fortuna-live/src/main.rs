@@ -340,7 +340,7 @@ async fn main() -> Result<()> {
                 });
             }
             eprintln!(
-                "fortuna-live: world-forward discovery ACTIVE ({source_count} registry source(s); strategy=world-forward)"
+                "fortuna-live: discovery ACTIVE ({source_count} registry source(s); strategy=world-forward; market-back catalog INERT until T4.2)"
             );
             Some(fortuna_live::daemon::DiscoveryWiring {
                 pool: pool.clone(),
@@ -353,6 +353,23 @@ async fn main() -> Result<()> {
                 signal_kinds: sec.signal_kinds.clone(),
                 window_hours: sec.window_hours,
                 max_signals: sec.max_signals,
+                // MARKET-BACK (COMMIT 2). The prefilter knobs come from config; the
+                // per-category calibration-quality map is the T2.8 resolved record —
+                // not yet wired here, so it starts EMPTY (a category absent from the
+                // map scores 0.0, i.e. fails any positive min_category_quality). The
+                // catalog is EMPTY (the live Kalshi catalog is not wired until T4.2;
+                // GAPS), so the market-back step is INERT in prod even when enabled.
+                // The id bases seed from the drive-start epoch (collision-free across
+                // runs), exactly like the belief id base.
+                prefilter: fortuna_cognition::discovery::PrefilterConfig {
+                    category_allowlist: sec.category_allowlist.clone(),
+                    min_volume_contracts: sec.min_volume_contracts,
+                    min_category_quality: sec.min_category_quality,
+                    category_quality: BTreeMap::new(),
+                },
+                catalog: Vec::new(),
+                event_id_base: start_ms.max(0) as u64,
+                edge_id_base: start_ms.max(0) as u64,
             })
         }
         _ => None,

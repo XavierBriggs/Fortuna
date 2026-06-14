@@ -507,8 +507,22 @@ pub struct PersonasWiring {
 /// read/persist failure ALERTS and continues (beliefs are the calibration
 /// substrate, not the money path), mirroring the persona/scalar-drain posture.
 ///
-/// COMMIT 1 holds only world-forward fields. A later commit adds market-back
-/// (catalog→edges→synthesis) and EXTENDS this struct in place.
+/// COMMIT 2 EXTENDS this in place with the MARKET-BACK fields (`prefilter`,
+/// `catalog`, `event_id_base`, `edge_id_base`). On a segment, BEFORE the
+/// synthesis edge-refresh, the market-back step runs the deterministic
+/// `prefilter` over `catalog`, normalizes survivors via the SAME `mind`
+/// (`market_back_discovery`; the §5.12 budget cap lives INSIDE it), persists each
+/// NEW-event draft as a canonical `events` row (id minted `01EVT…` from
+/// `event_id_base`), and for each proposed edge card AUTO-CONFIRMS the low-stakes
+/// ones (`high_stakes == false` → `confirmed_by = "discovery:auto"` → an
+/// `EdgeTier::Confirmed` row the synthesis arm prices this same segment) while
+/// persisting HIGH-STAKES edges as PROPOSED (`confirmed_by = None`) and pushing a
+/// `MessageKind::Review` alert to #fortuna-review (spec 5.12:252 — the LLM
+/// proposes, deterministic checks score, #fortuna-review confirms the high-stakes
+/// ones). `catalog` is EMPTY in prod until the live Kalshi catalog is wired (T4.2),
+/// so the market-back step is INERT (no alert, no mind call) until then. The edge
+/// ids advance per insert, the event ids per persisted event (collision-free across
+/// runs by the drive-start epoch seed, like the belief id bases).
 pub struct DiscoveryWiring {
     pub pool: PgPool,
     pub mind: std::sync::Arc<dyn fortuna_cognition::mind::Mind>,
@@ -518,6 +532,22 @@ pub struct DiscoveryWiring {
     pub signal_kinds: Vec<String>,
     pub window_hours: u32,
     pub max_signals: i64,
+    /// MARKET-BACK: the deterministic prefilter config (category allowlist, volume
+    /// floor, category-calibration floor + per-category quality map; spec 5.12).
+    pub prefilter: fortuna_cognition::discovery::PrefilterConfig,
+    /// MARKET-BACK: the venue catalog the prefilter consumes. EMPTY in prod until
+    /// the live Kalshi catalog is wired (T4.2) — an empty catalog makes the step a
+    /// no-op (inert), so the section can be enabled before the catalog exists.
+    pub catalog: Vec<fortuna_cognition::discovery::MarketView>,
+    /// MARKET-BACK: monotonic base for minted canonical-event ids (`01EVT…`),
+    /// seeded from the drive-start epoch (unique across runs), advanced per event
+    /// persisted within a run. A full ULID is the ledgered refinement (as for the
+    /// belief id bases).
+    pub event_id_base: u64,
+    /// MARKET-BACK: monotonic base for minted edge ids (`01EDG…`), seeded + advanced
+    /// like `event_id_base`. Its OWN counter so the event ("01EVT") and edge
+    /// ("01EDG") id spaces advance independently.
+    pub edge_id_base: u64,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -646,6 +676,325 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
             ));
         } else if stats.poll_failures == 0 {
             poll_failing = false;
+        }
+
+        // OPT-IN MARKET-BACK discovery step (default-off; spec 5.12, COMMIT 2).
+        // Placed BEFORE the synthesis edge-refresh below ON PURPOSE: a low-stakes
+        // edge AUTO-CONFIRMED here becomes an `EdgeTier::Confirmed` row that the
+        // refresh's `synthesis_edges` load picks up THIS SAME segment, so a fresh
+        // listing the model maps with full deterministic confidence is priced
+        // without a segment of lag. On a segment: run the deterministic `prefilter`
+        // over the catalog, dedup already-edged listings, normalize the survivors
+        // via the SAME `mind` (`market_back_discovery` — the §5.12 budget cap lives
+        // INSIDE it; a breach sets `throttled` and makes no mind call), persist each
+        // NEW-event draft as a canonical `events` row (id minted `01EVT…`), and for
+        // each proposed edge card AUTO-CONFIRM the low-stakes ones
+        // (`high_stakes == false` ⇒ `confirmed_by = "discovery:auto"`) while
+        // persisting HIGH-STAKES edges as PROPOSED and pushing a `MessageKind::Review`
+        // alert to #fortuna-review (spec 5.12:252 — the LLM proposes, deterministic
+        // checks score, #fortuna-review confirms the high-stakes ones). EVERYTHING is
+        // alert-and-continue: a read/query/persist failure pushes an Ops alert (routed
+        // below) and continues — discovery is the calibration/early-arrival substrate,
+        // not the money path; no failure here may crash the loop. NEVER panics (every
+        // `Option`/`Result` handled with `match`/`if let`; no expect on the lib path,
+        // CLAUDE.md). DEFAULT-OFF: `None` ⇒ skipped; and even when `Some`, an EMPTY
+        // `catalog` (prod until T4.2 wires the live Kalshi catalog) ⇒ inert, no alert.
+        if let Some(dw) = discovery.as_mut() {
+            if !dw.catalog.is_empty() {
+                let now = Clock::now(runner.clock.as_ref());
+                let now_iso = now.to_iso8601();
+                let after_ms = now.epoch_millis() - (dw.window_hours as i64) * 3_600_000;
+                // from_epoch_millis is fallible; on error, skip this segment's
+                // market-back step (alert) rather than panic or guess a window.
+                match fortuna_core::clock::UtcTimestamp::from_epoch_millis(after_ms) {
+                    Err(e) => alerts.push((
+                        fortuna_ops::MessageKind::Ops,
+                        format!(
+                            "discovery market-back window timestamp invalid — step skipped: {e}"
+                        ),
+                    )),
+                    Ok(after_ts) => {
+                        let after_iso = after_ts.to_iso8601();
+                        // Reuse the world-forward signal-assembly: read the fresh
+                        // signals over the same kinds/window/cap (a read failure
+                        // ALERTS and falls through to an empty context — the catalog,
+                        // not the signals, is the market-back driver, so an empty
+                        // context still normalizes the survivors). signal_kinds empty
+                        // ⇒ recent_by_kind returns nothing (a harmless empty context).
+                        let rows = match fortuna_ledger::SignalsRepo::new(dw.pool.clone())
+                            .recent_by_kind(&dw.signal_kinds, &after_iso, dw.max_signals)
+                            .await
+                        {
+                            Ok(rows) => rows,
+                            Err(e) => {
+                                alerts.push((
+                                    fortuna_ops::MessageKind::Ops,
+                                    format!(
+                                        "discovery market-back signal read FAILED — proceeding with no context: {e}"
+                                    ),
+                                ));
+                                Vec::new()
+                            }
+                        };
+                        // Ledger rows -> context. An unparseable received_at SKIPS that
+                        // row (filter_map), never a panic — signals are untrusted DATA
+                        // (they ride only as a context body; market_back_discovery
+                        // assembles internally).
+                        let ctx_items: Vec<ContextItem> = rows
+                            .into_iter()
+                            .filter_map(|r| {
+                                let body = r.payload.to_string();
+                                Some(ContextItem {
+                                    content_hash: content_hash_of(&body),
+                                    item_id: r.signal_id,
+                                    section: SectionKind::FreshSignals,
+                                    body,
+                                    at: fortuna_core::clock::UtcTimestamp::parse_iso8601(
+                                        &r.received_at,
+                                    )
+                                    .ok()?,
+                                })
+                            })
+                            .collect();
+                        // Deterministic prefilter (spec 5.12) — pure, no IO.
+                        let pre =
+                            fortuna_cognition::discovery::prefilter(&dw.catalog, &dw.prefilter);
+                        // Dedup already-edged listings (spec 5.12: a listing with a
+                        // current edge is not re-normalized). A query failure ALERTS +
+                        // SKIPS that listing (never crash, never re-edge blindly).
+                        let mut survivors_to_normalize = Vec::new();
+                        for s in pre.survivors {
+                            match fortuna_ledger::EdgesRepo::new(dw.pool.clone())
+                                .current_edges_for_market(&s.market_id)
+                                .await
+                            {
+                                Ok(existing) => {
+                                    if existing.is_empty() {
+                                        survivors_to_normalize.push(s);
+                                    }
+                                }
+                                Err(e) => alerts.push((
+                                    fortuna_ops::MessageKind::Ops,
+                                    format!(
+                                        "discovery edge-dedup query FAILED ({}) — listing skipped: {e}",
+                                        s.market_id
+                                    ),
+                                )),
+                            }
+                        }
+                        // The richer match-before-create events query is a follow-up
+                        // (ledgered): this rung passes an EMPTY existing-events set, so
+                        // every normalization is a NEW-event draft (a claimed match to
+                        // a nonexistent event is dropped with a defect by the callee).
+                        let existing_events: Vec<fortuna_cognition::discovery::ExistingEventView> =
+                            Vec::new();
+                        // One call normalizes survivors + scores edges (the budget
+                        // mutates in place; returns an outcome, no `?`). On Err it
+                        // ALERTS and falls through to route_alerts (no segment-level
+                        // `continue` that would skip routing this segment's alerts).
+                        match fortuna_cognition::discovery::market_back_discovery(
+                            dw.mind.as_ref(),
+                            &ctx_items,
+                            &survivors_to_normalize,
+                            &existing_events,
+                            &mut dw.budget,
+                            now,
+                        )
+                        .await
+                        {
+                            Err(e) => alerts.push((
+                                fortuna_ops::MessageKind::Ops,
+                                format!(
+                                    "discovery market-back FAILED — step skipped this segment: {e}"
+                                ),
+                            )),
+                            Ok(outcome) => {
+                                // Defects are audit-worthy DATA (mind failure, schema
+                                // violation, a hallucinated match), never crashes —
+                                // route each to the trail.
+                                for d in &outcome.defects {
+                                    runner.apply_external_alert("discovery", d);
+                                }
+                                // Persist each NEW-event draft as a canonical event,
+                                // recording the placeholder->minted id map so the edge
+                                // card (which cites `new:{market_id}` for a new event)
+                                // can resolve the persisted event_id. The draft carries
+                                // no id — WE mint `01EVT…` from `event_id_base`,
+                                // advancing per persisted event. EXISTS-guard (create is
+                                // a pure INSERT); a persist failure ALERTS + continues.
+                                let mut new_event_ids: std::collections::BTreeMap<String, String> =
+                                    std::collections::BTreeMap::new();
+                                for draft in &outcome.new_events {
+                                    let event_id = format!("01EVT{:021}", dw.event_id_base);
+                                    let exists: bool = match sqlx::query_scalar(
+                                        "SELECT EXISTS(SELECT 1 FROM events WHERE event_id = $1)",
+                                    )
+                                    .bind(&event_id)
+                                    .fetch_one(&dw.pool)
+                                    .await
+                                    {
+                                        Ok(exists) => exists,
+                                        Err(e) => {
+                                            alerts.push((
+                                                fortuna_ops::MessageKind::Ops,
+                                                format!(
+                                                    "discovery event existence check FAILED ({event_id}): {e}"
+                                                ),
+                                            ));
+                                            continue;
+                                        }
+                                    };
+                                    // The card for a NEW event cites `new:{market_id}`
+                                    // (the callee's placeholder) — map it to the minted
+                                    // id whether or not we INSERT (an already-present row
+                                    // is still the right target for this segment's edge).
+                                    let placeholder = format!("new:{}", draft.market_id);
+                                    if exists {
+                                        new_event_ids.insert(placeholder, event_id.clone());
+                                        dw.event_id_base = dw.event_id_base.wrapping_add(1);
+                                        continue;
+                                    }
+                                    let horizon_iso = draft.horizon.map(|h| h.to_iso8601());
+                                    // benchmark_at: the horizon if declared, else now (a
+                                    // non-null anchor; the discovery loop enriches events
+                                    // later, spec 5.12).
+                                    let benchmark_at = horizon_iso.as_deref().unwrap_or(&now_iso);
+                                    if let Err(e) = fortuna_ledger::EventsRepo::new(dw.pool.clone())
+                                        .create(
+                                            &event_id,
+                                            &draft.statement,
+                                            &draft.resolution_criteria,
+                                            &draft.resolution_source,
+                                            horizon_iso.as_deref(),
+                                            benchmark_at,
+                                            &draft.category,
+                                            &now_iso,
+                                        )
+                                        .await
+                                    {
+                                        alerts.push((
+                                            fortuna_ops::MessageKind::Ops,
+                                            format!(
+                                                "discovery event persist FAILED ({event_id}): {e}"
+                                            ),
+                                        ));
+                                        continue;
+                                    }
+                                    new_event_ids.insert(placeholder, event_id);
+                                    dw.event_id_base = dw.event_id_base.wrapping_add(1);
+                                }
+                                // For each edge card: resolve the event_id (a matched
+                                // event already cites its real id; a new event cites the
+                                // `new:{market_id}` placeholder mapped above). An
+                                // unresolvable card is a DANGLING edge — ALERT + SKIP
+                                // (never insert an edge citing an event that was not
+                                // persisted/known). Mint `01EDG…`; auto-confirm the
+                                // low-stakes ones (spec 5.12:252), persist high-stakes as
+                                // PROPOSED + push a #fortuna-review alert. A persist
+                                // failure ALERTS + continues.
+                                for card in &outcome.edge_cards {
+                                    let placeholder = format!("new:{}", card.market_id);
+                                    let resolved_event_id = if card.event_id == placeholder {
+                                        new_event_ids.get(&placeholder).cloned()
+                                    } else {
+                                        // A matched (existing) event: the card carries
+                                        // its real id directly.
+                                        Some(card.event_id.clone())
+                                    };
+                                    let Some(event_id) = resolved_event_id else {
+                                        alerts.push((
+                                            fortuna_ops::MessageKind::Ops,
+                                            format!(
+                                                "discovery edge for '{}' cites unresolved event '{}' — edge skipped (no dangling edge)",
+                                                card.market_id, card.event_id
+                                            ),
+                                        ));
+                                        continue;
+                                    };
+                                    // The catalog row carries the venue; resolve it from
+                                    // the catalog by market_id (the card omits venue). An
+                                    // absent row is impossible (the card came from a
+                                    // survivor), but handle it as alert+skip, not panic.
+                                    let Some(venue) = dw
+                                        .catalog
+                                        .iter()
+                                        .find(|m| m.market_id == card.market_id)
+                                        .map(|m| m.venue.clone())
+                                    else {
+                                        alerts.push((
+                                            fortuna_ops::MessageKind::Ops,
+                                            format!(
+                                                "discovery edge for '{}' has no catalog venue — edge skipped",
+                                                card.market_id
+                                            ),
+                                        ));
+                                        continue;
+                                    };
+                                    let mapping_str = match card.mapping {
+                                        fortuna_cognition::events::MappingType::Direct => "direct",
+                                        fortuna_cognition::events::MappingType::Negation => "negation",
+                                        fortuna_cognition::events::MappingType::BracketComponent => {
+                                            "bracket_component"
+                                        }
+                                        fortuna_cognition::events::MappingType::ConditionalOn => {
+                                            "conditional_on"
+                                        }
+                                    };
+                                    // spec 5.12:252 auto-confirm rule: low-stakes edges
+                                    // (high_stakes == false ⇔ Direct mapping AND
+                                    // deterministic_score == 1.0) are auto-confirmed so
+                                    // the synthesis arm prices them; high-stakes edges
+                                    // stay PROPOSED for #fortuna-review.
+                                    let confirmed_by: Option<&str> = if card.high_stakes {
+                                        None
+                                    } else {
+                                        Some("discovery:auto")
+                                    };
+                                    let edge_id = format!("01EDG{:021}", dw.edge_id_base);
+                                    if let Err(e) = fortuna_ledger::EdgesRepo::new(dw.pool.clone())
+                                        .insert_edge(
+                                            &edge_id,
+                                            &card.market_id,
+                                            &venue,
+                                            &event_id,
+                                            mapping_str,
+                                            card.model_confidence,
+                                            dw.strategy.as_str(),
+                                            confirmed_by,
+                                            None,
+                                            &now_iso,
+                                        )
+                                        .await
+                                    {
+                                        alerts.push((
+                                            fortuna_ops::MessageKind::Ops,
+                                            format!(
+                                                "discovery edge persist FAILED ({edge_id} for {}): {e}",
+                                                card.market_id
+                                            ),
+                                        ));
+                                        continue;
+                                    }
+                                    dw.edge_id_base = dw.edge_id_base.wrapping_add(1);
+                                    // High-stakes edges need a human (spec 5.12:252):
+                                    // route the confirmation card to #fortuna-review.
+                                    if card.high_stakes {
+                                        alerts.push((
+                                            fortuna_ops::MessageKind::Review,
+                                            format!(
+                                                "discovery proposed HIGH-STAKES edge {edge_id}: market '{}' -> event '{event_id}' ({mapping_str}, model_conf {:.2}, deterministic {:.2}) — confirm or reject",
+                                                card.market_id,
+                                                card.model_confidence,
+                                                card.deterministic_score
+                                            ),
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // S4 per-segment edge refresh (synthesis-edge-source-decision req 2):
