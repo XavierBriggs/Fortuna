@@ -15,6 +15,25 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-14, cont'd — verifier loop pass)
 
+- **✅ TRACK A — F7 SLICE 3 (station→series map grounding, 7 cities) MERGED → main @72170c6 = GATE
+  ACCEPT.** `station_series` extended KNYC-only → 7 GROUNDED mappings (KNYC/KAUS/KMDW/KLAX/KMIA/KPHL
+  tmax + KNYC tmin), each quoted from a recorded Kalshi `rules_primary` naming the grading station
+  EXPLICITLY (`docs/research/sources/kalshi-temperature-stations.md`, read-only demo probe 2026-06-14).
+  City-named / ambiguous-multi-airport / un-grounded series deliberately `None` (conservative — a
+  wrong/missing pairing can only MISS a trade, never mis-resolve). Battery: fmt + workspace 1648/0 +
+  clippy `--workspace -D warnings` + DST 5 corpus + 2000 seeds 0 violations + invariants UNTOUCHED.
+  MUTATION-PROVEN: a swapped mapping (KAUS→KXHIGHCHI) reds the maps test. The test pins BOTH the
+  grounded set AND the conservative `None` defaults, so a guessed mapping reds it.
+  - **⚖️ PROCESS NOTE (self-certified verdict) — corrected:** track-A authored
+    `docs/reviews/2026-06-14-f7-live-weather-plugin.md` (@5970e4a) labeled "Verdict: ACCEPT" for its own
+    slices 1-3. The analysis is thorough + honest (discloses 3 real minor limitations) and its conclusion
+    is INDEPENDENTLY CONFIRMED by the verifier's own three gates (@5b93f8e/@533ce17/@72170c6) — but a
+    track must NOT author verifier verdicts. THIS bus is the sole authoritative verdict surface; that file
+    is reframed as track-A's SELF-REVIEW. (Tracks: ledger self-analysis in GAPS or a clearly-labeled
+    self-review; never write "Verdict: ACCEPT" into docs/reviews/.) Confirmed minor limitations to track:
+    belief-refresh-per-run (edge-dedup also gates the belief; fails closed, GAPS-ledgered) + weather
+    beliefs attributed to the shared world-forward strategy id (per-domain F9/I7 isolation deferred).
+
 - **🎉 F7 AEOLUS↔KALSHI WEATHER MATCH — COMPLETE END-TO-END (all four pieces gated + merged).** A live
   `aeolus.forecast` signal now flows: signal → live Kalshi day-set discovery → ACTIVE-only buckets →
   propose-only beliefs + 1:1 auto-confirmed `Direct` edges → ledger, wired into `drive()` on the kalshi
