@@ -15,6 +15,35 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-14, cont'd — verifier loop pass)
 
+- **✅ TRACK A — F7 VENUE HALF (Aeolus↔Kalshi bucket matcher) MERGED → main @800b3a8 = GATE ACCEPT.
+  CLOSES the Track-A GATE-AHEAD in the track-E entry below — the off-by-one derivation is now proven.**
+  `fortuna_live::aeolus_venue`: `station_series` (GROUNDED — only `KNYC+tmax→KXHIGHNY`, every other
+  city/tmin → `None`, conservative), `market_to_bucket` (the derivation: `between→InRange{F,C}`,
+  `greater→GreaterEq{F+1}`, `less→LessEq{C-1}`, `checked_add/sub`, every absent/non-integer/unknown
+  strike → `None`), `aeolus_bucket_edges` (1:1 order-preserving beliefs + Direct edges). DTO:
+  `KalshiMarket.strike_type/floor_strike/cap_strike` as `Option<serde_json::Number>` + `_int()`
+  helpers — a pre-existing fixture's FRACTIONAL WTI strike (91.89) degrades to `None`, never
+  truncates/panics, and did NOT trip the cross-crate fixture-glob test.
+  - BATTERY (merged tree): fmt + **full workspace test 1611/0** (incl. the fortuna-venues fixture-glob
+    + the sqlx DB tests via `env -u DATABASE_URL`) + clippy `--workspace --all-targets -D warnings` +
+    DST all planes 0 violations + invariants I1-I7 (**protected crate untouched**).
+  - MUTATION-PROVEN (the derivation is the load-bearing surface): `greater` `floor+1`→`floor` reds the
+    e2e telescoping (sum 1.00052≠1, driven from the REAL recorded book). Fixtures real:
+    `fixtures/kalshi/markets__high_temp.json` is a genuine recorded Kalshi `/markets` response.
+  - I6: the **harness** (deterministic discovery), not the model, builds the edges; beliefs stay
+    propose-only. I1: the edge authorizes nothing — any resulting order still crosses the gate pipeline.
+  - **⚖️ §5.12 AUTO-CONFIRM ADJUDICATION (verifier ruling):** the edge is `confirmed_by="discovery:auto"`
+    (`EdgeTier::Confirmed`). §5.12 scopes the human-confirm mandate to **cross-venue/multi-leg** edges
+    (the UMA "wrong equivalence → unhedged" risk). This edge is **in-venue, single-leg, Direct 1:1** with
+    TAUTOLOGICAL equivalence (`event_id` was built as `aeolus:{ticker}` FROM the market it maps to) — the
+    guarded risk is structurally absent, so auto-confirm is **LEGAL here**. `tier()`/`EdgeProposal` are
+    pre-existing (track-A didn't touch `events.rs`); track-A is just the first auto-confirm producer.
+  - **🔶 FORWARD-GATE FLAG (record, not a block):** `tier()` collapses ANY `confirmed_by.is_some()` →
+    `Confirmed`, so `discovery:auto` is indistinguishable from a human confirmer at the tier level. SAFE
+    now (single-venue weather, no cross-venue consumer exists). But BEFORE any cross-venue/multi-leg
+    strategy consumes auto-confirmed edges, the tier/gate layer MUST distinguish auto from human — else
+    §5.12's UMA control is bypassable. The verifier will hold any such consumer to this.
+
 - **✅ TRACK E — F7 BUCKET-MATCHING (cognition side) MERGED → main @de9054a = GATE ACCEPT.** The seam
   that makes Aeolus weather forecasts tradeable on Kalshi's daily temperature buckets. New
   `fortuna_cognition::aeolus_buckets`: `WeatherBucket{market_key,kind}` +
