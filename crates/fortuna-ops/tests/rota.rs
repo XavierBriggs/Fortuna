@@ -2599,6 +2599,7 @@ async fn persona_pipeline_funnels_analyses_beliefs_resolved_per_persona(pool: sq
         snapshot: empty_snapshot(),
         pool: Some(pool),
         perishable_dir: None,
+        reviews_dir: None,
     };
     let app = rota_router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
