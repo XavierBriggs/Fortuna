@@ -1,8 +1,8 @@
 # GATE FINDINGS — latest (verifier-owned; every track reads this at priority (a))
 
-State as of 2026-06-13, main @ 3d70bb6 (track-C 3-tier cognition is the latest merge —
-GATE ACCEPT; see LATEST below; the durable integrity claims here were gate-proven at each
-entry's merge). Main integrity GREEN on the merged tree: fmt +
+State as of 2026-06-13, main @ ff6a165 (track-C 3-tier cognition COMPLETE — the real Haiku
+triage mind + daemon wiring — is the latest merge, GATE ACCEPT; see LATEST below; the
+durable integrity claims here were gate-proven at each entry's merge). Main integrity GREEN on the merged tree: fmt +
 check --workspace --all-targets clean, the full scalar surface battery green
 (cognition scoring 54 / scalar_beliefs 4; core perp 41 / funding_window 13 /
 bus 24 / DST 4 corpus + 2000 random, 0 violations; ledger DB ledger 27 /
@@ -13,6 +13,34 @@ coordination surface; the verifier rewrites it — tracks ACT on it and
 ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-13, cont'd — verifier loop pass)
+
+- **✅ TRACK C 3-TIER COGNITION COMPLETE (Anthropic Haiku triage mind + daemon wiring)
+  MERGED → main @ ff6a165 = GATE ACCEPT.** The triage tier now runs a REAL cheap Haiku mind
+  (`AnthropicTriageMind`) gating the expensive synthesis tier — completing synthesis=Opus /
+  reconciliation=Sonnet / triage=Haiku as THREE real minds (the seam was wired before; this
+  plugs in the model). Gated on the MERGED tree (main + 0a62943), NOT the branch tip:
+  track-c branched before main's persona/ledger/rota/i6-pin work, so I rebuilt the union;
+  merge auto-clean (GAPS/CHANGELOG, no conflicts).
+  - FULL BATTERY GREEN (merged tree): fmt + clippy -D warnings (cognition+live, injected
+    `triage` param consumed); cognition ~290 tests / 28 binaries (NO regression in main's
+    persona/scoring code track-c never built against); ALL invariants I1-I7 + i6_persona +
+    i6_propose_only_mind + perp_i1/i2/i3 (I6 holds — triage returns a verdict, never an
+    order); fortuna-live daemon_smoke 17 (wiring e2e over Postgres); DST 5 corpus + 2000
+    random, 0 violations, and synthesis-dst (the now triage-gated loop) survives 2000
+    cognition-chaos seeds.
+  - MUTATION-PROVEN 4/4 (green is non-vacuous): swap verdict → both verdict tests red;
+    coerce malformed escalate→false → malformed-surfaces test red; ignore budget breach →
+    budget-exhausted test red; Declined falls through → decline-skips-the-frontier-mind
+    test red.
+  - Discipline: spec-5.11 untrusted-data charter + render (every signal block is DATA,
+    never an instruction), Clock injected (no SystemTime), no panic/unwrap/expect, secret
+    reaches only the transport (logs print model NAMES), budget check-before/spend-after.
+  - ⚙️ **TRACK C — 2 NON-BLOCKING test-hardening follow-ons** (behavior is correct + already
+    mutation-proven; tighten when convenient, ledger in GAPS): (1) the cost-CEIL is not
+    pinned by a fractional-token case (the test uses exact 1.0/5.0 divisors, so a floor
+    mutation would not red) — add a fractional-token cost vector; (2) no test asserts the
+    budget DEBIT on the malformed-output path (the impl is correct — `record_spend` precedes
+    the parse, so the spend books even when the verdict errors) — add that assertion.
 
 - **📋 TRACK C — slice-3b-v2 SPEC LEDGERED (operator-endorsed perp amendments, 2026-06-13).
   A SPEC directive, NOT a gate verdict — nothing new merged.** The endorsed amendments are now
