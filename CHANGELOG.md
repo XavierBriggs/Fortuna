@@ -18,6 +18,22 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
+- **funding_forecast §2.6 A2b — the fixed seven-quantile fan** (`fortuna-runner`,
+  post-EXIT scoring refinement, binding design §2.6 A2b): the producer's
+  `PredictiveDistribution::Scalar` now carries EXACTLY the seven quantiles
+  `{0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95}` (was an unfixed 3-point
+  `{0.1,0.5,0.9}` fan), so the body + both tails are characterized for CRPS and
+  band-coverage. SAME dispersion model — `band = DISPERSION_SCALE·√(remaining/window)`
+  evaluated at the standard-normal multipliers (∓1.645 / ∓1.282 / ∓0.674 / 0); q
+  strictly increasing, v non-decreasing (`validate_scalar`-clean by construction);
+  band still widens with time-remaining and collapses to `p` at `remaining == 0`.
+  A new `a2b_emits_exactly_the_seven_fixed_quantiles` pins the q-vector +
+  monotonicity (MUTATION-PROVEN: it RED against the 3-point producer, GREEN after).
+  The existing fan-shape tests are unaffected (they read `q_at(0.1/0.5/0.9)`, all
+  retained). The ROTA display is generic (band-check reads q=0.1/0.9, still
+  present; median via `clean_quantiles`) — NO track-B change; only `daemon_smoke`'s
+  count assertion moved 3→7. NO money/gate/exec touch (CRPS/quantiles are f64
+  forecast-domain). A2d (baseline-beat CRPS) is the next §2.6 slice — see GAPS.
 - **Triage tier — 2 mutation-coverage follow-ons closed** (`fortuna-cognition`,
   test-hardening per the verifier bus 2026-06-13; additive): (1) a fractional-token
   cost vector (`anthropic_triage_cost_ceils_a_fractional_token_vector`, input 1100 /
