@@ -569,6 +569,14 @@ fn merge_ingest_views_shapes_the_three_live_boards_to_the_handler_envelopes() {
             .any(|c| c["key"] == "health" && c["pill"] == true),
         "health column is a pill so the renderer colors it: {src}"
     );
+    // OBS-3: the registry-admission attributes (domain tags + trust tier) are now
+    // surfaced — "what this source is and how trusted", not just its counters.
+    assert_eq!(src["rows"][0]["domains"], "weather", "{src}");
+    assert_eq!(src["rows"][0]["trust_tier"], 1, "{src}");
+    assert!(
+        cols.iter().any(|c| c["key"] == "domains"),
+        "the Domains column is present: {src}"
+    );
 
     // V1 Live Signal Feed (untrusted summary carried verbatim as DATA).
     let feed = &views["ingest_feed"];
@@ -588,6 +596,40 @@ fn merge_ingest_views_shapes_the_three_live_boards_to_the_handler_envelopes() {
     );
     assert_eq!(funnel["summary"]["persisted"], 1048);
     assert_eq!(funnel["summary"]["retain_pct"], 84, "{funnel}");
+}
+
+// OBS-3 honest-null + join: a source with NO domain tags renders `domains` as null
+// ("—" in the renderer), never an empty string; multiple tags are joined; the trust
+// tier is the registry-admission number. Clone-and-mutate the sample source
+// (SourceTelemetry: Clone) so this stays focused on the new attributes.
+#[test]
+fn sources_board_domains_join_and_are_honest_null_when_untagged() {
+    let mut tel = sample_telemetry();
+    // sources[0] = the tagged nws_alerts (domain_tags ["weather"], tier 1). Add a
+    // multi-tag source and an UNtagged one.
+    let mut multi = tel.sources[0].clone();
+    multi.source_id = "macro_wire".to_string();
+    multi.domain_tags = vec!["macro".to_string(), "rates".to_string()];
+    multi.trust_tier = 2;
+    let mut untagged = tel.sources[0].clone();
+    untagged.source_id = "untagged_src".to_string();
+    untagged.domain_tags = vec![];
+    untagged.trust_tier = 0;
+    tel.sources.push(multi);
+    tel.sources.push(untagged);
+    let mut views = serde_json::json!({});
+    merge_ingest_views(&mut views, &tel, "2026-06-13T13:00:00.000Z");
+    let rows = views["ingest_sources"]["rows"].as_array().unwrap();
+    assert_eq!(rows[0]["domains"], "weather", "single tag: {views}");
+    assert_eq!(
+        rows[1]["domains"], "macro, rates",
+        "multiple tags joined: {views}"
+    );
+    assert_eq!(rows[1]["trust_tier"], 2, "{views}");
+    assert!(
+        rows[2]["domains"].is_null(),
+        "an untagged source → honest null, never an empty string: {views}"
+    );
 }
 
 // OBS-2c honesty gate: an empty (Default) telemetry — ingestion off or

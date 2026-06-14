@@ -593,6 +593,15 @@ Polymarket research+fixtures, spec v0.9 touch-up).
         at the snapshot-composition site (this commit). Honest gate keeps the daemon
         byte-unchanged when ingestion is off (daemon_smoke 15/15); ROTA stays a pure
         snapshot reader (no fortuna-sources dep). The live ingestion triad is LIVE.
+  - [x] OBS-3 RENDER — Sources Health surfaces domain_tags + trust_tier (2026-06-13;
+        consumes track-D OBS-3, which populated SourceTelemetry.domain_tags AFTER OBS-2c
+        shaped the board): sources_board (views.rs) now emits Domains (domain_tags joined;
+        honest null when untagged) + Tier (trust_tier) — registry-admission config, NOT
+        untrusted data; boardTable renders generically (no rota.rs/JS change). Existing
+        shapes test asserts domains/tier + a new honest-null test (join + untagged→null);
+        screenshot rota-sources-health-domains-2026-06-13.png; full battery GREEN (165
+        suites 0-fail/DST exit-0). Closes the orchestrator "domain_tags" item; T4.5 panels
+        = track-A/operator-blocked (not track-B).
   - [x] Recent Fills board (mission item 3, "trades being executed") — recent_fills
         runtime-sqlx query over the durable fills ledger + view_fills handler + a new
         data-driven `cents` column flag (price/fee as dollars); fortuna-ops only, the

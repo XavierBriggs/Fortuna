@@ -859,7 +859,10 @@ with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
   envelope, with a data-driven `pill` column flag — reused by every ingestion board.
 - **V2 Sources Health** (`GET /api/rota/v1/ingest_sources`) — per-source health /
   polls / accepted / drop-by-reason / 304-rate / quarantines; surfaces the
-  AFD-firehose.
+  AFD-firehose. Now also the source_registry admission attributes **Domains**
+  (`domain_tags`, joined; honest null "—" when untagged) + **Tier** (`trust_tier`),
+  surfaced in `merge_ingest_views`'s `sources_board` after track-D's OBS-3 populated
+  them — "what this source is and how trusted", beside its counters.
 - **V1 Live Signal Feed** (`GET /api/rota/v1/ingest_feed`) — recent signals
   newest-first with their (redacted, esc()'d) data + accept/drop status pills.
 - **V3 Ingest Funnel** (`GET /api/rota/v1/ingest_funnel`) — the pipeline as a stage
