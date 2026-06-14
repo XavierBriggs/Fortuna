@@ -18,6 +18,25 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
+- **A2d SLICE 3 Part 3 — the resolve→score loop** (`fortuna-live::daemon` + `fortuna-ledger`, additive;
+  `drive()` UNTOUCHED): `resolve_and_score_funding_beliefs(pool, now, score_id_base)` drains every DUE
+  (`horizon <= now`), CAPTURABLE `funding_forecast` scalar belief and, per belief, resolves it set-once
+  against the realized rate then writes FIVE `belief_scores` legs — the forecast's `crps_pinball` + the
+  four A2d baselines (`crps_pinball:carry_forward|last_rate|rw_estimate|rw_persistence`) — so the §9.1
+  ROTA scorecard reads the edge gate straight off the rows. Every baseline anchor comes off the persisted
+  fan, NEVER an evidence parse (spec 5.11): `estimate` = `v@0.50`; `rw_band` = `(v@0.90−v@0.50)/Z90`
+  clamped ≥0 (the producer's own dispersion, inverted); `last_realized` = the PRIOR 8h window's realized
+  rate, degrading to the CURRENT realized when the prior window is uncaptured — a NON-fabricating fallback
+  that only TIGHTENS the gate (the two persistence baselines anchor at truth, so funding_forecast can't
+  earn a spurious edge from a missing window). New `ScalarBeliefsRepo::unresolved_due(producer, now_iso,
+  limit)` is the work queue (`realized_value IS NULL AND horizon <= now`, oldest-first, bounded batch).
+  Defensive per-belief SKIP (bad `event_key` / uncaptured rate / malformed fan → skip, never a panic or
+  batch-abort) + idempotent (set-once `resolve` + a UNIQUE(belief_id,rule_id) catch → a re-run resolves 0,
+  no dup-key). 4 `#[sqlx::test]` (happy 5-leg, idempotent rerun, uncaptured-skip, open-window-skip),
+  fixture-grounded on the public KXBCHPERP capture; `.sqlx` cache regenerated; MUTATION-PROVEN (neutralizing
+  the `resolve` reds BOTH the resolved-assertion AND the idempotency `count==0` rerun). NOT yet wired into
+  `drive()` — that one additive line (mirroring `persist_scalar_beliefs`) is a deliberate follow-on. Part 3
+  of 3 (Part 2 = the public-GET poller, track-D's `fortuna-sources`).
 - **A2d SLICE 3 Part 1 — the realized-funding store** (`fortuna-ledger`, additive): an APPEND-ONLY
   `funding_rates_historical(market_ticker, funding_time, funding_rate, mark_price, captured_at)` table
   (UNIQUE(market_ticker, funding_time), `fortuna_refuse_mutation` trigger — a finalized 8h rate never

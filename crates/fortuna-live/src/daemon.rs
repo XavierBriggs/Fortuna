@@ -2580,6 +2580,269 @@ pub async fn persist_scalar_beliefs(
     Ok(n)
 }
 
+/// The producer whose beliefs this loop resolves + scores (design §2.2/§9.1):
+/// `funding_forecast` is the only scalar producer at rung-0. Kept a const so the
+/// `unresolved_due` query and the §9.1 scorecard agree on the exact string.
+pub const FUNDING_PRODUCER: &str = "funding_forecast";
+
+/// The rule-id prefix tagging every belief_scores row this loop writes (design
+/// §1.3): the funding_forecast leg is the bare `crps_pinball`; each of the four
+/// A2d baselines is `crps_pinball:<baseline>` (so the §9.1 ROTA scorecard reads
+/// the forecast vs every baseline side-by-side off the `rule_id`). The names are
+/// pinned constants — a rename would orphan historical rows, so they live here,
+/// not inline.
+const RULE_FORECAST: &str = "crps_pinball";
+const RULE_CARRY_FORWARD: &str = "crps_pinball:carry_forward";
+const RULE_LAST_RATE: &str = "crps_pinball:last_rate";
+const RULE_RW_ESTIMATE: &str = "crps_pinball:rw_estimate";
+const RULE_RW_PERSISTENCE: &str = "crps_pinball:rw_persistence";
+
+/// The funding window is a fixed 8h cadence (design §2.3; the venue's funding
+/// interval). The PRIOR window's `funding_time` is `funding_time − 8h`, the
+/// anchor for the persistence (last-rate) baselines.
+const FUNDING_WINDOW_MS: i64 = 8 * 60 * 60 * 1_000;
+
+/// The Z90 multiplier the funding_forecast producer uses for its 90th-percentile
+/// quantile (`fortuna-runner/src/funding_forecast.rs`: `Z90 ≈ 1.282`). The A2d
+/// random-walk `rw_band` is recovered from the forecast fan as `(v@0.90 −
+/// v@0.50) / Z90` — the inverse of the producer's `v(q) = p + Zq·band`
+/// construction (design §2.6 A2d) — so the baseline RW shares the forecast's own
+/// dispersion width WITHOUT re-deriving any band constant here.
+const Z90: f64 = 1.282;
+
+/// A sane cap on the resolve/score batch per call (design §9.1: the loop drains
+/// in bounded chunks; whatever is still due is picked up by the next run).
+const RESOLVE_BATCH_CAP: i64 = 256;
+
+/// Resolve + score every DUE, capturable `funding_forecast` scalar belief
+/// (design §2.6 A2d + §9.1; the SLICE-3-part-3 standalone — NOT yet wired into
+/// `drive()`, that one-line additive call is a separate follow-on). For each
+/// unresolved belief whose window has CLOSED (`horizon <= now`) AND whose
+/// realized rate is now captured in `funding_rates_historical`, it:
+///   1. resolves the belief set-once against the realized rate, then
+///   2. writes FIVE `belief_scores` rows — the forecast's `crps_pinball` plus
+///      the four A2d baselines (`carry_forward`, `last_rate`, `rw_estimate`,
+///      `rw_persistence`) — so the §9.1 ROTA scorecard reads the edge gate
+///      (does the forecast BEAT every naive baseline) straight off the rows.
+///
+/// Returns the count of beliefs RESOLVED (= scored) this call.
+///
+/// # The anchors (read off the fan, never an evidence-string parse)
+///
+/// All baseline inputs come off the persisted quantile fan + the realized store,
+/// never the belief's `evidence` JSON (which is human-facing DATA, spec 5.11):
+/// - `estimate` = the fan's median `v @ q==0.50` (the venue estimate the forecast
+///   centered on — the carry-forward + estimate-RW anchor);
+/// - `rw_band`  = `(v@0.90 − v@0.50) / Z90`, clamped to ≥0 (the forecast's OWN
+///   dispersion width, recovered by inverting the producer's construction);
+/// - `last_realized` = the realized rate of the PRIOR window (`funding_time −
+///   8h`). When that window is NOT captured, it degrades to `realized` itself
+///   (the CURRENT window's truth) — see the decision note below.
+///
+/// # last_realized-missing decision (documented; never fabricate a rate)
+///
+/// If the prior window's realized rate is absent from the store, this uses
+/// `last_realized = realized` as the anchor for the last-rate point mass AND the
+/// persistence random-walk. This NEVER fabricates a market rate (it reuses the
+/// CURRENT window's ground truth) and is the CONSERVATIVE choice: it anchors
+/// those two "persistence" baselines AT the realized value, making them the
+/// HARDEST baselines to beat (the last-rate point mass becomes CRPS-0; the
+/// persistence-RW becomes an on-target diffuse fan). funding_forecast therefore
+/// CANNOT earn a spurious A2d edge from a missing prior window — the gate stays
+/// honest. (The funding_baselines honest note already flags the persistence legs
+/// as the robust discriminators; degrading them toward truth only tightens the
+/// gate.) The carry-forward + estimate-RW legs are unaffected (estimate-anchored).
+///
+/// # Per-belief SKIP discipline (defensive; never a panic, never a batch abort)
+///
+/// `event_key` is producer-controlled but treated as untrusted: a belief is
+/// SKIPPED (logged-by-return-shape via the count, the loop continues) when its
+/// `event_key` does not split into `(market, ISO8601 funding_time)`, when its
+/// realized rate is not yet captured (left unresolved for a later run), when its
+/// `quantiles` JSONB does not parse to a valid scalar fan, or when the fan lacks
+/// the `q==0.50` / `q==0.90` levels the anchors need. A skip resolves + scores
+/// NOTHING for that belief — no partial state.
+///
+/// # Idempotency
+///
+/// `ScalarBeliefsRepo::resolve` is set-once (`realized_value IS NULL` guard), so
+/// a re-run never re-resolves an already-scored belief — `unresolved_due`
+/// excludes it (its `realized_value` is set), and the call resolves 0. As a
+/// belt-and-suspenders guard against a crash BETWEEN the resolve and all five
+/// score inserts, a UNIQUE `(belief_id, rule_id)` violation on a score insert is
+/// treated as "already scored" and skipped; any other ledger error bubbles.
+///
+/// `score_id_base` mints the score-row PKs the same way `persist_scalar_beliefs`
+/// mints belief ids: a caller-monotonic base + an incrementing offset, formatted
+/// as a sortable TEXT PK (NOT a full ULID — the daemon does not thread an IdGen;
+/// uniqueness + sort order is all the PK needs; ledgered, same as the persist
+/// paths). Five rows per belief, so the offset advances by five each belief.
+pub async fn resolve_and_score_funding_beliefs(
+    pool: &PgPool,
+    now: UtcTimestamp,
+    score_id_base: u64,
+) -> Result<usize, DaemonError> {
+    use fortuna_cognition::funding_baselines::compare_against_baselines;
+    use fortuna_cognition::scoring::{
+        CrpsPinballRule, PredictiveDistribution, Quantile, RealizedOutcome, ScoringRule,
+    };
+    use fortuna_ledger::{BeliefScoresRepo, FundingRatesHistoricalRepo, ScalarBeliefsRepo};
+
+    let beliefs = ScalarBeliefsRepo::new(pool.clone());
+    let funding = FundingRatesHistoricalRepo::new(pool.clone());
+    let scores = BeliefScoresRepo::new(pool.clone());
+    let now_iso = now.to_iso8601();
+
+    let due = beliefs
+        .unresolved_due(FUNDING_PRODUCER, &now_iso, RESOLVE_BATCH_CAP)
+        .await
+        .map_err(|e| DaemonError::Compose {
+            reason: format!("unresolved_due({FUNDING_PRODUCER}): {e}"),
+        })?;
+
+    let rule = CrpsPinballRule;
+    let mut resolved = 0usize;
+
+    for belief in due {
+        // (a) event_key -> (market, funding_time). Split on the FIRST ':' only:
+        // the market id never contains ':', but a future event_key shape might,
+        // so binding the SECOND half as the whole remainder is correct. A
+        // missing ':' or an unparseable funding_time => SKIP (defensive — the
+        // key is producer-controlled).
+        let Some((market, ft_raw)) = belief.event_key.split_once(':') else {
+            continue;
+        };
+        let Ok(funding_time) = UtcTimestamp::parse_iso8601(ft_raw) else {
+            continue;
+        };
+        // The store and this loop agree on the CANONICAL UtcTimestamp form
+        // (`.000Z`); both derive the boundary from the venue's epoch-millis time,
+        // so a round-trip through `to_iso8601()` is the lookup key.
+        let ft_canon = funding_time.to_iso8601();
+
+        // (b) realized rate for THIS window. None => not captured yet => leave
+        // unresolved; a later run scores it once the poller backfills.
+        let realized = match funding
+            .realized_rate(market, &ft_canon)
+            .await
+            .map_err(|e| DaemonError::Compose {
+                reason: format!("realized_rate({market},{ft_canon}): {e}"),
+            })? {
+            Some(r) => r,
+            None => continue,
+        };
+
+        // (c) quantiles JSONB -> Vec<Quantile> -> a validated scalar fan. A
+        // parse/validate failure => SKIP (defensive — never score a malformed
+        // claim).
+        let Ok(quantiles) = serde_json::from_value::<Vec<Quantile>>(belief.quantiles.clone())
+        else {
+            continue;
+        };
+        let fan = PredictiveDistribution::Scalar {
+            quantiles,
+            unit: belief.unit.clone(),
+        };
+        if fan.validate().is_err() {
+            continue;
+        }
+
+        // (d) anchors off the fan (no evidence parse): estimate = v@0.50,
+        // rw_band = (v@0.90 − v@0.50)/Z90 clamped ≥0. Missing q=0.50 or q=0.90
+        // => SKIP (the A2d baselines cannot be placed).
+        let PredictiveDistribution::Scalar { quantiles: qs, .. } = &fan else {
+            // validate() above guarantees Scalar; this arm is unreachable.
+            continue;
+        };
+        let find_v = |level: f64| qs.iter().find(|q| q.q == level).map(|q| q.v);
+        let (Some(estimate), Some(v90)) = (find_v(0.50), find_v(0.90)) else {
+            continue;
+        };
+        let rw_band = ((v90 - estimate) / Z90).max(0.0);
+
+        // (e) last_realized = the PRIOR window's realized rate (funding_time −
+        // 8h). Absent => degrade to `realized` (the documented, NON-fabricating
+        // fallback that only TIGHTENS the gate; see the fn doc).
+        let last_realized = match funding_time.checked_add_millis(-FUNDING_WINDOW_MS) {
+            Ok(prior) => funding
+                .realized_rate(market, &prior.to_iso8601())
+                .await
+                .map_err(|e| DaemonError::Compose {
+                    reason: format!("realized_rate(prior {market}): {e}"),
+                })?
+                .unwrap_or(realized),
+            // funding_time − 8h underflowed the representable range (never in
+            // practice): fall back to the benign anchor rather than skipping.
+            Err(_) => realized,
+        };
+
+        // (f) RESOLVE set-once. If the belief was resolved by a concurrent run
+        // between the due-read and here, `resolve` affects 0 rows and returns
+        // CorruptRow — treat THAT as "already resolved, skip", bubble anything
+        // else. (The single-threaded daemon loop does not race itself; this
+        // keeps the standalone fn correct under an unexpected double-call.)
+        match beliefs.resolve(&belief.belief_id, realized, &now_iso).await {
+            Ok(()) => {}
+            Err(fortuna_ledger::LedgerError::CorruptRow { .. }) => continue,
+            Err(e) => {
+                return Err(DaemonError::Compose {
+                    reason: format!("resolve {}: {e}", belief.belief_id),
+                });
+            }
+        }
+
+        // (g) score the forecast leg, then the four A2d baselines side-by-side
+        // over the SAME realized rate. CrpsPinballRule + compare_against_baselines
+        // both reuse the forecast's own q-levels, so every CRPS is
+        // apples-to-apples. A scoring error here is a logic bug on an
+        // already-validated fan (validate ran in (c)); it bubbles.
+        let forecast_crps = rule
+            .score(&fan, &RealizedOutcome::Scalar { value: realized })
+            .map_err(|e| DaemonError::Compose {
+                reason: format!("crps_pinball score {}: {e}", belief.belief_id),
+            })?;
+        let cmp = compare_against_baselines(&fan, estimate, last_realized, rw_band, realized)
+            .map_err(|e| DaemonError::Compose {
+                reason: format!("baseline comparison {}: {e}", belief.belief_id),
+            })?;
+
+        // Five (rule_id, score) legs in a fixed order; the score_id offset
+        // advances by five per belief so ids never collide across beliefs.
+        let legs = [
+            (RULE_FORECAST, forecast_crps),
+            (RULE_CARRY_FORWARD, cmp.carry_forward_crps),
+            (RULE_LAST_RATE, cmp.last_rate_crps),
+            (RULE_RW_ESTIMATE, cmp.random_walk_crps),
+            (RULE_RW_PERSISTENCE, cmp.random_walk_persistence_crps),
+        ];
+        let belief_base = score_id_base + (resolved as u64) * (legs.len() as u64);
+        for (leg_idx, (rule_id, score)) in legs.iter().enumerate() {
+            let score_id = format!("01BSC{:021}", belief_base + leg_idx as u64);
+            match scores
+                .insert(&score_id, &belief.belief_id, rule_id, *score, &now_iso)
+                .await
+            {
+                Ok(()) => {}
+                // Idempotent: a UNIQUE (belief_id, rule_id) collision means this
+                // leg was already scored (a crash between resolve and the full
+                // five-row write) — skip it, do not bubble. Any other error is
+                // real and bubbles.
+                Err(fortuna_ledger::LedgerError::Sqlx(e))
+                    if e.as_database_error()
+                        .map(|db| db.is_unique_violation())
+                        .unwrap_or(false) => {}
+                Err(e) => {
+                    return Err(DaemonError::Compose {
+                        reason: format!("belief_scores insert {} {rule_id}: {e}", belief.belief_id),
+                    });
+                }
+            }
+        }
+        resolved += 1;
+    }
+    Ok(resolved)
+}
+
 /// The daily reconciliation cycle (spec 5.8; fires at the 00:00 UTC daily
 /// boundary once slice 2 wires it into drive()): the model reads the day's
 /// fills + open positions (assembled as context) and writes the journal entry.
