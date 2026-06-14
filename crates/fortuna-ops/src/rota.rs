@@ -79,6 +79,7 @@ pub fn rota_router(state: RotaState) -> Router {
         .route("/api/rota/v1/strategies", get(view_strategies))
         .route("/api/rota/v1/working_orders", get(view_working_orders))
         .route("/api/rota/v1/discovery", get(view_discovery))
+        .route("/api/rota/v1/discovery_edges", get(view_discovery_edges))
         .route("/api/rota/v1/personas", get(view_personas))
         .route("/api/rota/v1/persona_scores", get(view_persona_scores))
         .route("/api/rota/v1/persona_pipeline", get(view_persona_pipeline))
@@ -495,6 +496,130 @@ pub async fn recent_discovery_events(
          LEFT JOIN market_event_edges mee ON mee.event_id = e.event_id \
          GROUP BY e.event_id, e.statement, e.category, e.status, e.benchmark_at, e.created_at \
          ORDER BY e.created_at DESC LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
+/// Discovery — Edges (mission item 4 "the markets/series UNDER the events" + the
+/// T4.5 (a) discovery JOIN, track-B-owned per rota-dashboard.md §T4.5): the live
+/// market↔event mappings, each JOINed to its event statement — which markets are
+/// mapped to which canonical event, the mapping type + confidence, the
+/// confirmed/proposed status, and the proposer/confirmer provenance. Both PROPOSED
+/// and CONFIRMED edges are shown (status from `confirmed_by`) so the operator sees
+/// the discovery pipeline, not just the confirmed tail; superseded edges are
+/// excluded (append-only correction discipline). UNTRUSTED DATA (spec 5.11): the
+/// event statement, market/venue, mapping type, and provenance strings are
+/// discovery output — rendered as DATA (esc'd by `boardTable`), never interpreted;
+/// `confidence` is a rounded number only. Runtime sqlx (the audit-tail precedent —
+/// no ledger change). Degrades to unavailable (HTTP 200) without the pool.
+async fn view_discovery_edges(State(s): State<RotaState>) -> impl IntoResponse {
+    let Some(pool) = s.pool.clone() else {
+        return Json(json!({
+            "status": "unavailable",
+            "detail": "postgres capability absent (standalone ROTA)",
+        }));
+    };
+    match recent_discovery_edges(&pool, 100).await {
+        Ok(rows) => {
+            let generated_at = { s.snapshot.read().await.generated_at.clone() }; // R8
+            let n = rows.len();
+            let confirmed = rows.iter().filter(|r| r.8 == "confirmed").count();
+            let events = rows
+                .iter()
+                .map(|r| r.0.as_str())
+                .collect::<std::collections::HashSet<_>>()
+                .len();
+            let json_rows: Vec<Value> = rows
+                .into_iter()
+                .map(
+                    |(
+                        _event_id,
+                        statement,
+                        market_id,
+                        venue,
+                        mapping_type,
+                        confidence,
+                        proposed_by,
+                        confirmed_by,
+                        status,
+                    )| {
+                        json!({
+                            "statement": statement,
+                            "market_id": market_id,
+                            "venue": venue,
+                            "mapping_type": mapping_type,
+                            "confidence": (confidence * 100.0).round() / 100.0,
+                            "status": status,
+                            "proposed_by": proposed_by,
+                            "confirmed_by": confirmed_by,
+                        })
+                    },
+                )
+                .collect();
+            Json(json!({
+                "title": "Discovery — Edges",
+                "generated_at": generated_at,
+                "columns": [
+                    {"key":"statement","label":"Event"},
+                    {"key":"market_id","label":"Market"},
+                    {"key":"venue","label":"Venue"},
+                    {"key":"mapping_type","label":"Mapping"},
+                    {"key":"confidence","label":"Conf"},
+                    {"key":"status","label":"Status","pill":true},
+                    {"key":"proposed_by","label":"Proposed"},
+                    {"key":"confirmed_by","label":"Confirmed"},
+                ],
+                "rows": json_rows,
+                "summary": {"edges": n, "confirmed": confirmed, "proposed": n - confirmed,
+                            "events": events},
+            }))
+        }
+        Err(e) => {
+            eprintln!("rota: discovery_edges read degraded: {e}");
+            Json(json!({
+                "status": "unavailable",
+                "detail": "discovery edges read unavailable (dashboard pool degraded)",
+            }))
+        }
+    }
+}
+
+/// One discovery-edge row: (event_id, statement, market_id, venue, mapping_type,
+/// confidence, proposed_by, confirmed_by, status).
+type DiscoveryEdgeTuple = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    f64,
+    String,
+    Option<String>,
+    String,
+);
+
+/// The live (non-superseded) market↔event edges JOINed to their event, clustered by
+/// event (so an event's markets read together). `status` is confirmed/proposed on
+/// `confirmed_by`. Mirrors `EdgesRepo::confirmed_edges`'s supersession filter but
+/// keeps PROPOSED edges too + carries the event statement. Runtime sqlx (audit-tail
+/// precedent); limit clamped to [1, 200].
+pub async fn recent_discovery_edges(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<Vec<DiscoveryEdgeTuple>, sqlx::Error> {
+    let limit = limit.clamp(1, 200);
+    sqlx::query_as::<_, DiscoveryEdgeTuple>(
+        "SELECT mee.event_id, e.statement, mee.market_id, mee.venue, mee.mapping_type, \
+                mee.confidence, mee.proposed_by, mee.confirmed_by, \
+                CASE WHEN mee.confirmed_by IS NULL THEN 'proposed' ELSE 'confirmed' END AS status \
+         FROM market_event_edges mee \
+         JOIN events e ON e.event_id = mee.event_id \
+         WHERE NOT EXISTS ( \
+             SELECT 1 FROM market_event_edges n WHERE n.supersedes = mee.edge_id \
+         ) \
+         ORDER BY mee.event_id DESC, mee.market_id ASC LIMIT $1",
     )
     .bind(limit)
     .fetch_all(pool)
@@ -1721,6 +1846,7 @@ const ROTA_SHELL: &str = r#"<!doctype html><html lang="en"><head>
   <div class="panel wide"><h2>Working Orders</h2><div id="working_orders">…</div></div>
   <div class="panel wide"><h2>Strategy P&amp;L</h2><div id="strategies">…</div></div>
   <div class="panel wide"><h2>Discovery — Events</h2><div id="discovery">…</div></div>
+  <div class="panel wide"><h2>Discovery — Edges</h2><div id="discovery_edges">…</div></div>
   <div class="panel wide"><h2>Personas</h2><div id="personas">…</div></div>
   <div class="panel wide"><h2>Persona Scorecard</h2><div id="persona_scores">…</div></div>
   <div class="panel wide"><h2>Persona Pipeline</h2><div id="persona_pipeline">…</div></div>
@@ -1743,7 +1869,7 @@ const asof=j=>j.generated_at?`<div class="asof">as of ${esc(j.generated_at)} UTC
 function gate(j){if(j&&j.status==="unavailable")return `<div class="warn">${esc(j.detail||"unavailable")}</div>`;return null;}
 // A status-token pill: green for healthy/accepted, red for quarantined, muted
 // otherwise (degraded, dropped:*). Drives any column the envelope flags `pill`.
-const valuePill=v=>{if(v==null)return "—";const s=String(v);const c=(s==="healthy"||s==="accepted"||s==="active")?"ok":s==="quarantined"?"bad":"dim";return pill(s,c);};
+const valuePill=v=>{if(v==null)return "—";const s=String(v);const c=(s==="healthy"||s==="accepted"||s==="active"||s==="confirmed")?"ok":s==="quarantined"?"bad":"dim";return pill(s,c);};
 // §20.3: a LEGIBLE one-line provenance summary (persona · model · cost · analysis ·
 // run) from the belief's `prov` block — the labeled "which source/persona drove this".
 const provLine=p=>{if(!p)return "";const t=[];
@@ -1823,6 +1949,7 @@ const R={
  strategies(j){return boardTable(j);},
  working_orders(j){return boardTable(j);},
  discovery(j){return boardTable(j);},
+ discovery_edges(j){return boardTable(j);},
  personas(j){return boardTable(j);},
  persona_scores(j){return boardTable(j);},
  persona_pipeline(j){return boardTable(j);},
@@ -1860,6 +1987,6 @@ async function poll(name){const el=document.getElementById(name);
  }catch(e){el.innerHTML=`<div class="warn">unreachable: ${esc(e)}</div>`;}}
 function every(ms,names){names.forEach(poll);setInterval(()=>names.forEach(poll),ms);}
 every(2000,["health","audit"]);every(5000,["money","gates","ingest_sources","ingest_feed","ingest_funnel"]);
-every(10000,["cognition","settlement","fills","strategies","working_orders"]);every(15000,["streams","discovery"]);
+every(10000,["cognition","settlement","fills","strategies","working_orders"]);every(15000,["streams","discovery","discovery_edges"]);
 every(30000,["db","personas","persona_scores","persona_pipeline","analyses","forecasts","forecast_feed","telemetry"]);
 </script></body></html>"#;

@@ -558,6 +558,14 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       counters (need the operator-run live dial wired into drive()); the full s5
       money model (need an operator/design call surfacing the mark-loop AccountView
       via a new SimRunner accessor).
+      (a) DISCOVERY JOINS DONE (2026-06-14, track-B): the Discovery — Edges board
+      (/api/rota/v1/discovery_edges) — the live (non-superseded) market↔event mappings
+      ⋈ events (statement + mapping + confidence + confirmed/proposed status +
+      proposer/confirmer), runtime sqlx, NO ledger change. Populated-path test (join
+      carries statement + supersession EXCLUSION + honest-null confirmer + status split)
+      + degraded-unavailable coverage + screenshot rota-discovery-edges-2026-06-14.png;
+      code-reviewer-clean; full battery green. So the buildable T4.5 surface is now (e)+
+      (e)+(b)+(a); only (c) WS counters + (d) full money model remain (operator-BLOCKED).
 
 - [ ] T4.6 ROTA TOTAL OBSERVABILITY (mission 2; track B re-missioned 2026-06-13)
       — the operator single pane of glass consuming the C/D/E observability
