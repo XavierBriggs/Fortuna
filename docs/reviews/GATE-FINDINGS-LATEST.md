@@ -15,6 +15,20 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-14, cont'd — verifier loop pass)
 
+- **✅ TRACK C — A2d SLICE-3 PART 3: resolve→score loop MERGED → main @db17fe8 = GATE ACCEPT. A2d
+  SLICE-3 COMPLETE** (the A2d funding-belief scoring loop the whole amendment was for — store + scoring
+  now both landed). `resolve_and_score_funding_beliefs(pool, now, score_id_base)`: per due unresolved
+  funding belief, look up `realized_rate` in the Part-1 store, resolve the belief, score the forecast
+  CRPS + the 4 A2d baselines side-by-side over the SAME realized rate. **Standalone fn — `drive()`
+  UNTOUCHED** (no auto-scoring in the live loop, I7); **data-only** (writes belief scores, no orders, no
+  auto-promotion, I6). **Skip-until-captured**: a belief whose rate isn't stored yet stays UNRESOLVED
+  (scored when the poller backfills), never fabricated. Defensive, non-fabricating fallbacks,
+  idempotent/race-safe writes, Clock-injected, no panic. Battery: fmt + workspace **1667/0** + clippy
+  `--workspace -D warnings` + DST 0 violations + invariants UNTOUCHED. MUTATION-PROVEN: `None => continue`
+  → `None => 0.0` reds the uncaptured-stays-unresolved test. (Statistical beat-baselines verdict accrues
+  as the store fills — as flagged in the amendment; the loop + math are now proven.) Remaining for the
+  full poll-to-score chain: Part 2 — the public-GET poller that fills the store (track-C).
+
 - **✅ TRACK C — A2d SLICE-3 PART 1: realized-funding STORE MERGED → main @b8f9299 = GATE ACCEPT** (the
   capture I assigned in `AMENDMENT-track-C-funding-capture.md`). fortuna-ledger migration
   `funding_rates_historical(market_ticker, funding_time, funding_rate, mark_price, captured_at)`,
