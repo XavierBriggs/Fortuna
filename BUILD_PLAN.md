@@ -1227,11 +1227,15 @@ scheduler is shared with D9). The skill/persona layer is a separate session
       fortuna-sources --all-targets -D warnings + test -p fortuna-sources = 118
       lib + 5 ingest_dst; full-workspace battery is the verifier's merge gate,
       see GAPS "TRACK D — OBS-1".)
-- [ ] OBS-2 funnel loop-stages + snapshot wiring (fortuna-live): the ingestion
-      loop sets `normalized`/`deduped`/`persisted`/`persist_failures` on the
-      funnel and publishes the snapshot behind `Arc<RwLock<IngestionTelemetry>>`
-      for the metrics renderer + ROTA handlers (§2 "one writer, many readers").
-      Touches fortuna-live (the drive() seam slice) — sequence vs track A.
+- [x] OBS-2 ✅ DONE (track-A) — funnel loop-stages + snapshot wiring (fortuna-live): the ingestion
+      loop sets `normalized`/`deduped`/`persisted`/`persist_failures` on the funnel (OBS-2a) and
+      `run_ingestion_loop` PUBLISHES the snapshot behind `Arc<RwLock<IngestionTelemetry>>` once per
+      pass (OBS-2b @b5be944), read by the metrics renderer + ROTA (OBS-2c) (§2 "one writer, many
+      readers"). CLOSED with the POPULATED-PATH test `ingestion_populated.rs` (`#[sqlx::test]`): the
+      REAL `run_ingestion_loop` drives 2 scripted signals through normalize→PERSIST against a real
+      signals store so `persisted`/`normalized` move off 0, a CONCURRENT reader sees the published
+      snapshot live while the loop runs, and the signals really land in the append-only store. Full
+      battery green; READ-ONLY observability (no money path).
 - [x] OBS-3 ✅ DONE (track-B Sources Health @072f9a1) — domain_tags population: carry each source's domain (weather|macro|…)
       from the source_registry/config admission into `SourceTelemetry.domain_tags`
       (empty in slice 1). Needs a config/registry field — fold with F10.

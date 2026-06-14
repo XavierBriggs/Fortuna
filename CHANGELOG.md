@@ -509,6 +509,22 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-14 — OBS-2 closed: ingestion funnel populated-path proven (one writer, many readers)
+
+**Tested + ledgered (`fortuna-live`).** The OBS-2 write side was already on main — OBS-2a fills the funnel
+loop stages (`normalized`/`deduped`/`persisted`/`persist_failures`), OBS-2b (`run_ingestion_loop`
+publishes the `IngestionTelemetry` snapshot behind `Arc<RwLock>` each pass), OBS-2c (ROTA reads it). The
+umbrella OBS-2 box was unticked and the existing tests were DB-free (core counts + publish round-trip).
+This adds the missing POPULATED-PATH proof + ticks OBS-2:
+- **`tests/ingestion_populated.rs`** (`#[sqlx::test]`): the REAL `run_ingestion_loop` drives 2 scripted
+  signals through normalize→PERSIST against a real `SignalsRepo`, so `persisted` + `normalized` move off
+  0; a CONCURRENT reader sees the published snapshot live WHILE the loop runs (the §2 many-readers
+  property); the signals really land in the append-only `signals` store. Honest zeros before the first
+  tick. Proves the integrated write→publish→read path the DB-free OBS-2a/2b tests only covered in pieces.
+- Fixed the stale `IngestionWiring::telemetry` doc (the publish is no longer "a later slice").
+- READ-ONLY observability — no order/gate/belief touched. Full battery green (fmt + clippy `--workspace
+  --all-targets -D warnings` + `cargo test --workspace` + `run-dst.sh 200`).
+
 ### 2026-06-14 — Daily belief resolution wired into drive() — the weather (+ funding) calibration loop is CLOSED
 
 **Changed (`fortuna-live`, additive opt-in).** Track E shipped the standalone `resolve_and_score_weather_beliefs`

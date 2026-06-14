@@ -218,8 +218,9 @@ impl IngestionWiring {
 
     /// The full live telemetry snapshot (OBS-2): the core's scheduler + normalize
     /// funnel plus this layer's persistence stages. This is the single read
-    /// surface ROTA / the metrics renderer project from (the `Arc<RwLock>`
-    /// publish that exposes it to those readers is a later slice).
+    /// surface ROTA / the metrics renderer project from; [`run_ingestion_loop`]
+    /// PUBLISHES it behind the `Arc<RwLock<IngestionTelemetry>>` once per pass
+    /// (contract §2 "one writer, many readers").
     pub fn telemetry(&self, now: UtcTimestamp) -> IngestionTelemetry {
         let mut t = self.core.telemetry(now);
         t.funnel.persisted = self.persisted_total;
