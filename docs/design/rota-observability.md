@@ -17,6 +17,14 @@ telemetry on every layer — consuming the C/D/E observability contracts.
   (D), [perp-strategies-and-scalar-claims.md](perp-strategies-and-scalar-claims.md)
   §8–9 (C), [domain-analysis-personas-design.md](domain-analysis-personas-design.md)
   §14,§19–20 (E). (The contracts live on the track-D/C/E branches until merged.)
+- **Identity system v1.0 (operator, 2026-06-14):** the console already CONFORMS — the
+  shell `:root` tokens match the published palette hex-for-hex (BACKGROUND `#0A0A0B`,
+  SURFACE `#141416`, GOLD `#D4AF37`, AMBER `#FFB84D`, TEXT `#EDEDEA`, HALT `#FF3B30`, OK
+  `#30D158`), `assets/rota/logo.svg` is the wheel+cornucopia mark, gold-on-black
+  throughout. The one spec gap is typography (shell uses `system-ui`/JetBrains Mono vs
+  the spec's **Inter**); the operator's call (2026-06-14) is to LEAVE AS-IS — the
+  Inter swap (self-hosted `.woff2` @font-face) is DEFERRED, not an open defect. Do not
+  re-litigate without an operator request.
 
 ## Board status matrix
 
