@@ -1,0 +1,55 @@
+# Track E — Aeolus weather→belief pipeline (F5–F9): changelog
+
+Track-owned changelog (newest first) for the Aeolus deterministic weather pipeline,
+reassigned C → E (operator-directed 2026-06-14). Separate from
+`track-e-changelog.md` (the persona work) to keep the two features' histories — and
+their merges — independent. Every entry = one gate-clean slice with its commit, what
+landed, and how it was verified. Authoritative contract:
+`docs/design/aeolus-fortuna-source-contract.md` (rev 3, wire schema `aeolus.forecast/v2`).
+
+Branch `track-e-aeolus` off current `main` (838d7ed). New DISJOINT `aeolus_*.rs`
+modules in `fortuna-cognition`; reuses the pinned `persona_beliefs::{normal_cdf,
+prob_at_least}`, the binary `BeliefDraft`, the scalar `scoring`/`scalar_beliefs`
+foundation, and the NWS grader; does NOT touch C's perp files or fortuna-runner. The
+composition entry point is handed to Track A (daemon wiring). Convention: tests-first,
+FULL workspace battery as the commit gate.
+
+---
+
+## F6 — strict v2 parser + μ/σ→bracket-p (the deterministic foundation) (this commit)
+
+New `crates/fortuna-cognition/src/aeolus_forecast.rs`. Two pure, replay-deterministic
+pieces:
+
+- **The μ/σ→p backbone** — `bracket_prob_ge`/`bracket_prob_lt`/`bracket_range_prob`,
+  reusing the PINNED in-repo erf (`persona_beliefs::{normal_cdf, prob_at_least}`, A&S
+  7.1.26 — not platform `libm`, so byte-identical replay holds, contract §7/I5). Kalshi
+  brackets are integer degrees, so a `ge t` bracket is `P(high ≥ t) = P(T ≥ t − 0.5)`
+  (a half-degree continuity correction). `bracket_range_prob` subtracts UNCLAMPED `ge`
+  values before the final clamp (exact in the distribution body). Every result clamped
+  into `(ε, 1−ε)`; `None` on σ≤0/non-finite.
+- **The strict envelope parser** — `parse_envelope` / `parse_response` with
+  `deny_unknown_fields` on every struct + renamed enums (so `family`/`units`/`variable`/
+  `comparison`/`authority` drift is a hard parse error). Semantic `validate()`: pin
+  `schema == "aeolus.forecast/v2"`, reject σ≤0/non-finite (handles NaN/+∞), require ≥1
+  bracket + non-empty `event_hint`, and CLAMP each `brackets[].p` into `[1e-6, 1−1e-6]`
+  (clamp-not-reject, rev-3). Skill fields (`crps`/`crpss_vs_raw`/`n_scored`) are nullable
+  (`crpss_vs_raw` ships `null`). `AeolusForecast` wraps the validated envelope (private
+  fields + accessors) and exposes the identity tuple `(station, variable, target_date,
+  run_at)` for the F5 dedup slice.
+
+**THE GATE — calibration VALIDATED, not asserted:** the test parses the RECORDED fixture
+`fixtures/sources/aeolus/knyc_tmax.json` and checks FORTUNA's `bracket_prob_ge` against
+all 14 recorded bracket p-values. **Max abs delta = 6.868e-8** across all 14 — the A&S
+erf-approximation residual (contract §7's ~1e-7..1e-12 class), NOT a formula error (a
+missing −0.5 would miss by ~0.1, e.g. ge87 → 0.572 vs the recorded 0.672). The `+00:00`
+(non-`Z`) `run_at` parses via `UtcTimestamp::parse_iso8601` (chrono RFC3339).
+
+Built by a subagent tests-first; main-loop read + verified the module + re-ran the gate.
+18 tests (fixture-validation + σ≤0 / wrong-units / unknown-field / wrong-schema reject +
+clamp + nullable-skill + identity-tuple). Verified: `cargo test -p fortuna-cognition
+--test aeolus_forecast` 18/18; `fmt` + `clippy --workspace --all-targets -D warnings`
+clean; full workspace test FULLY green (160 suites, 0 failures — Track C's `kinetics_dto`
+fix has landed on main).
+
+Shared-doc touches: none (new files only).

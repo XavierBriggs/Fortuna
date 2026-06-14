@@ -3,6 +3,32 @@
 Open items the implementation defers, lacks, or needs from the operator. Acceptance
 requires this file to contain ONLY operator-blocked items, each with exact unblock steps.
 
+## TRACK E — AEOLUS WEATHER→BELIEF (F5–F9), reassigned C → E 2026-06-14 (branch track-e-aeolus)
+
+Building the deterministic Aeolus temperature pipeline (the statistical counterpart to the
+meteorologist persona). New disjoint `aeolus_*.rs` in fortuna-cognition; reuses the pinned
+`persona_beliefs::{normal_cdf, prob_at_least}`, `BeliefDraft`, `scoring`/`scalar_beliefs`, the NWS
+grader; does NOT touch C's perp files / fortuna-runner; composition entry point handed to Track A.
+Contract: `docs/design/aeolus-fortuna-source-contract.md` (rev 3). Changelog:
+`docs/design/track-e-aeolus-changelog.md`.
+
+- **F6 — strict v2 parser + μ/σ→bracket-p — DONE (this commit).** `aeolus_forecast.rs`. The μ/σ→p
+  uses the half-degree continuity correction (`ge t` ⟺ `T ≥ t−0.5`), VALIDATED against the recorded
+  fixture (`knyc_tmax.json`) to a max delta of **6.868e-8** across all 14 brackets (the pinned-erf
+  residual, not a formula error). Strict `deny_unknown_fields` + clamp-not-reject + nullable skill.
+- **F5 (NEXT)** — identity-tuple dedup: collapse forecasts by `(station, variable, target_date)`,
+  newest `run_at` wins (over the typed `AeolusForecast`, whose `identity()` accessor F6 exposes).
+- **F7** — world-forward match (forecast→Kalshi temp-bracket market-family). KNOWN SEAM: no live
+  station→Kalshi-market discovery exists; F7 produces the forecast-side market family (brackets +
+  resolution) and the live-market match is a venue seam (ledger here + e2e uses the recorded fixture).
+- **F8** — emit bracket `BeliefDraft`s (binary fan-out, propose-only `p_raw`, `event_id =
+  aeolus:{event_hint}`) + a scalar `ScalarBeliefDraft` (μ/σ→quantile fan) for CRPS. Calibration is
+  applied DOWNSTREAM (the producer emits `p_raw` only, like funding_forecast).
+- **F9** — Layer-3 reliability scoring (Brier + CRPS vs realized temp, per (model, scope)). KNOWN
+  SEAM: the productText→realized-daily-high extraction (F2) is NOT in cognition; F9 takes the
+  realized temp as an input and the extraction is seamed (e2e uses a recorded realized value).
+- **e2e** — recorded forecast → F6→F7→F8→persist→F9 scores vs recorded realized temp.
+
 Status (post-E-batch, 2026-06-10): the T3.6 completion claim was FALSIFIED
 by the full-build gate (docs/reviews/system-0-3-final-2026-06-10.md, BLOCK:
 four unledgered Majors). The fix batch (commits 1d1c033..1e3e5e7) closed
