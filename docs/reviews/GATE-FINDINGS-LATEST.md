@@ -1,9 +1,9 @@
 # GATE FINDINGS — latest (verifier-owned; every track reads this at priority (a))
 
-State as of 2026-06-13, main @ 0e20681 (sweep pass — track-B OBS-3 Sources Health + track-E F4b
-release-aware cadence merged GATE ACCEPT; tracks A / B / E are all DONE (0-ahead, merged), only
-track-C is active (demo-flip Phase 1 ready); see LATEST below; the durable integrity claims here
-were gate-proven at each entry's merge). Main integrity GREEN on the merged tree: fmt +
+State as of 2026-06-13, main @ 0af2758 (docs freshened; tracks A / B / E all DONE/merged; track-C
+demo-flip Phase 1+2 is GATE-BLOCKED pending a rebase — its protected-crate change is pre-cleared
+add-only, but its drive() conflicts structurally with track-a's ingestion wiring; see LATEST; the
+durable integrity claims here were gate-proven at each entry's merge). Main integrity GREEN on the merged tree: fmt +
 check --workspace --all-targets clean, the full scalar surface battery green
 (cognition scoring 54 / scalar_beliefs 4; core perp 41 / funding_window 13 /
 bus 24 / DST 4 corpus + 2000 random, 0 violations; ledger DB ledger 27 /
@@ -14,6 +14,28 @@ coordination surface; the verifier rewrites it — tracks ACT on it and
 ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-13, cont'd — verifier loop pass)
+
+- **⛔ TRACK C — DEMO-FLIP PHASE 2 GATE BLOCK (stale-base integration; NOT a code defect).**
+  track-c @8d11b43 (`compose_kalshi_runner` + `ActiveRunner` + boot gate, Stage::Paper) is correct
+  on its base, but it was built BEFORE track-a's ingestion wiring merged, so it cannot merge to
+  current main as-is. Main UNCHANGED @0af2758 (merge aborted; nothing landed).
+  - **Protected crate PRE-CLEARED ✅ (verified line-by-line; track-C does NOT redo this):**
+    `i7_promotion_gates.rs` is ADD-ONLY — 3 new I7 tests (SimRunner::new STILL refuses Paper;
+    `new_with_venue` opens Paper ONLY via the explicit `&[Sim,Paper]` allowlist; the Paper allowlist
+    STILL refuses LiveMin/Scaled) + one mechanical `faults→Option` adaptation in the NON-assertion
+    `runner_config()` helper. No assertion weakened — the operator-waive is legitimate.
+  - **THE BLOCK = `drive()` structural conflict.** track-c's `drive()` takes `&mut ActiveRunner`
+    (venue-generic); main's takes `&mut SimRunner` + the `personas`/`discovery` ingestion params
+    (track-a). One 386-line conflict hunk = the two `drive()` bodies don't align; a mechanical splice
+    on the safety-critical composition is unsafe, AND it needs a design call.
+  - **TRACK C — REQUIRED (rebase + reconcile, then re-push; I re-gate the clean result):** merge
+    current main (@0af2758) into your branch and resolve `drive()`: (1) merge the signature —
+    `runner: &mut ActiveRunner` PLUS the `personas`/`discovery` params; (2) add 2 `ActiveRunner`
+    delegations — `digest_snapshot` + `positions` (the ingestion blocks call them;
+    `apply_external_alert`/`counters` already delegate); (3) union the body (keep the persona +
+    discovery loops + your `route_alerts` method form); (4) **DESIGN CALL: decide whether the
+    ingestion/persona loops run under the `ActiveRunner::Kalshi` arm** — they're opt-in/default-off,
+    so the conservative default is "yes, gated by config." Re-run the full battery + DST.
 
 - **✅ SWEEP PASS — two small GATE ACCEPTs (a/b/e now all DONE):**
   - **TRACK B OBS-3** (ROTA Sources Health: domain_tags + trust_tier) → main @ 072f9a1. Read-only
