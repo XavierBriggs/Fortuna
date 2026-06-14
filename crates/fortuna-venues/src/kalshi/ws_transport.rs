@@ -28,8 +28,9 @@ use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpStream;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::error::ProtocolError;
-use tokio_tungstenite::tungstenite::http::Request;
+use tokio_tungstenite::tungstenite::http::{HeaderName, HeaderValue, Request};
 use tokio_tungstenite::tungstenite::{Bytes, Error as WsError, Message};
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 
@@ -129,18 +130,31 @@ impl KalshiWsTransport {
     }
 
     /// Build the signed WS upgrade request: a GET on the WS path carrying the
-    /// three KALSHI-ACCESS-* auth headers. tungstenite adds the standard upgrade
-    /// headers (Sec-WebSocket-Key/Version, Upgrade, Connection).
+    /// three KALSHI-ACCESS-* auth headers ON TOP OF the mandatory WS upgrade
+    /// headers. We START from tungstenite's [`IntoClientRequest`]-generated
+    /// request so it carries `Sec-WebSocket-Key`/`-Version`, `Upgrade`,
+    /// `Connection`, and `Host` — a hand-built `Request` omits those and
+    /// `connect_async` fails `Protocol(InvalidHeader("sec-websocket-key"))` (the
+    /// first-live-exercise finding, 2026-06-13). The auth headers are then
+    /// inserted; the signed message is `timestamp + "GET" + WS_SIGN_PATH`.
     fn signed_request(&self, now_ms: i64) -> Result<Request<()>, DisconnectCause> {
+        let mut request = self
+            .ws_url
+            .as_str()
+            .into_client_request()
+            .map_err(|_| DisconnectCause::Transport)?;
         let headers = self
             .signer
             .sign("GET", WS_SIGN_PATH, now_ms)
             .map_err(|_| DisconnectCause::Transport)?;
-        let mut builder = Request::builder().method("GET").uri(&self.ws_url);
+        let map = request.headers_mut();
         for (name, value) in headers.as_header_pairs() {
-            builder = builder.header(name, value);
+            let name =
+                HeaderName::from_bytes(name.as_bytes()).map_err(|_| DisconnectCause::Transport)?;
+            let value = HeaderValue::from_str(value).map_err(|_| DisconnectCause::Transport)?;
+            map.insert(name, value);
         }
-        builder.body(()).map_err(|_| DisconnectCause::Transport)
+        Ok(request)
     }
 }
 
@@ -343,6 +357,51 @@ mod tests {
                 .unwrap()
                 .is_empty(),
             "the RSA-PSS signature header is present"
+        );
+    }
+
+    #[test]
+    fn signed_request_carries_the_mandatory_websocket_upgrade_headers() {
+        // Regression for the first-live-exercise finding (2026-06-13): a
+        // hand-built Request<()> carried ONLY the auth headers, so `connect_async`
+        // failed with Protocol(InvalidHeader("sec-websocket-key")) — tungstenite
+        // does NOT synthesize the upgrade headers for a pre-built request. The
+        // handshake request MUST carry the mandatory WS upgrade headers.
+        let t = test_transport();
+        let req = t
+            .signed_request(1_700_000_000_000)
+            .expect("a signed handshake request");
+        let h = req.headers();
+        assert!(
+            h.get("sec-websocket-key")
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|s| !s.is_empty()),
+            "Sec-WebSocket-Key must be present and non-empty"
+        );
+        assert_eq!(
+            h.get("sec-websocket-version").and_then(|v| v.to_str().ok()),
+            Some("13"),
+            "Sec-WebSocket-Version must be 13"
+        );
+        assert_eq!(
+            h.get("upgrade")
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_ascii_lowercase),
+            Some("websocket".to_string()),
+            "Upgrade: websocket must be present"
+        );
+        assert!(
+            h.get("connection")
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|s| s.to_ascii_lowercase().contains("upgrade")),
+            "Connection must request Upgrade"
+        );
+        // The three auth headers still ride alongside the upgrade headers.
+        assert_eq!(
+            h.get(crate::kalshi::auth::HEADER_KEY)
+                .and_then(|v| v.to_str().ok()),
+            Some("test-key-id"),
+            "the KALSHI-ACCESS-KEY auth header survives"
         );
     }
 }

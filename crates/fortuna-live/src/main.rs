@@ -283,7 +283,146 @@ async fn main() -> Result<()> {
     // runs on the MID tier — the SEPARATE `reconciliation_mind` (mid_model/Sonnet)
     // built above, NOT a clone of the synthesis Opus mind. A stub mind (no key)
     // self-skips. Built BEFORE `pool` moves into the halt poller below.
+    // (merge: keep the Mid-tier reconciliation from 3-tier cognition; track-a's
+    // persona/discovery wiring below is additive and retained.)
     let reconciliation = Some((pool.clone(), reconciliation_mind));
+    // OPT-IN [personas] wiring (default-off). PRESENT + enabled => load each
+    // configured persona FAIL-CLOSED: read persona.md + schema.json, parse, fetch
+    // the registry HEAD, and validate_against it (a file whose hash != the active
+    // registry row — or an inactive/version-mismatched head — REFUSES to boot, so
+    // a tampered method never runs, design §6). The persona STRATEGY id is built
+    // ONCE here (no fallible id construction on the loop path). The persona mind is
+    // the SAME synthesis mind (one build; a stub mind proposes nothing). Absent /
+    // `enabled = false` => None => the persona step never runs (byte-identical
+    // daemon). Built BEFORE `pool` + `synthesis_mind` move below.
+    let persona_strategy = fortuna_core::market::StrategyId::new("domain-analysis")
+        .map_err(|e| anyhow::anyhow!("building persona strategy id: {e}"))?;
+    let personas_wiring = match dcfg.personas.as_ref() {
+        Some(sec) if sec.enabled => {
+            let mut schedules = Vec::new();
+            for entry in &sec.personas {
+                let md = std::fs::read_to_string(format!("{}/persona.md", entry.dir))
+                    .with_context(|| format!("reading persona.md for {:?}", entry.id))?;
+                let schema = std::fs::read_to_string(format!("{}/schema.json", entry.dir))
+                    .with_context(|| format!("reading schema.json for {:?}", entry.id))?;
+                let def = fortuna_cognition::persona::PersonaDef::parse(&md, &schema)
+                    .with_context(|| format!("parsing persona {:?}", entry.id))?;
+                let head = fortuna_ledger::PersonasRepo::new(pool.clone())
+                    .head(&entry.id)
+                    .await
+                    .with_context(|| format!("registry head for persona {:?}", entry.id))?;
+                let registry_head =
+                    head.as_ref()
+                        .map(|r| fortuna_cognition::persona::RegistryHead {
+                            version: r.version,
+                            method_hash: r.method_hash.clone(),
+                            status: r.status.clone(),
+                        });
+                // FAIL-CLOSED: refuse a missing/inactive/hash/version mismatch.
+                def.validate_against(registry_head.as_ref())
+                    .with_context(|| {
+                        format!("persona {:?} failed registry validation", entry.id)
+                    })?;
+                schedules.push(fortuna_cognition::persona_orchestrator::PersonaSchedule {
+                    def,
+                    cadences: entry.cadences.clone(),
+                });
+            }
+            eprintln!(
+                "fortuna-live: persona analysis ACTIVE ({} persona(s); strategy=domain-analysis)",
+                schedules.len()
+            );
+            Some(fortuna_live::daemon::PersonasWiring {
+                pool: pool.clone(),
+                schedules,
+                state: fortuna_cognition::persona_orchestrator::PersonaScheduleState::new(
+                    sec.debounce_ms,
+                ),
+                budget: fortuna_cognition::discovery::DiscoveryBudget::new(
+                    sec.budget_cents_per_day,
+                ),
+                mind: synthesis_mind.clone(),
+                strategy: persona_strategy,
+                window_hours: sec.window_hours,
+                max_signals: sec.max_signals,
+            })
+        }
+        _ => None,
+    };
+    // OPT-IN [discovery] WORLD-FORWARD wiring (default-off; spec 5.12, COMMIT 1).
+    // PRESENT + enabled => load the curated source registry ONCE (the unscoreable
+    // rule keys on it: a candidate whose resolution source is absent/disabled is
+    // excluded from watchlist counts + beliefs), hold it in the wiring. The
+    // discovery STRATEGY id is built ONCE here (no fallible id construction on the
+    // loop path). The discovery mind is the SAME synthesis mind (one build; a stub
+    // mind synthesizes nothing). Absent / `enabled = false` => None => the
+    // world-forward step never runs (byte-identical daemon). Built BEFORE `pool` +
+    // `synthesis_mind` move below.
+    let discovery_strategy = fortuna_core::market::StrategyId::new("world-forward")
+        .map_err(|e| anyhow::anyhow!("building discovery strategy id: {e}"))?;
+    let discovery_wiring = match dcfg.discovery.as_ref() {
+        Some(sec) if sec.enabled => {
+            let rows = fortuna_ledger::SourceRegistryRepo::new(pool.clone())
+                .load_all()
+                .await
+                .context("loading source registry for discovery")?;
+            let source_count = rows.len();
+            let mut registry = fortuna_cognition::signals::SourceRegistry::new();
+            for r in rows {
+                // trust_tier is i32 on the ledger row, 0..=10 by the DB CHECK; map
+                // to the bounded TrustTier newtype (fail-closed on an out-of-range
+                // tier — a row the funnel cannot trust must not boot quietly).
+                let tier = u8::try_from(r.trust_tier)
+                    .ok()
+                    .and_then(|t| fortuna_cognition::signals::TrustTier::new(t).ok())
+                    .with_context(|| {
+                        format!(
+                            "source {:?} has an out-of-range trust_tier {}",
+                            r.source_id, r.trust_tier
+                        )
+                    })?;
+                registry.upsert(fortuna_cognition::signals::SourceEntry {
+                    source_id: r.source_id,
+                    trust_tier: tier,
+                    domain_tags: r.domain_tags,
+                    enabled: r.enabled,
+                });
+            }
+            eprintln!(
+                "fortuna-live: discovery ACTIVE ({source_count} registry source(s); strategy=world-forward; market-back catalog INERT until T4.2)"
+            );
+            Some(fortuna_live::daemon::DiscoveryWiring {
+                pool: pool.clone(),
+                mind: synthesis_mind.clone(),
+                budget: fortuna_cognition::discovery::DiscoveryBudget::new(
+                    sec.budget_cents_per_day,
+                ),
+                registry,
+                strategy: discovery_strategy,
+                signal_kinds: sec.signal_kinds.clone(),
+                window_hours: sec.window_hours,
+                max_signals: sec.max_signals,
+                // MARKET-BACK (COMMIT 2). The prefilter knobs come from config; the
+                // per-category calibration-quality map is the T2.8 resolved record —
+                // not yet wired here, so it starts EMPTY (a category absent from the
+                // map scores 0.0, i.e. fails any positive min_category_quality). The
+                // catalog is EMPTY (the live Kalshi catalog is not wired until T4.2;
+                // GAPS), so the market-back step is INERT in prod even when enabled.
+                // The id bases seed from the drive-start epoch (collision-free across
+                // runs), exactly like the belief id base.
+                prefilter: fortuna_cognition::discovery::PrefilterConfig {
+                    category_allowlist: sec.category_allowlist.clone(),
+                    min_volume_contracts: sec.min_volume_contracts,
+                    min_category_quality: sec.min_category_quality,
+                    category_quality: BTreeMap::new(),
+                },
+                catalog: Vec::new(),
+                event_id_base: start_ms.max(0) as u64,
+                edge_id_base: start_ms.max(0) as u64,
+            })
+        }
+        _ => None,
+    };
     // T4.1/M2 slice B2: the opt-in [review] weekly-review wiring, reusing the
     // synthesis mind + [synthesis].category + the boot time (paper_days). Absent
     // [review] => None => no weekly review fires. Built BEFORE `pool` moves.
@@ -419,6 +558,8 @@ async fn main() -> Result<()> {
         reconciliation,
         reviews,
         perp_tick_feed,
+        personas_wiring,
+        discovery_wiring,
     )
     .await
     .context("daemon loop")?;

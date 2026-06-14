@@ -28,6 +28,17 @@ max_exposure_cents = 200_000
 max_order_notional_cents = 10_000
 min_net_edge_bps = 100
 
+# The opt-in persona-analysis strategy's per-strategy gate. Persona beliefs are
+# attributed to the "domain-analysis" strategy and pass the SAME gate pipeline as
+# every other order (I1), but personas are PROPOSE-ONLY (I6) — they emit DATA, no
+# orders — so this gate carries ZERO exposure: no capital touches a persona belief
+# until the §11 promotion gate passes for a subset (an operator action, never the
+# daemon, I7). Uncomment alongside [personas] below to make the boundary explicit.
+# [gates.per_strategy.domain-analysis]
+# max_exposure_cents = 0           # zero capital: propose-only until promoted (I7)
+# max_order_notional_cents = 0
+# min_net_edge_bps = 100
+
 # I3 dual token buckets. Researched Kalshi limits (2026-06-09): Basic tier
 # ~10 write req/s with a 2s burst window; these defaults sit far below that.
 [gates.rate.kalshi]
@@ -150,3 +161,56 @@ bracket_sets = [["SIM-BKT-LO", "SIM-BKT-MID", "SIM-BKT-HI"]]
 # [perp_event_basis.ladder."KXBTC-HI"]    # open top tail: P(BTC > floor)
 # kind = "greater"
 # floor_dollars = 70000.0
+
+# --- Opt-in persona analysis (default OFF) ---------------------------------
+# PRESENCE with enabled = true wires the persona-analysis step into the live
+# loop: on a segment it reads the signals each persona reads, runs one
+# orchestrator pass (the §4 firewall + cost budget + schema validation live
+# inside), persists each produced analysis to domain_analyses, and fans it out
+# to beliefs (attributed to the "domain-analysis" strategy — see the zero-exposure
+# per-strategy gate above; propose-only, I6/I7). The loader is FAIL-CLOSED: a
+# persona.md whose hash != the active personas-registry row refuses to boot. Absent
+# or enabled = false => the persona step never runs (the daemon is byte-identical).
+# Uncomment to enable (register the persona in the personas table first).
+#
+# [personas]
+# enabled              = false   # master switch; false => the loop is byte-identical to today
+# debounce_ms          = 0       # PersonaTriggerGate coalescing window (a signal burst => one run)
+# window_hours         = 48      # how far back recent_by_kind reads signals
+# max_signals          = 200     # recent_by_kind LIMIT
+# budget_cents_per_day = 500     # the persona discovery budget (cost throttle)
+#
+# # one block per registered persona; dir holds persona.md + schema.json.
+# [[personas.persona]]
+# id       = "meteorologist"
+# dir      = "config/personas/meteorologist"
+# cadences = []   # signal-driven only. A cadence is a STRUCT-VARIANT, e.g.
+#                 #   cadences = [{ daily_at_hour_utc = { hour = 5 } }]
+#                 # or
+#                 #   cadences = [{ every_hours = { hours = 6 } }]
+#                 # (an invalid hour like 99 is rejected at boot — Cadence::validate).
+
+# --- Opt-in world-forward discovery (default OFF) --------------------------
+# PRESENCE with enabled = true wires the WORLD-FORWARD discovery step into the
+# live loop (spec 5.12): on a segment it reads the fresh signals of the listed
+# kinds, runs one world_forward_discovery pass (the HARD daily cost cap + the
+# unscoreable rule live inside — this loop is the first thing throttled under
+# budget pressure), persists each synthesized candidate as a `watch:` event, and
+# fans the SCOREABLE candidates out to zero-capital beliefs (attributed to the
+# "world-forward" strategy; propose-only, I6/I7 — no capital touches them until a
+# §11 promotion gate passes, an operator action). A candidate whose resolution
+# source is NOT a checkable, enabled row in the source registry is UNSCOREABLE:
+# excluded from watchlist counts and refused beliefs (no beliefs nobody can
+# grade). Absent or enabled = false => the discovery step never runs (the daemon
+# is byte-identical). Uncomment to enable.
+#
+# [discovery]
+# enabled              = false   # master switch; false => the loop is byte-identical to today
+# budget_cents_per_day = 500     # the world-forward daily cost cap (must be > 0 when enabled)
+# window_hours         = 48      # how far back recent_by_kind reads signals
+# max_signals          = 200     # recent_by_kind LIMIT
+# signal_kinds         = ["aeolus.forecast", "news.headline"]  # the kinds the loop reads
+# # --- market-back prefilter (the catalog is INERT in prod until T4.2 wires the live Kalshi catalog) ---
+# category_allowlist   = ["weather"]  # only these venue-market categories are normalized
+# min_volume_contracts = 100          # listings below this volume floor are skipped
+# min_category_quality = 0.0          # min per-category calibration quality (0.0 = no check)

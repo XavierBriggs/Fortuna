@@ -321,6 +321,130 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-14 — Market-back discovery wired into the live daemon (`[discovery]`, opt-in) — amendment part 1b (completes the ingestion→beliefs amendment)
+
+**Added (default-OFF; extends part 1a).** Per the operator amendment + spec §5.12, a MARKET-BACK
+sub-step in `drive()`, placed BEFORE the synthesis edge-refresh: run the deterministic `prefilter`
+over the venue `catalog`, dedup already-edged listings (`current_edges_for_market`), normalize survivors
+via the same `Mind` (`market_back_discovery`; the §5.12 budget cap lives INSIDE it), persist each
+NEW-event draft as a canonical `events` row (`01EVT…`), and for each proposed edge card AUTO-CONFIRM the
+LOW-STAKES ones — `confirmed_by = "discovery:auto"` ⇒ `EdgeTier::Confirmed` ⇒ the synthesis arm prices it
+THIS SAME segment — while persisting HIGH-STAKES edges as PROPOSED (`confirmed_by = None`) and routing a
+`MessageKind::Review` alert to #fortuna-review. The auto-confirm boundary is EXACTLY spec §5.12:252
+(`high_stakes == mapping != Direct || deterministic_score < 1.0`; "deterministic checks score them;
+#fortuna-review confirms the high-stakes ones"). Auto-confirmed edges feed only BELIEFS — orders still
+cross the universal gate I1 (propose-only, I6).
+
+- **Extends** the part-1a `[discovery]` config (prefilter knobs: `category_allowlist`,
+  `min_volume_contracts`, `min_category_quality`) + `DiscoveryWiring` (`prefilter`, `catalog`,
+  `event_id_base`, `edge_id_base`). Edge-card event_ids resolve via a `new:{market_id}`
+  placeholder→minted-id map; an UNRESOLVABLE event_id alerts + skips (no dangling edge). No-panic
+  (match/let-else, `wrapping_add`); EXISTS-guarded event create; dedup re-run-safe.
+- **PROD GAP (T4.2/operator):** the daemon has no live venue catalog wired (`main.rs` sets
+  `catalog: Vec::new()`), so market-back is INERT in production (no mind call, no events/edges, no alert)
+  until the Kalshi adapter supplies a catalog. (World-forward (1a) is the prod-active signal→belief path
+  meanwhile.) Ledgered in GAPS.
+- **e2e (mutation-proven, the amendment's gate):** `discovery_market_back_auto_confirms_and_synthesis_
+  drafts_a_belief` supplies a test catalog (a real sim market with a book), scripts a StubMind
+  `NormalizationBatch` (Direct + matching source/horizon ⇒ deterministic 1.0 ⇒ auto-confirm), enables the
+  synthesis arm with a believing_mind on the DETERMINISTIC minted event_id, runs `drive()`, and asserts
+  ≥1 `events` row + a `confirmed_by='discovery:auto'` edge + a synthesis belief on that event — the full
+  signals/catalog→event→confirmed-edge→synthesis-belief chain. The synthesis belief CANNOT arise without
+  the auto-confirmed edge (compose asserts 0 edges; the edge arrives via the segment-1 refresh). MUTATION:
+  `discovery=None` ⇒ 0 events/edges/belief ⇒ RED (verified). code-architect blueprinted; code-reviewer
+  clean (no high-conf issues). Full battery green (test --workspace 1496/0; run-dst 200 0-violations).
+
+### 2026-06-14 — World-forward discovery wired into the live daemon (`[discovery]`, opt-in) — amendment part 1a
+
+**Added (default-OFF).** Per the operator amendment ("drive the ingestion→beliefs loops") + spec §5.12,
+a `[discovery]` opt-in WORLD-FORWARD step in `drive()`: each segment reads fresh signals
+(`SignalsRepo::recent_by_kind` over `signal_kinds`, within `window_hours`, capped at `max_signals`),
+turns them into `<context-item>` blocks, and hands them to one `world_forward_discovery` call (the §5.12
+daily cost cap + the unscoreable rule live INSIDE it). Each returned candidate is persisted as a `watch:`
+event (EXISTS-guarded — `EventsRepo::create` is a pure INSERT); the SCOREABLE candidates' beliefs fan out
+through the existing `persist_beliefs` path, attributed to a pre-built `StrategyId("world-forward")` (the
+I7 gate/scoring boundary). This is the path that makes ingested SIGNALS produce beliefs in production —
+no venue catalog needed. Sits after the persona step, before `route_alerts` (no synthesis-edge dependency).
+
+- **Boot loader (fail-closed):** the curated `SourceRegistry` is loaded ONCE at boot
+  (`SourceRegistryRepo::load_all`); an out-of-range `trust_tier` REFUSES to boot (no silent default). The
+  discovery `StrategyId` is built once at boot (no fallible id construction on the loop path). The
+  discovery mind is the same synthesis `Mind`. `DiscoveryWiring` owns the `DiscoveryBudget` across segments.
+- **No-panic / I6 / default-off:** the daemon block is match/let-else/filter_map throughout (no
+  unwrap/expect); data-only (signals → `watch:` events + beliefs, never orders); absent `[discovery]` /
+  `enabled=false` ⇒ `None` ⇒ the step never runs (all sibling `drive()` smokes pass `None`).
+- **e2e (mutation-proven):** `discovery_world_forward_persists_watchlist_events_and_beliefs` seeds a
+  scoreable registry source, inserts a signal, scripts a `StubMind` `WatchlistBatch` (one scoreable + one
+  unscoreable candidate), runs ONE `drive()` segment, asserts 2 `watch:` events + exactly 1 belief (the
+  unscoreable candidate's belief refused — "no beliefs nobody can grade"). MUTATION: `discovery=None` ⇒ 0
+  ⇒ RED (verified). code-architect blueprinted; code-reviewer clean (no high-conf issues). Full battery
+  green (test --workspace 1495/0; run-dst 200 0-violations). NEXT (amendment part 1b): market-back
+  (catalog→edges→synthesis) — extends this `[discovery]`/`DiscoveryWiring`; catalog-gated, see GAPS.
+
+### 2026-06-13 — Persona analysis step wired into the live daemon (`[personas]`, opt-in)
+
+**Added (default-OFF).** Per `docs/design/persona-live-wiring-handoff.md` (Track-E→Track-A
+handoff), a `[personas]` opt-in step in `drive()`: each segment reads the signals the
+loaded personas care about (`SignalsRepo::recent_by_kind` over the union of
+`reads_signal_kinds`, within `window_hours`, capped at `max_signals`), hands them to one
+`run_due_personas` call (§4 firewall + cost budget + schema validation live INSIDE it),
+and for each produced artifact persists a `domain_analyses` row (`01PAN…` id) + fans out
+binary beliefs through the existing `persist_beliefs` path (attributed to a single
+pre-built `StrategyId("domain-analysis")` — the I7 gate/scoring boundary). Mirrors the
+scalar-drain failure posture: any read/persist failure ALERTS (routed in-segment) and
+CONTINUES — never crashes the loop (persona analyses/beliefs are the calibration
+substrate, not the money path). The block sits between the scalar-drain block and
+`route_alerts`.
+
+- **Boot loader (fail-closed):** for each `[[personas.persona]]`, read `persona.md` +
+  `schema.json`, `PersonaDef::parse`, fetch the registry HEAD, and `validate_against` it
+  — a hash/version/status mismatch (or missing row) REFUSES to boot (a tampered method
+  never runs, §6). `PersonasWiring` bundle (pool, schedules, `PersonaScheduleState`,
+  `DiscoveryBudget`, the synthesis `Mind`, the pre-built strategy, knobs) owned across
+  segments like `ReviewWiring`. The persona strategy id is built ONCE at boot (no fallible
+  id construction on the loop path); the daemon block is no-panic (match/let-else/
+  filter_map throughout, no unwrap/expect).
+- **Default-off byte-identical:** absent `[personas]` or `enabled = false` ⇒ `None` ⇒ the
+  step never runs (proven by all 9 existing `drive()` smokes passing `None`).
+- **I6/§4 inherited:** the wiring only moves SIGNALS (untrusted data) + persists outputs;
+  the trusted method never enters this code; no order/size/price is emitted (DATA →
+  BeliefDrafts → the same universal gate, propose-only).
+- **e2e (mutation-proven):** `drive_persists_persona_analysis_and_beliefs_when_wired`
+  registers the shipped meteorologist, inserts an `aeolus.forecast` signal whose payload
+  yields a date-bearing region, scripts a `StubMind`, runs ONE `drive()` segment with the
+  wiring, and asserts 1 `domain_analyses` row + exactly 3 beliefs citing that `analysis_id`.
+  MUTATION: `personas = None` ⇒ 0 rows ⇒ RED (verified). Full battery green (test
+  --workspace 1491/0; run-dst 200 0-violations). Slice 3 (weekly-review promote/retire
+  verdict folding) deferred per the handoff — separable, not a blocker.
+
+
+
+**Fixed (live WS path).** `KalshiWsTransport::signed_request`
+(`crates/fortuna-venues/src/kalshi/ws_transport.rs`) hand-built the upgrade
+`Request<()>` with only the three KALSHI-ACCESS-* auth headers, relying on the
+false belief that tungstenite adds the standard WS upgrade headers. It does NOT
+for a pre-built request, so `connect_async` always failed
+`Protocol(InvalidHeader("sec-websocket-key"))` — the live socket never connected.
+Now `signed_request` starts from `ws_url.into_client_request()` (which generates
+`Sec-WebSocket-Key/Version`, `Upgrade`, `Connection`, `Host`) and layers the auth
+headers on top. This was invisible to unit tests ("no live socket in tests"); the
+operator-directed FIRST LIVE EXERCISE surfaced it.
+
+**Why.** Operator set the demo creds and directed the live handshake. Driving it
+caught a real defect that blocked every live WS connection.
+
+**Tests-first.** New regression `signed_request_carries_the_mandatory_websocket_
+upgrade_headers` (RED before the fix, GREEN after); the existing auth-header test
+is unchanged (not weakened). Protected crate untouched.
+
+**Live-proven (demo, READ-ONLY).** The signed handshake now returns "OK — 101
+upgrade, authenticated" against `wss://external-api-ws.demo.kalshi.co`. New
+operator-run tool `crates/fortuna-venues/examples/kalshi_ws_handshake.rs` —
+demo-only (hard-coded endpoints + a `contains("demo")` guard), read-only
+(`GET /markets` + orderbook subscribe, NO orders), secrets never printed. Residual:
+0 streamed frames in-window (only future-dated demo markets were open — no live
+book yet); the handshake + subscribe paths themselves work.
+
 ### 2026-06-13 — F16a: Kalshi cancel-reconcile hardened via the order list
 
 **Changed.** `KalshiVenue::cancel` (`crates/fortuna-venues/src/kalshi/adapter.rs`).

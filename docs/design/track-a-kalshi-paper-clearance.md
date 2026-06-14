@@ -33,7 +33,9 @@ The clearance evidence is built in clusters so each lands battery-green:
   the recorded 401 auth-gateway bodies route to `Rejected` with the code surfaced
   (`kalshi_recorded_roundtrip.rs::recorded_auth_401_bodies_...`; items 3, skew-
   mapping half of 2). WS: the recorded `ws__*.jsonl` frame parse/assemble already
-  landed in slice 2(ii) `recorded_replay.rs`; the live 101 handshake is operator-run.
+  landed in slice 2(ii) `recorded_replay.rs`; the live 101 handshake is now PROVEN
+  on demo (operator-directed 2026-06-13) — and that first live exercise FIXED a
+  real bug (missing WS upgrade headers; see item 23 + the CHANGELOG/GAPS entries).
 
 ## Adapter gaps the recording EXPOSED (ledgered in GAPS.md; resolve before promotion)
 
@@ -81,13 +83,13 @@ from this session's fixtures (re-capture needed).
 | 20 | REST orderbook no-leg pricing | PASS | `orderbook__base.json` | `recorded_orderbook_no_dollars_are_no_leg_priced...` — no_dollars 48c ⇒ YES ask 52c. (README's "empty book" note is superseded — fixture now carries levels.) |
 | 21 | Market status vocabulary (response vs query) | PASS | `markets__single_filter_lastpage.json`, `markets__status_closed.json`, `markets__status_settled.json` | active / determined / finalized confirmed; query token `closed` never appears as a response status. |
 | 22 | Series fee fields + fee math | PARTIAL | `fills__after_taker.json`, `series__fee_changes.json` | Fee MATH confirmed (quadratic 0.07: 0.52→0.0175→2c ceil). Series fee-CHANGE array empty; populated series fields **PENDING** (`series__base` uncaptured — README gap). |
-| 23 | WS handshake + snapshot/delta sequence | PARTIAL | `ws__orderbook_trade_*.jsonl` | Frame parse + book assemble landed in slice 2(ii) (`recorded_replay.rs`, gapless). Live 101 handshake is operator-run. |
+| 23 | WS handshake + snapshot/delta sequence | PASS (live 101 on demo) | `ws__orderbook_trade_*.jsonl` + live | Frame parse + book assemble landed in slice 2(ii) (`recorded_replay.rs`, gapless). The LIVE signed handshake is now PROVEN on demo (operator-directed 2026-06-13): "OK — 101 upgrade, authenticated" via `examples/kalshi_ws_handshake.rs`. This exercise FIXED a real bug — `signed_request` omitted the WS upgrade headers (`InvalidHeader("sec-websocket-key")`); now built via `into_client_request()`. Live streamed snapshot/delta still unobserved (only future-dated demo markets were open — no live book). |
 | 24 | WS use_yes_price transform | PARTIAL | `ws__*.jsonl` | Subscribe builder forces `use_yes_price:true`; recorded frames assemble on the YES scale (slice 2(ii)). |
 | 25 | WS ping/pong cadence | PARTIAL | `ws__*.meta.json` | Keep-alive timer is Clock-injected + unit-tested (dial.rs); the recorded meta shows ~10s server pings. Live exercise operator-run. |
 | 26 | Demo/prod parity re-record | UNCOVERABLE | — | Re-record read-only endpoints against prod before first live use (README gap; checklist #26). |
 | 27 | GET /exchange/status (maintenance window) | PARTIAL | `exchange__status.json` | Normal-operation shape PASS (`recorded_exchange_status_normal_operation_shape`). Maintenance-window shape **UNCOVERABLE**. Adapter gap **G2** (no DTO/method). |
 
-**Tally (Clusters 1 + 2 + 2-tail + C3-auth):** PASS 3,5,6,7,8,10,12,13,14,15,16,18,20,21 · PASS-parse (routing pending C2) 9 · PARTIAL 1,2,11,17,19,22,23,24,25,27 · PENDING-C3 4 + WS handshake (23-25 frame-parse done, live op-run) · UNCOVERABLE 26 (+ sub-items of 11,17,19,22,27 as noted). The 2-tail (5,7,12) is now closed: 7 by a recorded 409→AlreadyExists round-trip; 5 + 12 by existing coverage (markets() round-trips in kalshi_adapter.rs; v2-only write path + DTO-identity).
+**Tally (Clusters 1 + 2 + 2-tail + C3-auth):** PASS 3,5,6,7,8,10,12,13,14,15,16,18,20,21,23 · PASS-parse (routing pending C2) 9 · PARTIAL 1,2,11,17,19,22,24,25,27 · PENDING-C3 4 · WS: 23 live 101 PROVEN on demo (24/25 frame-parse done; live streamed frames + ping cadence unobserved — only future-dated demo markets open) · UNCOVERABLE 26 (+ sub-items of 11,17,19,22,27 as noted). The 2-tail (5,7,12) is now closed: 7 by a recorded 409→AlreadyExists round-trip; 5 + 12 by existing coverage (markets() round-trips in kalshi_adapter.rs; v2-only write path + DTO-identity).
 
 ## Operator sign-off
 

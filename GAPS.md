@@ -304,6 +304,100 @@ FORTUNA_KILLSWITCH_KALSHI_* (incl. _BASE_URL) + a demo key and run the live free
 money-model design call; (5) start the soak. The venue-wiring tranche that lands the
 composition-root guard rides on (1).
 
+## POST-STOP (operator-directed 2026-06-13): live WS handshake DRIVEN on demo — found+fixed a real handshake bug
+
+After the RALPH STOP, the operator set the demo creds (in the main checkout's
+gitignored `.env`) and directed the live Kalshi WS handshake ("drive the
+handshake"). Driving it surfaced — and we fixed — a REAL production defect that
+unit tests could not catch (the live socket round-trip was the one untested seam):
+
+- **BUG (live WS handshake never connected):** `KalshiWsTransport::signed_request`
+  hand-built the upgrade `Request<()>` with ONLY the three KALSHI-ACCESS-* auth
+  headers and relied on a mistaken belief that tungstenite would add the standard
+  WS upgrade headers. tungstenite does NOT synthesize `Sec-WebSocket-Key/Version`,
+  `Upgrade`, `Connection` for a PRE-BUILT request — so `connect_async` always
+  failed `Protocol(InvalidHeader("sec-websocket-key"))`. Masked because "no live
+  socket in tests" and the unit test only checked the auth headers.
+- **FIX:** `signed_request` now starts from `ws_url.into_client_request()` (which
+  generates the mandatory upgrade headers + Host) and layers the auth headers on
+  top. Tests-first regression added (`signed_request_carries_the_mandatory_
+  websocket_upgrade_headers`); existing auth-header test unchanged.
+- **LIVE-PROVEN (demo, READ-ONLY):** the signed handshake now returns
+  "OK — 101 upgrade, authenticated" against
+  `wss://external-api-ws.demo.kalshi.co/trade-api/ws/v2`. New operator-run tool
+  `crates/fortuna-venues/examples/kalshi_ws_handshake.rs` (demo-only hard-coded,
+  read-only: GET /markets + orderbook subscribe, no orders, secrets never printed).
+- RESIDUAL (not a blocker): the subscribe read 0 book frames in-window because the
+  only open demo markets were FUTURE-dated (26JUN14, not yet trading) — no live
+  book to stream. The handshake + subscribe path themselves work. To exercise
+  streamed frames, re-run when a demo market with a live book is open.
+- STILL operator-gated: a PROD handshake (separate creds + clearance-signed
+  venue=kalshi un-refuse) and live order/exec round-trips. This exercise was demo
+  market-data only.
+
+## TRACK A — PERSONA DAEMON WIRING DONE (`[personas]` opt-in); discovery-drive NEXT (operator amendment 2026-06-14)
+
+The persona-analysis step is wired into `drive()` (per persona-live-wiring-handoff.md):
+config + fail-closed boot loader + the drive() step + a mutation-proven e2e
+(`drive_persists_persona_analysis_and_beliefs_when_wired`). Default-off, byte-identical
+when absent. Full battery green (test --workspace 1491/0; run-dst 200 0-viol).
+
+OPERATOR AMENDMENT (2026-06-14, "drive the ingestion→beliefs loops"; operator chose BOTH,
+world-forward first). Status:
+- PERSONA half: DONE (commit d03471b).
+- DISCOVERY part 1a — WORLD-FORWARD: DONE (this commit). `[discovery]` opt-in step drives
+  `world_forward_discovery` (signals→`watch:` events + scoreable beliefs, attributed to
+  `StrategyId("world-forward")`); fail-closed registry load; no-panic; default-off; e2e
+  mutation-proven (None→0→RED); full battery green (1495/0 + run-dst 200 0-viol). This is
+  the path that turns ingested SIGNALS into beliefs in PRODUCTION (no venue catalog needed).
+- DISCOVERY part 1b — MARKET-BACK: DONE (this commit). Drives `market_back_discovery`
+  (catalog→events→edges→synthesis belief), placed BEFORE the synthesis edge-refresh so an
+  auto-confirmed edge is priced the same segment. Auto-confirms LOW-STAKES edges (Direct mapping +
+  deterministic score 1.0 + source/horizon match) per spec §5.12:252 ("deterministic checks
+  score them; #fortuna-review confirms the HIGH-STAKES ones") with `confirmed_by="discovery:auto"`
+  → wakes the synthesis arm; routes HIGH-STAKES (non-Direct / score<1.0) to #fortuna-review as
+  PROPOSED. Auto-confirmed edges feed only BELIEFS (orders still cross gate I1; I6 propose-only).
+  e2e mutation-proven (full chain; discovery=None→0→RED); full battery green (test --workspace
+  1496/0 + run-dst 200 0-viol). ⇒ The "drive the ingestion→beliefs loops" amendment is COMPLETE
+  (personas + world-forward + market-back).
+  REMAINING PROD GAP (operator/T4.2, NOT a blocker for this slice): the daemon has NO live venue
+  catalog wired (`drive()` has no `venue.markets()`), so market-back is INERT in production
+  (`main.rs` sets `catalog: Vec::new()`) until the Kalshi adapter supplies a catalog (T4.2,
+  operator-gated venue=kalshi). The e2e proves the chain with a test-supplied catalog; prod
+  market-back activates when the catalog lands. World-forward (1a) is the prod-active
+  signal→belief path meanwhile. Also deferred (ledgered): the richer match-before-create
+  events-table query (this rung passes an empty existing-events set, so every survivor normalizes
+  to a NEW event); the per-category calibration-quality map (`category_quality` starts empty →
+  categories score 0.0, failing any positive `min_category_quality` — wire from the T2.8 record
+  when the live catalog lands). Recorded signals only; never fabricate an edge.
+
+DEFERRED (ledgered, not blockers):
+- Persona Slice 3 (weekly-review promote/retire verdict folding via persona_scoring +
+  resolved_persona_stats) — separable per the handoff §8; do it WITH the next ReviewWiring
+  change.
+- Persona cadence cross-restart durability: `PersonaScheduleState` is in-process only (a
+  restart resets the cadence/debounce gate) — SAME scope as DailyScheduler/WeeklyScheduler;
+  a `persona_schedule_state` ledger table is a future additive (handoff §2).
+- Naked cadence (a cadence with no in-window signal for any region) is a no-op — regions
+  derive from signal payloads (`fill_region_key`); a region catalog for cadence-only runs
+  is a future additive (handoff §6). Shipped personas always have a calendar/forecast
+  signal present.
+- `DomainAnalysesRepo::insert` `supersedes` is always `None` (prior per-region artifacts
+  not flipped to superseded) — track the prior analysis_id per (persona,region) in
+  PersonasWiring across segments; small additive deferred to keep this slice tight.
+- Persona belief-persist inherits the SAME "drained set lost on failure; re-buffering is
+  a ledgered refinement" posture as the scalar/synthesis belief drains (no retry today;
+  serialized within a segment so the shared `belief_id_base` "01BLF" namespace stays
+  collision-free — a separate same-prefix counter would COLLIDE, so the shared counter is
+  correct for the shared table).
+
+CORRECTION (handoff doc drift, harmless): the handoff's `[[personas.persona]]` cadence
+examples (`{ daily_at_hour_utc = 5 }`) do NOT deserialize — `Cadence` is a snake_case
+STRUCT-variant enum, so the TOML is `{ daily_at_hour_utc = { hour = 5 } }` /
+`{ every_hours = { hours = 6 } }`. The committed `config/fortuna.example.toml` shows the
+correct shape; shipped personas use `cadences = []` so only operators adding a cadence hit
+it.
+
 ## TRACK A — T4.5 ROTA: buildable surface COMPLETE (audit-recents + gate-verdict badge); 2 pieces operator-BLOCKED
 
 T4.5 (deferred ROTA trading-side panels) — the BUILDABLE-WITHOUT-OPERATOR surface is DONE:
