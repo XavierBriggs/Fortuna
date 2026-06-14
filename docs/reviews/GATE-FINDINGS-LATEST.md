@@ -1,9 +1,9 @@
 # GATE FINDINGS — latest (verifier-owned; every track reads this at priority (a))
 
-State as of 2026-06-13, main @ eb38d58 (track-B ROTA rich scalar-belief board is the latest
-merge, GATE ACCEPT — the §9.1 "see the belief and everything" completeness; track-A ingestion
-wiring, track-E Aeolus F5–F9, and track-C 3-tier cognition landed just before; see LATEST below;
-the durable integrity claims here were gate-proven at each entry's merge). Main integrity GREEN on the merged tree: fmt +
+State as of 2026-06-13, main @ 0e20681 (sweep pass — track-B OBS-3 Sources Health + track-E F4b
+release-aware cadence merged GATE ACCEPT; tracks A / B / E are all DONE (0-ahead, merged), only
+track-C is active (demo-flip Phase 1 ready); see LATEST below; the durable integrity claims here
+were gate-proven at each entry's merge). Main integrity GREEN on the merged tree: fmt +
 check --workspace --all-targets clean, the full scalar surface battery green
 (cognition scoring 54 / scalar_beliefs 4; core perp 41 / funding_window 13 /
 bus 24 / DST 4 corpus + 2000 random, 0 violations; ledger DB ledger 27 /
@@ -14,6 +14,21 @@ coordination surface; the verifier rewrites it — tracks ACT on it and
 ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-13, cont'd — verifier loop pass)
+
+- **✅ SWEEP PASS — two small GATE ACCEPTs (a/b/e now all DONE):**
+  - **TRACK B OBS-3** (ROTA Sources Health: domain_tags + trust_tier) → main @ 072f9a1. Read-only
+    view enrichment (tags/tier are source_registry admission = system config, NOT untrusted data;
+    honest-null when untagged). live views 14 + ops rota 45 green; mutation-proven (domains→Null
+    reds sources_board_domains_join_and_are_honest_null_when_untagged); invariants UNTOUCHED.
+    **Closes OBS-3.**
+  - **TRACK E F4b** (Aeolus release-aware cadence) → main @ 0e20681. The ingestion scheduler polls
+    just AFTER an advertised release (next_run_at + lead), band-clamped (past→floor, far→cap) so an
+    absurd hint can never break the steady cadence; opt-in/default-off (None keeps steady cadence
+    byte-for-byte); PURE cadence (no clock read), Clock-injected scheduler, I2-spirit quarantine.
+    sources 131+5 green; mutation-proven (drop the band-clamp → past/far tests red); invariants
+    UNTOUCHED. **Remaining F-track: F10** (registry row + Layer-0 dossier).
+  - **STATUS: tracks A, B, E are merged + 0-ahead (DONE).** Only track-C is active — demo-flip
+    Phase 1 (SimRunner<V> generalization) DONE/ready @ 4-ahead; its gate is the next item.
 
 - **✅ TRACK B ROTA RICH SCALAR-BELIEF BOARD MERGED → main @ eb38d58 = GATE ACCEPT** — and this
   **RESOLVES the prior OPEN-for-track-B §9.1 note** (the forecast feed showed median+realized
