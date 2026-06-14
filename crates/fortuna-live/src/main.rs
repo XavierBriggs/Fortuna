@@ -17,8 +17,8 @@ use fortuna_core::clock::{Clock, RealClock};
 use fortuna_live::boot::{validate_env, DaemonToml};
 use fortuna_live::compose::DegradeScrape;
 use fortuna_live::daemon::{
-    compose_runner, default_degrade_thresholds, drive, mind_from_env, registry_from, PgHaltPoller,
-    SYNTH_MIND_TIMEOUT_SECS,
+    compose_runner, default_degrade_thresholds, drive, mind_from_env, registry_from,
+    triage_from_env, PgHaltPoller, SYNTH_MIND_TIMEOUT_SECS,
 };
 use fortuna_live::run_loop::{LoopConfig, RealCadence};
 use fortuna_ops::dashboard::{serve_dashboard, DashboardSnapshot};
@@ -111,10 +111,26 @@ async fn main() -> Result<()> {
         mid_transport,
         Arc::new(RealClock),
     );
+    // The synthesis arm's TRIAGE tier (spec 5.9): the cheap Haiku gate that runs
+    // BEFORE the frontier mind. Its OWN transport (the key reaches only the
+    // transport); no key => AlwaysAccept (the recall-safe rule stub, byte-unchanged).
+    let triage_transport = match validated.anthropic_api_key.as_ref() {
+        Some(_) => Some(
+            ReqwestMindTransport::from_env(std::time::Duration::from_secs(SYNTH_MIND_TIMEOUT_SECS))
+                .context("anthropic triage (cheap-tier) transport")?,
+        ),
+        None => None,
+    };
+    let triage = triage_from_env(
+        &dcfg.cognition,
+        model_registry.model(ModelTier::Triage),
+        triage_transport,
+        Arc::new(RealClock),
+    );
     if validated.anthropic_api_key.is_some() {
         eprintln!(
-            "fortuna-live: cognition tiers = synthesis {} / reconciliation {} (AnthropicMind, live)",
-            dcfg.cognition.synthesis_model, dcfg.cognition.mid_model
+            "fortuna-live: cognition tiers = synthesis {} / reconciliation {} / triage {} (AnthropicMind, live)",
+            dcfg.cognition.synthesis_model, dcfg.cognition.mid_model, dcfg.cognition.triage_model
         );
     } else {
         eprintln!("fortuna-live: cognition minds = StubMind (no ANTHROPIC_API_KEY; inert)");
@@ -126,6 +142,7 @@ async fn main() -> Result<()> {
         start,
         start_ms as u64,
         synthesis_mind.clone(),
+        triage,
     )
     .await
     .context("composition")?;

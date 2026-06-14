@@ -58,7 +58,9 @@ use crate::boot::{BootError, CognitionSection, DaemonToml};
 use crate::compose::{calibration_for_scope, synthesis_edges, DegradeScrape, SynthesisSection};
 use crate::run_loop::{run_loop, CadenceDriver, HaltPoller, LoopConfig, LoopStats};
 use fortuna_cognition::context::{content_hash_of, ContextItem, SectionKind};
-use fortuna_cognition::cycle::{ComparatorConfig, TriageDecision};
+use fortuna_cognition::cycle::{
+    AnthropicTriageMind, ComparatorConfig, TriageDecision, TRIAGE_SYSTEM_CHARTER,
+};
 use fortuna_cognition::events::EdgeTier;
 use fortuna_cognition::mind::{
     AnthropicMind, AnthropicMindConfig, CostBudget, Mind, MindTransport, StubMind,
@@ -185,6 +187,46 @@ pub fn mind_from_env<T: MindTransport + 'static>(
     }
 }
 
+/// Triage-tier (Haiku) AnthropicMindConfig defaults: a small max_tokens (the
+/// verdict is a yes/no) + Haiku 4.5 prices ($1/$5 per Mtok -> cents per Mtok).
+/// Prices "are config" (AnthropicMindConfig) — promoting them is a ledgered
+/// follow-on, same as the synthesis tier.
+const TRIAGE_MIND_MAX_TOKENS: i64 = 1_024;
+const TRIAGE_MIND_INPUT_PRICE_CENTS_PER_MTOK: i64 = 100;
+const TRIAGE_MIND_OUTPUT_PRICE_CENTS_PER_MTOK: i64 = 500;
+
+/// Build the synthesis arm's TRIAGE tier (spec 5.9 cheap gate) from the
+/// environment, mirroring [`mind_from_env`]. `transport` Some => the Anthropic
+/// Haiku triage on `model` (the cheap-model gate that runs BEFORE the frontier
+/// mind, on its own `[cognition]` budget rails); None => `AlwaysAccept`, the
+/// recall-safe rule stub (the no-key behavior, byte-unchanged). The composed
+/// triage is consulted only when a `[synthesis]` arm is present.
+pub fn triage_from_env<T: MindTransport + 'static>(
+    cognition: &CognitionSection,
+    model: &str,
+    transport: Option<T>,
+    clock: Arc<dyn Clock>,
+) -> TriageDecision {
+    match transport {
+        Some(transport) => TriageDecision::Mind(Arc::new(AnthropicTriageMind::new(
+            AnthropicMindConfig {
+                model: model.to_string(),
+                max_tokens: TRIAGE_MIND_MAX_TOKENS,
+                input_price_cents_per_mtok: TRIAGE_MIND_INPUT_PRICE_CENTS_PER_MTOK,
+                output_price_cents_per_mtok: TRIAGE_MIND_OUTPUT_PRICE_CENTS_PER_MTOK,
+                system_charter: TRIAGE_SYSTEM_CHARTER.to_string(),
+            },
+            transport,
+            CostBudget::new(
+                cognition.per_cycle_budget_cents,
+                cognition.daily_budget_cents,
+            ),
+            clock,
+        ))),
+        None => TriageDecision::AlwaysAccept,
+    }
+}
+
 /// Assemble the Sim composition over Postgres journal + audit. The
 /// returned runner has already completed the journal-side boot
 /// reconciliation (OrderManager::recover inside the constructor). `mind` is
@@ -198,6 +240,11 @@ pub async fn compose_runner(
     start: UtcTimestamp,
     audit_seed: u64,
     mind: Arc<dyn Mind>,
+    // The synthesis arm's TRIAGE tier (spec 5.9 cheap gate). Injected like `mind`:
+    // main builds it (the Anthropic Haiku triage on triage_model when keyed, else
+    // StubTriageMind::allow_all). `TriageDecision::AlwaysAccept` for the smokes that
+    // do not exercise triage. Used only when a `[synthesis]` arm is composed.
+    triage: TriageDecision,
 ) -> Result<SimRunner<PgIntentJournal>, DaemonError> {
     let sim = dcfg.sim.as_ref().ok_or_else(|| DaemonError::Compose {
         reason: "venue sim without [sim] section (validate_bootable should have refused)"
@@ -295,7 +342,7 @@ pub async fn compose_runner(
                     min_edge_cents: 5,
                     required_tier: EdgeTier::Confirmed,
                 },
-                triage: TriageDecision::AlwaysAccept,
+                triage,
                 shadow_quota: 0,
                 calibration,
                 stage: Stage::Sim,

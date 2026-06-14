@@ -19,6 +19,7 @@
 //! Written BEFORE src/mind.rs per the repository TDD doctrine.
 
 use fortuna_cognition::context::{AssembledContext, ContextManifest};
+use fortuna_cognition::cycle::{AnthropicTriageMind, TriageError, TriageMind, TriageVerdict};
 use fortuna_cognition::mind::{
     AnthropicMind, AnthropicMindConfig, CostBudget, Mind, MindError, MindOutput, MindTransport,
     StubMind,
@@ -560,4 +561,97 @@ fn model_registry_maps_each_tier_to_its_model() {
     assert_eq!(r.model(ModelTier::Triage), "claude-haiku-4-5");
     assert_ne!(r.model(ModelTier::Synthesis), r.model(ModelTier::Mid));
     assert_ne!(r.model(ModelTier::Mid), r.model(ModelTier::Triage));
+}
+
+fn triage_clock() -> std::sync::Arc<dyn fortuna_core::clock::Clock> {
+    std::sync::Arc::new(fortuna_core::clock::SimClock::new(t(
+        "2026-06-11T12:00:00.000Z",
+    )))
+}
+
+#[tokio::test]
+async fn anthropic_triage_escalate_true_accepts_and_costs_from_usage() {
+    // The cheap Haiku triage (spec 5.9): a structured {escalate, reason} response
+    // with escalate=true => Accepted, and the cost is the usage tokens × the
+    // configured per-Mtok prices (ceil), mirroring AnthropicMind.
+    let resp = api_response(
+        &json!({"escalate": true, "reason": "worth deep synthesis"}),
+        1000,
+        1000,
+    );
+    let mind = AnthropicTriageMind::new(
+        config(),
+        MockTransport::new(vec![(200, resp)]),
+        CostBudget::new(1_000, 100_000),
+        triage_clock(),
+    );
+    let a = mind.assess("evt-1", &[]).await.unwrap();
+    assert_eq!(
+        a.verdict,
+        TriageVerdict::Accepted,
+        "escalate=true => Accepted"
+    );
+    // ceil(1000*1000/1e6) + ceil(1000*5000/1e6) = 1 + 5 = 6 cents.
+    assert_eq!(
+        a.cost_cents, 6,
+        "cost from usage tokens × configured prices"
+    );
+}
+
+#[tokio::test]
+async fn anthropic_triage_escalate_false_declines() {
+    let resp = api_response(
+        &json!({"escalate": false, "reason": "not worth it"}),
+        500,
+        100,
+    );
+    let mind = AnthropicTriageMind::new(
+        config(),
+        MockTransport::new(vec![(200, resp)]),
+        CostBudget::new(1_000, 100_000),
+        triage_clock(),
+    );
+    let a = mind.assess("evt-1", &[]).await.unwrap();
+    assert_eq!(
+        a.verdict,
+        TriageVerdict::Declined,
+        "escalate=false => Declined"
+    );
+}
+
+#[tokio::test]
+async fn anthropic_triage_budget_exhausted_surfaces() {
+    // A zero per-cycle budget => the check fails BEFORE any call (no transport
+    // hit); the breach surfaces (the cycle degrades mechanical-only), never a
+    // coerced verdict.
+    let resp = api_response(&json!({"escalate": true, "reason": "x"}), 10, 10);
+    let mind = AnthropicTriageMind::new(
+        config(),
+        MockTransport::new(vec![(200, resp)]),
+        CostBudget::new(0, 5_000),
+        triage_clock(),
+    );
+    let err = mind.assess("evt-1", &[]).await.unwrap_err();
+    assert!(
+        matches!(err, TriageError::Provider { .. }),
+        "budget breach surfaces, got {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn anthropic_triage_malformed_output_surfaces() {
+    // The model returned JSON WITHOUT the required `escalate` boolean — surfaced,
+    // never silently coerced to accept or decline.
+    let resp = api_response(&json!({"reason": "no verdict field"}), 10, 10);
+    let mind = AnthropicTriageMind::new(
+        config(),
+        MockTransport::new(vec![(200, resp)]),
+        CostBudget::new(1_000, 100_000),
+        triage_clock(),
+    );
+    let err = mind.assess("evt-1", &[]).await.unwrap_err();
+    assert!(
+        matches!(err, TriageError::Provider { .. }),
+        "missing escalate surfaces, got {err:?}"
+    );
 }

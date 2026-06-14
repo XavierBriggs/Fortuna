@@ -6,6 +6,7 @@
 //! the signal path end-to-end minus the OS delivery (operator amendment:
 //! SIGTERM -> cancel working orders + final audit row).
 
+use fortuna_cognition::cycle::TriageDecision;
 use fortuna_cognition::mind::{Mind, MindOutput, StubMind};
 use fortuna_core::clock::SimClock;
 use fortuna_core::market::{Contracts, MarketId};
@@ -129,9 +130,17 @@ async fn daemon_smoke_boot_ticks_signal_shutdown(pool: PgPool) {
     dcfg.validate_bootable().expect("example boots sim");
     let full = FortunaConfig::load_file(example_path).expect("example full-config parses");
 
-    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 42, stub_mind())
-        .await
-        .expect("composition");
+    let mut runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        t0(),
+        42,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .expect("composition");
     arb_books(&runner);
 
     // SIGTERM stand-in fires at wake 6 (3 simulated seconds in): some
@@ -226,9 +235,17 @@ async fn signal_with_working_orders_cancels_them_and_audits(pool: PgPool) {
     let text = std::fs::read_to_string(example_path).unwrap();
     let dcfg = DaemonToml::parse(&text).unwrap();
     let full = FortunaConfig::load_file(example_path).unwrap();
-    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 7, stub_mind())
-        .await
-        .unwrap();
+    let mut runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        t0(),
+        7,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .unwrap();
     books(&runner, 1); // depth 1 => partial fill, remainder rests working
 
     let (tx, mut stop) = tokio::sync::oneshot::channel::<()>();
@@ -333,9 +350,17 @@ async fn compose_runner_composes_synthesis_only_when_configured(pool: PgPool) {
 
     // WITH [synthesis]: synthesis composed alongside mech.
     let dcfg_with = DaemonToml::parse(&format!("{text}\n[synthesis]\nvenue = \"sim\"\n")).unwrap();
-    let runner = compose_runner(pool.clone(), &full, &dcfg_with, t0(), 1, stub_mind())
-        .await
-        .unwrap();
+    let runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg_with,
+        t0(),
+        1,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .unwrap();
     let ids: Vec<String> = runner
         .strategy_ids()
         .iter()
@@ -352,9 +377,17 @@ async fn compose_runner_composes_synthesis_only_when_configured(pool: PgPool) {
 
     // WITHOUT [synthesis]: mechanically-only (fail closed).
     let dcfg_without = DaemonToml::parse(&text).unwrap();
-    let runner2 = compose_runner(pool, &full, &dcfg_without, t0(), 2, stub_mind())
-        .await
-        .unwrap();
+    let runner2 = compose_runner(
+        pool,
+        &full,
+        &dcfg_without,
+        t0(),
+        2,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .unwrap();
     let ids2: Vec<String> = runner2
         .strategy_ids()
         .iter()
@@ -390,9 +423,17 @@ async fn per_segment_refresh_picks_up_a_newly_confirmed_edge(pool: PgPool) {
     // Boot WITH [synthesis] scoped to the sim venue, but with NO edges yet.
     let dcfg = DaemonToml::parse(&format!("{text}\n[synthesis]\nvenue = \"sim\"\n")).unwrap();
 
-    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 9, stub_mind())
-        .await
-        .expect("composition");
+    let mut runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        t0(),
+        9,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .expect("composition");
     assert_eq!(
         runner.synthesis_edge_count(),
         Some(0),
@@ -529,9 +570,17 @@ async fn refresh_failure_keeps_last_known_edges_alerts_and_survives(pool: PgPool
         .await
         .unwrap();
 
-    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 901, stub_mind())
-        .await
-        .expect("composition");
+    let mut runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        t0(),
+        901,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .expect("composition");
     assert_eq!(runner.synthesis_edge_count(), Some(1), "booted with 1 edge");
 
     // Supersede the edge (the append-only DB refuses DELETE — I5) with an
@@ -639,9 +688,17 @@ async fn compose_runner_composes_mech_extremes_with_veto_only_when_configured(po
     // WITH [mech_extremes] (empty table => conservative defaults): composed +
     // veto-enrolled, and the runner boots clean (the stub veto mind is wired).
     let dcfg_with = DaemonToml::parse(&format!("{text}\n[mech_extremes]\n")).unwrap();
-    let runner = compose_runner(pool.clone(), &full, &dcfg_with, t0(), 1, stub_mind())
-        .await
-        .expect("boots with mech_extremes veto-enrolled + a stub veto mind");
+    let runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg_with,
+        t0(),
+        1,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .expect("boots with mech_extremes veto-enrolled + a stub veto mind");
     let ids: Vec<String> = runner
         .strategy_ids()
         .iter()
@@ -658,9 +715,17 @@ async fn compose_runner_composes_mech_extremes_with_veto_only_when_configured(po
 
     // WITHOUT [mech_extremes]: not composed (fail closed).
     let dcfg_without = DaemonToml::parse(&text).unwrap();
-    let runner2 = compose_runner(pool, &full, &dcfg_without, t0(), 2, stub_mind())
-        .await
-        .unwrap();
+    let runner2 = compose_runner(
+        pool,
+        &full,
+        &dcfg_without,
+        t0(),
+        2,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .unwrap();
     let ids2: Vec<String> = runner2
         .strategy_ids()
         .iter()
@@ -709,9 +774,17 @@ async fn compose_runner_composes_perp_strategies_only_when_configured(pool: PgPo
          floor_dollars = 70000.0\n"
     ))
     .unwrap();
-    let runner = compose_runner(pool.clone(), &full, &dcfg_with, t0(), 1, stub_mind())
-        .await
-        .expect("boots with both perp strategies composed (neither veto-enrolled)");
+    let runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg_with,
+        t0(),
+        1,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .expect("boots with both perp strategies composed (neither veto-enrolled)");
     let ids: Vec<String> = runner
         .strategy_ids()
         .iter()
@@ -732,9 +805,17 @@ async fn compose_runner_composes_perp_strategies_only_when_configured(pool: PgPo
 
     // WITHOUT the perp sections: neither composed (fail closed).
     let dcfg_without = DaemonToml::parse(&text).unwrap();
-    let runner2 = compose_runner(pool, &full, &dcfg_without, t0(), 2, stub_mind())
-        .await
-        .unwrap();
+    let runner2 = compose_runner(
+        pool,
+        &full,
+        &dcfg_without,
+        t0(),
+        2,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .unwrap();
     let ids2: Vec<String> = runner2
         .strategy_ids()
         .iter()
@@ -887,6 +968,7 @@ async fn synthesis_arm_trades_with_ledger_calibration_and_an_injected_mind(pool:
         t0(),
         50,
         believing_mind("evt-1", 0.70),
+        TriageDecision::AlwaysAccept,
     )
     .await
     .expect("composition");
@@ -982,6 +1064,7 @@ async fn drive_drains_and_persists_the_synthesis_arms_beliefs(pool: PgPool) {
         t0(),
         60,
         believing_mind("evt-1", 0.70),
+        TriageDecision::AlwaysAccept,
     )
     .await
     .expect("composition");
@@ -1079,9 +1162,17 @@ async fn drive_drains_and_persists_funding_forecast_scalar_beliefs(pool: PgPool)
     // mech_structural (not veto-enrolled, so no veto mind). It needs no other
     // config — the PerpTicks arrive via the feed below, not the sim venue.
     let dcfg = DaemonToml::parse(&format!("{text}\n[funding_forecast]\n")).unwrap();
-    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 70, stub_mind())
-        .await
-        .expect("composition with funding_forecast");
+    let mut runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        t0(),
+        70,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .expect("composition with funding_forecast");
 
     // The recorded kinetics capture (NEVER fabricated) -> a replayable PerpTick
     // feed. drive() injects one recorded PerpTick at the head of EACH segment
@@ -1188,9 +1279,17 @@ async fn daily_reconciliation_writes_a_journal_and_places_no_orders(pool: PgPool
     let text = std::fs::read_to_string(example_path).unwrap();
     let full = FortunaConfig::load_file(example_path).unwrap();
     let dcfg = DaemonToml::parse(&text).unwrap();
-    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 70, stub_mind())
-        .await
-        .unwrap();
+    let mut runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        t0(),
+        70,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .unwrap();
     arb_books(&runner);
     runner.tick().await.unwrap(); // real day activity for the context
 
@@ -1269,9 +1368,17 @@ async fn daily_reconciliation_gracefully_skips_when_the_mind_writes_no_journal(p
     let text = std::fs::read_to_string(example_path).unwrap();
     let full = FortunaConfig::load_file(example_path).unwrap();
     let dcfg = DaemonToml::parse(&text).unwrap();
-    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 71, stub_mind())
-        .await
-        .unwrap();
+    let mut runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        t0(),
+        71,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .unwrap();
 
     let now = t0();
     let day = "2026-06-11";
@@ -1318,9 +1425,17 @@ async fn drive_runs_daily_reconciliation_at_the_utc_day_boundary(pool: PgPool) {
     let text = std::fs::read_to_string(example_path).unwrap();
     let full = FortunaConfig::load_file(example_path).unwrap();
     let dcfg = DaemonToml::parse(&text).unwrap();
-    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 80, stub_mind())
-        .await
-        .unwrap();
+    let mut runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        t0(),
+        80,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .unwrap();
     arb_books(&runner);
 
     let day = "2026-06-11";
@@ -1453,9 +1568,17 @@ async fn weekly_review_audits_the_deterministic_calibration_and_go_nogo(pool: Pg
     ))
     .unwrap();
     let review = dcfg.review.clone().expect("the example ships [review]");
-    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 90, stub_mind())
-        .await
-        .unwrap();
+    let mut runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        t0(),
+        90,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .unwrap();
     // Trade once so the digest snapshot carries a strategy row (GO/NO-GO needs a
     // StrategyRecord; an arb tick gives mech_structural activity).
     arb_books(&runner);
@@ -1521,9 +1644,17 @@ async fn drive_runs_the_weekly_review_at_the_week_boundary(pool: PgPool) {
     ))
     .unwrap();
     let review = dcfg.review.clone().expect("the example ships [review]");
-    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 91, stub_mind())
-        .await
-        .unwrap();
+    let mut runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        t0(),
+        91,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .unwrap();
     arb_books(&runner);
 
     let before: i64 = sqlx::query_scalar(
@@ -1609,9 +1740,17 @@ async fn monthly_review_audits_allocations_cost_and_lesson_demotion(pool: PgPool
     let text = std::fs::read_to_string(example_path).unwrap();
     let full = FortunaConfig::load_file(example_path).unwrap();
     let dcfg = DaemonToml::parse(&text).unwrap();
-    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 92, stub_mind())
-        .await
-        .unwrap();
+    let mut runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        t0(),
+        92,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .unwrap();
     arb_books(&runner);
     runner.tick().await.unwrap();
 
@@ -1668,9 +1807,17 @@ async fn drive_runs_the_monthly_review_at_the_month_boundary(pool: PgPool) {
     ))
     .unwrap();
     let review = dcfg.review.clone().expect("the example ships [review]");
-    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 93, stub_mind())
-        .await
-        .unwrap();
+    let mut runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        t0(),
+        93,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .unwrap();
     arb_books(&runner);
 
     let before: i64 = sqlx::query_scalar(
