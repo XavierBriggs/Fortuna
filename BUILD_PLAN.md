@@ -1185,7 +1185,7 @@ at E.3 (the PersonaOutcome no-order/size field-surface pin) under operator waive
       pure core, no fs IO; RegistryHead a pure cognition input. Shipped config/personas/
       meteorologist/{persona.md v1, schema.json}. 14 tests; full workspace battery green;
       feature-dev review applied [status fail-closed + split_frontmatter .get() hardening].)
-- [ ] E.3 Runner loop + triggers + budget + context + findings contract — scripted-StubMind
+- [x] E.3 ✅ DONE (E.3a–c + telemetry merged; the §15 PersonaOutcome pin landed as i6_persona_propose_only.rs, merged + passing) — Runner loop + triggers + budget + context + findings contract — scripted-StubMind
       determinism, the trusted/untrusted separation tests (§4 a–d), DST runner-under-budget arm;
       persona telemetry counters (§19); the PersonaOutcome no-order/size invariant pin (§15).
       [E.3a DONE (commit 4e8b9e4): fortuna_cognition::persona_runner — run_persona_analysis
@@ -1199,7 +1199,8 @@ at E.3 (the PersonaOutcome no-order/size field-surface pin) under operator waive
       E.3 telemetry DONE this commit: fortuna_cognition::persona_metrics — PersonaCounters folds
       PersonaOutcomes → the §19 funnel counters + cost counter + spend_today gauge; samples()
       shape-compatible with MetricSample; accounting identity test-pinned; 10 tests; full battery
-      green. REMAINING E.3: ONLY the §15 PersonaOutcome invariant pin (operator-waive, see GAPS).]
+      green. E.3 COMPLETE: the §15 PersonaOutcome invariant pin landed as
+      `i6_persona_propose_only.rs` (operator-approved waive, merged + passing in the invariants suite).]
 - [x] E.4 Belief consumption — DomainAnalysis section + evidence/provenance citation; the
       μ/σ→p helper in code; `fortuna_persona_beliefs_total` metric.
       [E.4a (commit c1c1b55): fortuna_cognition::persona_beliefs — normal_cdf/prob_at_least (the
