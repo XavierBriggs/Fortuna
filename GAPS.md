@@ -142,9 +142,19 @@ REFINEMENTS (operator-directed 2026-06-14, F4b+F10 reassigned to track-e):
   currently an ephemeral Cloudflare quick-tunnel; pin before steady-state), resolution-eligible = NO
   (Aeolus forecasts, the `nws_climate` observed-high source grades). Seed as a config `[sources.aeolus]`
   + the registry row when D9 wires sources (Track-A/operator).
-- **E.3 / E.5 — DONE (merged), no new build.** The persona runner-loop (`run_due_personas`) +
-  scoring-scope (`resolved_persona_stats` + the §10 Slice-3 handoff) merged into main via
-  `persona-live-integration` (operator-confirmed 2026-06-14). The remaining review-folding is Track A's.
+- **E.3 — DONE (merged).** The persona runner-loop (`run_due_personas`) merged via
+  `persona-live-integration`.
+- **E.5 — DONE (this commit, the cognition side).** E.5a (`score_persona`/`propose_promotion` +
+  `resolved_persona_stats`) merged; the E.5-REMAINDER weekly-review FOLDING entry point is now built:
+  `persona_scoring::weekly_persona_proposals(&[PersonaReviewInput], min_resolved) ->
+  Vec<PersonaPromotionProposal>` (one call folds every registered (persona, version); +2 tests;
+  handoff §8 updated). Per §21 this is the ADDITIVE PARALLEL realization — it does NOT edit the shared
+  `review::ScopeKey` (its literal is in Track-A's daemon composition at daemon.rs:1024; extending its
+  fields would break that, which the loop forbids touching unilaterally — the parallel `PersonaScope`
+  fold gives the same digest outcome with no daemon break).
+  REMAINING (Track-A daemon coordination ONLY, NOT Track-E-cognition): call `weekly_persona_proposals`
+  in `drive()`'s weekly review + route to `#fortuna-review` (per handoff §8). The bus confirms the
+  daemon ingestion→beliefs/review wiring is Track A's; E hands the entry point.
 - **e2e** — recorded forecast → F6→F7→F8→persist→F9 scores vs recorded realized temp.
 
 Status (post-E-batch, 2026-06-10): the T3.6 completion claim was FALSIFIED

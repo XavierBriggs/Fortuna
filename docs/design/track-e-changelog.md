@@ -10,7 +10,32 @@ commit gate, `fortuna-invariants` untouched except at E.3 (operator-waive-flagge
 
 ---
 
-## [Post-merge integration] ledger: `BeliefsRepo::resolved_persona_stats` — the persona-scoring data source (this commit)
+## E.5 remainder — the weekly-review persona-folding entry point (this commit)
+
+Operator-directed residual (2026-06-14). New
+`persona_scoring::weekly_persona_proposals(&[PersonaReviewInput], min_resolved) ->
+Vec<PersonaPromotionProposal>`: the single weekly-review FOLDING entry point Track A's daemon calls
+in `drive()`'s weekly review — it scores each registered `(persona, version)` (via `score_persona`)
+and proposes promote/retire (via `propose_promotion`, the §11 beat-both-baselines gate) in ONE
+call, order-preserving. RECOMMENDATION-ONLY (I7): the daemon routes the proposals to
+`#fortuna-review`; the operator acts out-of-band. `PersonaReviewInput { record, prior, no_persona,
+market }` bundles a scope's resolved record (from `resolved_persona_stats`) + the two §11 baselines.
+
+Per Fit-validation §21 this is the ADDITIVE PARALLEL realization of the §10 ScopeKey extension: it
+scores personas by `PersonaScope` ALONGSIDE the synthesis `review::ScopeKey` review, WITHOUT editing
+the shared `ScopeKey` struct — whose literal lives in Track-A's daemon composition (daemon.rs:1024),
+where extending its fields would break a tree the loop forbids touching unilaterally. The operator
+gets the same outcome (persona verdicts in the weekly digest) with no daemon-composition break.
+REMAINING = Track-A daemon coordination only (call the entry point + route to Slack — handoff §8,
+updated to call `weekly_persona_proposals`).
+
+Built directly, tests-first. +2 tests (folds three scopes → Evaluating/Promotable/RetireCandidate in
+order; empty → empty); persona_scoring 10/10 green. Verified: `cargo test -p fortuna-cognition --test
+persona_scoring`; full workspace clippy + test (see commit). BUILD_PLAN E.5 box ticked.
+
+Shared-doc touches: `persona-live-wiring-handoff.md` §8 (Track-E-owned) updated to the single entry point.
+
+## [Post-merge integration] ledger: `BeliefsRepo::resolved_persona_stats` — the persona-scoring data source (commit 0c06d30)
 
 Operator-directed ("complete this" — the open-offer query). The clean data source that unblocks
 Slice 3's review folding AND the §20.1 ROTA personas-view. New

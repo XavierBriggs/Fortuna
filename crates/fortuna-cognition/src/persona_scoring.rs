@@ -168,3 +168,46 @@ pub fn propose_promotion(
         rationale,
     }
 }
+
+/// One persona scope's weekly-review input: its resolved record + (optionally)
+/// the prior version's scorecard (for `beats_prior_version`) + the two §11
+/// baselines (the no-persona raw-source-direct beliefs and the market-implied
+/// beliefs, both over the SAME resolved events).
+#[derive(Debug, Clone)]
+pub struct PersonaReviewInput {
+    pub record: PersonaScopeRecord,
+    pub prior: Option<PersonaScorecard>,
+    pub no_persona: Baseline,
+    pub market: Baseline,
+}
+
+/// The weekly-review persona folding (§10/§11) — the entry point Track A's daemon
+/// calls in `drive()`'s weekly review. Scores each registered `(persona, version)`
+/// and proposes promote/retire. RECOMMENDATION-ONLY (I7): the daemon routes the
+/// returned proposals to `#fortuna-review` and the operator acts out-of-band; the
+/// daemon never self-promotes. Order-preserving over `inputs`.
+///
+/// This is the ADDITIVE PARALLEL realization of the §10 ScopeKey extension (design
+/// §21): it scores personas by [`PersonaScope`] ALONGSIDE the synthesis
+/// `review::ScopeKey` review, WITHOUT editing the shared `ScopeKey` struct (whose
+/// literal lives in Track A's daemon composition — extending its fields would break
+/// that, which the loop forbids touching unilaterally). The operator gets the same
+/// outcome — persona verdicts in the weekly digest — with no daemon-composition break.
+pub fn weekly_persona_proposals(
+    inputs: &[PersonaReviewInput],
+    min_resolved: usize,
+) -> Vec<PersonaPromotionProposal> {
+    inputs
+        .iter()
+        .map(|input| {
+            let card = score_persona(&input.record);
+            propose_promotion(
+                &card,
+                input.prior.as_ref(),
+                input.no_persona,
+                input.market,
+                min_resolved,
+            )
+        })
+        .collect()
+}

@@ -215,32 +215,43 @@ never promotes/retires; the operator acts out-of-band (a superseding `personas` 
 
 The API (all built + tested in `persona_scoring.rs`):
 
+**The single entry point** (E.5 remainder — built + tested in `persona_scoring.rs`):
+`weekly_persona_proposals(&[PersonaReviewInput], min_resolved) -> Vec<PersonaPromotionProposal>`.
+You assemble one `PersonaReviewInput` per registered `(persona, version)` from the slice-3 query +
+the two baselines, then make ONE call; route the returned proposals to `#fortuna-review`.
+
 ```rust
 use fortuna_cognition::persona_scoring::{
-    Baseline, PersonaScope, PersonaScopeRecord, propose_promotion, score_persona,
+    weekly_persona_proposals, Baseline, PersonaReviewInput, PersonaScope, PersonaScopeRecord,
 };
 use fortuna_ledger::BeliefsRepo;
-// per (persona, version): gather the scope's resolved beliefs (the slice-3 query, by provenance)
-let s = BeliefsRepo::new(pool.clone())
-    .resolved_persona_stats(persona_id, persona_version).await?;   // -> ResolvedPersonaStats
-let record = PersonaScopeRecord {
-    scope:   PersonaScope { persona_id: s.persona_id, persona_version: s.persona_version },
-    samples: s.samples,     // Vec<(p, outcome)> over SCOREABLE resolved events
-    clv_bps: s.clv_bps,     // measurable CLV only (None dropped)
-};
-let card     = score_persona(&record);
-let proposal = propose_promotion(
-    &card,
-    prior_version_card.as_ref(),                  // Option<&PersonaScorecard> (beats_prior_version)
-    Baseline { brier_mean: no_persona_brier },    // raw-source-direct beliefs, SAME events
-    Baseline { brier_mean: market_brier },        // market-implied p, SAME events
-    cfg.review.min_resolved_beliefs_synthesis,    // the §11 floor (≈60)
-);
-// proposal.verdict ∈ Evaluating { resolved, needed } | Promotable | RetireCandidate
-route_to_review(format!(
-    "{}@{} — {:?}: {}",
-    record.scope.persona_id, record.scope.persona_version, proposal.verdict, proposal.rationale,
-));
+let mut inputs = Vec::new();
+for (persona_id, persona_version) in registered_persona_scopes {
+    // gather the scope's resolved beliefs (the slice-3 query, by provenance)
+    let s = BeliefsRepo::new(pool.clone())
+        .resolved_persona_stats(persona_id, persona_version).await?;   // -> ResolvedPersonaStats
+    inputs.push(PersonaReviewInput {
+        record: PersonaScopeRecord {
+            scope:   PersonaScope { persona_id: s.persona_id, persona_version: s.persona_version },
+            samples: s.samples,     // Vec<(p, outcome)> over SCOREABLE resolved events
+            clv_bps: s.clv_bps,     // measurable CLV only (None dropped)
+        },
+        prior:      prior_version_card,               // Option<PersonaScorecard> (beats_prior_version)
+        no_persona: Baseline { brier_mean: no_persona_brier }, // raw-source-direct, SAME events
+        market:     Baseline { brier_mean: market_brier },     // market-implied p, SAME events
+    });
+}
+// ONE call folds every persona scope (recommendation-only, I7):
+let proposals = weekly_persona_proposals(&inputs, cfg.review.min_resolved_beliefs_synthesis /* ≈60 */);
+for p in &proposals {
+    // p.verdict ∈ Evaluating { resolved, needed } | Promotable | RetireCandidate
+    route_to_review(format!("{}@{} — {:?}: {}",
+        p.scope.persona_id, p.scope.persona_version, p.verdict, p.rationale));
+}
+```
+
+(`score_persona`/`propose_promotion` remain available if you prefer per-scope control;
+`weekly_persona_proposals` is the convenience fold over them.)
 ```
 
 **The data source (built — slice "Track-E resolved_persona_stats query").** `BeliefsRepo::
