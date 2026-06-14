@@ -137,6 +137,41 @@ async fn main() -> Result<()> {
         }
     }
 
+    // --- 2b) GRADING-STATION PROBE (read-only): for each temperature series
+    //         found above, GET one market and print its `rules_primary` — the
+    //         text that NAMES the official grading station (e.g. "Central Park,
+    //         New York"). This is the GROUND TRUTH the station→series map keys
+    //         on; nothing here is invented. (Skipped if no temp series found.) ---
+    println!("\n== GRADING-STATION PROBE (rules_primary per temperature series) ==");
+    let mut probed: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for (ticker, _title) in temp_hits.iter() {
+        let series = ticker.split('-').next().unwrap_or(ticker).to_string();
+        if !probed.insert(series.clone()) {
+            continue; // one probe per series
+        }
+        let q = format!("series_ticker={series}&limit=1");
+        match rest.request("GET", "/markets", Some(&q), None).await {
+            Ok((200, body)) => {
+                let m0 = body
+                    .get("markets")
+                    .and_then(|m| m.as_array())
+                    .and_then(|a| a.first());
+                let rules = m0
+                    .and_then(|m| m.get("rules_primary"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("(no rules_primary on market frame)");
+                let sample_ticker = m0
+                    .and_then(|m| m.get("ticker"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                let excerpt: String = rules.chars().take(300).collect();
+                println!("  {series} (e.g. {sample_ticker}):\n    {excerpt}");
+            }
+            Ok((status, _)) => println!("  {series}: HTTP {status}"),
+            Err(e) => println!("  {series}: error {e:?}"),
+        }
+    }
+
     // --- 3) optional verbatim capture for a recorded fixture (read-only) ---
     // KALSHI_CAPTURE_SERIES=KXHIGHNY KALSHI_CAPTURE_OUT=fixtures/kalshi/markets__high_temp.json
     if let (Ok(series), Ok(out)) = (

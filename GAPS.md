@@ -644,6 +644,34 @@ unit tests could not catch (the live socket round-trip was the one untested seam
   venue=kalshi un-refuse) and live order/exec round-trips. This exercise was demo
   market-data only.
 
+## TRACK A — F7 LIVE PLUG-IN SLICE 3 DONE: station→series map grounded for every Kalshi temp city (operator "every other station", 2026-06-14)
+
+`station_series` extended from KNYC-only to every grading station the RECORDED Kalshi rules name
+explicitly. Grounded read-only: extended `kalshi_discover_markets.rs` with a grading-station probe (prints
+each series' `rules_primary`), ran it against the demo, captured every series' grading station into
+`docs/research/sources/kalshi-temperature-stations.md`. MAPPED (rule names a precise station): KNYC→KXHIGHNY,
+KAUS→KXHIGHAUS, KMDW→KXHIGHCHI, KLAX→KXHIGHLAX, KMIA→KXHIGHMIA, KPHL→KXHIGHPHIL (tmax) + KNYC→KXLOWTNYC
+(the daily LOW Aeolus emits). Keyed on the GRADING station ⇒ fires only when Aeolus emits that exact code
+(same physical station ⇒ correct); else None (never a mis-resolve). 6-test spec. Full battery green.
+
+DELIBERATELY UNMAPPED (conservative — ledgered, NOT a blocker):
+- CITY-NAMED rules (Denver "Denver, CO", Atlanta, Boston, Las Vegas, Minneapolis, New Orleans, OKC,
+  Phoenix, San Antonio, Seattle, SF): the rule names a CITY, not a station, so the exact NWS CLI station
+  is not pinned by the contract text. The candidate single-airport ICAO (KDEN/KATL/…) is recorded in the
+  research doc; promote when a rule (or an Aeolus forecast's nws_station_id) pins it. DORMANT regardless —
+  Aeolus forecasts only KNYC today.
+- AMBIGUOUS multi-airport metros (Dallas KDFW/KDAL, Washington DC KDCA/KIAD, Houston KIAH/KHOU): the rule's
+  city name does not select one station → omitted.
+- Every other-city daily LOW (KXLOWT*): the LOW rules name only a city (and are LESS specific than the
+  matching HIGH — e.g. KXLOWTCHI says "Chicago", not "Chicago Midway"); + dormant.
+- Hourly KXTEMPNYCH (graded by The Weather Company, not the NWS daily high/low) — different product/authority.
+
+AEOLUS-SIDE NOTE: the map keys on Aeolus's station code. The only data point for Aeolus's coding scheme is
+KNYC (station "KNYC", nws_station_id "NYC"). The non-KNYC entries assume Aeolus would code each city's
+grading airport with its standard ICAO (e.g. Chicago Midway → "KMDW"); if Aeolus codes differently, the
+entry simply never fires (None — safe). All non-KNYC entries are forward-looking + dormant until Aeolus
+expands beyond KNYC.
+
 ## TRACK A — F7 LIVE PLUG-IN SLICE 2 DONE: drive() weather plug-in wired (operator "finish everything", 2026-06-14)
 
 The F7 seam now RUNS in the live daemon. `drive()`'s `[discovery]` block (BEFORE the synthesis

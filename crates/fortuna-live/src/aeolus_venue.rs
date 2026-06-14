@@ -47,16 +47,44 @@ use fortuna_venues::kalshi::dto::KalshiMarket;
 pub const AEOLUS_FORECAST_SIGNAL_KIND: &str = "aeolus.forecast";
 
 /// The grounded NWS-station → Kalshi temperature-series map (contract: F7
-/// discovery). The ONLY confirmed pairing is Central Park / KNYC → `KXHIGHNY`
-/// (proved by `fixtures/kalshi/markets__high_temp.json`, whose rules name
-/// "Central Park, New York"). Other cities (KORD/KAUS/…) are deliberately
-/// omitted: their NWS-station↔Kalshi-city mapping is not yet confirmed against
-/// recorded data, and an unconfirmed series is worse than no series. Any
-/// non-`Tmax` variable returns `None` (no tmin series confirmed). Pure.
+/// discovery). Maps an **Aeolus forecast station code** → the Kalshi series that
+/// GRADES on that same station. Each entry is grounded in a RECORDED Kalshi
+/// `rules_primary` that names the grading station EXPLICITLY (captured read-only
+/// 2026-06-14; see `docs/research/sources/kalshi-temperature-stations.md`).
+///
+/// Mapped (the rule names a precise, unambiguous station):
+/// - `(KNYC, Tmax) → KXHIGHNY`  — "Central Park, New York"
+/// - `(KAUS, Tmax) → KXHIGHAUS` — "Austin Bergstrom"
+/// - `(KMDW, Tmax) → KXHIGHCHI` — "Chicago Midway, IL"
+/// - `(KLAX, Tmax) → KXHIGHLAX` — "Los Angeles Airport, CA"
+/// - `(KMIA, Tmax) → KXHIGHMIA` — "Miami International Airport"
+/// - `(KPHL, Tmax) → KXHIGHPHIL`— "Philadelphia International Airport"
+/// - `(KNYC, Tmin) → KXLOWTNYC` — NYC daily low (Aeolus emits KNYC tmin; NYC's
+///   NWS Climatological-Report station is Central Park / KNYC).
+///
+/// DELIBERATELY UNMAPPED → `None` (conservative; see the research doc): series
+/// whose rule names only a CITY (Denver, Atlanta, Boston, …) — the exact NWS CLI
+/// station is not pinned by the contract text; ambiguous multi-airport metros
+/// (Dallas, Washington DC, Houston); every other-city daily LOW (and Aeolus
+/// forecasts only KNYC today regardless); and the hourly `KXTEMPNYCH` product
+/// (graded by The Weather Company, not the NWS daily high/low).
+///
+/// SAFETY: keying on the grading station means a mapping fires only when Aeolus
+/// emits that exact station code — in which case both sides resolve against the
+/// SAME physical station (correct). Any other code → `None` → not traded (a
+/// wrong/missing pairing can only MISS a trade, never mis-resolve one). Pure.
 pub fn station_series(station: &str, variable: Variable) -> Option<&'static str> {
     match (station, variable) {
-        ("KNYC", Variable::Tmax) => Some("KXHIGHNY"),
-        // Other (station, tmax) pairs and ALL tmin: unconfirmed → None.
+        // tmax — only series whose recorded rule names the station EXPLICITLY.
+        ("KNYC", Variable::Tmax) => Some("KXHIGHNY"), // Central Park, New York
+        ("KAUS", Variable::Tmax) => Some("KXHIGHAUS"), // Austin Bergstrom
+        ("KMDW", Variable::Tmax) => Some("KXHIGHCHI"), // Chicago Midway
+        ("KLAX", Variable::Tmax) => Some("KXHIGHLAX"), // Los Angeles Airport
+        ("KMIA", Variable::Tmax) => Some("KXHIGHMIA"), // Miami International Airport
+        ("KPHL", Variable::Tmax) => Some("KXHIGHPHIL"), // Philadelphia International Airport
+        // tmin — only NYC (the daily low Aeolus actually emits).
+        ("KNYC", Variable::Tmin) => Some("KXLOWTNYC"),
+        // City-named / ambiguous / dormant / hourly series: unconfirmed → None.
         _ => None,
     }
 }
