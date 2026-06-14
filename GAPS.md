@@ -13,7 +13,7 @@ by the controller). σ/τ are CALLER-injected; the kernel invents nothing. The v
 all are Sim-stage I7 knobs that gate nothing live but must be operator-endorsed before treated as a real
 edge claim):
 
-**V3 STATUS (2026-06-14, this commit): the v2 MODEL layer is BUILT** — a new propose-only, Sim-stage,
+**V3+V4 STATUS (2026-06-14): the v2 MODEL + HORIZON-GATED EV layers are BUILT** — a new propose-only, Sim-stage,
 DATA-ONLY `fortuna-runner::perp_event_basis_v2` strategy wires the kernel onto live data (A6 BRTI anchor +
 A9 no-arb gate + A3 q_j + A10 median-as-diagnostic), proposing NOTHING (the EV gate is V4). It IMPLEMENTS
 **DC-1** (the σ EWMA estimator in strategy state + all its knobs; defaults as below) and wires **DC-5**'s
@@ -22,9 +22,13 @@ A9 no-arb gate + A3 q_j + A10 median-as-diagnostic), proposing NOTHING (the EV g
 .get(&bracket).close_at` already carries the bracket's close time (KXBTC brackets are binary events) and
 `CoreHandle.now` is the injected Clock, so V4/A5 computes τ directly, with the conservative "τ unknown (absent
 market / `close_at` None) ⇒ Disabled, propose nothing" fallback. No compose.rs change is needed for the
-strategy to be correct. DC-2/DC-3/DC-6 remain for V4 (EV gate) + V5 (informativeness); all stay
-operator-endorse-before-edge-claim. Remaining build order: V4 = A5 horizon + A4/A8 EV gate (the first slice
-that PROPOSES unsized legs); V5 = A7 informativeness + A10 emission. NO compose.rs wire-in yet (the track-A
+strategy to be correct. **V4 (the second commit) BUILT A5 horizon regimes + A4/A8 EV gate**: τ from
+`core.markets.close_at` (DC-4 in-lane), `σ_τ = σ_step·√(τ/Δ)`, the >48h / τ-unknown / stale-anchor vetoes,
+and the per-bin EV gate (DC-3 WIRED: ev_threshold 0.02, slippage ½-tick, reserve 0.01, adverse 0.01,
+fee-trap maker coeff 0.0175) emitting UNSIZED maker legs on clearing bins — the FIRST v2 slice that proposes.
+DC-2 (Φ precision) stays done-in-kernel; **DC-6 (A7 informativeness weights) remains for V5**; all stay
+operator-endorse-before-edge-claim. Remaining build order: V5 = A7 measured informativeness + A10 diagnostic
+emission (the LAST v2 slice). NO compose.rs wire-in yet (the track-A
 `[perp_event_basis_v2]` registration is a documented follow-on, like the kernel + the resolve_and_score
 `drive()` wire).
 - **DC-1 σ source (A3/A5)** — §3.3 says "σ from realized vol of the perp-mark series scaled by √τ" but NO

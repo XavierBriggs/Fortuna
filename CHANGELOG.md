@@ -18,6 +18,24 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
+- **perp basis-v2 §3.3 SLICE V4 — horizon gating + the per-bin EV gate (A5 + A4 + A8)**
+  (`fortuna-runner::perp_event_basis_v2`, additive; the FIRST v2 slice that PROPOSES): extends V3 with
+  (A5) per-bracket horizon regimes — τ = `core.markets[bracket].close_at − core.now` (DC-4 resolved
+  in-lane, no compose change), classified Direct (≤4h) / VolAdjusted (4–48h) / Disabled (>48h or
+  τ-unknown/expired) — and REPLACES V3's per-step σ stand-in with the horizon-scaled `σ_τ = σ_step·√(τ/Δ)`
+  (Δ = an EWMA of the BRTI `obs_at` tick-spacing), clamped. THREE load-bearing vetoes ⇒ propose nothing:
+  the >48h/τ-unknown horizon, a STALE BRTI anchor (A6: `now − obs_at > max_anchor_age_ms`), and an
+  incoherent ladder (A9). Then the (A4+A8) per-bin EV gate: `EV_j = q_j − ask_j − fee_round_trip(ask_j) −
+  slippage − reserve − adverse` (DC-3 defaults; the fee is the cents-ceil fee-trap maker rate so promo-$0
+  never zeroes it), emitting ONE UNSIZED `Passive`/Buy/Yes maker leg joining each clearing bin's best YES
+  bid when `EV_j > threshold` (strict) — `fair_value = round(q_j·100)` clamped `[1,99]` (the one documented
+  f64→`Cents` boundary), deduped on `(market, limit)`. Each `q_j` is mapped back to its market by STRIKE
+  (the kernel returns canonical price order, not catalog order). I6 (unsized — the harness sizes) + I7 (Sim,
+  no auto-promotion) preserved; the EV is an honest f64 edge claim, never a size. No `panic`/`unwrap`; every
+  degenerate/missing/stale input degrades to propose-nothing. 19 new adversarial tests (regime boundaries,
+  σ_τ scaling, the 3 vetoes, EV clears/rejects/at-threshold-strict, multi-bin + dedup, no-bid/no-ask skip,
+  fee-trap >0, no-panic), MUTATION-PROVEN (EV `>`→`>=` reds the at-threshold test). NO `compose.rs` wire-in
+  (track-A follow-on). Slice V4 of 3 (V5 = A7 informativeness + A10 emission remains).
 - **perp basis-v2 §3.3 SLICE V3 — the model layer (A3 + A6 + A9 + σ)** (`fortuna-runner::perp_event_basis_v2`,
   additive, DATA-ONLY, Sim-stage, proposes NOTHING): a NEW propose-only strategy succeeding rung-0's median
   signal with the v2 fair-probability model wired onto live `PerpTick`/`OrderBook` data. On each matching

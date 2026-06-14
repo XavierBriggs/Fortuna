@@ -3,6 +3,33 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## TRACK C — perp basis-v2 SLICE V4 (A5 horizon gating + A4/A8 EV gate) (2026-06-14; interprets design §3.3 + DC-1/DC-3/DC-4)
+
+- **σ_τ = σ_step · √(τ_ms / Δ_ms), clamped to `[sigma_floor, sigma_ceiling]`** (the lognormal-in-log-price
+  horizon scaling). Both Direct and VolAdjusted regimes price with this σ_τ; the regime enum drives only the
+  Disabled veto (the spec's "direct = tight point forecast" falls out because τ is small ⇒ σ_τ tight).
+  Interprets §3.3 A5. σ_τ replaces V3's per-step σ stand-in in the `bracket_fair_probs` call.
+- **Δ (observation interval) = an EWMA (same λ as σ) of consecutive `funding.obs_at` gaps in epoch-ms**,
+  seeded on the first strictly-positive gap; non-positive/absent gaps skipped. Δ is the time unit σ_step is
+  expressed over; until Δ is measured the horizon scaling cannot form ⇒ the bin is Disabled (propose
+  nothing). Interprets §3.3 A5 (the √τ scaling needs a per-step time base, left implicit in the spec).
+- **Representative τ for the single kernel σ_τ = the NEAREST positive in-window horizon across the catalog.**
+  KXBTC ladders share one `close_at` (so this is exact); a mixed ladder additionally vetoes any individual
+  bin whose OWN regime is Disabled (re-classified per bin in the EV loop). The shortest τ ⇒ the tightest,
+  most conservative σ_τ. Interprets §3.3 A5 (per-bracket τ) under the one-kernel-call structure.
+- **A4 fee = the round-trip fee-trap maker rate `2 · ceil(fee_coeff · P · (1−P) · 100)/100`** (P = the YES
+  ask in prob-units, C=1 since the leg is unsized; cents-rounded UP so a promo-$0 never lowers it). This is
+  DC-3's `ceil(0.0175·C·P·(1−P))` floored. Computed directly (the `ScheduleFeeModel::fee` method is private;
+  rung-0 likewise used a config fee, not the FeeModel). Interprets §3.3 A4 + amendment C (the fee-trap).
+- **The stale-anchor veto (A6) disables the ENTIRE tick** (all bins), since a stale BRTI anchor mis-prices
+  every q_j; the dedup `(market, limit_cents)` set persists across ticks and is never cleared (matches
+  rung-0 — a bid that leaves and returns to the same price does not re-propose). Interprets §3.3 A6.
+- **DC-3 EV knobs (defaults, all config-overridable): `ev_threshold` 0.02, `slippage` 0.005 (½ tick),
+  `reserve` 0.01, `adverse` 0.01 (the A8 BASELINE — V5/A7 upgrades it per-bin), `fee_coeff` 0.0175.** A bin
+  clears on strict `EV_j > ev_threshold` (a tie does not clear — the rung-0 fee-trap strictness). The σ-field
+  of the `V2Eval` snapshot carries the per-step σ_step when the tick does NOT price (no σ_τ was formed);
+  this is diagnostic-only and never affects a proposal. Interprets §3.3 A4+A8 + DC-3.
+
 ## TRACK C — perp basis-v2 SLICE V3 (the model layer: A3+A6+A9+σ) (2026-06-14; interprets design §3.3 + DC-1/DC-4/DC-5)
 
 - **DC-1 σ EWMA seed = the FIRST squared return** (`var₀ = r₀²`), not 0 or a prior. The RiskMetrics-style
