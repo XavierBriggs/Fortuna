@@ -6,7 +6,7 @@ before bending it. Read this before your first edit; read [spec.md](spec.md)
 (v0.9, the normative design) for any detail this doc summarizes. When this doc
 and the spec disagree, the spec wins ([CLAUDE.md](../CLAUDE.md)).
 
-**Status honesty:** accurate as of commit `334612d` (main, 2026-06-12). The
+**Status honesty:** accurate as of 2026-06-13 (main). The
 system runs Sim-only — the daemon's boot refuses every venue except `"sim"`
 ([track-c-final-gate, criterion C3](reviews/track-c-final-gate-2026-06-12.md));
 the system has never placed an order on a real venue (the only real-venue
@@ -14,9 +14,16 @@ traffic in the project's history is read-only data capture and operator-run
 fixture recording against demo environments, spec §5.2/§5.15). The Phase-4 EXIT soak was declared GO at
 `8ea8a4d` ([soak-go-gate](reviews/soak-go-gate-2026-06-12.md)); the start is an
 operator action. The Kalshi adapter is fixtures-gated pending the operator
-recording session (BUILD_PLAN T4.2); the Kinetics perps implementation lives on
-the `track-c` branch awaiting its re-merge package
-([GATE-FINDINGS-LATEST](reviews/GATE-FINDINGS-LATEST.md)).
+recording session (BUILD_PLAN T4.2); the Kinetics perps pipeline (the
+`perp_event_basis` + `funding_forecast` strategies, the PerpTick ingestion seam,
+and the daemon composition) MERGED to main 2026-06-13 (`9c4026e`, `72adb7a`,
+`95799cc`) and is INERT in pure-sim until a recorded perp feed is opted in. The
+**demo-flip** (running a Kalshi DEMO at `Stage::Paper`, mock funds, pre-promotion,
+with prod/live still REFUSED at the boot gate) is **in progress on track-c, not
+merged**: Phase 1 (the venue-generic `SimRunner` refactor) is done there, Phase 2
+(`compose_kalshi_runner` + boot gate) is next, and its live run stays
+operator-blocked behind the T4.2 clearance (design `design/kalshi-demo-flip.md` on
+track-c).
 
 Companion docs: [README](../README.md) · [quickstart](quickstart.md) ·
 [verification](verification.md) · [operations](operations.md) ·
@@ -174,7 +181,7 @@ charged-vs-modeled reconciliation; adapters are `sim/` (seeded fault injection
 — the DST workhorse), `kalshi/` (built only against `fixtures/kalshi/`), and a
 `polymarket/` stub. Must never: accept an ungated order, or invent venue
 behavior beyond fixtures and the research archive. (The `kinetics/` perps
-adapter exists on `track-c`, pending re-merge.)
+adapter is on main as of 2026-06-13.)
 
 **[fortuna-ledger](../crates/fortuna-ledger/src/lib.rs)** — all Postgres
 persistence, I5 (spec §5.5, §5.13, §7): beliefs, scalar_beliefs, belief_scores,
@@ -189,13 +196,24 @@ probabilistic, I6 (spec §5.7–5.12): the `Source` trait (its adapters + the
 ingestion scheduler/validator now live in
 [fortuna-sources](../crates/fortuna-sources/src/lib.rs)), the trigger
 engine, budgeted manifest-hashed context assembler, the `Mind` trait
-(`StubMind` and `AnthropicMind`), comparator plus the shared Kelly sizing
+(`StubMind` and `AnthropicMind`) plus the **3-tier model layer** — a
+`ModelRegistry` mapping each role's `ModelTier` (Synthesis/Mid/Triage) to a
+model id as the single source of truth, and the `TriageMind` seam
+(`StubTriageMind` + the real `AnthropicTriageMind`) that gates the synthesis
+tier — comparator plus the shared Kelly sizing
 library, calibration (Platt/isotonic with shrinkage prior), the swappable
 scoring layer ([`prob_claims/v1` scalar beliefs + `ScoringRule`](design/perp-strategies-and-scalar-claims.md):
 Brier + native-CRPS over immutable `PredictiveDistribution`/`RealizedOutcome`),
-the daily/weekly/monthly loops, and the reduce-only model veto. Must never: mutate
-external state — `MindOutput` is propose-only, and `f64` here is for
-probabilities, never money.
+the daily/weekly/monthly loops, and the reduce-only model veto. The **Aeolus
+weather pipeline (F5–F9)** lives here too: the strict `aeolus.forecast/v2`
+envelope parser + μ/σ→bracket-probability backbone (`aeolus_forecast.rs`, F6),
+the propose-only producer emitting binary temperature-bracket drafts and a
+scalar μ/σ quantile fan (`aeolus_beliefs.rs`, F8), independent Brier+CRPS
+settlement scoring vs the NWS-graded realized temperature
+(`aeolus_reliability.rs`, F9), and F5 dedup / F7 world-forward market matching —
+the proprietary forecast vendor turned into scored beliefs, never orders. Must
+never: mutate external state — `MindOutput` is propose-only, and `f64` here is
+for probabilities, never money.
 
   The **domain-analysis persona layer** (Track E, `persona.rs` + `persona_runner.rs`)
   sits here too: versioned, operator-authored analyst "personas" (skill-style files
@@ -445,7 +463,16 @@ record; verified end-to-end at the
   persists belief drafts each segment — the synthesis arm's binary beliefs and,
   when a perp producer is composed, the scalar beliefs (`scalar_beliefs`, the
   table ROTA §9.1 groups by `producer`; the scalar drain runs independently of
-  the synthesis arm) ([daemon.rs](../crates/fortuna-live/src/daemon.rs)). A Sim
+  the synthesis arm) ([daemon.rs](../crates/fortuna-live/src/daemon.rs)).
+  `drive()` also drives three **opt-in, default-OFF** ingestion→beliefs steps,
+  each `Option`-gated so an absent config section means it never runs and the
+  trading loop is byte-unchanged: the persona-analysis step (`run_due_personas`,
+  persisting `domain_analyses` + beliefs), and world-forward / market-back
+  discovery (`world_forward_discovery` / `market_back_discovery`, persisting
+  `watch:`/canonical events, beliefs, and — for market-back — auto-confirmed
+  low-stakes edges, high-stakes routed to review). All are data-only: they
+  persist beliefs/events/edges, never orders — every resulting order still
+  crosses the universal gate (I1, I6). A Sim
   soak feeds the otherwise-inert perp producers via
   `[funding_forecast].ticker_feed_jsonl`: RECORDED kinetics `ticker` frames
   replayed one PerpTick per segment through `inject_perp_tick` (the run loop

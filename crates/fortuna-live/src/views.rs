@@ -344,8 +344,18 @@ fn sources_board(sources: &[SourceTelemetry], generated_at: &str) -> Value {
         } else {
             None
         };
+        // OBS-3: the source's domain tags (weather | macro | …) + trust tier, both
+        // from the source_registry admission (system config, not untrusted data).
+        // An untagged source → honest null ("—"), never an empty string.
+        let domains = if s.domain_tags.is_empty() {
+            Value::Null
+        } else {
+            json!(s.domain_tags.join(", "))
+        };
         rows.push(json!({
             "source_id": s.source_id,
+            "domains": domains,
+            "trust_tier": s.trust_tier,
             "health": s.health,
             "last_ok_age_s": last_ok_age_s,
             "polls": s.polls,
@@ -363,6 +373,8 @@ fn sources_board(sources: &[SourceTelemetry], generated_at: &str) -> Value {
         "generated_at": generated_at,
         "columns": [
             {"key":"source_id","label":"Source"},
+            {"key":"domains","label":"Domains"},
+            {"key":"trust_tier","label":"Tier"},
             {"key":"health","label":"Health","pill":true},
             {"key":"last_ok_age_s","label":"Last OK"},
             {"key":"polls","label":"Polls"},

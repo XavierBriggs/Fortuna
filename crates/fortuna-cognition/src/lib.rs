@@ -26,6 +26,11 @@
     )
 )]
 
+pub mod aeolus_beliefs;
+pub mod aeolus_dedup;
+pub mod aeolus_forecast;
+pub mod aeolus_match;
+pub mod aeolus_reliability;
 pub mod basis;
 pub mod beliefs;
 pub mod calibration;
@@ -37,6 +42,7 @@ pub mod mind;
 pub mod persona;
 pub mod persona_beliefs;
 pub mod persona_metrics;
+pub mod persona_orchestrator;
 pub mod persona_runner;
 pub mod persona_scoring;
 pub mod persona_trigger;

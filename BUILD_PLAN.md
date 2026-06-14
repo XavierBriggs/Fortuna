@@ -593,6 +593,15 @@ Polymarket research+fixtures, spec v0.9 touch-up).
         at the snapshot-composition site (this commit). Honest gate keeps the daemon
         byte-unchanged when ingestion is off (daemon_smoke 15/15); ROTA stays a pure
         snapshot reader (no fortuna-sources dep). The live ingestion triad is LIVE.
+  - [x] OBS-3 RENDER — Sources Health surfaces domain_tags + trust_tier (2026-06-13;
+        consumes track-D OBS-3, which populated SourceTelemetry.domain_tags AFTER OBS-2c
+        shaped the board): sources_board (views.rs) now emits Domains (domain_tags joined;
+        honest null when untagged) + Tier (trust_tier) — registry-admission config, NOT
+        untrusted data; boardTable renders generically (no rota.rs/JS change). Existing
+        shapes test asserts domains/tier + a new honest-null test (join + untagged→null);
+        screenshot rota-sources-health-domains-2026-06-13.png; full battery GREEN (165
+        suites 0-fail/DST exit-0). Closes the orchestrator "domain_tags" item; T4.5 panels
+        = track-A/operator-blocked (not track-B).
   - [x] Recent Fills board (mission item 3, "trades being executed") — recent_fills
         runtime-sqlx query over the durable fills ledger + view_fills handler + a new
         data-driven `cents` column flag (price/fee as dollars); fortuna-ops only, the
@@ -690,6 +699,29 @@ Polymarket research+fixtures, spec v0.9 touch-up).
         SPANS ALL 6 MISSION ITEMS (cognition, pipeline, trades, discovery, DB,
         telemetry). Live prod metrics populate when the daemon runs; help-text + metric
         search are later polish (GAPS).
+  - [x] Forecast Feed board (track-C §9.1 recent half, "did the vendor call it?") —
+        recent_forecasts runtime-sqlx over scalar_beliefs (the recent individual
+        forecasts newest-first: producer, event, unit, the median extracted from the
+        quantile fan, realized outcome / pending status); the companion to the
+        /forecasts scorecard. Untrusted quantiles fan + provenance NOT exposed (only
+        the median number — reviewer-confirmed); fortuna-ops only; DB-backed populated
+        test (resolved + pending, median extraction + honest-null realized); reviewer-
+        clean; battery green EXCEPT the same pre-existing main kinetics_dto red (a first
+        full-workspace run also hit transient createdb contention from concurrent
+        verifier/IDE Postgres load — proven transient by rota 34/34 in isolation + a
+        clean re-run); screenshot-verified (this commit, 21 boards). §9.1's two halves
+        (scorecard + feed) now both live; coverage_bps + sparkline + §9.2 /perps remain.
+  - [x] Forecast Feed ENRICHED → rich scalar-belief board (operator "completely see the
+        belief and everything", 2026-06-13; consumes track-C slice-4d/4e live persistence):
+        switched to ScalarBeliefsRepo::recent (no ledger change); each belief a click-to-expand
+        <details> (the /cognition precedent) surfacing the WHOLE quantile fan + the producer's
+        EVIDENCE + provenance, SPLIT from the daemon's {"provenance":…,"evidence":…} wrapper
+        (both-keys detection; non-wrapped shown whole, never partially nulled). Untrusted-data
+        (5.11): clean_quantiles numbers-only + truncate_evidence + esc'd JSON. Test
+        forecast_feed_surfaces_recent_scalar_beliefs_richly (full fan + split-out evidence +
+        prov-survives-split + honest-null pending); code-reviewer-clean (||→&& both-keys fix +
+        prov assertion applied); full workspace battery GREEN (fmt/clippy/test 159 suites
+        0-fail/DST exit-0 incl. daemon_smoke 17); screenshot rota-forecast-feed-rich-2026-06-13.png.
 
 OPERATOR DIRECTIVE (2026-06-11 night, recorded by the verification session):
 morning target = the daemon running in DEMO mode (Kalshi demo env, mock funds)
@@ -794,7 +826,7 @@ code.
       real liquidations [786 @ 2000 scenarios]; 7 per-seed invariants
       incl. gate-pass=>no-instant-liquidation, never-silent liquidation,
       exact conservation, same-seed determinism; coverage floor at 100+.)
-- [ ] T5.B7 Strategies rung 0: perp_event_basis (Sim), funding_forecast
+- [x] T5.B7 ✅ DONE (rung-0 slices merged; design §5 EXIT; funding_carry data-only by design) — Strategies rung 0: perp_event_basis (Sim), funding_forecast
       (zero-capital scalar claims), funding_carry DATA-ONLY until >=60d regime
       evidence (amendment B). FEE-TRAP RULE (amendment C): edge floors at assumed
       post-promo fees (5-12 bps until fee_tiers is real); Sim gates re-run when
@@ -1083,7 +1115,7 @@ scheduler is shared with D9). The skill/persona layer is a separate session
       green — fmt --check + clippy -p fortuna-sources --all-targets -D warnings +
       test -p fortuna-sources + check -p fortuna-live consumer; full-workspace
       battery is the verifier's merge gate, see GAPS "TRACK D — F4".)
-- [ ] F4b release-aware cadence: consume next_run_at + the GEFS release pattern
+- [x] F4b ✅ DONE (track-E @0e20681; deferral lifted) — release-aware cadence: consume next_run_at + the GEFS release pattern
       to tighten the poll cadence around forecast issuance. DEFERRED to Phase B —
       a scheduling refinement, NOT the gate's reachability/validation ask (which
       F4 closes). Today the Aeolus source polls on its configured base_interval.
@@ -1091,9 +1123,11 @@ scheduler is shared with D9). The skill/persona layer is a separate session
       MEASURED reality not an unproven edge, per contract §1/§5) + v1→v2 fixture
       migration (keep v1 behind "schema absent ⇒ v1"; aeolus_eval T2.7 stays
       green; do NOT weaken it).
-- [ ] (cognition, not Track D — ledgered for the owner) F5 identity-tuple dedup,
-      F6 strict v2 parser + pinned-erf μ/σ→p, F7 world-forward match, F8
-      belief→calibration→gates→sizing, F9 Layer-3 empirical scoring.
+- [x] ✅ DONE (track-E Aeolus F5–F9 merged @bdea003) — (cognition; OWNER = TRACK E as of 2026-06-14, reassigned from C — operator-
+      directed; E owns the weather domain. New disjoint fortuna-cognition modules;
+      reuse C's prob_claims/v1 + scalar_beliefs; do not touch C's perp/discovery files.)
+      F5 identity-tuple dedup, F6 strict v2 parser + pinned-erf μ/σ→p, F7 world-forward
+      match, F8 belief→calibration→gates→sizing, F9 Layer-3 empirical scoring.
 
 ### Track D — ingestion observability (data surface; contract: docs/design/ingestion-observability-contract.md §2)
 
@@ -1120,7 +1154,7 @@ scheduler is shared with D9). The skill/persona layer is a separate session
       funnel and publishes the snapshot behind `Arc<RwLock<IngestionTelemetry>>`
       for the metrics renderer + ROTA handlers (§2 "one writer, many readers").
       Touches fortuna-live (the drive() seam slice) — sequence vs track A.
-- [ ] OBS-3 domain_tags population: carry each source's domain (weather|macro|…)
+- [x] OBS-3 ✅ DONE (track-B Sources Health @072f9a1) — domain_tags population: carry each source's domain (weather|macro|…)
       from the source_registry/config admission into `SourceTelemetry.domain_tags`
       (empty in slice 1). Needs a config/registry field — fold with F10.
 

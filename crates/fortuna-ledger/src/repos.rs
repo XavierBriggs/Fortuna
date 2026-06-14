@@ -783,6 +783,19 @@ pub struct SignalsRepo {
     pool: PgPool,
 }
 
+/// One signal read back for downstream context assembly (e.g. a persona run).
+/// `kind` is the table's `type` column. `received_at` is the ISO8601 receipt
+/// time; ordering is lexicographic, which is chronological for zero-padded UTC.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecentSignalRow {
+    pub signal_id: String,
+    pub source: String,
+    pub kind: String,
+    pub received_at: String,
+    pub content_hash: String,
+    pub payload: serde_json::Value,
+}
+
 impl SignalsRepo {
     pub fn new(pool: PgPool) -> SignalsRepo {
         SignalsRepo { pool }
@@ -828,6 +841,42 @@ impl SignalsRepo {
         Ok(rows
             .into_iter()
             .map(|r| (r.source, r.content_hash))
+            .collect())
+    }
+
+    /// Read recent signals of one of `kinds` whose `received_at >= received_after`
+    /// (inclusive), newest first, capped at `limit`. The read-back path that lets
+    /// the live daemon assemble a persona's untrusted `<context-item>` blocks (the
+    /// SIGNAL stream is data, never instructions — spec 5.11 / design §4). Empty
+    /// `kinds` matches nothing. Append-only table, so this is a pure read.
+    pub async fn recent_by_kind(
+        &self,
+        kinds: &[String],
+        received_after: &str,
+        limit: i64,
+    ) -> Result<Vec<RecentSignalRow>, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT signal_id, source, type AS "kind!", received_at, content_hash, payload
+               FROM signals
+               WHERE type = ANY($1) AND received_at >= $2
+               ORDER BY received_at DESC, signal_id DESC
+               LIMIT $3"#,
+            kinds,
+            received_after,
+            limit,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| RecentSignalRow {
+                signal_id: r.signal_id,
+                source: r.source,
+                kind: r.kind,
+                received_at: r.received_at,
+                content_hash: r.content_hash,
+                payload: r.payload,
+            })
             .collect())
     }
 }
@@ -904,6 +953,19 @@ pub struct ResolvedStat {
     pub outcome: bool,
     pub brier: f64,
     pub clv_bps: Option<f64>,
+}
+
+/// Resolved beliefs attributed to one persona scope (Track E §10/§11). Ledger-native
+/// (the repo layer holds no `fortuna-cognition` types); the daemon wraps it into a
+/// `persona_scoring::PersonaScopeRecord { scope, samples, clv_bps }` for
+/// `score_persona`. `samples` is the calibrated `(p, outcome)` over scoreable resolved
+/// events; `clv_bps` drops the unmeasurable (`None`) ones.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedPersonaStats {
+    pub persona_id: String,
+    pub persona_version: i32,
+    pub samples: Vec<(f64, bool)>,
+    pub clv_bps: Vec<f64>,
 }
 
 /// One persisted belief row (spec 5.5).
@@ -1136,6 +1198,46 @@ impl BeliefsRepo {
                 clv_bps: r.clv_bps,
             })
             .collect())
+    }
+
+    /// Resolved beliefs attributed to one persona scope, keyed by the fan-out
+    /// provenance `{persona_id, persona_version}` (`map_persona_analysis` stamps it).
+    /// Shaped for `persona_scoring::score_persona` / `propose_promotion` (§10/§11) and
+    /// the §20.1 ROTA personas-view: the calibrated `(p, outcome)` samples + CLV over
+    /// SCOREABLE, resolved events (mirrors `resolved_stats`, keyed on provenance
+    /// instead of category). Non-persona beliefs (no matching provenance) are excluded.
+    pub async fn resolved_persona_stats(
+        &self,
+        persona_id: &str,
+        persona_version: i32,
+    ) -> Result<ResolvedPersonaStats, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT b.p, b.outcome as "outcome!", b.clv_bps
+               FROM beliefs b JOIN events e ON e.event_id = b.event_id
+               WHERE b.status = 'resolved' AND b.outcome IS NOT NULL
+                 AND NOT e.unscoreable
+                 AND b.provenance->>'persona_id' = $1
+                 AND (b.provenance->>'persona_version')::int = $2
+               ORDER BY b.created_at"#,
+            persona_id,
+            persona_version,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        let mut samples = Vec::with_capacity(rows.len());
+        let mut clv_bps = Vec::new();
+        for r in rows {
+            samples.push((r.p, r.outcome == 1));
+            if let Some(c) = r.clv_bps {
+                clv_bps.push(c);
+            }
+        }
+        Ok(ResolvedPersonaStats {
+            persona_id: persona_id.to_string(),
+            persona_version,
+            samples,
+            clv_bps,
+        })
     }
 
     /// Test hook proving the DATABASE guard refuses content mutation

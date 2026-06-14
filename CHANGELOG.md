@@ -228,13 +228,16 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Deferred
 
-- Daemon composition (slice 4): register `funding_forecast` + `perp_event_basis`
-  into the Sim runner and populate the latter's bracket catalog from the live
-  Kalshi market list (coordinate with track A — `daemon.rs`). F5–F9 (Aeolus
-  weather → belief) build on the scalar foundation. Marked pending, not done.
-  (Slices 1–2 + the slice-3/3b basis kernel + the perp_event_basis STRATEGY are
-  DONE; the `KalshiMarket` floor/cap DTO is NOT needed — the strategy holds its
-  own catalog.)
+- Live-market bracket catalog (slice 4e-future): populate `perp_event_basis`'s
+  bracket ladder from the live Kalshi market list instead of config (coordinate
+  with track A). NOT needed for composition — the strategy holds its own
+  config-supplied catalog (the `KalshiMarket` floor/cap DTO is unnecessary). The
+  daemon composition itself (slices 4b–4e: registration in `compose_runner` /
+  `daemon.rs`, the PerpTick injection seam, and the recorded Sim-soak feed) is
+  DONE and listed under Added above.
+- F5–F9 (Aeolus weather → belief) — ✅ LANDED (track-E, merged @bdea003): the
+  `aeolus_*` cognition modules (dedup / strict v2 parser / world-forward match /
+  propose-only emission / Brier+CRPS reliability) are on main. No longer deferred.
 
 ### Ingestion & data sources (fortuna-sources, Track D)
 
@@ -332,13 +335,14 @@ default — merged code activates zero ingestion until an operator opts in (see
 - OBS-2 — the loop-side funnel stages (`normalized` / `deduped` / `persisted`)
   and the `Arc<RwLock>` snapshot publish (fortuna-live); OBS-3 — `domain_tags`
   from the registry.
-- F4b — release-aware cadence (consume `next_run_at` + the GEFS release pattern).
+- F4b — release-aware cadence — ✅ LANDED (track-E, merged @0e20681): the scheduler
+  consumes `next_run_at` (band-clamped so an absurd hint can't break steady cadence).
 - F10 — Aeolus `source_registry` row + dossier finalization + v1→v2 fixture
   migration.
-- F5–F9 — these are cognition (Track C), not Track D: F5 dedup, F6 the strict
-  v2 μ/σ→p parser, F7 world-forward match, F8 belief→calibration→gates→sizing,
-  F9 the Layer-3 `source_reliability` scoring that V4 of the ROTA scorecard
-  depends on (until then V4 shows "insufficient data").
+- F5–F9 — ✅ LANDED (track-E, merged @bdea003; cognition, reassigned C→E): F5 dedup,
+  F6 the strict v2 μ/σ→p parser, F7 world-forward match, F8
+  belief→calibration→gates→sizing, F9 the Layer-3 `source_reliability` scoring the
+  ROTA scorecard depends on. No longer deferred.
 
 ### Domain-analysis personas (fortuna-cognition, Track E)
 
@@ -371,6 +375,130 @@ _Owned by Tracks A / B / C / E — see their entries below._
 Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
+
+### 2026-06-14 — Market-back discovery wired into the live daemon (`[discovery]`, opt-in) — amendment part 1b (completes the ingestion→beliefs amendment)
+
+**Added (default-OFF; extends part 1a).** Per the operator amendment + spec §5.12, a MARKET-BACK
+sub-step in `drive()`, placed BEFORE the synthesis edge-refresh: run the deterministic `prefilter`
+over the venue `catalog`, dedup already-edged listings (`current_edges_for_market`), normalize survivors
+via the same `Mind` (`market_back_discovery`; the §5.12 budget cap lives INSIDE it), persist each
+NEW-event draft as a canonical `events` row (`01EVT…`), and for each proposed edge card AUTO-CONFIRM the
+LOW-STAKES ones — `confirmed_by = "discovery:auto"` ⇒ `EdgeTier::Confirmed` ⇒ the synthesis arm prices it
+THIS SAME segment — while persisting HIGH-STAKES edges as PROPOSED (`confirmed_by = None`) and routing a
+`MessageKind::Review` alert to #fortuna-review. The auto-confirm boundary is EXACTLY spec §5.12:252
+(`high_stakes == mapping != Direct || deterministic_score < 1.0`; "deterministic checks score them;
+#fortuna-review confirms the high-stakes ones"). Auto-confirmed edges feed only BELIEFS — orders still
+cross the universal gate I1 (propose-only, I6).
+
+- **Extends** the part-1a `[discovery]` config (prefilter knobs: `category_allowlist`,
+  `min_volume_contracts`, `min_category_quality`) + `DiscoveryWiring` (`prefilter`, `catalog`,
+  `event_id_base`, `edge_id_base`). Edge-card event_ids resolve via a `new:{market_id}`
+  placeholder→minted-id map; an UNRESOLVABLE event_id alerts + skips (no dangling edge). No-panic
+  (match/let-else, `wrapping_add`); EXISTS-guarded event create; dedup re-run-safe.
+- **PROD GAP (T4.2/operator):** the daemon has no live venue catalog wired (`main.rs` sets
+  `catalog: Vec::new()`), so market-back is INERT in production (no mind call, no events/edges, no alert)
+  until the Kalshi adapter supplies a catalog. (World-forward (1a) is the prod-active signal→belief path
+  meanwhile.) Ledgered in GAPS.
+- **e2e (mutation-proven, the amendment's gate):** `discovery_market_back_auto_confirms_and_synthesis_
+  drafts_a_belief` supplies a test catalog (a real sim market with a book), scripts a StubMind
+  `NormalizationBatch` (Direct + matching source/horizon ⇒ deterministic 1.0 ⇒ auto-confirm), enables the
+  synthesis arm with a believing_mind on the DETERMINISTIC minted event_id, runs `drive()`, and asserts
+  ≥1 `events` row + a `confirmed_by='discovery:auto'` edge + a synthesis belief on that event — the full
+  signals/catalog→event→confirmed-edge→synthesis-belief chain. The synthesis belief CANNOT arise without
+  the auto-confirmed edge (compose asserts 0 edges; the edge arrives via the segment-1 refresh). MUTATION:
+  `discovery=None` ⇒ 0 events/edges/belief ⇒ RED (verified). code-architect blueprinted; code-reviewer
+  clean (no high-conf issues). Full battery green (test --workspace 1496/0; run-dst 200 0-violations).
+
+### 2026-06-14 — World-forward discovery wired into the live daemon (`[discovery]`, opt-in) — amendment part 1a
+
+**Added (default-OFF).** Per the operator amendment ("drive the ingestion→beliefs loops") + spec §5.12,
+a `[discovery]` opt-in WORLD-FORWARD step in `drive()`: each segment reads fresh signals
+(`SignalsRepo::recent_by_kind` over `signal_kinds`, within `window_hours`, capped at `max_signals`),
+turns them into `<context-item>` blocks, and hands them to one `world_forward_discovery` call (the §5.12
+daily cost cap + the unscoreable rule live INSIDE it). Each returned candidate is persisted as a `watch:`
+event (EXISTS-guarded — `EventsRepo::create` is a pure INSERT); the SCOREABLE candidates' beliefs fan out
+through the existing `persist_beliefs` path, attributed to a pre-built `StrategyId("world-forward")` (the
+I7 gate/scoring boundary). This is the path that makes ingested SIGNALS produce beliefs in production —
+no venue catalog needed. Sits after the persona step, before `route_alerts` (no synthesis-edge dependency).
+
+- **Boot loader (fail-closed):** the curated `SourceRegistry` is loaded ONCE at boot
+  (`SourceRegistryRepo::load_all`); an out-of-range `trust_tier` REFUSES to boot (no silent default). The
+  discovery `StrategyId` is built once at boot (no fallible id construction on the loop path). The
+  discovery mind is the same synthesis `Mind`. `DiscoveryWiring` owns the `DiscoveryBudget` across segments.
+- **No-panic / I6 / default-off:** the daemon block is match/let-else/filter_map throughout (no
+  unwrap/expect); data-only (signals → `watch:` events + beliefs, never orders); absent `[discovery]` /
+  `enabled=false` ⇒ `None` ⇒ the step never runs (all sibling `drive()` smokes pass `None`).
+- **e2e (mutation-proven):** `discovery_world_forward_persists_watchlist_events_and_beliefs` seeds a
+  scoreable registry source, inserts a signal, scripts a `StubMind` `WatchlistBatch` (one scoreable + one
+  unscoreable candidate), runs ONE `drive()` segment, asserts 2 `watch:` events + exactly 1 belief (the
+  unscoreable candidate's belief refused — "no beliefs nobody can grade"). MUTATION: `discovery=None` ⇒ 0
+  ⇒ RED (verified). code-architect blueprinted; code-reviewer clean (no high-conf issues). Full battery
+  green (test --workspace 1495/0; run-dst 200 0-violations). NEXT (amendment part 1b): market-back
+  (catalog→edges→synthesis) — extends this `[discovery]`/`DiscoveryWiring`; catalog-gated, see GAPS.
+
+### 2026-06-13 — Persona analysis step wired into the live daemon (`[personas]`, opt-in)
+
+**Added (default-OFF).** Per `docs/design/persona-live-wiring-handoff.md` (Track-E→Track-A
+handoff), a `[personas]` opt-in step in `drive()`: each segment reads the signals the
+loaded personas care about (`SignalsRepo::recent_by_kind` over the union of
+`reads_signal_kinds`, within `window_hours`, capped at `max_signals`), hands them to one
+`run_due_personas` call (§4 firewall + cost budget + schema validation live INSIDE it),
+and for each produced artifact persists a `domain_analyses` row (`01PAN…` id) + fans out
+binary beliefs through the existing `persist_beliefs` path (attributed to a single
+pre-built `StrategyId("domain-analysis")` — the I7 gate/scoring boundary). Mirrors the
+scalar-drain failure posture: any read/persist failure ALERTS (routed in-segment) and
+CONTINUES — never crashes the loop (persona analyses/beliefs are the calibration
+substrate, not the money path). The block sits between the scalar-drain block and
+`route_alerts`.
+
+- **Boot loader (fail-closed):** for each `[[personas.persona]]`, read `persona.md` +
+  `schema.json`, `PersonaDef::parse`, fetch the registry HEAD, and `validate_against` it
+  — a hash/version/status mismatch (or missing row) REFUSES to boot (a tampered method
+  never runs, §6). `PersonasWiring` bundle (pool, schedules, `PersonaScheduleState`,
+  `DiscoveryBudget`, the synthesis `Mind`, the pre-built strategy, knobs) owned across
+  segments like `ReviewWiring`. The persona strategy id is built ONCE at boot (no fallible
+  id construction on the loop path); the daemon block is no-panic (match/let-else/
+  filter_map throughout, no unwrap/expect).
+- **Default-off byte-identical:** absent `[personas]` or `enabled = false` ⇒ `None` ⇒ the
+  step never runs (proven by all 9 existing `drive()` smokes passing `None`).
+- **I6/§4 inherited:** the wiring only moves SIGNALS (untrusted data) + persists outputs;
+  the trusted method never enters this code; no order/size/price is emitted (DATA →
+  BeliefDrafts → the same universal gate, propose-only).
+- **e2e (mutation-proven):** `drive_persists_persona_analysis_and_beliefs_when_wired`
+  registers the shipped meteorologist, inserts an `aeolus.forecast` signal whose payload
+  yields a date-bearing region, scripts a `StubMind`, runs ONE `drive()` segment with the
+  wiring, and asserts 1 `domain_analyses` row + exactly 3 beliefs citing that `analysis_id`.
+  MUTATION: `personas = None` ⇒ 0 rows ⇒ RED (verified). Full battery green (test
+  --workspace 1491/0; run-dst 200 0-violations). Slice 3 (weekly-review promote/retire
+  verdict folding) deferred per the handoff — separable, not a blocker.
+
+
+
+**Fixed (live WS path).** `KalshiWsTransport::signed_request`
+(`crates/fortuna-venues/src/kalshi/ws_transport.rs`) hand-built the upgrade
+`Request<()>` with only the three KALSHI-ACCESS-* auth headers, relying on the
+false belief that tungstenite adds the standard WS upgrade headers. It does NOT
+for a pre-built request, so `connect_async` always failed
+`Protocol(InvalidHeader("sec-websocket-key"))` — the live socket never connected.
+Now `signed_request` starts from `ws_url.into_client_request()` (which generates
+`Sec-WebSocket-Key/Version`, `Upgrade`, `Connection`, `Host`) and layers the auth
+headers on top. This was invisible to unit tests ("no live socket in tests"); the
+operator-directed FIRST LIVE EXERCISE surfaced it.
+
+**Why.** Operator set the demo creds and directed the live handshake. Driving it
+caught a real defect that blocked every live WS connection.
+
+**Tests-first.** New regression `signed_request_carries_the_mandatory_websocket_
+upgrade_headers` (RED before the fix, GREEN after); the existing auth-header test
+is unchanged (not weakened). Protected crate untouched.
+
+**Live-proven (demo, READ-ONLY).** The signed handshake now returns "OK — 101
+upgrade, authenticated" against `wss://external-api-ws.demo.kalshi.co`. New
+operator-run tool `crates/fortuna-venues/examples/kalshi_ws_handshake.rs` —
+demo-only (hard-coded endpoints + a `contains("demo")` guard), read-only
+(`GET /markets` + orderbook subscribe, NO orders), secrets never printed. Residual:
+0 streamed frames in-window (only future-dated demo markets were open — no live
+book yet); the handshake + subscribe paths themselves work.
 
 ### 2026-06-13 — F16a: Kalshi cancel-reconcile hardened via the order list
 
@@ -786,7 +914,10 @@ with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
   envelope, with a data-driven `pill` column flag — reused by every ingestion board.
 - **V2 Sources Health** (`GET /api/rota/v1/ingest_sources`) — per-source health /
   polls / accepted / drop-by-reason / 304-rate / quarantines; surfaces the
-  AFD-firehose.
+  AFD-firehose. Now also the source_registry admission attributes **Domains**
+  (`domain_tags`, joined; honest null "—" when untagged) + **Tier** (`trust_tier`),
+  surfaced in `merge_ingest_views`'s `sources_board` after track-D's OBS-3 populated
+  them — "what this source is and how trusted", beside its counters.
 - **V1 Live Signal Feed** (`GET /api/rota/v1/ingest_feed`) — recent signals
   newest-first with their (redacted, esc()'d) data + accept/drop status pills.
 - **V3 Ingest Funnel** (`GET /api/rota/v1/ingest_funnel`) — the pipeline as a stage
@@ -860,6 +991,47 @@ with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
   snapshot byte-stable) and ROTA serves it via `read_view` — the handler never parses
   Prometheus text. Completes the operator's single-pane-of-glass across all six
   mission areas (cognition, pipeline, trades, discovery, DB, telemetry).
+- **Forecast Feed board — RICH scalar-belief feed** (`GET /api/rota/v1/forecast_feed`,
+  track-C §9.1 + the operator "completely see the belief and everything" want, 2026-06-13):
+  the recent scalar beliefs newest-first, each a click-to-expand `<details>` (the `/cognition`
+  belief-panel precedent). The SUMMARY line carries producer · event · q=0.5 median · unit ·
+  resolved/pending pill · → realized (honest null while pending); EXPAND reveals the WHOLE
+  quantile FAN (every q/v pair) + the producer's EVIDENCE (its work — e.g. estimate /
+  point_forecast / remaining_candles) + provenance. Reads `ScalarBeliefsRepo::recent`
+  (newest-first by ULID belief_id; NO ledger change). The live daemon wraps
+  `{"provenance":…,"evidence":…}` into the single `provenance` column (persist_scalar_beliefs)
+  — SPLIT back here (both-keys detection; a non-wrapped row is shown WHOLE as provenance, never
+  partially nulled). UNTRUSTED-DATA BOUNDARY (spec 5.11): `clean_quantiles` reads only the
+  numeric q/v (malformed entries dropped, never raw-rendered); evidence + provenance are
+  `truncate_evidence` size-capped and JSON-`esc()`'d — rendered as DATA, never interpreted. The
+  scalar companion to the binary `/cognition` panel; completes §9.1's two halves (scorecard +
+  rich feed). Screenshot-verified with real rows
+  (`docs/reviews/rota-visual/rota-forecast-feed-rich-2026-06-13.png`).
+- **Forecasts scorecard — band coverage** (§9.1 calibration metric): the Forecasts
+  scorecard gains a quantile-band coverage column — per (producer, rule), the fraction
+  of resolved forecasts whose realized outcome fell inside the 0.1–0.9 band (a
+  well-calibrated producer ≈ 80%). Reads only the q0.1/q0.9 boundary numbers from the
+  fan for the band check (the raw fan stays unexposed); a missing quantile degrades
+  honestly to not-covered. Mean CRPS + coverage are now the two calibration measures.
+- **Domain Analyses board — belief fanout** (§20.2): the Analyses board gains a
+  `beliefs` column counting how many beliefs were built from each analysis
+  (`beliefs.provenance ->> 'analysis_id'`) — the cognition pipeline's downstream
+  output per artifact. A correlated `COUNT(*)` (no content exposed; the untrusted-data
+  boundary holds). The full per-belief expander remains a follow-on.
+- **Persona Pipeline board** (`GET /api/rota/v1/persona_pipeline`, track-E §20.4) — per
+  persona, the cognition pipeline funnel: analyses produced → beliefs fanned out →
+  beliefs resolved, over the persona-registry universe (a LEFT-JOIN aggregate; an idle
+  persona reads honest 0s). The conversion at each stage is the pipeline-health signal.
+  Counts only — no content exposed. (Universe is the registry: a persona attributed but
+  not registered is omitted — it still appears in the scorecard.)
+- **Cognition board — provenance legibility** (§20.3 / mission item 1): the per-belief
+  expander now renders a LABELED one-line provenance summary (`persona id@version ·
+  model · cost · analysis · run`) above the raw JSON dump — "which source/persona drove
+  this belief," the reasoning made legible. A `provenance_summary` handler helper
+  extracts the known keys into an additive `prov` field; the JS escapes every value.
+  Pure JSONB field-extraction for display (no cognition computation); the whole
+  provenance is still served. Cross-references the Personas/Analyses boards via the
+  surfaced persona_id/analysis_id.
 - **Strategy P&L board** (`GET /api/rota/v1/strategies`, mission item 3 "realized
   PnL per strategy") — per-strategy realized PnL / fees / fills / open exposure,
   shaped daemon-side from `runner.digest_snapshot()` (the same attribution the

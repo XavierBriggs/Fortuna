@@ -165,6 +165,24 @@ pub fn aeolus_claimed_time(signal: &RawSignal) -> Option<UtcTimestamp> {
     UtcTimestamp::parse_iso8601(raw).ok()
 }
 
+/// Extract the advertised next-forecast-run time from an Aeolus signal, the
+/// OPT-IN release hint for the Layer 1 release-aware cadence (F4b, contract
+/// §3.4). For a forecast that is `next_run_at` — the FUTURE time at which Aeolus
+/// will publish the next run (e.g. the next GEFS cycle ~6h out). The scheduler
+/// uses it to schedule the next poll JUST AFTER that publish, so FORTUNA arrives
+/// right after Aeolus refreshes instead of polling blind. Aeolus times are
+/// RFC3339 with an offset; `UtcTimestamp` normalizes them to UTC. Returns `None`
+/// for the wrong kind / a missing field / an unparseable value — and the
+/// scheduler then falls back to the steady config interval for that poll (never
+/// a panic; an absent hint simply means "no release-aware adjustment").
+pub fn aeolus_next_run_at(signal: &RawSignal) -> Option<UtcTimestamp> {
+    if signal.kind != AEOLUS_FORECAST_KIND {
+        return None;
+    }
+    let raw = signal.payload.get("next_run_at").and_then(Value::as_str)?;
+    UtcTimestamp::parse_iso8601(raw).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -252,6 +270,48 @@ mod tests {
             received_at: ts(0),
         };
         assert!(aeolus_claimed_time(&no_field).is_none());
+    }
+
+    // --- next-run-at extraction (F4b release-aware cadence hint, §3.4) ----
+
+    #[test]
+    fn next_run_at_reads_next_run_at_field() {
+        let s = &parse(TMAX, ts(0)).unwrap()[0];
+        // Fixture next_run_at is 2026-06-13T06:00:00+00:00 == ...Z (the next
+        // advertised GEFS run, ~6h after run_at).
+        let got = aeolus_next_run_at(s).expect("forecast has a next_run_at");
+        assert_eq!(
+            got,
+            UtcTimestamp::parse_iso8601("2026-06-13T06:00:00Z").unwrap()
+        );
+    }
+
+    #[test]
+    fn next_run_at_is_none_for_wrong_kind_or_missing_field() {
+        // Wrong kind -> None even with a next_run_at present.
+        let other = RawSignal {
+            kind: "nws.afd".into(),
+            payload: serde_json::json!({"next_run_at": "2026-06-13T06:00:00+00:00"}),
+            received_at: ts(0),
+        };
+        assert!(aeolus_next_run_at(&other).is_none());
+        // Missing field -> None (opt-in: no hint, no behavior change).
+        let no_field = RawSignal {
+            kind: AEOLUS_FORECAST_KIND.into(),
+            payload: serde_json::json!({"run_at": "2026-06-13T00:00:00+00:00"}),
+            received_at: ts(0),
+        };
+        assert!(aeolus_next_run_at(&no_field).is_none());
+    }
+
+    #[test]
+    fn next_run_at_is_none_for_unparseable_value() {
+        let bad = RawSignal {
+            kind: AEOLUS_FORECAST_KIND.into(),
+            payload: serde_json::json!({"next_run_at": "not-a-timestamp"}),
+            received_at: ts(0),
+        };
+        assert!(aeolus_next_run_at(&bad).is_none());
     }
 
     // --- full Source::fetch path through a scripted transport ------------

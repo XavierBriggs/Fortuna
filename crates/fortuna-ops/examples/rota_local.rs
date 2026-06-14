@@ -158,10 +158,12 @@ async fn seed(pool: &PgPool) -> Result<(), BoxErr> {
     let prov_plain = json!({
         "model_id": "emos-sar-semos-v3", "run_at": "2026-06-12T18:05:00.000Z", "cost_cents": 1
     });
+    // analysis_id points at the seeded KNYC2 domain-analysis so the Analyses board's
+    // belief-fanout column shows this analysis produced a downstream belief (§20.2).
     let prov_persona = json!({
         "model_id": "claude-sonnet-4-6", "run_at": "2026-06-12T18:06:30.000Z", "cost_cents": 2,
         "persona_id": "meteorologist", "persona_version": 3,
-        "analysis_id": "01J0ANALYSIS000000000NYC",
+        "analysis_id": "01J0ANALYSIS000KNYC2",
         "analysis_content_hash": "a1b2c3d4e5f6a7b8"
     });
 
@@ -508,17 +510,38 @@ async fn seed(pool: &PgPool) -> Result<(), BoxErr> {
     .iter()
     .enumerate()
     {
+        // Unit-appropriate quantile fan so the Forecast Feed's median reads sensibly
+        // against the realized outcome (a rate forecast ~0.0001; a celsius one ~29).
+        let fan = if *unit == "rate" {
+            json!([{"q":0.1,"v":0.00005},{"q":0.5,"v":0.0001},{"q":0.9,"v":0.00018}])
+        } else {
+            json!([{"q":0.1,"v":24.0},{"q":0.5,"v":29.0},{"q":0.9,"v":34.0}])
+        };
+        // The provenance column is the live daemon's wrapper {"provenance":…,
+        // "evidence":…} (persist_scalar_beliefs) — the producer's WORK lives under
+        // "evidence", which the rich Forecast Feed expander surfaces. Unit-appropriate.
+        let (event_key, prov) = if *unit == "rate" {
+            (
+                "KXBTCPERP1:2026-06-13T16:00:00Z",
+                json!({"provenance": {}, "evidence": {"estimate":"0.0001","point_forecast":"0.0001","remaining_candles": 40 + i as i64}}),
+            )
+        } else {
+            (
+                "KNYC:tmax:2026-06-13",
+                json!({"provenance": {}, "evidence": {"model":"aeolus-emos","station":"KNYC","lead_hours": 24}}),
+            )
+        };
         warn_seed(
             "scalar.belief",
             scalars
                 .insert(
                     id,
                     producer,
-                    "ev-key",
-                    &json!([{"q":0.1,"v":0.0},{"q":0.5,"v":0.0001},{"q":0.9,"v":0.0003}]),
+                    event_key,
+                    &fan,
                     unit,
                     "2026-06-13T16:00:00.000Z",
-                    &json!({"strategy": producer}),
+                    &prov,
                     "2026-06-13T15:00:00.000Z",
                 )
                 .await,
@@ -542,6 +565,23 @@ async fn seed(pool: &PgPool) -> Result<(), BoxErr> {
                 .await,
         );
     }
+    // A PENDING forecast (no realized value yet) so the Forecast Feed shows the
+    // resolved-vs-pending mix — the "did the vendor call it" detail (newest-first).
+    warn_seed(
+        "scalar.belief.pending",
+        scalars
+            .insert(
+                "01J0SB0000000000PEND1",
+                "aeolus_weather",
+                "KNYC:tmax:2026-06-14",
+                &json!([{"q":0.1,"v":80.0},{"q":0.5,"v":86.0},{"q":0.9,"v":92.0}]),
+                "celsius",
+                "2026-06-14T16:00:00.000Z",
+                &json!({"provenance": {}, "evidence": {"model":"aeolus-emos","station":"KNYC","lead_hours": 18, "ensemble_members": 31}}),
+                "2026-06-13T17:30:00.000Z",
+            )
+            .await,
+    );
 
     // A few executed fills for the Recent Fills board (raw INSERT — the fills
     // table is a plain append-only row table; the dashboard reads it read-only).
@@ -761,6 +801,8 @@ fn representative_views(generated_at: &str) -> Value {
             "generated_at": generated_at,
             "columns": [
                 { "key": "source_id", "label": "Source" },
+                { "key": "domains", "label": "Domains" },
+                { "key": "trust_tier", "label": "Tier" },
                 { "key": "health", "label": "Health", "pill": true },
                 { "key": "last_ok_age_s", "label": "Last OK" },
                 { "key": "polls", "label": "Polls" },
@@ -773,15 +815,18 @@ fn representative_views(generated_at: &str) -> Value {
                 { "key": "next_due_at", "label": "Next due" },
             ],
             "rows": [
-                { "source_id": "nws_alerts", "health": "healthy", "last_ok_age_s": 12,
+                { "source_id": "nws_alerts", "domains": "weather", "trust_tier": 1,
+                  "health": "healthy", "last_ok_age_s": 12,
                   "polls": 420, "accepted": 58, "dropped_future": 3, "dropped_republished": 11,
                   "dropped_over_volume": 0, "empty_rate_pct": 86, "quarantines": 0,
                   "next_due_at": "2026-06-13T12:35:30Z" },
-                { "source_id": "nws_afd", "health": "degraded", "last_ok_age_s": 340,
+                { "source_id": "nws_afd", "domains": "weather", "trust_tier": 2,
+                  "health": "degraded", "last_ok_age_s": 340,
                   "polls": 140, "accepted": 12, "dropped_future": 0, "dropped_republished": 2,
                   "dropped_over_volume": 171, "empty_rate_pct": 52, "quarantines": 1,
                   "next_due_at": "2026-06-13T12:36:00Z" },
-                { "source_id": "aeolus_forecast", "health": "healthy", "last_ok_age_s": 48,
+                { "source_id": "aeolus_forecast", "domains": "weather", "trust_tier": 1,
+                  "health": "healthy", "last_ok_age_s": 48,
                   "polls": 96, "accepted": 96, "dropped_future": 0, "dropped_republished": 0,
                   "dropped_over_volume": 0, "empty_rate_pct": 0, "quarantines": 0,
                   "next_due_at": "2026-06-13T12:40:00Z" },

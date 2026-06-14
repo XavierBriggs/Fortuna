@@ -1,7 +1,9 @@
 # GATE FINDINGS — latest (verifier-owned; every track reads this at priority (a))
 
-State as of 2026-06-13, main @ 2809aea (track-C scalar/perp plane just merged —
-GATE ACCEPT; see LATEST below). Main integrity GREEN on the merged tree: fmt +
+State as of 2026-06-13, main @ 0af2758 (docs freshened; tracks A / B / E all DONE/merged; track-C
+demo-flip Phase 1+2 is GATE-BLOCKED pending a rebase — its protected-crate change is pre-cleared
+add-only, but its drive() conflicts structurally with track-a's ingestion wiring; see LATEST; the
+durable integrity claims here were gate-proven at each entry's merge). Main integrity GREEN on the merged tree: fmt +
 check --workspace --all-targets clean, the full scalar surface battery green
 (cognition scoring 54 / scalar_beliefs 4; core perp 41 / funding_window 13 /
 bus 24 / DST 4 corpus + 2000 random, 0 violations; ledger DB ledger 27 /
@@ -12,6 +14,254 @@ coordination surface; the verifier rewrites it — tracks ACT on it and
 ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-13, cont'd — verifier loop pass)
+
+- **⛔ TRACK C — DEMO-FLIP PHASE 2 GATE BLOCK (stale-base integration; NOT a code defect).**
+  track-c @8d11b43 (`compose_kalshi_runner` + `ActiveRunner` + boot gate, Stage::Paper) is correct
+  on its base, but it was built BEFORE track-a's ingestion wiring merged, so it cannot merge to
+  current main as-is. Main UNCHANGED @0af2758 (merge aborted; nothing landed).
+  - **Protected crate PRE-CLEARED ✅ (verified line-by-line; track-C does NOT redo this):**
+    `i7_promotion_gates.rs` is ADD-ONLY — 3 new I7 tests (SimRunner::new STILL refuses Paper;
+    `new_with_venue` opens Paper ONLY via the explicit `&[Sim,Paper]` allowlist; the Paper allowlist
+    STILL refuses LiveMin/Scaled) + one mechanical `faults→Option` adaptation in the NON-assertion
+    `runner_config()` helper. No assertion weakened — the operator-waive is legitimate.
+  - **THE BLOCK = `drive()` structural conflict.** track-c's `drive()` takes `&mut ActiveRunner`
+    (venue-generic); main's takes `&mut SimRunner` + the `personas`/`discovery` ingestion params
+    (track-a). One 386-line conflict hunk = the two `drive()` bodies don't align; a mechanical splice
+    on the safety-critical composition is unsafe, AND it needs a design call.
+  - **TRACK C — REQUIRED (rebase + reconcile, then re-push; I re-gate the clean result):** merge
+    current main (@0af2758) into your branch and resolve `drive()`: (1) merge the signature —
+    `runner: &mut ActiveRunner` PLUS the `personas`/`discovery` params; (2) add 2 `ActiveRunner`
+    delegations — `digest_snapshot` + `positions` (the ingestion blocks call them;
+    `apply_external_alert`/`counters` already delegate); (3) union the body (keep the persona +
+    discovery loops + your `route_alerts` method form); (4) **DESIGN CALL: decide whether the
+    ingestion/persona loops run under the `ActiveRunner::Kalshi` arm** — they're opt-in/default-off,
+    so the conservative default is "yes, gated by config." Re-run the full battery + DST.
+  - **UPDATE — track-c pushed `a9a5cda` ON THE STALE BASE (not a rebase).** It adds the triage
+    mutation-coverage follow-ons (fractional-cost ceil + malformed-path budget debit — GOOD, this
+    closes the 2 non-blocking gaps from the 3-tier ACCEPT), but stacked on the blocked demo-flip, so
+    the daemon.rs `drive()` conflict PERSISTS and the branch is still unmergeable. **TRACK C: STOP
+    adding commits on the stale base — the REBASE is the gate (a BLOCK preempts your queue).** The
+    follow-ons are NOT lost; they ride the rebase and I gate the whole stack once `drive()` is
+    reconciled. (The triage follow-ons are disjoint cognition changes — they verify fine; they're
+    just trapped behind the demo-flip conflict until you rebase.)
+
+- **✅ SWEEP PASS — two small GATE ACCEPTs (a/b/e now all DONE):**
+  - **TRACK B OBS-3** (ROTA Sources Health: domain_tags + trust_tier) → main @ 072f9a1. Read-only
+    view enrichment (tags/tier are source_registry admission = system config, NOT untrusted data;
+    honest-null when untagged). live views 14 + ops rota 45 green; mutation-proven (domains→Null
+    reds sources_board_domains_join_and_are_honest_null_when_untagged); invariants UNTOUCHED.
+    **Closes OBS-3.**
+  - **TRACK E F4b** (Aeolus release-aware cadence) → main @ 0e20681. The ingestion scheduler polls
+    just AFTER an advertised release (next_run_at + lead), band-clamped (past→floor, far→cap) so an
+    absurd hint can never break the steady cadence; opt-in/default-off (None keeps steady cadence
+    byte-for-byte); PURE cadence (no clock read), Clock-injected scheduler, I2-spirit quarantine.
+    sources 131+5 green; mutation-proven (drop the band-clamp → past/far tests red); invariants
+    UNTOUCHED. **Remaining F-track: F10** (registry row + Layer-0 dossier).
+  - **STATUS: tracks A, B, E are merged + 0-ahead (DONE).** Only track-C is active — demo-flip
+    Phase 1 (SimRunner<V> generalization) DONE/ready @ 4-ahead; its gate is the next item.
+
+- **✅ TRACK B ROTA RICH SCALAR-BELIEF BOARD MERGED → main @ eb38d58 = GATE ACCEPT** — and this
+  **RESOLVES the prior OPEN-for-track-B §9.1 note** (the forecast feed showed median+realized
+  only). Forecast rows are now click-to-expand to the WHOLE quantile FAN (q/v) + the producer's
+  EVIDENCE + provenance — "see the belief and everything." Read-only ops change; clean merge;
+  invariants UNTOUCHED.
+  - DISCIPLINE confirmed by reading: READ-ONLY (degrades to HTTP 200 without the pool; NO mutating
+    endpoint); **UNTRUSTED DATA (spec 5.11) held** — the fan/evidence/provenance are model+venue
+    output, rendered as ESCAPED DATA never interpreted; malformed quantiles dropped
+    (`clean_quantiles`); evidence size-capped (`truncate_evidence`).
+  - BATTERY GREEN: compiles + fmt + clippy -D warnings (ops); fortuna-ops/rota suite incl.
+    forecast_feed_surfaces_recent_scalar_beliefs_richly + cognition_truncates_evidence_over_4kb.
+  - MUTATION-PROVEN: `clean_quantiles` → empty fan reds forecast_feed_surfaces_recent... .
+  - track-B's ready queue looks EXHAUSTED at this tranche (stall-watch was idle-not-hung).
+    Remaining ROTA: T4.5 deferred panels + OBS-2/2c/3 (funnel snapshots / read wiring / domain
+    tags) + the A10 perp-CDF DISPLAY half (when track-C's basis-v2 produces the diagnostics).
+
+- **✅ TRACK A INGESTION→BELIEFS WIRING + Kalshi WS handshake fix MERGED → main @ 0e20efe =
+  GATE ACCEPT.** drive() now DRIVES the opt-in discovery loops (world_forward + market_back:
+  signal→event→edge→belief) + run_due_personas (the persona step) — the wiring that unstarves
+  5 of 6 edge-source families. Gated on the merged tree; track-a built pre-3-tier, so the
+  verifier INTEGRATED (no track-a logic changed): resolved the 1 main.rs conflict to KEEP the
+  Mid-tier reconciliation (3-tier) + KEEP track-a's additive persona/discovery wiring, and
+  threaded the triage arg (AlwaysAccept, the neutral default) through track-a's 3 new
+  compose_runner call sites.
+  - DISCIPLINE confirmed by reading: default-OFF / opt-in (Option=None → byte-identical daemon;
+    `enabled` flag); **I6 DATA-ONLY** (loops persist beliefs/events/edges/domain_analyses — NO
+    order path; orders stay on propose→gate→exec); fail-closed persona loading (validate_against
+    — a tampered method refuses to boot); budget-railed (DiscoveryBudget). Kalshi WS fix =
+    RFC-6455-correct handshake (tungstenite IntoClientRequest base + KALSHI-ACCESS-* auth
+    headers; fixes a real InvalidHeader("sec-websocket-key") failure), regression-tested, NO
+    invented venue behavior.
+  - BATTERY GREEN (full merged tree = C triage + E aeolus + A wiring): compiles + fmt + clippy
+    -D warnings (live+venues); fortuna-live FULL suite incl. track-a's 3 wiring integration tests
+    (persona→analyses+beliefs / world-forward→events+beliefs / market-back→confirm+belief);
+    fortuna-venues WS regression test; ALL invariants I1-I7 + i6_persona + perp_i; DST 5 corpus +
+    2000 random, 0 violations.
+  - MUTATION-PROVEN: invert the world-forward exists-guard →
+    discovery_world_forward_persists_watchlist_events_and_beliefs red (the wiring is non-vacuous).
+  - ⚙️ **OPERATOR: the wiring is OPT-IN + default-off.** To PRODUCE from the non-funding sources,
+    enable `[discovery]`/`[personas]` in config (+ ANTHROPIC_API_KEY for a live synthesis mind)
+    and feed the ingestion source loop (D10 seam) — that closes signal→belief→edge for the
+    starved families. Today's running soak (old binary) still produces nothing until rebuilt.
+
+- **✅ TRACK E AEOLUS F5–F9 (weather→belief pipeline) MERGED → main @ bdea003 = GATE ACCEPT.**
+  A **SECOND real edge source** beyond funding_forecast: recorded Aeolus forecast → strict-parsed
+  (F6) → identity dedup (F5) → world-forward market match (F7) → **PROPOSE-ONLY** weather beliefs
+  (F8: binary brackets + a scalar μ/σ fan) → Brier+CRPS reliability scoring (F9) vs realized temp.
+  All-new disjoint `aeolus_*` cognition modules; the **invariants crate + C's perp/discovery files
+  UNTOUCHED** — exactly the disjoint build the ownership split directed. Clean merge.
+  - BATTERY GREEN (merged tree = track-C triage + track-E aeolus): compiles + fmt + clippy
+    -D warnings (cognition+ledger); 36 aeolus tests (forecast 18 / beliefs 7 / dedup 5 /
+    reliability 4 / match 1 / ledger e2e 1); FULL cognition suite (no regression); ALL invariants
+    I1-I7 + i6_persona + perp_i; DST 5 corpus + 2000 random, 0 violations.
+  - MUTATION-PROVEN 3/3: accept σ≤0 → sigma-rejection red; drop the −0.5 continuity correction →
+    bracket-math red; disable the schema-version pin → unknown-schema red.
+  - Discipline: F6 strict untrusted-data parser (deny_unknown_fields on every struct + renamed
+    enums + schema pin + σ>0, spec 5.11); F8 propose-only (I6 — emits BeliefDraft/ScalarBeliefDraft,
+    no order/size/price/side; recomputes FORTUNA's OWN p, Aeolus's p a cross-check DATUM);
+    f64-forecast never money; no panic/unwrap; replay-pinned A&S erf CDF + quantile grid (I5).
+  - **TRACK E — remaining F-track: F4b (release-aware cadence) + F10 (registry row + Layer-0
+    dossier)** — deferred refinements; the weather edge source itself is LANDED.
+
+- **✅ TRACK C 3-TIER COGNITION COMPLETE (Anthropic Haiku triage mind + daemon wiring)
+  MERGED → main @ ff6a165 = GATE ACCEPT.** The triage tier now runs a REAL cheap Haiku mind
+  (`AnthropicTriageMind`) gating the expensive synthesis tier — completing synthesis=Opus /
+  reconciliation=Sonnet / triage=Haiku as THREE real minds (the seam was wired before; this
+  plugs in the model). Gated on the MERGED tree (main + 0a62943), NOT the branch tip:
+  track-c branched before main's persona/ledger/rota/i6-pin work, so I rebuilt the union;
+  merge auto-clean (GAPS/CHANGELOG, no conflicts).
+  - FULL BATTERY GREEN (merged tree): fmt + clippy -D warnings (cognition+live, injected
+    `triage` param consumed); cognition ~290 tests / 28 binaries (NO regression in main's
+    persona/scoring code track-c never built against); ALL invariants I1-I7 + i6_persona +
+    i6_propose_only_mind + perp_i1/i2/i3 (I6 holds — triage returns a verdict, never an
+    order); fortuna-live daemon_smoke 17 (wiring e2e over Postgres); DST 5 corpus + 2000
+    random, 0 violations, and synthesis-dst (the now triage-gated loop) survives 2000
+    cognition-chaos seeds.
+  - MUTATION-PROVEN 4/4 (green is non-vacuous): swap verdict → both verdict tests red;
+    coerce malformed escalate→false → malformed-surfaces test red; ignore budget breach →
+    budget-exhausted test red; Declined falls through → decline-skips-the-frontier-mind
+    test red.
+  - Discipline: spec-5.11 untrusted-data charter + render (every signal block is DATA,
+    never an instruction), Clock injected (no SystemTime), no panic/unwrap/expect, secret
+    reaches only the transport (logs print model NAMES), budget check-before/spend-after.
+  - ⚙️ **TRACK C — 2 NON-BLOCKING test-hardening follow-ons** (behavior is correct + already
+    mutation-proven; tighten when convenient, ledger in GAPS): (1) the cost-CEIL is not
+    pinned by a fractional-token case (the test uses exact 1.0/5.0 divisors, so a floor
+    mutation would not red) — add a fractional-token cost vector; (2) no test asserts the
+    budget DEBIT on the malformed-output path (the impl is correct — `record_spend` precedes
+    the parse, so the spend books even when the verdict errors) — add that assertion.
+
+- **📋 TRACK C — slice-3b-v2 SPEC LEDGERED (operator-endorsed perp amendments, 2026-06-13).
+  A SPEC directive, NOT a gate verdict — nothing new merged.** The endorsed amendments are now
+  the BINDING design for the perp_event_basis TRADER v2 + funding_forecast scoring, written into
+  `docs/design/perp-strategies-and-scalar-claims.md` **§3.3** (basis-v2) and **§2.6**
+  (funding_forecast scoring). **TRACK C OWNS IT.** Summary:
+  - **§3.3 basis-v2** (the next rung beyond the DONE/merged rung-0 median-basis): A3 per-bracket
+    fair-prob `q_j` (not a median) on a BRTI/reference anchor (A6, + stale-feed veto), horizon-
+    gated (A5: direct ≤4h / vol-adj 4–48h / disabled >48h), per-bin EV gate with maker adverse-
+    selection (A4+A8: `EV_j = q_j − ask_j − fee − slippage − reserve − adverse_j > threshold`),
+    MEASURED perp-informativeness not assumed (A7), ladder no-arb validation (A9), median →
+    health metric + full-CDF diagnostics (A10 — **C produces the numbers, B DISPLAYS them** via
+    ROTA §9.2).
+  - **§2.6 funding_forecast scoring**: 7 quantiles {0.05,.10,.25,.50,.75,.90,.95} (A2b); must
+    BEAT baselines — above all the venue-estimate-carried-forward — or stay DATA-ONLY (A2d).
+  - RUNG-0 IS UNTOUCHED (merged, demo-validated). v2 is ADDITIVE, propose-only/unsized/Sim
+    (I6/I7 preserved), every veto = propose nothing; the kernel/strategy degrade to the rung-0
+    fallback on degenerate/stale input. Build order in §3.3.
+  - **SEQUENCING — OPERATOR INPUT WANTED:** §5 recommends v2 BEHIND the Kalshi demo-flip in C's
+    queue (demo-flip unblocks live observability of already-producing funding_forecast; v2
+    deepens a non-live-capital Sim strategy whose rung-0 is already merged, so it gates nothing
+    live). **TRACK C: do NOT start v2 until the demo-flip lands unless the operator reorders;**
+    ledger your build response in GAPS as usual. Verifier will gate v2 slice-by-slice (§3.3
+    order), mutation-proven, when built.
+
+- **TRACK C 3-TIER COGNITION (ModelRegistry + synthesis/reconciliation/triage tiering)
+  MERGED → main @ 58f80e7 = GATE ACCEPT.** The model-tiering: synthesis=Opus,
+  reconciliation moved OFF Opus → mid=Sonnet, triage=Haiku (real CognitionSection
+  fields + ModelRegistry::model(tier)). boot 14 + daemon_smoke 17 green; MUTATION-
+  PROVEN tiers distinct (map Mid→synthesis → model_registry_maps_each_tier reds —
+  reconciliation can't silently fall back to Opus). Budgets/I6 intact; misspelled
+  key drops to tier default (guarded). Reconciliation is now ~5× cheaper (Sonnet $15
+  vs Opus $25 out) without touching the deep synthesis tier.
+
+- **🔀 F5–F9 (Aeolus weather→belief) REASSIGNED C → E (operator-directed 2026-06-14).**
+  C is busy (perps + demo-flip Phases 2-3 + model-tiering). E owns the WEATHER domain
+  (the meteorologist persona), so it's the natural owner — consolidates weather under E.
+  **TRACK C: F5–F9 is NO LONGER YOURS — do NOT start it. Stay on perps (slice-3b
+  trader, demo-flip, model-tiering) + the discovery cognition logic (discovery.rs).**
+  **TRACK E: F5–F9 is yours** — build as NEW disjoint fortuna-cognition modules (the
+  Aeolus belief pipeline); do NOT touch C's perp/discovery files; REUSE C's
+  prob_claims/v1 scoring + scalar_beliefs foundation; consume the committed AeolusSource
+  (D's F3) output. (Supersedes the TRACK STRUCTURE "F5–F9 ASSIGNED HERE [C]" below.)
+
+- **OWNERSHIP (operator-confirmed 2026-06-14): the daemon INGESTION→BELIEFS WIRING
+  is TRACK A's.** main.rs/compose_runner is a 3-way collision hotspot; consolidating
+  the daemon-loop composition under track-A (who owns main.rs). SPLIT: **A** drives
+  the loops in drive() — (1) the discovery loops (world_forward/market_back →
+  events/edges → wakes synthesis) + (2) run_due_personas (persona handoff, already
+  started @d03471b); both opt-in/default-off, Mind-budget-railed, I6 data-only.
+  **C** owns the cognition LOGIC (discovery.rs) + the PERP producers (funding_forecast
+  / perp_event_basis / slice-3b / F5-F9-perps-no). **E** owns the persona brain + the
+  WEATHER domain — INCLUDING F5–F9 (Aeolus→belief), REASSIGNED from C → E 2026-06-14
+  (operator-directed; C is busy on perps + demo-flip). C/E: STOP editing main.rs
+  composition — hand entry points to A. WHY THIS MATTERS: turning on [ingestion] alone produces NOTHING — signals
+  persist but nothing drives signal→event→edge or the persona loop, so synthesis +
+  personas stay starved. This wiring is what makes 5 of the 6 built strategy
+  families actually FIRE. Verifier gates A's wiring end-to-end (ingestion → beliefs
+  persist, mutation-proven; default-off byte-unchanged).
+
+- **TRACK B ROTA tranche (recent-scalar-belief forecast feed + persona/cognition
+  boards) MERGED → main @ d481a0e = GATE ACCEPT.** /api/rota/v1/forecast_feed
+  (recent scalar forecasts: producer, event_key, unit, q=0.5 MEDIAN, realized,
+  newest-first) + Forecasts band-coverage + Domain-Analyses fanout + Persona
+  Pipeline funnel + cognition provenance-legibility. rota 45 green; MUTATION-PROVEN
+  (drop forecast_feed rows → forecast_feed_lists_recent_forecasts_with_outcomes
+  reds). READ-ONLY; untrusted-data boundary held (raw fan + provenance not rendered).
+  ⚠️ **OPEN for TRACK B (request-completeness, not a blocker):** track-C's §9.1
+  request was to "completely see the belief — the FAN + evidence + provenance."
+  This feed shows median+realized (past a count/CRPS-only) but NOT the full fan or
+  provenance/evidence. funding_forecast's evidence is STRUCTURED recorded data, so
+  a safe-escaped full-belief inspector would close the operator's "see everything"
+  ask. Ledgered.
+
+- **PERSONA-LIVE-INTEGRATION (5 slices: persona live-loop wiring + I6 persona pin)
+  MERGED → main @ f236b6a = GATE ACCEPT.** The persona producer's live-loop
+  (run_due_personas orchestrator emitting order-free PersonaOutcome DRAFTs;
+  SignalsRepo::recent_by_kind read-back; belief_horizon; weekly-review verdict
+  folding). **PROTECTED-CRATE ADDITION (legal):** new i6_persona_propose_only.rs
+  ONLY (+141/0 del, no existing invariant test touched — verified) pins the
+  PersonaOutcome surface AND domain_analyses table to an exact ORDER-FREE field
+  set. MUTATION-PROVEN (serialize cost_cents as forbidden max_price_cents → the
+  surface test reds). persona_runner 12; ledger SignalsRepo 28+ + persona_e2e +
+  scalar_beliefs green; i1+i6(mind+persona)+i7 green. 3-way preserved the perp
+  pipeline. (Merged committed tip 927ecbd; wt-e's uncommitted ledger WIP excluded.)
+
+- **🎯 TRACK C SLICE-4d+4e (belief PERSISTENCE + Sim-soak PerpTick FEED) MERGED →
+  main @ 95799cc = GATE ACCEPT. THE belief-production path is now on main.** A
+  RECORDED perp tick drives a producer to emit a scalar belief that PERSISTS to
+  Postgres. 4d: drive() drains pending scalar beliefs → persist_scalar_beliefs →
+  append-only scalar_beliefs (FK-correct, monotonic; persist-fail alerts non-fatal;
+  binary path byte-unchanged A3). 4e: perp_feed::PerpTickFeed replays the RECORDED
+  92KB kinetics capture (ws__public_orderbook_ticker.jsonl) — RECORDED DATA ONLY,
+  malformed frame = hard error, never fabricated. daemon_smoke 17 incl. the e2e
+  (recorded PerpTick → funding_forecast → drain → persisted row); MUTATION-PROVEN
+  (skip the persist → e2e reds "got 0"). Clock-injected, I6 intact, post-merge
+  check --workspace clean. >> TO ACTIVATE A PRODUCING SOAK: operator enables
+  [funding_forecast] with ticker_feed_jsonl (the fixture or live recorder
+  captures) + restarts the daemon → beliefs persist + ROTA cognition lights.
+
+- **TRACK C SLICE-4c (register perp producers into the daemon) MERGED → main @
+  72adb7a = GATE ACCEPT.** opt-in [funding_forecast]/[perp_event_basis] sections
+  compose the two perp strategies into compose_runner (additive, same gate path
+  I1). FAIL-CLOSED + additive MUTATION-PROVEN (force always-register → composes_
+  perp_strategies_only_when_configured reds); sim byte-unchanged when absent. I6
+  intact (funding_forecast proposes nothing; perp_event_basis propose-only).
+  boot 14 + daemon_smoke 16; post-merge check --workspace clean.
+  ⚠️ **HONEST: this is the COMPOSITION, not the data feed — both strategies are
+  INERT in pure-sim until PerpTicks are injected (4b seam) + a real market catalog
+  (4e). It does NOT by itself make the soak produce beliefs.** The PERP-FEED
+  sub-slice (recorder captures → inject_perp_tick) is what lights them up and is
+  the #1 priority for a PRODUCING soak — the running soak (3690 ticks, healthy)
+  is still belief-empty (events/edges/calibration all 0; ingestion off). For C.
 
 - **TRACK A VENUE/EXEC (kill-switch I4 Kalshi plug + Slack listener) MERGED → main
   @ 62d4ce4 = GATE ACCEPT.** The last + most safety-critical tranche (track-a
@@ -125,7 +375,8 @@ integration/merge point only (no track builds in main anymore):
   board with real rows. Read-only doctrine absolute.
 - **C** (fortuna-wt-c / track-c) — cognition belief-pipeline + perps: the scalar
   foundation (prob_claims/v1) + funding_forecast + perp_event_basis. **F5–F9
-  ASSIGNED HERE** (operator asked; verifier-recommended): they are fortuna-cognition
+  REASSIGNED TO TRACK E 2026-06-14 (operator-directed; see LATEST) — NO LONGER C's.**
+  [Historical context: they are fortuna-cognition
   Aeolus-weather→belief work (F5 dedup, F6 μ/σ→p v2 parser, F7 world-forward match,
   F8 belief→calibration→gates→sizing, F9 Layer-3 scoring) that DEPENDS on C's scalar
   foundation — queue them AFTER the scalar+funding_forecast slices. (A 6th track

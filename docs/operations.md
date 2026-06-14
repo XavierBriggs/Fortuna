@@ -5,7 +5,7 @@ starting and stopping it, reading ROTA, executing the I2 halt/re-arm path, and
 keeping the soak-watch rhythm. Read it before your first `fortuna start`, and
 keep it open during the soak.
 
-**As of:** commit `334612d` (2026-06-12), branch `main`. The
+**As of:** 2026-06-13, branch `main`. The
 authoritative design documents are
 [docs/design/fortuna-cli.md](design/fortuna-cli.md) (CLI, amendments A1–A10
 binding) and [docs/design/rota-dashboard.md](design/rota-dashboard.md) (ROTA,

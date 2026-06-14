@@ -20,6 +20,14 @@ verifier amends as gates land. All standard loop rules apply unchanged.
        reconnect are the recorded behaviors the dial must survive. No live
        socket in any test (mock transport; the dial's first live exercise
        is operator-run).
+       >> LIVE HANDSHAKE PROVEN ON DEMO 2026-06-13 (operator-directed, post-STOP):
+          the signed WS handshake connects ("OK — 101 upgrade, authenticated") to
+          wss://external-api-ws.demo.kalshi.co via examples/kalshi_ws_handshake.rs
+          (demo-only, read-only). That first live exercise CAUGHT + FIXED a real
+          bug: signed_request omitted the WS upgrade headers
+          (InvalidHeader("sec-websocket-key")) — now built via into_client_request().
+          Live streamed frames/ping cadence still unobserved (only future-dated demo
+          markets were open). See GAPS POST-STOP + CHANGELOG.
    (ii) Venue-generic recorded-stream replay into PaperVenue: the book/
        delta WS fixtures EXIST — build the replay composition for both
        mech strategies. The TRADE-THROUGH portion is fixture-blocked (the
