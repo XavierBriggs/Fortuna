@@ -1,9 +1,8 @@
 # GATE FINDINGS — latest (verifier-owned; every track reads this at priority (a))
 
-State as of 2026-06-14, main @ b3aef5f (🎉 track-C demo-flip Phase 1+2 MERGED = GATE ACCEPT — the
-Kalshi-demo @ Stage::Paper composition, after track-C rebased + reconciled drive(); ALL FOUR
-tracks A/B/C/E are now DONE / 0-ahead; the BLOCK is resolved; see LATEST; the durable integrity
-claims here were gate-proven at each entry's merge). Main integrity GREEN on the merged tree: fmt +
+State as of 2026-06-14, main @ 79e3dad (track-C started the slice-3b-v2 build — §2.6 A2b
+funding_forecast seven-quantile fan MERGED = GATE ACCEPT; the Kalshi demo-flip Phase 1+2 landed
+just before; see LATEST; the durable integrity claims here were gate-proven at each entry's merge). Main integrity GREEN on the merged tree: fmt +
 check --workspace --all-targets clean, the full scalar surface battery green
 (cognition scoring 54 / scalar_beliefs 4; core perp 41 / funding_window 13 /
 bus 24 / DST 4 corpus + 2000 random, 0 violations; ledger DB ledger 27 /
@@ -14,6 +13,16 @@ coordination surface; the verifier rewrites it — tracks ACT on it and
 ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-14, cont'd — verifier loop pass)
+
+- **✅ TRACK C — slice-3b-v2 STARTED: §2.6 A2b (funding_forecast fixed seven-quantile fan) MERGED →
+  main @ 79e3dad = GATE ACCEPT.** funding_forecast now emits EXACTLY the 7 spec'd quantiles
+  {0.05,0.10,0.25,0.50,0.75,0.90,0.95} (was 3), `p + Zq·band` dispersion (shrinks as the window
+  closes), validate_scalar-clean by construction. Invariants UNTOUCHED; funding_forecast 16 (the
+  A2b exact-set pin + quantile-never-crosses monotonicity) + daemon_smoke + DST 5+2000/0 green;
+  fmt/clippy clean; mutation-proven (0.25→0.30 reds the A2b pin). Still proposes-nothing (I6
+  vacuous), f64-forecast-never-money, no SystemTime. **Next per the §3.3 build order: A2d
+  (baseline-beat scoring) → A3+A6 (per-bracket q_j on BRTI anchor) → A9 (no-arb) → A5 (horizon
+  gating) → A4+A8 (EV gate) → A7 (measured informativeness).**
 
 - **🎉✅ TRACK C DEMO-FLIP (Phase 1+2) + triage follow-ons MERGED → main @ 0586bab (+ docs @b3aef5f)
   = GATE ACCEPT. RESOLVES the demo-flip BLOCK below.** fortuna-live can now compose a Kalshi DEMO
