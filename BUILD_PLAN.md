@@ -1103,9 +1103,11 @@ scheduler is shared with D9). The skill/persona layer is a separate session
       MEASURED reality not an unproven edge, per contract §1/§5) + v1→v2 fixture
       migration (keep v1 behind "schema absent ⇒ v1"; aeolus_eval T2.7 stays
       green; do NOT weaken it).
-- [ ] (cognition, not Track D — ledgered for the owner) F5 identity-tuple dedup,
-      F6 strict v2 parser + pinned-erf μ/σ→p, F7 world-forward match, F8
-      belief→calibration→gates→sizing, F9 Layer-3 empirical scoring.
+- [ ] (cognition; OWNER = TRACK E as of 2026-06-14, reassigned from C — operator-
+      directed; E owns the weather domain. New disjoint fortuna-cognition modules;
+      reuse C's prob_claims/v1 + scalar_beliefs; do not touch C's perp/discovery files.)
+      F5 identity-tuple dedup, F6 strict v2 parser + pinned-erf μ/σ→p, F7 world-forward
+      match, F8 belief→calibration→gates→sizing, F9 Layer-3 empirical scoring.
 
 ### Track D — ingestion observability (data surface; contract: docs/design/ingestion-observability-contract.md §2)
 

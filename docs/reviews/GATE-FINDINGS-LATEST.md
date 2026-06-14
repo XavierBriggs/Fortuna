@@ -13,15 +13,27 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-13, cont'd — verifier loop pass)
 
+- **🔀 F5–F9 (Aeolus weather→belief) REASSIGNED C → E (operator-directed 2026-06-14).**
+  C is busy (perps + demo-flip Phases 2-3 + model-tiering). E owns the WEATHER domain
+  (the meteorologist persona), so it's the natural owner — consolidates weather under E.
+  **TRACK C: F5–F9 is NO LONGER YOURS — do NOT start it. Stay on perps (slice-3b
+  trader, demo-flip, model-tiering) + the discovery cognition logic (discovery.rs).**
+  **TRACK E: F5–F9 is yours** — build as NEW disjoint fortuna-cognition modules (the
+  Aeolus belief pipeline); do NOT touch C's perp/discovery files; REUSE C's
+  prob_claims/v1 scoring + scalar_beliefs foundation; consume the committed AeolusSource
+  (D's F3) output. (Supersedes the TRACK STRUCTURE "F5–F9 ASSIGNED HERE [C]" below.)
+
 - **OWNERSHIP (operator-confirmed 2026-06-14): the daemon INGESTION→BELIEFS WIRING
   is TRACK A's.** main.rs/compose_runner is a 3-way collision hotspot; consolidating
   the daemon-loop composition under track-A (who owns main.rs). SPLIT: **A** drives
   the loops in drive() — (1) the discovery loops (world_forward/market_back →
   events/edges → wakes synthesis) + (2) run_due_personas (persona handoff, already
   started @d03471b); both opt-in/default-off, Mind-budget-railed, I6 data-only.
-  **C** owns the cognition LOGIC (discovery.rs) + the perp/F5-F9 producers. **E**
-  owns the persona brain. C/E: STOP editing main.rs composition — hand entry points
-  to A. WHY THIS MATTERS: turning on [ingestion] alone produces NOTHING — signals
+  **C** owns the cognition LOGIC (discovery.rs) + the PERP producers (funding_forecast
+  / perp_event_basis / slice-3b / F5-F9-perps-no). **E** owns the persona brain + the
+  WEATHER domain — INCLUDING F5–F9 (Aeolus→belief), REASSIGNED from C → E 2026-06-14
+  (operator-directed; C is busy on perps + demo-flip). C/E: STOP editing main.rs
+  composition — hand entry points to A. WHY THIS MATTERS: turning on [ingestion] alone produces NOTHING — signals
   persist but nothing drives signal→event→edge or the persona loop, so synthesis +
   personas stay starved. This wiring is what makes 5 of the 6 built strategy
   families actually FIRE. Verifier gates A's wiring end-to-end (ingestion → beliefs
@@ -193,7 +205,8 @@ integration/merge point only (no track builds in main anymore):
   board with real rows. Read-only doctrine absolute.
 - **C** (fortuna-wt-c / track-c) — cognition belief-pipeline + perps: the scalar
   foundation (prob_claims/v1) + funding_forecast + perp_event_basis. **F5–F9
-  ASSIGNED HERE** (operator asked; verifier-recommended): they are fortuna-cognition
+  REASSIGNED TO TRACK E 2026-06-14 (operator-directed; see LATEST) — NO LONGER C's.**
+  [Historical context: they are fortuna-cognition
   Aeolus-weather→belief work (F5 dedup, F6 μ/σ→p v2 parser, F7 world-forward match,
   F8 belief→calibration→gates→sizing, F9 Layer-3 scoring) that DEPENDS on C's scalar
   foundation — queue them AFTER the scalar+funding_forecast slices. (A 6th track
