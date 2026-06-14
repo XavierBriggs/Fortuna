@@ -1,8 +1,9 @@
 # GATE FINDINGS — latest (verifier-owned; every track reads this at priority (a))
 
-State as of 2026-06-14, main @ 79e3dad (track-C started the slice-3b-v2 build — §2.6 A2b
-funding_forecast seven-quantile fan MERGED = GATE ACCEPT; the Kalshi demo-flip Phase 1+2 landed
-just before; see LATEST; the durable integrity claims here were gate-proven at each entry's merge). Main integrity GREEN on the merged tree: fmt +
+State as of 2026-06-14, main @ 0bb6d27 (slice-3b-v2 PARTIAL — §2.6 A2b + A2d-slice-1 merged GATE
+ACCEPT, then track-C RALPH-STOPped @f1319ce ("north star met, clean milestone"); ALL FOUR tracks
+are now IDLE/stopped at a clean green milestone — demo-flip in, perp-v2 partly built; the
+remaining v2 slices (A2d-slice-2, A3–A10) + other queues need a re-mission; see LATEST). Main integrity GREEN on the merged tree: fmt +
 check --workspace --all-targets clean, the full scalar surface battery green
 (cognition scoring 54 / scalar_beliefs 4; core perp 41 / funding_window 13 /
 bus 24 / DST 4 corpus + 2000 random, 0 violations; ledger DB ledger 27 /
@@ -20,9 +21,12 @@ ledger their responses in GAPS, never edit this file.
   closes), validate_scalar-clean by construction. Invariants UNTOUCHED; funding_forecast 16 (the
   A2b exact-set pin + quantile-never-crosses monotonicity) + daemon_smoke + DST 5+2000/0 green;
   fmt/clippy clean; mutation-proven (0.25→0.30 reds the A2b pin). Still proposes-nothing (I6
-  vacuous), f64-forecast-never-money, no SystemTime. **Next per the §3.3 build order: A2d
-  (baseline-beat scoring) → A3+A6 (per-bracket q_j on BRTI anchor) → A9 (no-arb) → A5 (horizon
-  gating) → A4+A8 (EV gate) → A7 (measured informativeness).**
+  vacuous), f64-forecast-never-money, no SystemTime.
+  - **slice-3b-v2 PROGRESS (this entry tracks the whole v2 build): A2b ✓ (@79e3dad) · A2d SLICE 1
+    carry-forward baseline kernel ✓ (@0bb6d27 — `funding_baselines.rs`, strict-< tie-doesn't-beat,
+    DATA-ONLY/no-auto-promotion I7, mutation-proven). NEXT: A2d slice-2 (wire the side-by-side
+    score into funding_forecast's belief_scores) → A3+A6 (per-bracket q_j on BRTI) → A9 → A5 →
+    A4+A8 → A7.**
 
 - **🎉✅ TRACK C DEMO-FLIP (Phase 1+2) + triage follow-ons MERGED → main @ 0586bab (+ docs @b3aef5f)
   = GATE ACCEPT. RESOLVES the demo-flip BLOCK below.** fortuna-live can now compose a Kalshi DEMO
