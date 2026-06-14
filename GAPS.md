@@ -2059,6 +2059,49 @@ TRADES FOLLOW-ONS (ledgered, NOT built — mission item 3 remainder):
   is exposed (operator/track-A). Fills carry no strategy column (attribution is runtime
   PositionBook state) — per-fill strategy needs the digest path, not the fills table.
 
+### OBSERVABILITY-TAIL TRIAGE + Discovery — Edges board DONE (2026-06-14, operator directive)
+Operator re-missioned the observability tail: "T4.5 (v1.1 deferred panels) · T4.6 (single-pane
+total observability consuming C/D/E; A10 perp-CDF half waits on Track-C basis-v2) · OBS-2 (funnel
+loop-stages + publish behind Arc<RwLock<IngestionTelemetry>>) · OBS-2c (ingest read-wiring)."
+Triaged each against CURRENT main (code-explorer-verified, file:line evidence) before acting —
+investigate-fresh, not inherit:
+
+- **OBS-2 + OBS-2b + OBS-2c — ALREADY DONE on main (no work; the directive + bus listing are
+  STALE here).** Verified end-to-end: the four funnel loop-stages ARE set during real ingestion
+  (normalized/deduped at ingestion.rs:104-105 → projected 117-118; persisted/persist_failures at
+  198-199 → projected 225-226); the publish writes `Arc<RwLock<IngestionTelemetry>>` each tick
+  (ingestion.rs:331; handle main.rs:529, loop spawned 547-553); the read-wiring calls
+  `merge_ingest_views` in the between-segments closure (main.rs:595-596, `try_read`). The
+  demo-flip `ActiveRunner` reconcile did NOT break it — the ingestion loop is an independent task
+  spawned before `drive()`. The three boards render LIVE whenever `[ingestion] enabled=true`.
+  ⇒ Nothing for track-B here; the prior OBS-2a/2b/2c DONE notes hold.
+
+- **T4.5 (a) discovery JOIN — BUILT this slice (the one ready track-B T4.5 piece).** New board
+  **Discovery — Edges** (`/api/rota/v1/discovery_edges`): the live (non-superseded) market↔event
+  mappings JOINed to their event STATEMENT — which markets are mapped to which canonical event,
+  the mapping type + confidence, confirmed/proposed status, and proposer/confirmer provenance.
+  Mission item 4's "the markets/series UNDER the events" (my prior Discovery — Events board showed
+  only the per-event market COUNT). Runtime sqlx join `market_event_edges ⋈ events`, NOT-EXISTS
+  supersession filter (mirrors `EdgesRepo::confirmed_edges` but keeps PROPOSED too) — NO ledger
+  change. Both statuses shown (confirmed=green pill via a 1-token `valuePill` add — regression-
+  checked, no board emits a "confirmed" pill; proposed→honest-null confirmer "—"). Untrusted-data
+  (5.11): all strings esc'd by `boardTable`, confidence a rounded number. Populated-path test
+  `discovery_edges_board_joins_live_mappings_to_their_event` (3 live edges + 1 SUPERSEDED excluded;
+  asserts the join carries the statement, the status split, the supersession exclusion, the
+  honest-null confirmer, the summary). Screenshot: `docs/reviews/rota-visual/rota-discovery-edges-2026-06-14.png`.
+
+- **T4.5 (c) WS gap/resync counters + (d) full money model — operator/verifier-BLOCKED**
+  (rota-dashboard.md §T4.5: the live Kalshi socket is operator-run; the mark-loop is unexposed) —
+  NOT track-B-buildable now.
+
+- **T4.6 single-pane total observability — substantially DELIVERED** by the merged mission (20+
+  boards consuming the C/D/E surfaces). The **A10 perp-CDF display** half is DATA-BLOCKED on
+  Track-C's basis-v2 diagnostics (per the operator) — ledgered, build when C lands it.
+
+- **Discovery — Edges follow-ons (ledgered, not built):** a Tradability JOIN (per-market tradable
+  state, `TradabilityRepo` repos.rs:1543) as an extra column; and an events→edges DRILL-IN (each
+  Discovery — Events row expands to its edges) — both refinements on a complete board.
+
 ### OBS-3 RENDER DONE (2026-06-13) — Sources Health surfaces domain_tags + trust_tier (closes the orchestrator "domain_tags" item; track-B is NOT stalled)
 Resolves the orchestration-view line "OBS-2/2c/3 funnel snapshots + ROTA read wiring +
 domain_tags, T4.5 ROTA panels — track-b stalled/maybe-done." Triage against current main

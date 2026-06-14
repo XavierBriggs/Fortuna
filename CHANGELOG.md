@@ -959,6 +959,18 @@ with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
   event's status + DISTINCT mapped-market count (a LEFT JOIN to
   `market_event_edges`, supersession-safe). A fortuna-ops runtime-sqlx query (the
   audit-tail pattern). Benchmark snapshots + per-event drill-in are follow-ons.
+- **Discovery — Edges board** (`GET /api/rota/v1/discovery_edges`, T4.5 (a) discovery
+  JOIN / mission item 4 "the markets/series UNDER the events") — the live
+  (non-superseded) market↔event mappings JOINed to their event statement: which
+  markets map to which canonical event, the mapping type + confidence,
+  confirmed/proposed status, and proposer/confirmer provenance. The join BEHIND the
+  Discovery — Events board's per-event market COUNT. Runtime sqlx
+  (`market_event_edges ⋈ events`, NOT-EXISTS supersession filter — no ledger change),
+  newest-event-first, edges clustered per event. Both statuses shown (confirmed = a
+  green pill via a 1-token `valuePill` addition; a proposed edge's confirmer is an
+  honest null "—"). UNTRUSTED-DATA (5.11): every string `esc()`'d by `boardTable`,
+  confidence a rounded number. Screenshot-verified. Tradability join + an
+  events→edges drill-in are follow-ons (GAPS).
 - **Database board** (`GET /api/rota/v1/db`, mission item 5 "honest visibility into
   the actual tables — counts") — an exact `COUNT(*)` sweep over every one of the 24
   ledger tables (incl. the `scalar_beliefs`/`belief_scores` scalar plane), busiest-

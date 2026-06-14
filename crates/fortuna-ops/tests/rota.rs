@@ -66,7 +66,7 @@ async fn serve() -> (String, tokio::task::JoinHandle<()>) {
     (format!("http://{addr}"), handle)
 }
 
-const PATHS: [&str; 26] = [
+const PATHS: [&str; 27] = [
     "/rota",
     "/favicon.ico",
     "/assets/rota/logo.svg",
@@ -84,6 +84,7 @@ const PATHS: [&str; 26] = [
     "/api/rota/v1/strategies",
     "/api/rota/v1/working_orders",
     "/api/rota/v1/discovery",
+    "/api/rota/v1/discovery_edges",
     "/api/rota/v1/personas",
     "/api/rota/v1/persona_scores",
     "/api/rota/v1/persona_pipeline",
@@ -146,6 +147,7 @@ async fn degraded_surfaces_are_200_with_explicit_unavailable() {
         "strategies",
         "working_orders",
         "discovery",
+        "discovery_edges",
         "personas",
         "persona_scores",
         "persona_pipeline",
@@ -1370,6 +1372,137 @@ async fn discovery_board_serves_events_with_distinct_market_counts(pool: sqlx::P
     );
     assert_eq!(j["summary"]["events"], 2);
     assert_eq!(j["summary"]["markets_mapped"], 2);
+}
+
+// Discovery — Edges board (T4.5 (a) discovery JOIN / mission item 4 "the markets
+// UNDER the events"): the live market↔event mappings JOINed to their event
+// statement, with confirmed/proposed status. POPULATED-path — one event with three
+// LIVE edges (M1 confirmed, M2 proposed, M3 confirmed-via-supersede) plus the OLD M3
+// edge that MUST be excluded (superseded). Asserts the join carries the statement,
+// the status split, the supersession exclusion, the honest-null confirmer for a
+// proposed edge, and the summary.
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn discovery_edges_board_joins_live_mappings_to_their_event(pool: sqlx::PgPool) {
+    use fortuna_ledger::EdgesRepo;
+    sqlx::query(
+        "INSERT INTO events (event_id, statement, resolution_criteria, resolution_source, \
+         benchmark_at, category, status, created_at) \
+         VALUES ('01EVENTEDGE000000000001','NYC high >= 65F','crit','nws.cli',\
+         '2026-06-13T16:00:00.000Z','weather','active','2026-06-12T11:00:00.000Z')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let edges = EdgesRepo::new(pool.clone());
+    let ev = "01EVENTEDGE000000000001";
+    // M1 confirmed; M2 proposed; M3 has an OLD edge (M3A) SUPERSEDED by a confirmed M3B.
+    edges
+        .insert_edge(
+            "01EDGEDISC00000000000M1A",
+            "M1",
+            "sim",
+            ev,
+            "direct",
+            0.95,
+            "discovery",
+            Some("discovery_v2"),
+            None,
+            "2026-06-12T11:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    edges
+        .insert_edge(
+            "01EDGEDISC00000000000M2A",
+            "M2",
+            "sim",
+            ev,
+            "negation",
+            0.80,
+            "discovery",
+            None,
+            None,
+            "2026-06-12T11:01:00.000Z",
+        )
+        .await
+        .unwrap();
+    edges
+        .insert_edge(
+            "01EDGEDISC00000000000M3A",
+            "M3",
+            "sim",
+            ev,
+            "direct",
+            0.50,
+            "discovery",
+            None,
+            None,
+            "2026-06-12T11:02:00.000Z",
+        )
+        .await
+        .unwrap();
+    edges
+        .insert_edge(
+            "01EDGEDISC00000000000M3B",
+            "M3",
+            "sim",
+            ev,
+            "direct",
+            0.90,
+            "discovery",
+            Some("discovery_v2"),
+            Some("01EDGEDISC00000000000M3A"),
+            "2026-06-12T11:03:00.000Z",
+        )
+        .await
+        .unwrap();
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+        reviews_dir: None,
+    };
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/discovery_edges"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = j["rows"].as_array().unwrap();
+    // 3 LIVE edges (M1, M2, M3-via-M3B); the superseded M3A is excluded.
+    assert_eq!(rows.len(), 3, "the superseded edge is excluded: {j}");
+    assert_eq!(j["summary"]["edges"], 3);
+    assert_eq!(j["summary"]["confirmed"], 2);
+    assert_eq!(j["summary"]["proposed"], 1);
+    assert_eq!(j["summary"]["events"], 1);
+    // Every row carries the JOINed event STATEMENT (the join — not just an id).
+    for r in rows {
+        assert_eq!(
+            r["statement"], "NYC high >= 65F",
+            "join carries the event statement: {j}"
+        );
+    }
+    // Clustered by event then market: M1, M2, M3.
+    assert_eq!(j["rows"][0]["market_id"], "M1");
+    assert_eq!(j["rows"][0]["status"], "confirmed");
+    assert_eq!(j["rows"][0]["confirmed_by"], "discovery_v2");
+    assert!((j["rows"][0]["confidence"].as_f64().unwrap() - 0.95).abs() < 1e-9);
+    // A PROPOSED edge → honest-null confirmer, never a fabricated one.
+    assert_eq!(j["rows"][1]["market_id"], "M2");
+    assert_eq!(j["rows"][1]["status"], "proposed");
+    assert!(
+        j["rows"][1]["confirmed_by"].is_null(),
+        "a proposed edge has no confirmer: {j}"
+    );
+    // M3 is the SUPERSEDING confirmed edge (M3B) — proving the superseded M3A is gone.
+    assert_eq!(j["rows"][2]["market_id"], "M3");
+    assert_eq!(j["rows"][2]["status"], "confirmed");
 }
 
 #[sqlx::test(migrations = "../fortuna-ledger/migrations")]

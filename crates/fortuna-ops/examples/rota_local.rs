@@ -654,18 +654,29 @@ async fn seed(pool: &PgPool) -> Result<(), BoxErr> {
         "event.dead-mark",
         events.mark_dead(dead_event, "source_lost").await,
     );
-    for (edge_id, market) in [
-        ("01J0EDGE00000000000000NYC1", "KXNYCHIGH-26JUN13-B65"),
-        ("01J0EDGE00000000000000NYC2", "KXNYCHIGH-26JUN13-B70"),
+    // One CONFIRMED + one PROPOSED edge so the Discovery — Edges board shows both
+    // statuses (the discovery pipeline: a mapping is proposed, then confirmed).
+    for (edge_id, market, confirmed_by) in [
+        (
+            "01J0EDGE00000000000000NYC1",
+            "KXNYCHIGH-26JUN13-B65",
+            Some("discovery_v2"),
+        ),
+        (
+            "01J0EDGE00000000000000NYC2",
+            "KXNYCHIGH-26JUN13-B70",
+            None::<&str>,
+        ),
     ] {
         let r = sqlx::query(
             "INSERT INTO market_event_edges (edge_id, market_id, venue, event_id, mapping_type, \
-             confidence, proposed_by, created_at) \
-             VALUES ($1,$2,'sim',$3,'direct',0.92,'discovery','2026-06-12T18:10:00.000Z')",
+             confidence, proposed_by, confirmed_by, created_at) \
+             VALUES ($1,$2,'sim',$3,'direct',0.92,'discovery',$4,'2026-06-12T18:10:00.000Z')",
         )
         .bind(edge_id)
         .bind(market)
         .bind(event_id)
+        .bind(confirmed_by)
         .execute(pool)
         .await;
         if let Err(e) = r {
