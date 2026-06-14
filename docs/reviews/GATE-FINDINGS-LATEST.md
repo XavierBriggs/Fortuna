@@ -15,6 +15,16 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-14, cont'd — verifier loop pass)
 
+- **✅ TRACK E — F10 v1↔v2 schema dispatch + E.5 persona-folding remainder MERGED → main @1b1f8d4 =
+  GATE ACCEPT** (completes both track-E branches per operator "verify and merge track e"; closes the
+  F10 + E.5 residuals flagged in the de-stale). F10: `parse_versioned` dispatches by the OPTIONAL
+  `schema` (absent ⇒ V1 legacy-for-T2.7-fixture-only, `aeolus.forecast/v2` ⇒ strict V2, else →
+  UnknownSchema error) — does NOT weaken T2.7. E.5: `weekly_persona_proposals` RECOMMENDATION-ONLY (I7),
+  ADDITIVE-PARALLEL (no edit to the shared `ScopeKey`), order-preserving. Battery: fmt + workspace
+  **1718/0** + clippy `--workspace -D warnings` + DST 0 violations + invariants UNTOUCHED. MUTATION-
+  PROVEN: the v2 guard (`== SCHEMA_V2`→`!=`) reds routes_v2 + rejects_unknown_schema. Changelog union
+  conflict resolved (both entries kept).
+
 - **🎉 WEATHER CALIBRATION LOOP — CLOSED END-TO-END.** F7 produces weather beliefs (@de9054a→@533ce17),
   the F2 NWS grader provides realized °F (@2732787), and now the **weather scoring bridge** scores the
   beliefs against the grader (@341340e). A weather forecast is now produced → matched → traded-as-belief
