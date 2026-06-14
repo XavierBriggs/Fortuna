@@ -15,6 +15,25 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-14, cont'd — verifier loop pass)
 
+- **✅ TRACK A — F7 LIVE PLUG-IN SLICE 1 (`WeatherMarketSource` + live `KalshiWeatherSource`) MERGED →
+  main @5b93f8e = GATE ACCEPT.** `kalshi/weather.rs`: read-only `GET /markets?series_ticker=` day-set
+  discovery + `event_grades_on` (pure date-match key, whole-segment `-{YY}{MON}{DD}` match — guards the
+  `-126JUN13` inside-a-run false positive). SECURITY: **read-only** (no orders/writes); a malformed
+  frame / non-200 → hard `VenueError` (never a fabricated market, 5.11); **reuses the runner's shared
+  signed transport** (host-pinned, no SSRF, adds no creds of its own); no panic/unwrap; tests over
+  `MockKalshiTransport` (NEVER live) + the real recorded markets fixture.
+  - BATTERY (merged tree): fmt + full workspace test **1639/0** + clippy `--workspace -D warnings` +
+    invariants UNTOUCHED. `event_grades_on` MUTATION-PROVEN (`seg==token`→`contains` reds the
+    inside-a-run guard).
+  - **⚠️ VERIFIER PROCESS NOTE (no real defect):** an initial DST run flagged `perp_event_basis` red —
+    but with NO mechanism in this venues-only diff. Per the stale-artifact discipline, `cargo clean -p
+    fortuna-runner` + 2 reruns (4000 seeds, 2 master seeds) = **0 violations**. It was incremental-build
+    contamination (from the earlier cognition mutation experiments rippling into the runner), NOT a
+    regression — investigated before reporting, as the doctrine requires.
+  - Minor (noted, non-blocking): the pagination `cursor` (venue-returned) is query-interpolated without
+    URL-encoding (low risk — pinned host, read-only); `MAX_PAGES=40` stops silently if exceeded
+    (impossible for a real one-series day-set).
+
 - **✅ TRACK C — slice-3b-v2 §3.3 A3+A9 FAIR-PROB KERNEL MERGED → main @0f49430 = GATE ACCEPT.**
   `fortuna_cognition::basis_v2` (826 lines, pure): `lognormal_cdf` (Φ via A&S 7.1.26 erf, rigorous
   None-screen of every non-finite/≤0 input), `bracket_fair_probs` (A3 q_j: `Between→F(cap)−F(floor)`,
