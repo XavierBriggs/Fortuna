@@ -9,13 +9,18 @@
 //! list, then the text of each not-yet-seen product (bounded per tick), and
 //! emits one `nws.cli` signal carrying the RAW `productText`.
 //!
-//! Deliberately DUMB about the temperatures: the CLI text is fragile to parse
-//! (columns jam, e.g. `MINIMUM 7676` = observed 76 + record 76), and a mis-read
-//! daily high would mis-GRADE a belief. So the adapter does NOT extract max/min
-//! — it carries the raw authoritative text + a robustly-parsed `report_date`
-//! for indexing; the GRADER (cognition, at settlement) extracts the official
-//! high for the target date, where an ambiguity can be flagged not silently
-//! traded.
+//! The ADAPTER is deliberately DUMB about the temperatures: it carries the raw
+//! authoritative text + a `report_date`, never a derived high/low. The GRADER —
+//! [`nws_cli_realized`] in this module — does the high-stakes extraction at
+//! settlement: the CLI text is fragile (columns jam, e.g. `MINIMUM 7676` =
+//! observed 76 + record 76; missing days print `MM`; record ties print `91R`),
+//! and a mis-read daily high would mis-GRADE a belief, so the grader is
+//! FAIL-LOUD — any ambiguity (a jam, an `MM`, an absent line, an inverted
+//! high<low, an unparseable date) returns `None`, never a fabricated temperature
+//! (spec 5.12). F9 (`fortuna_cognition::aeolus_reliability::score_reliability`)
+//! consumes the realized °F this produces; the grader lives source-side (here)
+//! because the dependency runs sources → cognition, and the composition layer
+//! bridges the realized value across.
 
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
@@ -202,39 +207,73 @@ fn parse_product(body: &[u8], received_at: UtcTimestamp) -> Result<RawSignal, St
     })
 }
 
-/// Extract the date a CLI report covers from its `... CLIMATE SUMMARY FOR
-/// <day> <MONTH> <year>` line → `YYYY-MM-DD`. Returns `None` (not an error) if
-/// the line is absent/unparseable — the raw text remains the authority.
+/// Extract the date a CLI report covers from its `... CLIMATE SUMMARY FOR ...`
+/// line → `YYYY-MM-DD`. Order-independent: NWS offices write either
+/// `<day> <MONTH> <year>` (e.g. Palau `12 JUNE 2026`) or `<MONTH> <day> <year>`
+/// (mainland `JUNE 13 2026` / abbreviated `JUN 13 2026`), and the line may carry
+/// trailing dots (`2026...`). The month is the recognizable name; the day is the
+/// 1–31 integer; the year is the ≥1900 integer — so the three tokens parse
+/// regardless of order. Returns `None` (not an error) if absent/unparseable —
+/// the raw text remains the authority.
 fn parse_report_date(text: &str) -> Option<String> {
-    let idx = text.find("CLIMATE SUMMARY FOR ")?;
-    let tail = &text[idx + "CLIMATE SUMMARY FOR ".len()..];
-    let line = tail.lines().next()?;
-    let mut tok = line.split_whitespace();
-    let day: u32 = tok.next()?.parse().ok()?;
-    let month = month_number(tok.next()?)?;
-    let year: i32 = tok.next()?.parse().ok()?;
-    if !(1..=31).contains(&day) {
-        return None;
+    const MARK: &str = "CLIMATE SUMMARY FOR ";
+    let idx = text.find(MARK)?;
+    let line = text[idx + MARK.len()..].lines().next()?;
+    let mut month: Option<u32> = None;
+    let mut ints: Vec<i64> = Vec::new();
+    for tok in line.split_whitespace().take(4) {
+        if let Some(m) = month_number(tok) {
+            month.get_or_insert(m);
+        } else if let Some(n) = leading_int(tok) {
+            ints.push(n);
+        }
     }
+    let month = month?;
+    let day = ints.iter().copied().find(|&n| (1..=31).contains(&n))?;
+    let year = ints.iter().copied().find(|&n| n >= 1900)?;
     Some(format!("{year:04}-{month:02}-{day:02}"))
 }
 
+/// Month number from a full or 3-letter-abbreviated NWS month name (`JUNE` and
+/// `JUN` → 6). Matches the leading three letters, so both forms map identically.
 fn month_number(name: &str) -> Option<u32> {
-    match name.to_ascii_uppercase().as_str() {
-        "JANUARY" => Some(1),
-        "FEBRUARY" => Some(2),
-        "MARCH" => Some(3),
-        "APRIL" => Some(4),
+    let key: String = name
+        .chars()
+        .take(3)
+        .collect::<String>()
+        .to_ascii_uppercase();
+    match key.as_str() {
+        "JAN" => Some(1),
+        "FEB" => Some(2),
+        "MAR" => Some(3),
+        "APR" => Some(4),
         "MAY" => Some(5),
-        "JUNE" => Some(6),
-        "JULY" => Some(7),
-        "AUGUST" => Some(8),
-        "SEPTEMBER" => Some(9),
-        "OCTOBER" => Some(10),
-        "NOVEMBER" => Some(11),
-        "DECEMBER" => Some(12),
+        "JUN" => Some(6),
+        "JUL" => Some(7),
+        "AUG" => Some(8),
+        "SEP" => Some(9),
+        "OCT" => Some(10),
+        "NOV" => Some(11),
+        "DEC" => Some(12),
         _ => None,
     }
+}
+
+/// Leading signed integer of a token: `91R` → 91 (a record-tie flag), `-5` → -5,
+/// `2026...` → 2026, `MM` → `None` (missing data), `` → `None`.
+fn leading_int(token: &str) -> Option<i64> {
+    let bytes = token.as_bytes();
+    let neg = bytes.first() == Some(&b'-');
+    let start = usize::from(neg);
+    let mut end = start;
+    while end < bytes.len() && bytes[end].is_ascii_digit() {
+        end += 1;
+    }
+    if end == start {
+        return None;
+    }
+    let val: i64 = token[start..end].parse().ok()?;
+    Some(if neg { -val } else { val })
 }
 
 /// Claimed time for the Layer-1 future-check: the report's `issuanceTime`
@@ -247,6 +286,81 @@ pub fn nws_climate_claimed_time(signal: &RawSignal) -> Option<UtcTimestamp> {
     UtcTimestamp::parse_iso8601(raw).ok()
 }
 
+/// The official observed daily extreme graded from one NWS CLI product — the
+/// independent RESOLUTION value an Aeolus weather belief is scored against
+/// (Aeolus contract §3.2/§5.12). `high_f`/`low_f` are integer °F (the official
+/// record is integer); `realized_f: f64` for F9 is `high_f as f64` (TMAX
+/// brackets) or `low_f as f64` (TMIN) — the caller picks per the event's
+/// variable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RealizedExtreme {
+    /// The station this realized value is keyed to (caller-supplied; the product
+    /// is routed to its station upstream).
+    pub station: String,
+    /// The date the report covers, `YYYY-MM-DD`.
+    pub report_date: String,
+    pub high_f: i64,
+    pub low_f: i64,
+}
+
+/// Plausible observed surface-temperature range (°F). A value outside this is a
+/// jammed column (`7676`), a clock time, or garbage — never a real daily
+/// extreme, so it is flagged (`None`), never graded.
+const TEMP_FLOOR_F: i64 = -80;
+const TEMP_CEIL_F: i64 = 140;
+
+/// Grade the official daily MAX/MIN (°F) for `station` out of a CLI product's
+/// `productText`. FAIL-LOUD: returns `None` on ANY ambiguity — an absent
+/// MAXIMUM/MINIMUM line, a missing value (`MM`), a jammed/implausible value
+/// (`7676`), an inverted high<low, or an unparseable report date — NEVER a
+/// fabricated temperature (spec 5.12; the F2 deferral: ambiguity is flagged, not
+/// silently mis-graded). Pure + deterministic; no `Clock::now`, no panic.
+pub fn nws_cli_realized(product_text: &str, station: &str) -> Option<RealizedExtreme> {
+    let report_date = parse_report_date(product_text)?;
+    let high_f = daily_extreme(product_text, "MAXIMUM")?;
+    let low_f = daily_extreme(product_text, "MINIMUM")?;
+    // An inverted extreme means the parse latched onto the wrong columns — flag
+    // it rather than grade a belief against a corrupt read.
+    if high_f < low_f {
+        return None;
+    }
+    Some(RealizedExtreme {
+        station: station.to_string(),
+        report_date,
+        high_f,
+        low_f,
+    })
+}
+
+/// The observed value on the FIRST `<keyword> <number> …` line — the DAILY
+/// extreme. The monthly `MAXIMUM TEMPERATURE (F) …` rows have a non-numeric next
+/// token and are skipped; a missing daily value (`MM`) is skipped too, so a
+/// product whose daily extreme is missing yields `None` (never the monthly
+/// value). The matched value's leading integer is taken (`91R` → 91) and
+/// range-validated: an out-of-range read (a jam like `7676`) is flagged `None`,
+/// never silently used.
+fn daily_extreme(text: &str, keyword: &str) -> Option<i64> {
+    for line in text.lines() {
+        let Some(rest) = line.trim_start().strip_prefix(keyword) else {
+            continue;
+        };
+        let Some(token) = rest.split_whitespace().next() else {
+            continue;
+        };
+        // A non-numeric next token ("TEMPERATURE", "MM") is not a daily-value
+        // line — skip and keep scanning.
+        let Some(value) = leading_int(token) else {
+            continue;
+        };
+        // A matched daily-value line: range-validate. Out of range (a jam) is an
+        // ambiguity → flag it, do not fall through to a later/monthly row.
+        return (TEMP_FLOOR_F..=TEMP_CEIL_F)
+            .contains(&value)
+            .then_some(value);
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,6 +369,18 @@ mod tests {
 
     const LIST: &[u8] = include_bytes!("../../../fixtures/sources/nws_climate/cli_list.json");
     const PRODUCT: &[u8] = include_bytes!("../../../fixtures/sources/nws_climate/cli_product.json");
+    // Real captures (2026-06-14): clean mainland CLI products for the grader.
+    // Troutdale KPQR uses `JUNE 13 2026` (month-day); Pago Pago NSTU uses the
+    // abbreviated `JUN 13 2026`. Both have unambiguous daily MAX/MIN.
+    const TROUTDALE: &[u8] =
+        include_bytes!("../../../fixtures/sources/nws_climate/cli_product_troutdale.json");
+    const PAGO: &[u8] =
+        include_bytes!("../../../fixtures/sources/nws_climate/cli_product_pago.json");
+
+    fn product_text(fixture: &[u8]) -> String {
+        let v: Value = serde_json::from_slice(fixture).unwrap();
+        v["productText"].as_str().unwrap().to_string()
+    }
 
     fn ts(ms: i64) -> UtcTimestamp {
         UtcTimestamp::from_epoch_millis(ms).unwrap()
@@ -309,6 +435,101 @@ mod tests {
             received_at: ts(0),
         };
         assert!(nws_climate_claimed_time(&other).is_none());
+    }
+
+    // --- the grader: nws_cli_realized (fixtures-first, fail-loud) ---------
+
+    #[test]
+    fn grades_a_clean_cli_product_to_the_exact_high_low() {
+        // Troutdale KPQR, "JUNE 13 2026": MAXIMUM 91, MINIMUM 50.
+        let r = nws_cli_realized(&product_text(TROUTDALE), "KPDX").unwrap();
+        assert_eq!(r.station, "KPDX");
+        assert_eq!(r.report_date, "2026-06-13");
+        assert_eq!(r.high_f, 91);
+        assert_eq!(r.low_f, 50);
+    }
+
+    #[test]
+    fn grades_an_abbreviated_month_product() {
+        // Pago Pago NSTU, "JUN 13 2026": MAXIMUM 82, MINIMUM 75.
+        let r = nws_cli_realized(&product_text(PAGO), "NSTU").unwrap();
+        assert_eq!(r.report_date, "2026-06-13");
+        assert_eq!(r.high_f, 82);
+        assert_eq!(r.low_f, 75);
+    }
+
+    #[test]
+    fn jammed_minimum_column_is_flagged_not_graded() {
+        // The real PTKR product: MINIMUM `7676` (obs 76 + record 76 jammed) is an
+        // out-of-range read, so the WHOLE grade is None — never a fabricated 76.
+        assert!(nws_cli_realized(&product_text(PRODUCT), "PTKR").is_none());
+    }
+
+    #[test]
+    fn dropping_the_maximum_line_reds_the_grade() {
+        // Mutation guard: the grade genuinely depends on the MAXIMUM line.
+        let full = product_text(TROUTDALE);
+        let mutated: String = full
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("MAXIMUM "))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(nws_cli_realized(&full, "KPDX").is_some());
+        assert!(
+            nws_cli_realized(&mutated, "KPDX").is_none(),
+            "no MAXIMUM line must fail loud"
+        );
+    }
+
+    #[test]
+    fn missing_value_mm_is_flagged() {
+        // `MM` = the daily observation is missing — never grab the record after it.
+        let t =
+            "CLIMATE SUMMARY FOR JUNE 13 2026\nMAXIMUM   MM   96   1995\nMINIMUM   54   456 AM\n";
+        assert!(nws_cli_realized(t, "X").is_none());
+    }
+
+    #[test]
+    fn no_temperature_section_is_flagged() {
+        let t = "CLIMATE SUMMARY FOR JUNE 13 2026\nPRECIPITATION (INCHES)\nYESTERDAY 0.00\n";
+        assert!(nws_cli_realized(t, "X").is_none());
+    }
+
+    #[test]
+    fn inverted_high_below_low_is_flagged() {
+        let t = "CLIMATE SUMMARY FOR JUNE 13 2026\nMAXIMUM   40\nMINIMUM   60\n";
+        assert!(nws_cli_realized(t, "X").is_none());
+    }
+
+    #[test]
+    fn unparseable_report_date_is_flagged() {
+        let t = "DAILY CLIMATE REPORT\nMAXIMUM   88\nMINIMUM   60\n";
+        assert!(nws_cli_realized(t, "X").is_none());
+    }
+
+    #[test]
+    fn report_date_handles_both_token_orders_and_abbreviations() {
+        assert_eq!(
+            parse_report_date("CLIMATE SUMMARY FOR 12 JUNE  2026\n"),
+            Some("2026-06-12".to_string())
+        );
+        assert_eq!(
+            parse_report_date("CLIMATE SUMMARY FOR JUNE 13 2026...\n"),
+            Some("2026-06-13".to_string())
+        );
+        assert_eq!(
+            parse_report_date("CLIMATE SUMMARY FOR JUN 13 2026...\n"),
+            Some("2026-06-13".to_string())
+        );
+    }
+
+    #[test]
+    fn leading_int_strips_flags_and_rejects_missing() {
+        assert_eq!(leading_int("91R"), Some(91));
+        assert_eq!(leading_int("-5"), Some(-5));
+        assert_eq!(leading_int("2026..."), Some(2026));
+        assert_eq!(leading_int("MM"), None);
+        assert_eq!(leading_int(""), None);
     }
 
     // --- two-hop Source::fetch -------------------------------------------
