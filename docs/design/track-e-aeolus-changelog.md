@@ -16,7 +16,36 @@ FULL workspace battery as the commit gate.
 
 ---
 
-## F4b — release-aware cadence (Aeolus scheduler consumes next_run_at) (this commit)
+## F7 bucket-matching — Aeolus μ/σ → Kalshi tradeable buckets (Track-E side) (this commit)
+
+Closes the F7 venue impedance (raised by Track-A on real demo data): Aeolus emits a cumulative
+ge-ladder, Kalshi trades 2°-inclusive in-range buckets + two tails — a literal `ge{N}→≥N` 1:1 yields
+~0 edges. Contract ALIGNED with Track-A and committed: `docs/design/aeolus-kalshi-bucket-matching.md`.
+
+New `crates/fortuna-cognition/src/aeolus_buckets.rs` (the Track-E half):
+- The seam types `WeatherBucket { market_key, kind }` + `BucketKind { InRange{lo,hi} | GreaterEq{M} |
+  LessEq{M} }` (Track-A discovers the live day-set and constructs these).
+- `aeolus_bucket_beliefs(&AeolusForecast, &[WeatherBucket]) -> Vec<BeliefDraft>`: one propose-only
+  belief per discovered bucket, `p == p_raw =` the μ/σ bucket probability via the F6 helpers — a
+  bucket is a DIFFERENCE of the cumulative ladder: `InRange{lo,hi}` = `bracket_range_prob(lo, hi+1)` =
+  `ge(lo)−ge(hi+1)`, `GreaterEq{M}` = `ge(M)`, `LessEq{M}` = `lt(M+1)`. `event_id = aeolus:{market_key}`
+  so Track-A's edge is `Direct` 1:1; provenance + bucket-bounds-in-evidence stamped (I6 propose-only).
+- `score_bucket_briers(...)` — the F9 per-kind Brier extension (`InRange` ⟺ `lo ≤ realized ≤ hi`, etc.).
+
+THE INVARIANT: for the recorded complete KXHIGHNY 2026-06-13 day-set (`≤86 | [87,88] | … | ≥95`) the
+per-bucket p's **telescope to 1.0** (`[1−ge87]+[ge87−ge89]+…+ge95 = 1`) — VALIDATED in the e2e to
+1e-9, with the in-the-money `[87,88]` bucket carrying real mass (~0.40, μ≈87.3). 3 tests (sum-to-1 +
+1:1 mapping; per-kind Brier vs a realized high — exactly one bucket resolves true; propose-only key
+set + empty input). F8's ge-ladder beliefs STAY as the reliability/cross-check vehicle — not the
+tradeable path.
+
+Built directly, tests-first. Verified: `cargo test -p fortuna-cognition --test aeolus_buckets` 3/3;
+full workspace clippy + test (see commit). Track-A builds the venue half (discovery → `WeatherBucket[]`
+→ `Direct` edges → `drive()` world-forward wiring) against the recorded Kalshi fixture, mutation-proven.
+
+Shared-doc touches: none (new contract doc + module).
+
+## F4b — release-aware cadence (Aeolus scheduler consumes next_run_at) (commit ef3ddb0)
 
 Operator-directed refinement (2026-06-14): Aeolus refinements F4b + F10 reassigned to track-e. This
 touches Track-D's `crates/fortuna-sources` (operator-authorized for this slice), built so it CANNOT

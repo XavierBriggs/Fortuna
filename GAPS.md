@@ -145,11 +145,19 @@ Contract: `docs/design/aeolus-fortuna-source-contract.md` (rev 3). Changelog:
 - **F5 — identity-tuple dedup — DONE (this commit).** `aeolus_dedup::dedup_forecasts` collapses
   forecasts by `(station, variable, target_date)`, newest `run_at` wins (same-`run_at` correction →
   later-received supersedes). Pure/deterministic over F6's typed `AeolusForecast`. 5 tests.
-- **F7 — world-forward match — DONE (this commit).** `aeolus_match::match_forecast` synthesizes the
-  predicted `WeatherMarketFamily` (events keyed `aeolus:{event_hint}` + the resolution declaration so
-  events are scoreable). SEAM still open: intersecting with the LIVE Kalshi book (does the bracket
-  trade?) is venue-discovery (Track A/venues), not cognition — F7 delivers the forecast side; e2e
-  uses the recorded fixture's brackets.
+- **F7 — world-forward match — DONE.** `aeolus_match::match_forecast` synthesizes the
+  predicted `WeatherMarketFamily` (events keyed `aeolus:{event_hint}` + the resolution declaration).
+- **F7 BUCKET-MATCHING (the venue impedance fix) — Track-E side DONE (this commit).** Track-A's real
+  demo data showed Aeolus's cumulative ge-ladder doesn't map 1:1 onto Kalshi's 2°-inclusive
+  in-range buckets + tails (a literal `ge{N}→≥N` yields ~0 edges). CONTRACT aligned + committed
+  (`docs/design/aeolus-kalshi-bucket-matching.md`). Track-E built `aeolus_buckets`:
+  `WeatherBucket`/`BucketKind` seam types + `aeolus_bucket_beliefs` (one propose-only belief per
+  DISCOVERED bucket; a bucket is a ladder DIFFERENCE — `InRange{lo,hi}=ge(lo)−ge(hi+1)` via the F6
+  helpers; `event_id=aeolus:{ticker}` → `Direct` 1:1) + `score_bucket_briers` (the F9 per-kind
+  extension). INVARIANT proven: a complete day-set's p's telescope to 1.0 (e2e, 1e-9).
+  REMAINING (Track-A/venues, NOT cognition): the `KalshiMarket` strike-field DTO, the
+  station→Kalshi-series map (KNYC+tmax→KXHIGHNY grounded; other cities only as confirmed), live
+  bucket discovery → `WeatherBucket[]` → the `Direct` edges → the `drive()` world-forward wiring.
 - **F8 — propose-only belief emission — DONE (this commit).** `aeolus_beliefs::emit_aeolus_beliefs`
   → binary bracket `BeliefDraft`s (`p==p_raw` via the F6 helpers, no calibration; `event_id =
   aeolus:{event_hint}`; provenance `{model_id:"aeolus",…}` that F9 keys on) + one scalar
