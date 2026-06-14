@@ -15,6 +15,20 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-14, cont'd — verifier loop pass)
 
+- **✅ TRACK C — basis-v2 §3.3 V4: A5 horizon gating + A4/A8 EV gate (the FIRST PROPOSING slice) MERGED
+  → main @a8b0141 = GATE ACCEPT.** Per-bin EV `q − ask − fee − slippage − reserve − adverse`, STRICT
+  `> ev_threshold`; the **fee-trap** fee `2·ceil(fee_coeff·p·(1−p)·100)/100` (ceil-UP — a promo-$0 can
+  NEVER lower it); A5 horizon gating (≤4h Direct / 4-48h VolAdjusted σ_τ=σ·√(τ/Δ) / >48h Disabled veto +
+  per-bin veto). Emits ONE **UNSIZED** `Passive` maker leg per clearing bin (joins the best YES bid),
+  deduped. **I6: `ProposedLeg` is STRUCTURALLY unsized (no quantity field) — the strategy CANNOT size;
+  the harness does haircut-Kelly.** I1: emits Proposals (harness gates), never reaches a venue. I7:
+  Stage::Sim. ONE documented f64→Cents boundary (`fair_cents_from_q`, clamped [1,99]); q/EV/σ/τ f64
+  forecast-domain; no panic/unwrap. Battery: fmt + workspace **1699/0** (incl. i6/i7 invariants —
+  load-bearing now that V4 proposes) + clippy `--workspace -D warnings` + DST 0 violations + invariants
+  UNTOUCHED. MUTATION-PROVEN: the >48h veto (Disabled→VolAdjusted) reds the far-horizon-no-proposal test.
+  **slice-3b-v2 §3.3 COMPLETE through V4: A3→A9→V3(anchor+σ)→V4(EV gate, proposes UNSIZED). Remaining:
+  A7 informativeness weighting + the live-data design-calls.**
+
 - **✅ TRACK B — ROTA observability follow-on TAIL (3 slices) MERGED → main @21e95df = GATE ACCEPT.**
   `fortuna-ops/rota.rs` + `fortuna-live/views.rs`: the persona-pipeline board, the forecast feed
   (recent scalar beliefs), and the discovery/tradability⋈edges join. **READ-ONLY** (SELECT-only, zero
