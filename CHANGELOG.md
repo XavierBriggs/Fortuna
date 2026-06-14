@@ -425,6 +425,34 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-14 — F7 venue half: Aeolus↔Kalshi bucket matcher (makes weather beliefs tradeable)
+
+**Added (the venue half of the Track-E↔Track-A F7 contract, `docs/design/aeolus-kalshi-bucket-matching.md`).**
+Track-A discovers which Kalshi temperature buckets trade and hands Track-E `WeatherBucket`s; Track-E's
+`aeolus_bucket_beliefs` maps μ/σ onto them (1:1, propose-only). The venue half:
+- **`KalshiMarket` DTO** (`fortuna-venues`): additive `strike_type: Option<String>`,
+  `floor_strike`/`cap_strike: Option<serde_json::Number>` (+ `floor_strike_int()`/`cap_strike_int()`
+  exact-integer accessors). `Number` not `i64` ON PURPOSE — a recorded WTI market carries a fractional
+  `floor_strike: 91.89`; `i64` would have regressed `fortuna-venues` parsing. A non-integer (price)
+  strike → `_int()` yields `None` → the temperature mapper skips it. `#[serde(default)]`, no regression.
+- **`fortuna-live::aeolus_venue`** (3 pure, no-panic fns): `station_series` (grounded
+  `KNYC+tmax→KXHIGHNY` only; others `None` until confirmed); `market_to_bucket`
+  (`between→InRange{floor,cap}`, `greater→GreaterEq{floor+1}`, `less→LessEq{cap−1}`; checked arithmetic;
+  bad/unknown strike → `None`); `aeolus_bucket_edges` → calls `aeolus_bucket_beliefs` and emits one 1:1
+  `Direct` `EdgeProposal` per draft (`market ↔ aeolus:{ticker}`), auto-confirmed (`discovery:auto`).
+- **Auto-confirm rationale (§5.12 / I1 / I6):** an in-venue `Direct` 1:1 exact-bucket match carries none
+  of the cross-venue/multi-leg UMA risk §5.12 reserves for human confirmation; the belief stays
+  propose-only (I6) and any order still crosses the gate (I1) on the operator-gated `kalshi` venue — the
+  edge only makes the belief *tradeable*.
+- **Grounding (recorded, never fabricated):** a read-only demo-discovery tool
+  (`examples/kalshi_discover_markets.rs`) found the real series + captured a verbatim, secret-clean
+  fixture `fixtures/kalshi/markets__high_temp.json` (18 KXHIGHNY markets). e2e (`aeolus_bucket_match.rs`):
+  recorded `knyc_tmax` forecast + recorded June-13 markets → 6 beliefs + 6 Direct edges, the partition
+  p's **sum to 1.0** (telescoping); MUTATION-PROVEN (drop the T94 market → 5 beliefs/edges, no T94 edge,
+  sum<1). Full battery green (test --workspace 1611/0; run-dst 200 0-viol). NOT yet wired into `drive()`
+  (the live discovery plug-in is the follow-on — inert until `venue=kalshi`, reuses the market-back
+  edge-persist path). track-a carries the `track-e-bucket-matching` merge (the seam) pending its merge to main.
+
 ### 2026-06-14 — Market-back discovery wired into the live daemon (`[discovery]`, opt-in) — amendment part 1b (completes the ingestion→beliefs amendment)
 
 **Added (default-OFF; extends part 1a).** Per the operator amendment + spec §5.12, a MARKET-BACK

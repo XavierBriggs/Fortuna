@@ -270,6 +270,29 @@ pub struct KalshiMarket {
     pub yes_sub_title: String,
     pub no_sub_title: String,
     pub status: KalshiMarketStatus,
+    /// Strike geometry: `between` | `greater` | `less` (temperature series like
+    /// KXHIGHNY), plus `structured` | `custom` on non-bracket markets. Optional
+    /// because the older `tests/kalshi_doc_samples/` fixtures omit it; absence
+    /// degrades to None (the bucket mapper skips it) rather than failing the
+    /// catalog page. The recorded `fixtures/kalshi/markets__high_temp.json`
+    /// proves the wire shape. UNTRUSTED external data (spec 5.11): data only.
+    #[serde(default)]
+    pub strike_type: Option<String>,
+    /// Lower strike bound, RAW wire number. Kept as `serde_json::Number` (not
+    /// `i64`) because the value is NOT always integral on the wire: temperature
+    /// series (KXHIGHNY) carry integer degrees, but the recorded
+    /// `markets__status_closed.json` WTI market carries `floor_strike: 91.89`
+    /// (fractional dollars). A bare `i64` would FAIL to parse that pre-existing
+    /// fixture; `Number` parses both. Integer-degree consumers read the strike
+    /// via [`KalshiMarket::floor_strike_int`], which yields `Some` only for an
+    /// exact integer (a fractional/price strike degrades to None → skipped).
+    #[serde(default)]
+    pub floor_strike: Option<serde_json::Number>,
+    /// Upper strike bound, RAW wire number (see `floor_strike` for why this is
+    /// `serde_json::Number`, not `i64`). Integer-degree consumers read it via
+    /// [`KalshiMarket::cap_strike_int`].
+    #[serde(default)]
+    pub cap_strike: Option<serde_json::Number>,
     pub close_time: String,
     pub settlement_timer_seconds: i64,
     pub notional_value_dollars: String,
@@ -287,6 +310,23 @@ pub struct KalshiMarket {
     pub settlement_value_dollars: Option<String>,
     #[serde(default)]
     pub settlement_ts: Option<String>,
+}
+
+impl KalshiMarket {
+    /// `floor_strike` as exact integer degrees, or `None` when absent or
+    /// non-integral. `serde_json::Number::as_i64` returns `Some` only for a
+    /// whole number in i64 range; a fractional price strike (e.g. WTI's 91.89)
+    /// yields `None`, so an integer-degree consumer (the temperature-bucket
+    /// mapper) cleanly skips it instead of truncating. Pure; never panics.
+    pub fn floor_strike_int(&self) -> Option<i64> {
+        self.floor_strike.as_ref().and_then(|n| n.as_i64())
+    }
+
+    /// `cap_strike` as exact integer degrees, or `None` when absent or
+    /// non-integral (see [`KalshiMarket::floor_strike_int`]). Pure; never panics.
+    pub fn cap_strike_int(&self) -> Option<i64> {
+        self.cap_strike.as_ref().and_then(|n| n.as_i64())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
