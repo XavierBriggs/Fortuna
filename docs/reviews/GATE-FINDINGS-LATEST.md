@@ -15,6 +15,18 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-14, cont'd — verifier loop pass)
 
+- **🎉 CALIBRATION LOOPS WIRED LIVE — TRACK A drive() daily-resolution MERGED → main @349881d = GATE
+  ACCEPT.** `drive()` now runs the two resolvers (weather @341340e + funding @db17fe8) on the UTC-day
+  boundary, alongside the digest + reconciliation. OPT-IN; **ledger-only — NO orders, no promotion
+  (I6/I7)**; idempotent; alert-and-continue (a resolver failure never crashes the boundary); Clock-driven.
+  The standalone resolvers were already gated; this is the wiring that makes them auto-run — so produced
+  beliefs (weather + funding) are now scored against ground truth on the daemon's own cadence, not by
+  hand. Battery: fmt + workspace **1719/0** (incl. `drive_resolves_due_weather_and_funding_beliefs_on_the
+  _daily_boundary`) + clippy `--workspace -D warnings` + DST 5 corpus + 2000 seeds 0 violations +
+  invariants UNTOUCHED. MUTATION-PROVEN: swapping the funding resolver call to weather reds the test.
+  (Funding still needs the Part-2 POLLER to FILL the store — until then the funding resolver self-skips
+  an empty store; weather is fully live. The poller is track-C's, amendment written.)
+
 - **✅ TRACK E — F10 v1↔v2 schema dispatch + E.5 persona-folding remainder MERGED → main @1b1f8d4 =
   GATE ACCEPT** (completes both track-E branches per operator "verify and merge track e"; closes the
   F10 + E.5 residuals flagged in the de-stale). F10: `parse_versioned` dispatches by the OPTIONAL
