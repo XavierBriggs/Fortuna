@@ -219,6 +219,35 @@ additive (default-impl trait method; new files). TWO shared touch-points to coor
 with track A (§5): the `Strategy`-trait scalar drain method AND registering the strategies
 in the daemon composition (`fortuna-live`) — neither rewrites track A's existing files.
 
+### 2.6 funding_forecast scoring + quantile acceptance (binding; operator-endorsed 2026-06-13)
+
+Two binding requirements refine §2.3. They are ACCEPTANCE criteria, not new mechanism —
+§1.3's multi-rule, side-by-side scoring over the immutable `(PredictiveDistribution,
+RealizedOutcome)` facts already supports them. (Endorsed amendments A2b, A2d.)
+
+- **A2b — fixed quantile set.** funding_forecast's `PredictiveDistribution::Scalar`
+  carries exactly the seven quantiles `{0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95}` (§2.3
+  previously said "central quantile + dispersion", unfixed). Seven points characterize the
+  body and both tails enough for CRPS and band-coverage without overfitting the dispersion
+  model. The §1.1 validation (q strictly increasing, v non-decreasing, finite, ≥2 quantiles)
+  enforces well-formedness; this fixes the SET. A unit test pins the produced q-vector to
+  these seven.
+- **A2d — must beat baselines (the edge test, the I7-spirit gate for a belief producer).**
+  funding_forecast has no edge unless its CRPS BEATS naive baselines on the SAME resolved
+  windows — above all **carry-forward** (the current venue funding ESTIMATE, the §2.3
+  authoritative input, projected FLAT to `next_funding_time`), and also last-realized-rate
+  and a random-walk. Implement each baseline as a trivial `PredictiveDistribution::Scalar`
+  producer over the same ticks, score them side-by-side via §1.3's `(belief_id, rule_id)`
+  rows (keyed here by a `producer`/`baseline` label), and surface the comparison (ROTA §9.1
+  renders it). Carry-forward is THE bar: if funding_forecast cannot beat the venue estimate
+  carried forward, it stays DATA-ONLY (no promotion past Sim) until it can. A test asserts
+  the comparison is COMPUTED (the baseline rows exist); promotion is the operator's call on
+  the measured result, never automatic (I7).
+
+These are MEASUREMENT requirements: no behavior change to the gate/exec path, no money
+touch (CRPS/quantiles are f64 forecast-domain). They make funding_forecast's edge
+FALSIFIABLE rather than assumed.
+
 ## 3. The basis model (perp_event_basis)
 
 Two surfaces on the same underlying (BTC), same venue family, same CF Benchmarks
@@ -291,6 +320,99 @@ To make perp_event_basis fixtures-gated end-to-end (now drivable by me, operator
   end-to-end on real co-recorded data. The STRATEGY (the sized `Cents` bracket-leg trade) is the
   remaining fixture-gated step.
 
+### 3.3 Basis model v2 — per-bracket EV, horizon-gated, freshness-measured (binding slice-3b-v2 spec; operator-endorsed 2026-06-13)
+
+§3.1's rung-0 is DONE and demo-validated (median basis + buy-the-containing-bin; merged;
+two independent cycles agreed <0.1%). v2 is the next rung: it replaces the single-median
+signal with a per-bracket fair-probability model and a real expected-value gate, and it
+stops ASSUMING the perp is the better price — it MEASURES it. Every change preserves the
+rung-0 invariants: I6 (unsized propose-only; the harness sizes), I7 (Sim-stage, no
+auto-promotion), the f64-forecast / `Cents`-money split, no `panic!`/`unwrap`/`expect`,
+and "veto = propose nothing". The rung-0 kernel/strategy are NOT deleted — the median
+becomes a health metric (A10) and the rung-0 path remains the fallback when v2's richer
+inputs are unavailable. (Endorsed amendments A3, A6, A5, A9, A4, A8, A7, A10.)
+
+- **A3 — per-bracket fair probability `q_j`, not a median.** For each bracket bin j compute
+  the model probability that settlement lands in it:
+  `q_j = P(settlement ∈ bin_j | S₀, σ, τ) = F(cap_j) − F(floor_j)` (open tails:
+  `q_greater = 1 − F(floor)`, `q_less = F(cap)`), where F is the model settlement-price CDF
+  centered on the anchor S₀ (A6) with dispersion σ over horizon τ (A5). Rung-0-of-v2 model:
+  Gaussian in log-price (lognormal settlement); `σ` from the realized volatility of the
+  perp-mark series scaled by √τ, config-overridable. The bracket-IMPLIED σ is a cross-check
+  DIAGNOSTIC (A10), NEVER the pricing input — using the ladder's own dispersion to price the
+  ladder is circular. The `q_j` vector is the new signal; `bracket_implied_median` is
+  retained, demoted to diagnostics. All f64-forecast; degenerate inputs (non-finite σ, τ≤0,
+  empty ladder) → empty `q_j` → no proposal (mirrors the kernel's `None`).
+
+- **A6 — BRTI is the settlement anchor, not the perp mark; veto on stale feed.** KXBTC
+  brackets resolve to the CF Benchmarks reference (BRTI family), NOT the perp settlement
+  mark. So S₀ = the reference index (`FundingObservation.reference_price`, already on
+  `PerpTick`); the perp mark's DEVIATION from it is the funding/premium SIGNAL (what
+  funding_forecast models), not the anchor. At short horizon the two nearly coincide
+  (rung-0's approximation); A6 makes the anchor explicit and correct at longer τ. The
+  reference frame carries `ts_ms` (§4) — if it is STALE past a configured age
+  (Clock-measured), the anchor is untrustworthy → DISABLE basis trading on that tick
+  (propose nothing). Mis-anchoring mis-prices every `q_j`, so this veto is load-bearing.
+
+- **A5 — horizon gating.** Compute τ = bracket settlement time − now (injected Clock).
+  Three regimes: `τ ≤ 4h` **direct** (short-horizon σ; mark/reference a tight point
+  forecast); `4h < τ ≤ 48h` **vol-adjusted** (σ scales with √τ; premium-decay from
+  funding_forecast matters; widen F); `τ > 48h` **disabled** (the point-forecast+σ model is
+  not trustworthy → propose nothing). The regime selects the σ model or vetoes; it never
+  sizes (I6).
+
+- **A9 — ladder no-arb validation (gate the inputs).** Before trusting executable quotes,
+  validate the ladder is coherent: YES-implied probabilities monotone-consistent with a CDF
+  (implied cumulative non-decreasing across the price-ordered bins), YES-sum ≈ 1 within
+  tolerance, no crossed quotes implying a free lock (a genuine lock is `mech_structural`'s
+  arbitrage, NOT a basis trade). A ladder that fails no-arb → DISABLE basis trading on it
+  (propose nothing): you cannot compare `q_j` to an incoherent price vector. A health gate,
+  not a trade.
+
+- **A4 + A8 — per-bin expected-value gate with maker adverse-selection.** Replace rung-0's
+  scalar `|basis| > fee_floor + min_basis` with a PER-BIN EV gate in probability units:
+  `EV_j = q_j − ask_j − fee − slippage − reserve − adverse_j`, where `ask_j` is the
+  EXECUTABLE YES price you would pay (the ASK, not the mid), `fee` is the round-trip fee at
+  the fee-trap rate (amendment C, assumed post-promo; promo-$0 never lowers it), `slippage`
+  and `reserve` are configured margins, and `adverse_j` (A8) is the maker adverse-selection
+  penalty: a passive bid fills preferentially when flow is informed against it, so the
+  realized fill is worse than `q_j − ask_j` implies — discount accordingly. Propose bin j
+  only when `EV_j > threshold`. EV is an honest f64 edge claim and the strategy's GO/no-go
+  (rung-0's fee-trap analog), NOT a size — the leg stays UNSIZED `Cents` (I6). Multiple bins
+  may clear; each is a separate unsized maker leg (the harness sizes/caps).
+
+- **A7 — measure "the perp is better informed," don't assume.** "Trade toward the perp"
+  only holds when the perp price actually LEADS the bracket. Measure it per tick: per-side
+  spreads, top-of-book depth, and quote staleness (age) of BOTH the perp and the target
+  bracket bin. Form a relative-informativeness signal; when the bracket bin is
+  fresher/tighter/deeper than the perp on the relevant side, do NOT assume the perp is right
+  — down-weight (raise `reserve`/`adverse_j`) or veto that bin. Conservative default:
+  unknown/stale → treat as NOT perp-favorable. DATA CAVEAT: per-level quote ages may not be
+  on the current `OrderBook`/fixture; if so, record the gap in GAPS and gate on what IS
+  available (bracket-vs-perp cycle freshness from the recorder pairing), treating missing
+  age as stale — never assuming fresh.
+
+- **A10 — full-CDF diagnostics; median → health metric (C produces, B displays).** The
+  median is demoted from signal to a HEALTH metric. C PRODUCES the diagnostic data: the
+  model `q_j` vector, the implied CDF (from quotes) vs the model CDF (from S₀,σ,τ), their
+  divergence, and band-coverage of realized settlements — emitted as named `MetricSample`s
+  (§8 grain) and carried in the proposal thesis/provenance. The DISPLAY half (rendering the
+  fan/CDF, the basis trail) is track-B's ROTA §9.2 — C ships the numbers, B paints them
+  (the §9 data-vs-view split).
+
+**Build order (each a gate-clean ADDITIVE slice; v2 is POST-T5.B7-EXIT — see §5):**
+1. §2.6 first (A2b 7-quantile + A2d baseline-beat) — isolated, no perp-strategy dependency.
+2. A3 + A6 anchor — the `q_j` model on the BRTI anchor; median → diagnostic (A10 data).
+   Kernel-level, synthetic-input tested.
+3. A9 no-arb validation — guards A3's inputs.
+4. A5 horizon gating — wraps A3 with the τ-regime σ model + the >48h veto.
+5. A4 + A8 EV gate — the per-bin EV with adverse-selection replaces the scalar gate.
+6. A7 measured informativeness + A6 stale-veto + A10 diagnostic emission — the freshness/
+   health surface.
+Each preserves propose-only/unsized/Sim and degrades to "propose nothing" on any degenerate
+or stale input. The rung-0 path stays as the fallback; v2 activates only when its richer
+inputs are present and coherent.
+
 ## 4. Fixture grounding (confirmed 2026-06-13 against `fixtures/kinetics-perps/` + the recorder)
 
 - **`PerpTick` — fully grounded.** The WS `ticker` frame carries `settlement_mark_price`,
@@ -337,6 +459,16 @@ independently gate-clean with the full battery.
 
 Phase-5 EXIT (T5.B7) completes when 1–4 land gated. T5.B8 (perps ops) remains a separate
 queue item with its own kill-switch-collision coordination (out of scope here).
+
+**Post-EXIT refinement — basis model v2 (§3.3) + funding_forecast scoring (§2.6),
+operator-endorsed 2026-06-13.** Slices 1–4 (rung-0) ARE T5.B7 EXIT and are DONE/merged. The
+v2 spec (§3.3 A3/A6/A5/A9/A4+A8/A7/A10; §2.6 A2b/A2d) is a SEPARATE post-EXIT queue owned by
+track C, built as gate-clean additive slices (the §3.3 build order). SEQUENCING (operator to
+confirm): recommended BEHIND the Kalshi demo-flip in C's queue — the demo-flip unblocks live
+observability of the already-producing funding_forecast (the operator's "demo mode" goal),
+whereas v2 deepens a Sim-stage, propose-only, non-live-capital strategy (I7) whose rung-0 is
+already merged, so it gates nothing live. F5–F9 was moved off C → E (2026-06-14), freeing C's
+load for this.
 
 ## 6. What this deliberately does NOT do (YAGNI)
 

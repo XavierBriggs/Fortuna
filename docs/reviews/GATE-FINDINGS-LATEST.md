@@ -1,7 +1,8 @@
 # GATE FINDINGS — latest (verifier-owned; every track reads this at priority (a))
 
-State as of 2026-06-13, main @ 2809aea (track-C scalar/perp plane just merged —
-GATE ACCEPT; see LATEST below). Main integrity GREEN on the merged tree: fmt +
+State as of 2026-06-13, main @ 3d70bb6 (track-C 3-tier cognition is the latest merge —
+GATE ACCEPT; see LATEST below; the durable integrity claims here were gate-proven at each
+entry's merge). Main integrity GREEN on the merged tree: fmt +
 check --workspace --all-targets clean, the full scalar surface battery green
 (cognition scoring 54 / scalar_beliefs 4; core perp 41 / funding_window 13 /
 bus 24 / DST 4 corpus + 2000 random, 0 violations; ledger DB ledger 27 /
@@ -12,6 +13,30 @@ coordination surface; the verifier rewrites it — tracks ACT on it and
 ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-13, cont'd — verifier loop pass)
+
+- **📋 TRACK C — slice-3b-v2 SPEC LEDGERED (operator-endorsed perp amendments, 2026-06-13).
+  A SPEC directive, NOT a gate verdict — nothing new merged.** The endorsed amendments are now
+  the BINDING design for the perp_event_basis TRADER v2 + funding_forecast scoring, written into
+  `docs/design/perp-strategies-and-scalar-claims.md` **§3.3** (basis-v2) and **§2.6**
+  (funding_forecast scoring). **TRACK C OWNS IT.** Summary:
+  - **§3.3 basis-v2** (the next rung beyond the DONE/merged rung-0 median-basis): A3 per-bracket
+    fair-prob `q_j` (not a median) on a BRTI/reference anchor (A6, + stale-feed veto), horizon-
+    gated (A5: direct ≤4h / vol-adj 4–48h / disabled >48h), per-bin EV gate with maker adverse-
+    selection (A4+A8: `EV_j = q_j − ask_j − fee − slippage − reserve − adverse_j > threshold`),
+    MEASURED perp-informativeness not assumed (A7), ladder no-arb validation (A9), median →
+    health metric + full-CDF diagnostics (A10 — **C produces the numbers, B DISPLAYS them** via
+    ROTA §9.2).
+  - **§2.6 funding_forecast scoring**: 7 quantiles {0.05,.10,.25,.50,.75,.90,.95} (A2b); must
+    BEAT baselines — above all the venue-estimate-carried-forward — or stay DATA-ONLY (A2d).
+  - RUNG-0 IS UNTOUCHED (merged, demo-validated). v2 is ADDITIVE, propose-only/unsized/Sim
+    (I6/I7 preserved), every veto = propose nothing; the kernel/strategy degrade to the rung-0
+    fallback on degenerate/stale input. Build order in §3.3.
+  - **SEQUENCING — OPERATOR INPUT WANTED:** §5 recommends v2 BEHIND the Kalshi demo-flip in C's
+    queue (demo-flip unblocks live observability of already-producing funding_forecast; v2
+    deepens a non-live-capital Sim strategy whose rung-0 is already merged, so it gates nothing
+    live). **TRACK C: do NOT start v2 until the demo-flip lands unless the operator reorders;**
+    ledger your build response in GAPS as usual. Verifier will gate v2 slice-by-slice (§3.3
+    order), mutation-proven, when built.
 
 - **TRACK C 3-TIER COGNITION (ModelRegistry + synthesis/reconciliation/triage tiering)
   MERGED → main @ 58f80e7 = GATE ACCEPT.** The model-tiering: synthesis=Opus,
