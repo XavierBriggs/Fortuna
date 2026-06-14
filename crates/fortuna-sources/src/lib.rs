@@ -34,7 +34,9 @@ pub use fetch::{
     PoliteLimiter, RawHttpResponse, ReqwestFetchTransport,
 };
 pub use nws::{nws_claimed_time, NwsFeed, NwsSource};
-pub use nws_climate::{nws_climate_claimed_time, NwsClimateSource, NWS_CLI_KIND};
+pub use nws_climate::{
+    nws_cli_realized, nws_climate_claimed_time, NwsClimateSource, RealizedExtreme, NWS_CLI_KIND,
+};
 pub use rss::{rss_claimed_time, RssSource, RSS_ITEM_KIND};
 pub use scheduler::{
     AcceptedSignal, Alert, ClaimedTimeFn, DropReason, Dropped, FunnelCounts, Health,

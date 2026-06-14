@@ -311,6 +311,12 @@ default — merged code activates zero ingestion until an operator opts in (see
 - `NwsClimateSource` adapter (`feed = "climate"`) — the NWS CLI
   (Climatological Report–Daily) two-hop grader, the official daily max/min
   settlement record; emits `nws.cli` carrying the raw productText (F2).
+- `nws_cli_realized(product_text, station) -> Option<RealizedExtreme>` — the
+  NWS-CLI realized-extreme GRADER (F2 long-pole): extracts the official daily
+  high/low °F from the fragile CLI text, FAIL-LOUD (a jam `7676`, a missing `MM`,
+  an absent line, an inverted high<low, or an unparseable date → `None`, never a
+  fabricated temperature). The independent resolution input for F9 reliability
+  scoring. Two new recorded fixtures + a mutation guard.
 - `AeolusSource` adapter (kind `aeolus`) — the operator-owned probabilistic
   temperature-forecast vendor; `x-api-key` auth, env-only secret; emits
   `aeolus.forecast` (the raw envelope, untouched) with real live-endpoint

@@ -3,6 +3,35 @@
 Open items the implementation defers, lacks, or needs from the operator. Acceptance
 requires this file to contain ONLY operator-blocked items, each with exact unblock steps.
 
+## TRACK D — NWS-CLI realized-extreme GRADER (F2 long-pole) DONE (2026-06-14) + bridge/registry handoffs
+
+The productText→°F grader that F9 (and every weather belief) depends on is built:
+`fortuna_sources::nws_cli_realized(product_text: &str, station: &str) ->
+Option<RealizedExtreme { station, report_date, high_f: i64, low_f: i64 }>` in
+crates/fortuna-sources/src/nws_climate.rs. Pure + deterministic (no Clock::now,
+no panic). FAIL-LOUD: `None` on any ambiguity (jammed `7676`, missing `MM`, absent
+line, inverted high<low, unparseable date) — never a fabricated temperature
+(spec 5.12). RECORDED fixtures only (2 new real captures + the existing jammed
+PTKR; mutation guard). Battery-green source-side.
+
+OPEN HANDOFFS (each is another track's / the operator's, with exact steps):
+1. BRIDGE (cognition / composition — Track-E or Track-A settlement loop): F9's
+   `score_reliability(fc, realized_f: f64)` is unchanged; to feed it, the resolver
+   loop calls `nws_cli_realized(productText, station)` on the persisted `nws.cli`
+   signal for the event's (station, target_date), then passes `r.high_f as f64`
+   for a TMAX event or `r.low_f as f64` for a TMIN event. `None` ⇒ the day is
+   UNSCOREABLE (skip; do not grade). fortuna-live (composition) depends on both
+   fortuna-sources and fortuna-cognition, so the bridge has no dependency problem.
+2. REGISTRY SEED (operator): seed a `source_registry` row for the observed-daily-
+   extreme feed (the `nws_climate` source) with its resolution-source role +
+   tier 10, so weather events can declare it as their resolution source (§3.2,
+   §5.12). The dossier (docs/research/sources/nws_climate/dossier.md) already
+   declares this role; only the DB seed is operator-side.
+3. STATION ROUTING / multi-station CLI: `station` is caller-supplied and stamped;
+   the grader assumes a single-station product (true for all captured fixtures).
+   A multi-station CLI product (some offices list several sites) would need a
+   site-section split — ledgered as a future enhancement, not Phase-A-blocking.
+
 ## TRACK C — §2.6 A2b DONE (7-quantile fan) + A2d SLICE 1 DONE (carry-forward kernel); A2d SLICE 2/3 next (2026-06-14)
 
 §2.6 A2b (the fixed 7-quantile set) is BUILT + battery-green, per the verifier's "funding_forecast
@@ -109,10 +138,12 @@ Contract: `docs/design/aeolus-fortuna-source-contract.md` (rev 3). Changelog:
 - **F9 — Layer-3 reliability scoring — DONE (this commit).** `aeolus_reliability::score_reliability`
   → per-(model,scope) Brier (binary brackets vs realized 0/1) + CRPS (F8's μ/σ fan vs realized),
   reusing `brier_score`/`CrpsPinballRule`. Validated against the fixture (outcomes split 8/6 at
-  realized 88; CRPS grows for a colder realized). SEAM still open (operator/Track-D): the
-  productText→realized-daily-high extraction (F2) is NOT in cognition — F9 takes the realized temp as
-  input; the e2e supplies a recorded value. A future F2 cognition grader (NWS-CLI productText → °F)
-  closes it.
+  realized 88; CRPS grows for a colder realized). SEAM FILLED by Track-D (2026-06-14): the
+  productText→realized-daily-high extraction is `fortuna_sources::nws_cli_realized(productText,
+  station) -> Option<RealizedExtreme>` (built SOURCE-side, not cognition — the dep runs
+  sources→cognition; correct per this module's own note). F9 still takes a plain `realized_f: f64`;
+  the composition layer bridges it (`high_f as f64` for TMAX, `low_f as f64` for TMIN). See the
+  Track-D grader entry below for the bridge contract + the registry-seed prereq.
 - **e2e — the assignment GATE — DONE (this commit). PIPELINE COMPLETE.** `aeolus_e2e.rs`
   (`#[sqlx::test]`): recorded forecast → F6→F5→F7→F8 PERSIST (beliefs + scalar_beliefs) → F9 scores →
   resolve_and_score + belief_scores. Asserts a SCORED bracket belief (ge87 `status=resolved`,

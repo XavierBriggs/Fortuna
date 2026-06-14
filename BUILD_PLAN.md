@@ -1083,6 +1083,24 @@ scheduler is shared with D9). The skill/persona layer is a separate session
       Fixtures REAL (2026-06-13: cli_list + cli_product). Research-grounded
       dossier docs/research/sources/nws_climate/ (admitted tier 10 — the
       settlement record). 6 tests. (DONE 2026-06-13, battery green; hash next.)
+- [x] F2-grader NWS-CLI productText → °F realized-extreme parser (the long-pole
+      extraction F2 deferred; §3.2/§5.12 — F9's resolution input). New
+      `nws_cli_realized(product_text, station) -> Option<RealizedExtreme>` in
+      nws_climate.rs (source-side: deps run sources→cognition, so the grader can't
+      sit in cognition; F9 takes a plain `realized_f: f64` and the composition
+      layer bridges `high_f as f64` (TMAX) / `low_f as f64` (TMIN)). FAIL-LOUD —
+      `None` on any ambiguity: a jammed column (`MINIMUM 7676`), a missing value
+      (`MM`), an absent MAXIMUM/MINIMUM line, an inverted high<low, or an
+      unparseable date — never a fabricated temperature. Robust to the real-data
+      quirks captured: the daily line is the first `<keyword> <number>` (skips the
+      monthly `MAXIMUM TEMPERATURE (F)` rows), record-tie flags (`91R`→91), and
+      both date orders/abbreviations (`12 JUNE 2026` / `JUNE 13 2026` / `JUN 13`).
+      RECORDED fixtures only: 2 NEW real captures (Troutdale KPQR 91/50, Pago Pago
+      NSTU 82/75) for the success path + the existing PTKR (jammed min) for the
+      hard-error path; mutation guard (drop the MAXIMUM line → None). 10 grader
+      tests (141 sources lib total). Registry: the observed-daily-extreme feed is
+      the resolution source (dossier updated; the source_registry seed is the
+      operator prereq, ledgered in GAPS). (DONE 2026-06-14 <hash>; battery green.)
 - [x] F1 Generic per-source auth header in FetchClient (subagent-built, I
       reviewed + verified). ReqwestFetchTransport.with_auth_header(name, secret):
       Aeolus = `x-api-key`, generic by name (Bearer drops in). The value is

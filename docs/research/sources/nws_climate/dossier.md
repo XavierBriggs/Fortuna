@@ -125,8 +125,16 @@ Reviewer: Track D implementer · Date: 2026-06-13
 ### Follow-up (ledgered)
 
 CLI full-text is a two-hop fetch (`/products?type=CLI` list → `/products/{id}`).
-`NwsClimateSource` emits the raw `productText` plus a parsed `report_date`; the
-official max/min EXTRACTION is deferred to the grader at settlement (recorded in
-GAPS) so a fixed-width parse ambiguity is flagged rather than silently
-mis-grading a belief. Mapping a market station to the correct office's CLI
-product is likewise a grader-side follow-up, not the adapter's job.
+`NwsClimateSource` emits the raw `productText` plus a parsed `report_date`. The
+official max/min EXTRACTION — the GRADER — is now BUILT (2026-06-14):
+`fortuna_sources::nws_cli_realized(product_text, station) -> Option<RealizedExtreme>`
+extracts the official daily high/low °F, FAIL-LOUD (a jam like `MINIMUM 7676`, a
+missing `MM`, an absent line, an inverted high<low, or an unparseable date returns
+`None`, never a fabricated temperature). It is the resolution input for F9
+(`aeolus_reliability::score_reliability`).
+
+REMAINING (operator/cross-track): (1) the **`source_registry` seed** for this
+resolution-source role (tier 10) is the only operator prereq — the role is
+declared here; (2) mapping a market station to the correct office's CLI product
+(and splitting a rare multi-station product) stays a routing follow-up. Both are
+in GAPS "TRACK D — NWS-CLI realized-extreme GRADER".
