@@ -23,7 +23,7 @@ use axum::response::{Html, IntoResponse};
 use axum::routing::get;
 use axum::{Json, Router};
 use fortuna_core::clock::UtcTimestamp;
-use fortuna_ledger::{BeliefsRepo, CalibrationParamsRepo};
+use fortuna_ledger::{BeliefsRepo, CalibrationParamsRepo, ScalarBeliefsRepo};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -969,14 +969,25 @@ pub async fn forecast_scorecard(pool: &PgPool) -> Result<Vec<ForecastRowTuple>, 
     .await
 }
 
-/// Forecast feed (track-C §9.1 RECENT half: "did the vendor call it?") — the recent
-/// individual scalar forecasts with their realized outcome, newest-first: producer,
-/// event_key, unit, the forecast's MEDIAN (the q=0.5 point of the quantile fan), the
-/// realized value once resolved, and pending/resolved status. The companion to the
-/// /forecasts SCORECARD (aggregate quality) — this is the per-forecast detail. Only
-/// the median number is extracted from the `quantiles` JSONB (a value, not a raw-JSON
-/// render); the full untrusted fan + `provenance` are NOT exposed. Runtime sqlx
-/// (audit-tail precedent). Degrades to unavailable (HTTP 200) without the pool.
+/// Forecast feed (track-C §9.1 + the operator "completely see the belief and
+/// everything" want, 2026-06-13) — the recent individual scalar beliefs,
+/// newest-first, each FULLY inspectable. The summary line carries the at-a-glance
+/// essentials (producer · event · q=0.5 MEDIAN · unit · resolved/pending · realized);
+/// click-to-expand reveals the WHOLE quantile FAN (q/v pairs), the producer's
+/// EVIDENCE (its work — e.g. estimate / point_forecast / remaining_candles), and the
+/// provenance. The scalar companion to the binary /cognition belief panel; both
+/// render each belief as a `<details>` expander (the same `truncate_evidence` +
+/// `provenance_summary` precedent).
+///
+/// UNTRUSTED DATA (spec 5.11): the quantile fan, evidence, and provenance are
+/// model+venue output. Only the numeric q/v are read from the fan (`clean_quantiles`
+/// drops any malformed entry — never raw-rendered); evidence + provenance are
+/// size-capped (`truncate_evidence`) and rendered as DATA (esc'd JSON), never
+/// interpreted. The `scalar_beliefs.provenance` column is the daemon's wrapper
+/// `{"provenance":…,"evidence":…}` (persist_scalar_beliefs, daemon.rs) — split back
+/// here; a non-wrapped row is shown whole as provenance, never hidden. Reads
+/// `ScalarBeliefsRepo::recent` (newest-first by ULID belief_id; NO ledger change).
+/// Degrades to unavailable (HTTP 200) without the pool.
 async fn view_forecast_feed(State(s): State<RotaState>) -> impl IntoResponse {
     let Some(pool) = s.pool.clone() else {
         return Json(json!({
@@ -984,39 +995,64 @@ async fn view_forecast_feed(State(s): State<RotaState>) -> impl IntoResponse {
             "detail": "postgres capability absent (standalone ROTA)",
         }));
     };
-    match recent_forecasts(&pool, 50).await {
-        Ok(rows) => {
+    match ScalarBeliefsRepo::new(pool).recent(50).await {
+        Ok(beliefs) => {
             let generated_at = { s.snapshot.read().await.generated_at.clone() }; // R8
-            let n = rows.len();
-            let resolved = rows.iter().filter(|r| r.7 == "resolved").count();
-            let json_rows: Vec<Value> = rows
+            let n = beliefs.len();
+            let resolved = beliefs
+                .iter()
+                .filter(|b| b.realized_value.is_some())
+                .count();
+            // Round a displayed forecast/outcome to 6dp; the raw f64 stays the honest
+            // source. null (no q=0.5 / unresolved) → "—" at the renderer.
+            let round6 = |v: Option<f64>| v.map(|x| (x * 1_000_000.0).round() / 1_000_000.0);
+            let json_rows: Vec<Value> = beliefs
                 .into_iter()
-                .map(
-                    |(producer, event_key, unit, horizon, _created, median, realized, status)| {
-                        // Round the displayed forecast/outcome to 6dp; the raw f64
-                        // stays the honest source. null (no q=0.5 / unresolved) → "—".
-                        let round6 =
-                            |v: Option<f64>| v.map(|x| (x * 1_000_000.0).round() / 1_000_000.0);
-                        json!({
-                            "producer": producer, "event_key": event_key, "unit": unit,
-                            "horizon": horizon, "median": round6(median),
-                            "realized": round6(realized), "status": status,
-                        })
-                    },
-                )
+                .map(|b| {
+                    let fan = clean_quantiles(&b.quantiles);
+                    let median = fan
+                        .iter()
+                        .find(|(q, _)| (q - 0.5).abs() < 1e-9)
+                        .map(|(_, v)| *v);
+                    // The producer wraps {"provenance":…,"evidence":…} into the single
+                    // provenance column (persist_scalar_beliefs); split it back. The
+                    // wrapper is detected by BOTH keys (its exact contract) — any other
+                    // shape is shown WHOLE as provenance, never partially nulled.
+                    let col = &b.provenance;
+                    let wrapped = col.get("evidence").is_some() && col.get("provenance").is_some();
+                    let (evidence, prov_inner) = if wrapped {
+                        (
+                            col.get("evidence").cloned().unwrap_or(Value::Null),
+                            col.get("provenance").cloned().unwrap_or(Value::Null),
+                        )
+                    } else {
+                        (Value::Null, col.clone())
+                    };
+                    json!({
+                        "belief_id": b.belief_id,
+                        "producer": b.producer,
+                        "event_key": b.event_key,
+                        "unit": b.unit,
+                        "horizon": b.horizon,
+                        "created_at": b.created_at,
+                        "quantiles": fan
+                            .iter()
+                            .map(|(q, v)| json!({"q": *q, "v": *v}))
+                            .collect::<Vec<_>>(),
+                        "median": round6(median),
+                        "realized": round6(b.realized_value),
+                        "resolved_at": b.resolved_at,
+                        "status": if b.realized_value.is_some() { "resolved" } else { "pending" },
+                        "prov": provenance_summary(&prov_inner),
+                        "evidence": truncate_evidence(&evidence),
+                        "provenance": truncate_evidence(&prov_inner),
+                    })
+                })
                 .collect();
             Json(json!({
                 "title": "Forecast Feed",
                 "generated_at": generated_at,
-                "columns": [
-                    {"key":"producer","label":"Producer"},
-                    {"key":"event_key","label":"Event"},
-                    {"key":"unit","label":"Unit"},
-                    {"key":"median","label":"Forecast (median)"},
-                    {"key":"realized","label":"Realized"},
-                    {"key":"status","label":"Status","pill":true},
-                    {"key":"horizon","label":"Horizon (UTC)"},
-                ],
+                "available": true,
                 "rows": json_rows,
                 "summary": {"forecasts": n, "resolved": resolved, "pending": n - resolved},
             }))
@@ -1031,40 +1067,21 @@ async fn view_forecast_feed(State(s): State<RotaState>) -> impl IntoResponse {
     }
 }
 
-/// One forecast-feed row: (producer, event_key, unit, horizon, created_at, median,
-/// realized_value, status).
-type ForecastFeedTuple = (
-    String,
-    String,
-    String,
-    String,
-    String,
-    Option<f64>,
-    Option<f64>,
-    String,
-);
-
-/// Recent scalar forecasts with their realized outcome, newest-first. The MEDIAN is
-/// the q=0.5 point of the `quantiles` fan (a single value extracted in SQL — the raw
-/// fan is never rendered); `status` is pending/resolved on `realized_value`. Runtime
-/// sqlx (audit-tail precedent); limit clamped to [1, 200].
-pub async fn recent_forecasts(
-    pool: &PgPool,
-    limit: i64,
-) -> Result<Vec<ForecastFeedTuple>, sqlx::Error> {
-    let limit = limit.clamp(1, 200);
-    sqlx::query_as::<_, ForecastFeedTuple>(
-        "SELECT producer, event_key, unit, horizon, created_at, \
-                (SELECT (e->>'v')::float8 FROM jsonb_array_elements(quantiles) e \
-                   WHERE (e->>'q')::float8 = 0.5) AS median, \
-                realized_value, \
-                CASE WHEN realized_value IS NULL THEN 'pending' ELSE 'resolved' END AS status \
-         FROM scalar_beliefs \
-         ORDER BY created_at DESC LIMIT $1",
-    )
-    .bind(limit)
-    .fetch_all(pool)
-    .await
+/// Extract the quantile fan as clean (q, v) f64 pairs, ascending by q. The
+/// `quantiles` JSONB is untrusted model output (spec 5.11) — only the numeric q/v
+/// are read; any malformed / extra-keyed entry is skipped, never rendered as raw
+/// JSON. Drives both the at-a-glance median (q=0.5) and the expander fan.
+fn clean_quantiles(quantiles: &Value) -> Vec<(f64, f64)> {
+    let mut fan: Vec<(f64, f64)> = quantiles
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|e| Some((e.get("q")?.as_f64()?, e.get("v")?.as_f64()?)))
+                .collect()
+        })
+        .unwrap_or_default();
+    fan.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    fan
 }
 
 /// DB visibility (mission item 5: "honest visibility into the actual tables —
@@ -1811,7 +1828,25 @@ const R={
  persona_pipeline(j){return boardTable(j);},
  analyses(j){return boardTable(j);},
  forecasts(j){return boardTable(j);},
- forecast_feed(j){return boardTable(j);},
+ // The scalar-belief feed: each recent forecast as a click-to-expand <details>
+ // (the /cognition belief-panel precedent) so the operator can "completely see the
+ // belief and everything" — the summary carries producer · event · median · status ·
+ // realized; expanding shows the WHOLE quantile fan + the producer's evidence +
+ // provenance. All of q/v, evidence, provenance are untrusted model output (5.11):
+ // numbers are esc()'d, evidence/provenance are esc()'d JSON, never interpreted.
+ forecast_feed(j){let h="";
+  if(j.summary)h+=`<div class="bsum">`+Object.entries(j.summary).map(([k,v])=>`${esc(k)} <b>${esc(v)}</b>`).join(" · ")+`</div>`;
+  const rows=j.rows||[];
+  if(!rows.length)return h+`<div class="row">no forecasts yet</div>`;
+  rows.forEach(b=>{
+   const st=b.status==="resolved"?pill("resolved","ok"):pill("pending","dim");
+   const out=b.realized!=null?` → realized <b>${esc(b.realized)}</b>`:"";
+   const fan=(b.quantiles||[]).map(q=>`q${(+q.q).toFixed(2)} ${esc(q.v)}`).join("   ");
+   h+=`<details class="belief"><summary>${esc(b.producer)} · ${esc(b.event_key)} · median ${b.median==null?"—":esc(b.median)} ${esc(b.unit)} ${st}${out}</summary>`
+    +provLine(b.prov)
+    +`<div class="row dim">${esc(String(b.belief_id).slice(-8))} · horizon ${esc(b.horizon)} · fan: ${fan||"—"}</div>`
+    +`<pre>evidence: ${esc(JSON.stringify(b.evidence,null,1))}\nprovenance: ${esc(JSON.stringify(b.provenance,null,1))}</pre></details>`;});
+  return h;},
  db(j){return boardTable(j);},
  telemetry(j){return boardTable(j);},
  audit(j){if(!j.available)return `<div class="warn">${esc(j.detail||"unavailable")}</div>`;

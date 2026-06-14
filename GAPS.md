@@ -62,6 +62,33 @@ OWNERSHIP: rota.rs + assets/rota are TRACK B (orchestration.md). Track C ledgere
 `[funding_forecast].ticker_feed_jsonl` = the committed fixture; the new section must render the
 live rows (this exact soak reached 56+ in ~6 min).
 
+### ✅ TRACK B RESPONSE — DONE (2026-06-13): /forecast_feed ENRICHED to the rich scalar-belief board
+The recent-scalar-belief feed now lets the operator "completely see the belief and everything."
+Built on the EXISTING `/forecast_feed` board (which post-dated this ask — it already surfaced the
+recent scalar beliefs, but median-only) by ENRICHING it in place rather than adding a redundant
+section to /forecasts or /cognition. It is now the scalar companion to the binary /cognition belief
+panel — both render each belief as a click-to-expand `<details>` (same `truncate_evidence` +
+`provenance_summary` + `provLine` precedent). What lands per recent belief:
+  - SUMMARY line (at a glance): producer · event_key · q=0.5 MEDIAN · unit · resolved/pending pill ·
+    → realized outcome (honest null = "—" while pending).
+  - EXPAND: the WHOLE quantile FAN (every q/v pair), the producer's EVIDENCE (its work — e.g.
+    funding_forecast's estimate / point_forecast / remaining_candles), and the provenance.
+  - The `scalar_beliefs.provenance` column is the daemon wrapper `{"provenance":…,"evidence":…}`
+    (persist_scalar_beliefs, daemon.rs:1001-1008) — SPLIT back here (evidence vs provenance); a
+    non-wrapped row is shown whole as provenance (never hidden).
+BUILD-ASK fidelity: uses `ScalarBeliefsRepo::recent(50)` (repos.rs:2090) — NO ledger change, exactly
+as requested (newest-first by ULID belief_id). UNTRUSTED-DATA (spec 5.11): `clean_quantiles` reads
+ONLY numeric q/v from the fan (malformed entries dropped, never raw-rendered); evidence + provenance
+are `truncate_evidence` size-capped and rendered as DATA (esc'd JSON), never interpreted. Read-only
+(zero mutating endpoints), gold-on-black, HTTP-200 honest-unavailable without the pool.
+VERIFY (done): populated-path test `forecast_feed_surfaces_recent_scalar_beliefs_richly`
+(tests/rota.rs) seeds the WRAPPED provenance the daemon writes and asserts the full fan, the
+split-out evidence (incl. the clean-split invariant — no wrapper keys leak into rendered evidence),
+median, realized-vs-honest-null, and summary. Screenshot with real rows (4 beliefs, fan + evidence
+expanded): `docs/reviews/rota-visual/rota-forecast-feed-rich-2026-06-13.png` (local harness seeds the
+wrapped form). The ask's wt-c live-soak verification path (`[funding_forecast].ticker_feed_jsonl`
+fixture → the board renders the live rows) remains available and is now unblocked end-to-end.
+
 ## TRACK C — slice 4 (daemon composition) SCOPED + the PerpTick-PRODUCER GAP found + sub-slice 4a (KineticsPerpObservation) DONE (2026-06-13)
 
 ARCHITECTURAL FINDING (slice-4 scoping): `EventPayload::PerpTick` has NO PRODUCER anywhere outside tests —
@@ -1311,7 +1338,14 @@ Track-B impact: my full-workspace battery is green on EVERYTHING ELSE (1216 pass
 this 1 pre-existing main red / DST exit 0 / daemon_smoke 15/15 / clippy + fmt clean);
 this red is inherited from main, independent of the ROTA work.
 
-### RALPH STOP 2026-06-13T22:13Z — TRACK B (ROTA OBSERVABILITY): mission delivered + merged; ready work exhausted
+### RALPH STOP 2026-06-13T22:13Z — TRACK B (ROTA OBSERVABILITY): mission delivered + merged; ready work exhausted  ⟶ SUPERSEDED
+**SUPERSEDED 2026-06-13: the operator RE-ACTIVATED the track-B loop** ("main 046d672, track-b can
+now see the ask in GAPS and build the rich scalar-belief ROTA board on all the new stuff that landed
+— enrich rota"). The data this STOP was blocked-on LANDED: track-C slice-4d/4e persists live
+scalar_beliefs from the Sim soak. Track B rebased its 5 follow-on boards onto main and ENRICHED
+/forecast_feed into the rich scalar-belief board — see "✅ TRACK B RESPONSE — DONE" above. The STOP
+text below is preserved as history.
+
 Stopping the track-B loop per loop-rule 5 ("every ready board is built and the rest are
 data-blocked on C/D/E — ledger the dependency, don't invent work").
 

@@ -517,17 +517,31 @@ async fn seed(pool: &PgPool) -> Result<(), BoxErr> {
         } else {
             json!([{"q":0.1,"v":24.0},{"q":0.5,"v":29.0},{"q":0.9,"v":34.0}])
         };
+        // The provenance column is the live daemon's wrapper {"provenance":…,
+        // "evidence":…} (persist_scalar_beliefs) — the producer's WORK lives under
+        // "evidence", which the rich Forecast Feed expander surfaces. Unit-appropriate.
+        let (event_key, prov) = if *unit == "rate" {
+            (
+                "KXBTCPERP1:2026-06-13T16:00:00Z",
+                json!({"provenance": {}, "evidence": {"estimate":"0.0001","point_forecast":"0.0001","remaining_candles": 40 + i as i64}}),
+            )
+        } else {
+            (
+                "KNYC:tmax:2026-06-13",
+                json!({"provenance": {}, "evidence": {"model":"aeolus-emos","station":"KNYC","lead_hours": 24}}),
+            )
+        };
         warn_seed(
             "scalar.belief",
             scalars
                 .insert(
                     id,
                     producer,
-                    "ev-key",
+                    event_key,
                     &fan,
                     unit,
                     "2026-06-13T16:00:00.000Z",
-                    &json!({"strategy": producer}),
+                    &prov,
                     "2026-06-13T15:00:00.000Z",
                 )
                 .await,
@@ -563,7 +577,7 @@ async fn seed(pool: &PgPool) -> Result<(), BoxErr> {
                 &json!([{"q":0.1,"v":80.0},{"q":0.5,"v":86.0},{"q":0.9,"v":92.0}]),
                 "celsius",
                 "2026-06-14T16:00:00.000Z",
-                &json!({"strategy": "aeolus_weather"}),
+                &json!({"provenance": {}, "evidence": {"model":"aeolus-emos","station":"KNYC","lead_hours": 18, "ensemble_members": 31}}),
                 "2026-06-13T17:30:00.000Z",
             )
             .await,
