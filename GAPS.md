@@ -37,9 +37,16 @@ Contract: `docs/design/aeolus-fortuna-source-contract.md` (rev 3). Changelog:
   productText→realized-daily-high extraction (F2) is NOT in cognition — F9 takes the realized temp as
   input; the e2e supplies a recorded value. A future F2 cognition grader (NWS-CLI productText → °F)
   closes it.
-- **e2e (NEXT)** — the assignment's gate: a recorded forecast → F6 parse → F5 dedup → F7 match → F8
-  beliefs PERSIST (ScalarBeliefsRepo/BeliefsRepo) → F9 scores vs a recorded realized temp + persists
-  the score (BeliefScoresRepo). Calibration validated, not asserted.
+- **e2e — the assignment GATE — DONE (this commit). PIPELINE COMPLETE.** `aeolus_e2e.rs`
+  (`#[sqlx::test]`): recorded forecast → F6→F5→F7→F8 PERSIST (beliefs + scalar_beliefs) → F9 scores →
+  resolve_and_score + belief_scores. Asserts a SCORED bracket belief (ge87 `status=resolved`,
+  `outcome=Some(1)`, brier persisted) whose persisted `p` == the pinned μ/σ math (1e-12) — calibration
+  validated, not asserted. 1/1 green on the live DB.
+
+THE AEOLUS PIPELINE (F5–F9 + e2e) IS COMPLETE. Two ledgered seams remain (NOT Track-E-cognition):
+(1) live-Kalshi-market intersection for F7 (venue/Track-A); (2) the NWS-CLI productText→°F grader for
+F9's realized input (F2/Track-D). Composition entry point (run these on the live `drive()` loop) is
+handed to Track A — same "Track E exposes / Track A wires" split as the persona work.
 - **e2e** — recorded forecast → F6→F7→F8→persist→F9 scores vs recorded realized temp.
 
 Status (post-E-batch, 2026-06-10): the T3.6 completion claim was FALSIFIED

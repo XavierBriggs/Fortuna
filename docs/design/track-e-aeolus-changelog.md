@@ -16,7 +16,31 @@ FULL workspace battery as the commit gate.
 
 ---
 
-## F9 — Layer-3 empirical reliability scoring (Brier + CRPS vs realized) (this commit)
+## e2e — the assignment GATE: recorded forecast → persisted, scored bracket belief (this commit) — PIPELINE COMPLETE
+
+New `crates/fortuna-ledger/tests/aeolus_e2e.rs` (`#[sqlx::test]`): the whole F5–F9 chain on the
+RECORDED fixture, persisted to the real ledger. recorded forecast → F6 strict parse + μ/σ→p → F5
+dedup (a duplicate run collapses to one) → F7 world-forward match (14 events; grading station "NYC"
+≠ "KNYC") → F8 propose-only beliefs (14 binary brackets persisted to `beliefs` via `EventsRepo` +
+`BeliefsRepo`; the scalar μ/σ fan persisted to `scalar_beliefs`) → F9 Brier+CRPS vs a RECORDED
+realized high (88°F) → each binary belief `resolve_and_score`'d, the scalar CRPS persisted to
+`belief_scores`.
+
+THE GATE asserted: the borderline ge87 belief is **`status == "resolved"`** with `outcome == Some(1)`
+(88 ≥ 87) and a persisted brier — a SCORED bracket belief, not merely parsed (the assignment's "a
+pipeline that parses but never scores a bracket belief is NOT done"). **Calibration validated, not
+asserted:** the persisted `p` equals the pinned μ/σ math (`bracket_prob_ge(87,μ,σ)`) to 1e-12 — the
+same number F6 pinned to 6.9e-8 of Aeolus's own recorded p — and `brier == (p−1)²`. The scalar CRPS
+landed under `crps_pinball` (the Layer-3 / ROTA §9.1 scorecard feed). Built directly, tests-first;
+1/1 green on the live DB (no new sqlx queries — existing repos only).
+
+**The Aeolus weather→belief pipeline (F5–F9 + e2e) is COMPLETE**: parse → dedup → match →
+propose-only beliefs → reliability scoring, end-to-end, validated against recorded Aeolus + a
+realized temperature. Two seams remain (ledgered, not Track-E-cognition): the live-Kalshi-market
+intersection (F7, venue/Track-A) and the NWS-CLI productText→°F grader (F9's realized input, F2/
+Track-D). The composition entry point (drive these on the live loop) is handed to Track A.
+
+## F9 — Layer-3 empirical reliability scoring (Brier + CRPS vs realized) (commit d673c74)
 
 New `crates/fortuna-cognition/src/aeolus_reliability.rs`: `score_reliability(&AeolusForecast,
 realized_f) -> AeolusReliability`. THE LOOP (contract §5 Layer 3): FORTUNA INDEPENDENTLY re-scores
