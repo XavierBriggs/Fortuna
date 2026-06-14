@@ -238,15 +238,26 @@ config + fail-closed boot loader + the drive() step + a mutation-proven e2e
 (`drive_persists_persona_analysis_and_beliefs_when_wired`). Default-off, byte-identical
 when absent. Full battery green (test --workspace 1491/0; run-dst 200 0-viol).
 
-OPERATOR AMENDMENT (2026-06-14, "drive the ingestion→beliefs loops"): the persona half is
-this slice. The DISCOVERY half is the NEXT track-A slice — drive
-`fortuna_cognition::discovery::{world_forward_discovery (discovery.rs:484),
-market_back_discovery (273)}` on a cadence in drive(), reading the signals store,
-persisting candidate events + edges (EventsRepo/EdgesRepo) so CONFIRMED-tier edges wake
-the synthesis arm (synthesis_edges()). Opt-in/default-off, shares the [cognition]
-DiscoveryBudget rails (breach→degrade), I6 propose-only, Clock-injected, recorded signals
-only (never fabricate an edge). Gate: an e2e showing signals→events→edges→synthesis
-belief, mutation-proven. IN PROGRESS as the next commit.
+OPERATOR AMENDMENT (2026-06-14, "drive the ingestion→beliefs loops"; operator chose BOTH,
+world-forward first). Status:
+- PERSONA half: DONE (commit d03471b).
+- DISCOVERY part 1a — WORLD-FORWARD: DONE (this commit). `[discovery]` opt-in step drives
+  `world_forward_discovery` (signals→`watch:` events + scoreable beliefs, attributed to
+  `StrategyId("world-forward")`); fail-closed registry load; no-panic; default-off; e2e
+  mutation-proven (None→0→RED); full battery green (1495/0 + run-dst 200 0-viol). This is
+  the path that turns ingested SIGNALS into beliefs in PRODUCTION (no venue catalog needed).
+- DISCOVERY part 1b — MARKET-BACK: NEXT commit. Drives `market_back_discovery`
+  (catalog→events→edges→synthesis belief). Auto-confirms LOW-STAKES edges (Direct mapping +
+  deterministic score 1.0 + source/horizon match) per spec §5.12:252 ("deterministic checks
+  score them; #fortuna-review confirms the HIGH-STAKES ones") with `confirmed_by="discovery:auto"`
+  → wakes the synthesis arm; routes HIGH-STAKES (non-Direct / score<1.0 / cross-venue) to
+  #fortuna-review as PROPOSED. Extends this `[discovery]`/`DiscoveryWiring`.
+  GAP (operator/T4.2): the daemon has NO live venue catalog wired (`drive()` has no
+  `venue.markets()`), so market-back is INERT in production until the Kalshi adapter supplies a
+  catalog (T4.2, operator-gated venue=kalshi). The e2e proves the chain with a test-supplied
+  catalog; prod activates when the catalog lands. (World-forward above is the prod-active
+  signal→belief path meanwhile.) I6 propose-only, Clock-injected, recorded signals only, never
+  fabricate an edge.
 
 DEFERRED (ledgered, not blockers):
 - Persona Slice 3 (weekly-review promote/retire verdict folding via persona_scoring +

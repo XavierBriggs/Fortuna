@@ -300,6 +300,63 @@ async fn main() -> Result<()> {
         }
         _ => None,
     };
+    // OPT-IN [discovery] WORLD-FORWARD wiring (default-off; spec 5.12, COMMIT 1).
+    // PRESENT + enabled => load the curated source registry ONCE (the unscoreable
+    // rule keys on it: a candidate whose resolution source is absent/disabled is
+    // excluded from watchlist counts + beliefs), hold it in the wiring. The
+    // discovery STRATEGY id is built ONCE here (no fallible id construction on the
+    // loop path). The discovery mind is the SAME synthesis mind (one build; a stub
+    // mind synthesizes nothing). Absent / `enabled = false` => None => the
+    // world-forward step never runs (byte-identical daemon). Built BEFORE `pool` +
+    // `synthesis_mind` move below.
+    let discovery_strategy = fortuna_core::market::StrategyId::new("world-forward")
+        .map_err(|e| anyhow::anyhow!("building discovery strategy id: {e}"))?;
+    let discovery_wiring = match dcfg.discovery.as_ref() {
+        Some(sec) if sec.enabled => {
+            let rows = fortuna_ledger::SourceRegistryRepo::new(pool.clone())
+                .load_all()
+                .await
+                .context("loading source registry for discovery")?;
+            let source_count = rows.len();
+            let mut registry = fortuna_cognition::signals::SourceRegistry::new();
+            for r in rows {
+                // trust_tier is i32 on the ledger row, 0..=10 by the DB CHECK; map
+                // to the bounded TrustTier newtype (fail-closed on an out-of-range
+                // tier — a row the funnel cannot trust must not boot quietly).
+                let tier = u8::try_from(r.trust_tier)
+                    .ok()
+                    .and_then(|t| fortuna_cognition::signals::TrustTier::new(t).ok())
+                    .with_context(|| {
+                        format!(
+                            "source {:?} has an out-of-range trust_tier {}",
+                            r.source_id, r.trust_tier
+                        )
+                    })?;
+                registry.upsert(fortuna_cognition::signals::SourceEntry {
+                    source_id: r.source_id,
+                    trust_tier: tier,
+                    domain_tags: r.domain_tags,
+                    enabled: r.enabled,
+                });
+            }
+            eprintln!(
+                "fortuna-live: world-forward discovery ACTIVE ({source_count} registry source(s); strategy=world-forward)"
+            );
+            Some(fortuna_live::daemon::DiscoveryWiring {
+                pool: pool.clone(),
+                mind: synthesis_mind.clone(),
+                budget: fortuna_cognition::discovery::DiscoveryBudget::new(
+                    sec.budget_cents_per_day,
+                ),
+                registry,
+                strategy: discovery_strategy,
+                signal_kinds: sec.signal_kinds.clone(),
+                window_hours: sec.window_hours,
+                max_signals: sec.max_signals,
+            })
+        }
+        _ => None,
+    };
     // T4.1/M2 slice B2: the opt-in [review] weekly-review wiring, reusing the
     // synthesis mind + [synthesis].category + the boot time (paper_days). Absent
     // [review] => None => no weekly review fires. Built BEFORE `pool` moves.
@@ -436,6 +493,7 @@ async fn main() -> Result<()> {
         reviews,
         perp_tick_feed,
         personas_wiring,
+        discovery_wiring,
     )
     .await
     .context("daemon loop")?;

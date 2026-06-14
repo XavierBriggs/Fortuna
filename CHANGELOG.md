@@ -293,6 +293,33 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-14 — World-forward discovery wired into the live daemon (`[discovery]`, opt-in) — amendment part 1a
+
+**Added (default-OFF).** Per the operator amendment ("drive the ingestion→beliefs loops") + spec §5.12,
+a `[discovery]` opt-in WORLD-FORWARD step in `drive()`: each segment reads fresh signals
+(`SignalsRepo::recent_by_kind` over `signal_kinds`, within `window_hours`, capped at `max_signals`),
+turns them into `<context-item>` blocks, and hands them to one `world_forward_discovery` call (the §5.12
+daily cost cap + the unscoreable rule live INSIDE it). Each returned candidate is persisted as a `watch:`
+event (EXISTS-guarded — `EventsRepo::create` is a pure INSERT); the SCOREABLE candidates' beliefs fan out
+through the existing `persist_beliefs` path, attributed to a pre-built `StrategyId("world-forward")` (the
+I7 gate/scoring boundary). This is the path that makes ingested SIGNALS produce beliefs in production —
+no venue catalog needed. Sits after the persona step, before `route_alerts` (no synthesis-edge dependency).
+
+- **Boot loader (fail-closed):** the curated `SourceRegistry` is loaded ONCE at boot
+  (`SourceRegistryRepo::load_all`); an out-of-range `trust_tier` REFUSES to boot (no silent default). The
+  discovery `StrategyId` is built once at boot (no fallible id construction on the loop path). The
+  discovery mind is the same synthesis `Mind`. `DiscoveryWiring` owns the `DiscoveryBudget` across segments.
+- **No-panic / I6 / default-off:** the daemon block is match/let-else/filter_map throughout (no
+  unwrap/expect); data-only (signals → `watch:` events + beliefs, never orders); absent `[discovery]` /
+  `enabled=false` ⇒ `None` ⇒ the step never runs (all sibling `drive()` smokes pass `None`).
+- **e2e (mutation-proven):** `discovery_world_forward_persists_watchlist_events_and_beliefs` seeds a
+  scoreable registry source, inserts a signal, scripts a `StubMind` `WatchlistBatch` (one scoreable + one
+  unscoreable candidate), runs ONE `drive()` segment, asserts 2 `watch:` events + exactly 1 belief (the
+  unscoreable candidate's belief refused — "no beliefs nobody can grade"). MUTATION: `discovery=None` ⇒ 0
+  ⇒ RED (verified). code-architect blueprinted; code-reviewer clean (no high-conf issues). Full battery
+  green (test --workspace 1495/0; run-dst 200 0-violations). NEXT (amendment part 1b): market-back
+  (catalog→edges→synthesis) — extends this `[discovery]`/`DiscoveryWiring`; catalog-gated, see GAPS.
+
 ### 2026-06-13 — Persona analysis step wired into the live daemon (`[personas]`, opt-in)
 
 **Added (default-OFF).** Per `docs/design/persona-live-wiring-handoff.md` (Track-E→Track-A

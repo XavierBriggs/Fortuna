@@ -491,6 +491,35 @@ pub struct PersonasWiring {
     pub max_signals: i64,
 }
 
+/// Opt-in WORLD-FORWARD discovery wiring (drive() arg `discovery`; spec 5.12,
+/// COMMIT 1). Owned across segments — `budget` mutates in place. `strategy` and
+/// `registry` are PRE-BUILT at boot (no fallible id construction / no per-segment
+/// registry reload on the loop path).
+///
+/// On a segment, the step reads the fresh signals (`SignalsRepo::recent_by_kind`
+/// over `signal_kinds`, within `window_hours`, capped at `max_signals`), turns
+/// them into `<context-item>` blocks, and hands them to ONE `world_forward_discovery`
+/// call (the §5.12 daily cost cap + the unscoreable rule live INSIDE it). Each
+/// returned candidate is persisted as a `watch:` event (EXISTS-guarded); the
+/// SCOREABLE candidates' beliefs fan out through the existing `persist_beliefs`
+/// path, attributed to a single pre-built strategy (the I7 gate/scoring boundary).
+/// Default-off: `None` => the step never runs (the daemon is byte-identical). A
+/// read/persist failure ALERTS and continues (beliefs are the calibration
+/// substrate, not the money path), mirroring the persona/scalar-drain posture.
+///
+/// COMMIT 1 holds only world-forward fields. A later commit adds market-back
+/// (catalog→edges→synthesis) and EXTENDS this struct in place.
+pub struct DiscoveryWiring {
+    pub pool: PgPool,
+    pub mind: std::sync::Arc<dyn fortuna_cognition::mind::Mind>,
+    pub budget: fortuna_cognition::discovery::DiscoveryBudget,
+    pub registry: fortuna_cognition::signals::SourceRegistry,
+    pub strategy: fortuna_core::market::StrategyId,
+    pub signal_kinds: Vec<String>,
+    pub window_hours: u32,
+    pub max_signals: i64,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     runner: &mut SimRunner<PgIntentJournal>,
@@ -538,6 +567,12 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     // byte-identical to today — fail closed). `mut` because `state` + `budget`
     // mutate in place across segments (like the schedulers / synthesis edge set).
     mut personas: Option<PersonasWiring>,
+    // OPT-IN world-forward discovery wiring (default-off; spec 5.12, COMMIT 1).
+    // `Some` => each segment runs the world-forward step (read fresh signals ->
+    // world_forward_discovery -> persist `watch:` events + fan scoreable candidates
+    // to beliefs); `None` => the step never runs (the daemon is byte-identical to
+    // today — fail closed). `mut` because `budget` mutates in place across segments.
+    mut discovery: Option<DiscoveryWiring>,
 ) -> Result<(LoopStats, fortuna_runner::ShutdownReport), DaemonError> {
     let mut total = LoopStats::default();
     // Dedup state OWNED ACROSS SEGMENTS (gate finding 2026-06-11: keeping
@@ -898,6 +933,186 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                         "persona belief persist FAILED — {n} belief(s) lost (analysis={analysis_id}): {e}"
                                     ),
                                 )),
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // OPT-IN world-forward discovery step (default-off; `None` => skipped
+        // entirely, the daemon byte-identical; spec 5.12, COMMIT 1). On a segment:
+        // read the fresh signals, assemble them into `<context-item>` blocks, and
+        // hand them to ONE world_forward_discovery call (the daily cost cap + the
+        // unscoreable rule live INSIDE it — it never panics; a budget breach sets
+        // outcome.throttled and makes no mind call). Then persist each candidate as
+        // a `watch:` event (EXISTS-guarded — EventsRepo::create is a pure INSERT)
+        // and fan the SCOREABLE candidates' beliefs out through the existing
+        // persist_beliefs path. Mirrors the persona/scalar-drain posture: a
+        // read/persist FAILURE alerts (pushed to `alerts`, routed below) and
+        // CONTINUES — discovery beliefs are the calibration substrate, not the money
+        // path; no failure here may crash the loop. NEVER panics: every
+        // `Option`/`Result` is handled with `match`/`if let`/`filter_map` (no expect
+        // on the belief/money path, CLAUDE.md). Sits before `route_alerts` so its
+        // defect alerts route this segment; world-forward has no synthesis-edge
+        // dependency, so it does NOT need to precede the synthesis refresh above.
+        if let Some(dw) = discovery.as_mut() {
+            if !dw.signal_kinds.is_empty() {
+                let now = Clock::now(runner.clock.as_ref());
+                let now_iso = now.to_iso8601();
+                let after_ms = now.epoch_millis() - (dw.window_hours as i64) * 3_600_000;
+                // from_epoch_millis is fallible; on error, skip this segment's
+                // discovery step (alert) rather than panic or guess a window.
+                match fortuna_core::clock::UtcTimestamp::from_epoch_millis(after_ms) {
+                    Err(e) => alerts.push((
+                        fortuna_ops::MessageKind::Ops,
+                        format!("discovery window timestamp invalid — step skipped: {e}"),
+                    )),
+                    Ok(after_ts) => {
+                        let after_iso = after_ts.to_iso8601();
+                        let rows = match fortuna_ledger::SignalsRepo::new(dw.pool.clone())
+                            .recent_by_kind(&dw.signal_kinds, &after_iso, dw.max_signals)
+                            .await
+                        {
+                            Ok(rows) => rows,
+                            Err(e) => {
+                                alerts.push((
+                                    fortuna_ops::MessageKind::Ops,
+                                    format!(
+                                        "discovery signal read FAILED — step skipped this segment: {e}"
+                                    ),
+                                ));
+                                Vec::new()
+                            }
+                        };
+                        // Ledger rows -> the assembler's input. An unparseable
+                        // received_at SKIPS that row (filter_map), never a panic — the
+                        // signal is untrusted DATA (it rides only as a context body;
+                        // world_forward_discovery assembles + anonymizes internally).
+                        let ctx_items: Vec<ContextItem> = rows
+                            .into_iter()
+                            .filter_map(|r| {
+                                let body = r.payload.to_string();
+                                Some(ContextItem {
+                                    content_hash: content_hash_of(&body),
+                                    item_id: r.signal_id,
+                                    section: SectionKind::FreshSignals,
+                                    body,
+                                    at: fortuna_core::clock::UtcTimestamp::parse_iso8601(
+                                        &r.received_at,
+                                    )
+                                    .ok()?,
+                                })
+                            })
+                            .collect();
+                        // One call synthesizes candidates + zero-capital beliefs (the
+                        // budget mutates in place; returns an outcome, no `?`). On Err
+                        // it ALERTS and falls through to route_alerts (no segment-level
+                        // `continue` that would skip routing this segment's alerts).
+                        match fortuna_cognition::discovery::world_forward_discovery(
+                            dw.mind.as_ref(),
+                            &ctx_items,
+                            &dw.registry,
+                            &mut dw.budget,
+                            now,
+                        )
+                        .await
+                        {
+                            Err(e) => alerts.push((
+                                fortuna_ops::MessageKind::Ops,
+                                format!(
+                                    "discovery world-forward FAILED — step skipped this segment: {e}"
+                                ),
+                            )),
+                            Ok(outcome) => {
+                                // Defects are audit-worthy DATA (mind failure, schema
+                                // violation, a belief nobody can grade), never crashes
+                                // — route each to the trail.
+                                for d in &outcome.defects {
+                                    runner.apply_external_alert("discovery", d);
+                                }
+                                // Persist each candidate as a `watch:` event. The
+                                // event_id is already harness-namespaced ("watch:{hint}");
+                                // EventsRepo::create is a pure INSERT (no dedup), so guard
+                                // with an EXISTS check (mirror persist_beliefs). A persist
+                                // failure alerts + continues the candidate loop — never
+                                // crash, never half-write.
+                                for cand in &outcome.candidates {
+                                    let exists: bool = match sqlx::query_scalar(
+                                        "SELECT EXISTS(SELECT 1 FROM events WHERE event_id = $1)",
+                                    )
+                                    .bind(&cand.event_id)
+                                    .fetch_one(&dw.pool)
+                                    .await
+                                    {
+                                        Ok(exists) => exists,
+                                        Err(e) => {
+                                            alerts.push((
+                                                fortuna_ops::MessageKind::Ops,
+                                                format!(
+                                                    "discovery event existence check FAILED ({}): {e}",
+                                                    cand.event_id
+                                                ),
+                                            ));
+                                            continue;
+                                        }
+                                    };
+                                    if exists {
+                                        continue;
+                                    }
+                                    let horizon_iso = cand.horizon.map(|h| h.to_iso8601());
+                                    // benchmark_at: the horizon if declared, else now (a
+                                    // non-null anchor for the row; the discovery loop
+                                    // enriches events later, spec 5.12).
+                                    let benchmark_at = horizon_iso.as_deref().unwrap_or(&now_iso);
+                                    if let Err(e) = fortuna_ledger::EventsRepo::new(dw.pool.clone())
+                                        .create(
+                                            &cand.event_id,
+                                            &cand.statement,
+                                            &cand.resolution_criteria,
+                                            &cand.resolution_source,
+                                            horizon_iso.as_deref(),
+                                            benchmark_at,
+                                            &cand.category,
+                                            &now_iso,
+                                        )
+                                        .await
+                                    {
+                                        alerts.push((
+                                            fortuna_ops::MessageKind::Ops,
+                                            format!(
+                                                "discovery watch-event persist FAILED ({}): {e}",
+                                                cand.event_id
+                                            ),
+                                        ));
+                                        continue;
+                                    }
+                                }
+                                // Fan the SCOREABLE candidates' beliefs out through the
+                                // existing binary-belief path, attributed to the pre-built
+                                // discovery strategy (the gate/scoring boundary, I7). Each
+                                // belief's event_id is a "watch:" id persisted above; the
+                                // EXISTS-guard inside persist_beliefs is a harmless no-op
+                                // for those (and creates a minimal row for any not made).
+                                let n = outcome.beliefs.len();
+                                if n > 0 {
+                                    let pairs: Vec<_> = outcome
+                                        .beliefs
+                                        .into_iter()
+                                        .map(|b| (dw.strategy.clone(), b))
+                                        .collect();
+                                    match persist_beliefs(&dw.pool, &pairs, &now_iso, belief_id_base)
+                                        .await
+                                    {
+                                        Ok(persisted) => belief_id_base += persisted as u64,
+                                        Err(e) => alerts.push((
+                                            fortuna_ops::MessageKind::Ops,
+                                            format!(
+                                                "discovery belief persist FAILED — {n} belief(s) lost: {e}"
+                                            ),
+                                        )),
+                                    }
+                                }
                             }
                         }
                     }

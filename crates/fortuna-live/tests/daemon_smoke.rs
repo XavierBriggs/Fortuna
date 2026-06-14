@@ -168,6 +168,7 @@ async fn daemon_smoke_boot_ticks_signal_shutdown(pool: PgPool) {
         None, // M2: no reviews in this smoke
         None, // slice-4e: no perp feed in this smoke
         None, // [personas]: none in this smoke
+        None, // [discovery]: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -264,6 +265,7 @@ async fn signal_with_working_orders_cancels_them_and_audits(pool: PgPool) {
         None, // M2: no reviews in this smoke
         None, // slice-4e: no perp feed in this smoke
         None, // [personas]: none in this smoke
+        None, // [discovery]: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -469,6 +471,7 @@ async fn per_segment_refresh_picks_up_a_newly_confirmed_edge(pool: PgPool) {
         None, // M2: no reviews in this smoke
         None, // slice-4e: no perp feed in this smoke
         None, // [personas]: none in this smoke
+        None, // [discovery]: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -601,6 +604,7 @@ async fn refresh_failure_keeps_last_known_edges_alerts_and_survives(pool: PgPool
         None, // M2: no reviews in this smoke
         None, // slice-4e: no perp feed in this smoke
         None, // [personas]: none in this smoke
+        None, // [discovery]: none in this smoke
     )
     .await
     .expect("the loop must SURVIVE a failing refresh");
@@ -1042,6 +1046,7 @@ async fn drive_drains_and_persists_the_synthesis_arms_beliefs(pool: PgPool) {
         None, // M2: no reviews in this smoke
         None, // slice-4e: no perp feed in this smoke
         None, // [personas]: none in this smoke
+        None, // [discovery]: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -1137,6 +1142,7 @@ async fn drive_drains_and_persists_funding_forecast_scalar_beliefs(pool: PgPool)
         None,               // M2: no reviews in this smoke
         Some(feed),         // slice-4e: recorded PerpTicks so the producer fires
         None,               // [personas]: none in this smoke
+        None,               // [discovery]: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -1371,6 +1377,7 @@ async fn drive_runs_daily_reconciliation_at_the_utc_day_boundary(pool: PgPool) {
         None, // M2: no reviews in this e2e
         None, // slice-4e: no perp feed in this e2e
         None, // [personas]: none in this e2e
+        None, // [discovery]: none in this e2e
     )
     .await
     .expect("daemon drive");
@@ -1584,6 +1591,7 @@ async fn drive_runs_the_weekly_review_at_the_week_boundary(pool: PgPool) {
         reviews, // M2: weekly review wiring
         None,    // slice-4e: no perp feed in this smoke
         None,    // [personas]: none in this smoke
+        None,    // [discovery]: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -1732,6 +1740,7 @@ async fn drive_runs_the_monthly_review_at_the_month_boundary(pool: PgPool) {
         reviews, // M2: weekly + monthly review wiring
         None,    // slice-4e: no perp feed in this smoke
         None,    // [personas]: none in this smoke
+        None,    // [discovery]: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -1933,6 +1942,7 @@ async fn drive_persists_persona_analysis_and_beliefs_when_wired(pool: PgPool) {
         None, // slice-4e: no perp feed
         // MUTATION PROOF: flip this to `None` and domain_analyses stays 0 => RED.
         Some(wiring), // [personas]: the wiring under test
+        None,         // [discovery]: none in this persona e2e
     )
     .await
     .expect("daemon drive");
@@ -1982,5 +1992,230 @@ async fn drive_persists_persona_analysis_and_beliefs_when_wired(pool: PgPool) {
     assert_eq!(
         matching_analysis, beliefs,
         "every persona belief cites the persisted analysis_id (replay anchor holds)"
+    );
+}
+
+/// COMMIT 1 (spec 5.12, world-forward): drive() runs the OPT-IN discovery step
+/// end-to-end — read a fresh signal -> world_forward_discovery (scripted StubMind)
+/// -> persist each candidate as a `watch:` event -> fan the SCOREABLE candidates
+/// out to binary beliefs. Mirrors the persona drive-e2e harness (one StopAtCadence
+/// segment) and the WatchlistBatch JSON shape from
+/// crates/fortuna-cognition/tests/discovery.rs (the `watchlist_body()` helper).
+///
+/// The unscoreable rule (the doctrine under test): the scripted batch carries TWO
+/// candidates — one whose `resolution_source = "nws"` (an enabled registry row, so
+/// SCOREABLE) and one whose source is outside the registry (UNSCOREABLE). The mind
+/// attaches a belief only to the scoreable one. So exactly ONE belief survives, and
+/// both candidates persist as events (the unscoreable one is recorded but carries no
+/// belief — "no beliefs nobody can grade").
+///
+/// MUTATION PROOF (verified, not just claimed): passing `discovery: None` instead of
+/// `Some(wiring)` makes drive() skip the step entirely, so zero `watch:` events and
+/// zero beliefs persist and the `>= 1` assertions go RED — proving the wiring is
+/// load-bearing. (I confirmed this by temporarily flipping the arg to None,
+/// observing the RED, and restoring it to Some.) The sibling drive-tests above all
+/// pass `discovery: None` and persist zero watch events, the same proof standing.
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn discovery_world_forward_persists_watchlist_events_and_beliefs(pool: PgPool) {
+    use fortuna_cognition::context::content_hash_of;
+    use fortuna_cognition::discovery::DiscoveryBudget;
+    use fortuna_cognition::signals::{SourceEntry, SourceRegistry, TrustTier};
+    use fortuna_core::market::StrategyId;
+    use serde_json::json;
+
+    // ---- Boot the daemon from the committed example config (operators copy it). ----
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let dcfg = DaemonToml::parse(&text).expect("example parses");
+    let full = FortunaConfig::load_file(example_path).expect("example full-config parses");
+    let mut runner = compose_runner(pool.clone(), &full, &dcfg, t0(), 88, stub_mind())
+        .await
+        .expect("composition");
+    arb_books(&runner);
+
+    // ---- 1. Seed a SCOREABLE source ("nws") in the registry so the candidate that
+    //         declares it is scoreable (and gets a belief). trust_tier 8 mirrors the
+    //         discovery library test's registry().
+    let now_iso = t0().to_iso8601();
+    fortuna_ledger::SourceRegistryRepo::new(pool.clone())
+        .upsert("nws", 8, &["weather".to_string()], true, &now_iso)
+        .await
+        .unwrap();
+
+    // ---- 2. Insert a signal of a kind in [discovery].signal_kinds, within the 48h
+    //         window. world_forward_discovery assembles it into a <context-item>; the
+    //         signal is untrusted DATA (the scripted mind ignores it, but the read +
+    //         assemble path is exercised exactly as in production).
+    let signal_payload = json!({"headline": "record heat forecast for NYC", "station": "KNYC"});
+    fortuna_ledger::SignalsRepo::new(pool.clone())
+        .insert(
+            "sig-disc-1",
+            "aeolus",
+            "aeolus.forecast", // in the discovery signal_kinds below
+            &now_iso,
+            &content_hash_of("disc-heat-2026-06-11"),
+            &signal_payload,
+        )
+        .await
+        .unwrap();
+
+    // ---- 3. Script the StubMind: a WatchlistBatch with TWO candidates (one
+    //         scoreable via "nws", one unscoreable via a source outside the registry)
+    //         and a belief on the SCOREABLE candidate only. JSON shape copied from
+    //         crates/fortuna-cognition/tests/discovery.rs::watchlist_body().
+    let scripted: MindOutput = serde_json::from_value(json!({
+        "beliefs": [{
+            "event_id": "watch:heat-dome-2026-06",
+            "p": 0.3,
+            "p_raw": 0.3,
+            "horizon": "2026-06-25T00:00:00.000Z",
+            "evidence": [{"source": "nws", "ref": "sig-disc-1"}]
+        }],
+        "proposals": [],
+        "journal": {"body": json!({
+            "candidates": [
+                {
+                    "event_hint": "heat-dome-2026-06",
+                    "statement": "A heat dome produces 3+ consecutive 95F days in NYC in June 2026",
+                    "resolution_criteria": "NWS Central Park daily climate reports",
+                    "resolution_source": "nws",
+                    "horizon": "2026-06-25T00:00:00.000Z",
+                    "category": "weather"
+                },
+                {
+                    "event_hint": "alien-disclosure",
+                    "statement": "A government discloses alien contact in 2026",
+                    "resolution_criteria": "vibes",
+                    "resolution_source": "my-cool-blog",
+                    "horizon": "2026-12-31T00:00:00.000Z",
+                    "category": "politics"
+                }
+            ]
+        }).to_string()},
+        "cost_cents": 1
+    }))
+    .unwrap();
+    let discovery_mind: Arc<dyn Mind> = Arc::new(StubMind::scripted(vec![scripted]));
+
+    // ---- 4. Build the DiscoveryWiring. The registry is loaded from the seeded
+    //         table (the same load_all path main.rs uses), so "nws" is present +
+    //         enabled. budget 500 (room to spend); strategy "world-forward".
+    let rows = fortuna_ledger::SourceRegistryRepo::new(pool.clone())
+        .load_all()
+        .await
+        .unwrap();
+    let mut registry = SourceRegistry::new();
+    for r in rows {
+        registry.upsert(SourceEntry {
+            source_id: r.source_id,
+            trust_tier: TrustTier::new(u8::try_from(r.trust_tier).unwrap()).unwrap(),
+            domain_tags: r.domain_tags,
+            enabled: r.enabled,
+        });
+    }
+    let wiring = fortuna_live::daemon::DiscoveryWiring {
+        pool: pool.clone(),
+        mind: discovery_mind,
+        budget: DiscoveryBudget::new(500),
+        registry,
+        strategy: StrategyId::new("world-forward").unwrap(), // TEST code: unwrap fine
+        signal_kinds: vec!["aeolus.forecast".to_string()],
+        window_hours: 48,
+        max_signals: 200,
+    };
+
+    // No watch events before the drive.
+    let before: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE event_id LIKE 'watch:%'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(before, 0, "no watch events before drive");
+
+    // ---- 5. Run ONE drive() segment with discovery: Some(wiring); None for the
+    //         other opt-in params (StopAtCadence one-segment harness).
+    let (tx, mut stop) = tokio::sync::oneshot::channel::<()>();
+    let mut cadence = StopAtCadence {
+        clock: runner.clock.clone(),
+        sleeps: 0,
+        fire_at: 6,
+        tx: Some(tx),
+    };
+    let mut poller = NeverHalted;
+    let loop_cfg = LoopConfig {
+        tick_interval_ms: 1000,
+        halt_poll_ms: 500,
+    };
+    let mut scrape = DegradeScrape::new(default_degrade_thresholds());
+    let mut daily = fortuna_live::daemon::DailyScheduler::new();
+
+    let (_stats, _shutdown) = drive(
+        &mut runner,
+        &mut cadence,
+        &mut poller,
+        &loop_cfg,
+        4,
+        &mut stop,
+        |_r, _s| {},
+        &mut scrape,
+        None,
+        &mut daily,
+        None, // synthesis_refresh
+        None, // slice-4d: no scalar producer
+        None, // reconciliation
+        None, // reviews
+        None, // slice-4e: no perp feed
+        None, // [personas]: none in this discovery e2e
+        // MUTATION PROOF: flip this to `None` and watch events + beliefs stay 0 => RED.
+        Some(wiring), // [discovery]: the wiring under test
+    )
+    .await
+    .expect("daemon drive");
+
+    // ---- 6. Assert: BOTH candidates persisted as `watch:` events (the unscoreable
+    //         one is recorded too — only its BELIEFS are refused). >= 1 is the
+    //         load-bearing claim; exactly 2 is the unscoreable-rule detail.
+    let watch_events: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE event_id LIKE 'watch:%'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(
+        watch_events >= 1,
+        "drive() persisted at least one watch: event when wired (got {watch_events})"
+    );
+    assert_eq!(
+        watch_events, 2,
+        "both candidates (scoreable + unscoreable) persist as events (got {watch_events})"
+    );
+
+    // The SCOREABLE candidate's belief fanned out (and only it — the unscoreable
+    // candidate's belief is refused: no beliefs nobody can grade).
+    let watch_beliefs: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM beliefs WHERE event_id LIKE 'watch:%'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(
+        watch_beliefs >= 1,
+        "drive() fanned out at least one belief on a watch: event when wired (got {watch_beliefs})"
+    );
+    assert_eq!(
+        watch_beliefs, 1,
+        "only the SCOREABLE candidate carries a belief (the unscoreable one is refused)"
+    );
+    // The surviving belief is the scoreable candidate's, by event_id.
+    let scoreable_belief: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM beliefs WHERE event_id = 'watch:heat-dome-2026-06'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        scoreable_belief, 1,
+        "the belief rides the scoreable watch event (watch:heat-dome-2026-06)"
     );
 }

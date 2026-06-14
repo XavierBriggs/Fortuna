@@ -244,6 +244,42 @@ impl Default for PersonasSection {
     }
 }
 
+/// The `[discovery]` section (opt-in, default OFF). Its PRESENCE with
+/// `enabled = true` wires the WORLD-FORWARD discovery step into `drive()`: on a
+/// segment it reads the fresh signals, hands them to one `world_forward_discovery`
+/// call (the §5.12 budget cap + the unscoreable rule live INSIDE it), persists each
+/// candidate as a `watch:` event, and fans the SCOREABLE candidates out to beliefs.
+/// Absent or `enabled = false` => the daemon is byte-identical to today (fail
+/// closed). `#[serde(default)]` so omitting the WHOLE section deserializes to the
+/// disabled default, and the tuning knobs each default if omitted.
+///
+/// COMMIT 1 (world-forward) fields only. A later commit adds market-back
+/// (catalog→edges→synthesis) and EXTENDS this section in place — no market-back
+/// knobs are present yet (an unused field would be dead code today).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct DiscoverySection {
+    pub enabled: bool,
+    pub budget_cents_per_day: i64,
+    pub window_hours: u32,
+    pub max_signals: i64,
+    /// Signal kinds the world-forward loop reads each segment (empty => the step
+    /// reads nothing and is a no-op, like an empty persona reads-set).
+    pub signal_kinds: Vec<String>,
+}
+
+impl Default for DiscoverySection {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            budget_cents_per_day: 500,
+            window_hours: 48,
+            max_signals: 200,
+            signal_kinds: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct RawToml {
     daemon: Option<DaemonSection>,
@@ -256,6 +292,7 @@ struct RawToml {
     review: Option<crate::compose::ReviewSection>,
     ingestion: Option<IngestionSection>,
     personas: Option<PersonasSection>,
+    discovery: Option<DiscoverySection>,
 }
 
 /// The parsed daemon-relevant config.
@@ -294,6 +331,13 @@ pub struct DaemonToml {
     /// refused). Absent / `enabled = false` => no persona step (the daemon is
     /// byte-identical to today).
     pub personas: Option<PersonasSection>,
+    /// Optional `[discovery]` opt-in (spec 5.12, default OFF). Its PRESENCE with
+    /// `enabled = true` wires the WORLD-FORWARD discovery step into `drive()`
+    /// (read fresh signals, run `world_forward_discovery`, persist `watch:` events,
+    /// and fan scoreable candidates to beliefs; the daily cost cap throttles first
+    /// under pressure). Absent / `enabled = false` => no discovery step (the
+    /// daemon is byte-identical to today).
+    pub discovery: Option<DiscoverySection>,
 }
 
 impl DaemonToml {
@@ -324,6 +368,7 @@ impl DaemonToml {
             review: raw.review,
             ingestion: raw.ingestion,
             personas: raw.personas,
+            discovery: raw.discovery,
         })
     }
 
@@ -408,6 +453,21 @@ impl DaemonToml {
                         })?;
                     }
                 }
+            }
+        }
+        // Opt-in [discovery]: when enabled, the world-forward loop spends against a
+        // HARD daily cost cap (spec 5.12). A non-positive cap means the loop could
+        // never run (or, mishandled, would mean "no limit") — refuse it at boot, a
+        // startup rejection, not a silently-throttled-forever step. Disabled /
+        // absent => no check (the step never runs).
+        if let Some(discovery) = self.discovery.as_ref() {
+            if discovery.enabled && discovery.budget_cents_per_day <= 0 {
+                return Err(BootError::BadConfig {
+                    reason: format!(
+                        "[discovery] budget_cents_per_day must be positive when enabled (got {})",
+                        discovery.budget_cents_per_day
+                    ),
+                });
             }
         }
         Ok(())
@@ -503,5 +563,65 @@ bracket_sets = [["SIM-BKT-LO", "SIM-BKT-MID", "SIM-BKT-HI"]]
         assert!(dcfg.personas.is_some(), "the section is present (disabled)");
         dcfg.validate_bootable()
             .expect("a DISABLED persona section is not cadence-checked");
+    }
+
+    #[test]
+    fn config_without_discovery_section_parses_to_none_and_boots() {
+        // Omitting [discovery] entirely => discovery == None (the daemon is
+        // byte-identical to today; the world-forward step never wires).
+        // validate_bootable accepts it (the budget check is skipped when absent).
+        let dcfg = DaemonToml::parse(BOOTABLE_BASE).expect("base config parses");
+        assert!(
+            dcfg.discovery.is_none(),
+            "no [discovery] section => discovery is None (default-off)"
+        );
+        dcfg.validate_bootable()
+            .expect("a config with no [discovery] boots");
+    }
+
+    #[test]
+    fn discovery_enabled_with_zero_budget_is_rejected_by_validate() {
+        // An ENABLED [discovery] with a non-positive daily cost cap is refused at
+        // boot — a startup rejection, not a silently-throttled-forever loop. The
+        // shape PARSES (a valid i64); the REFUSAL comes from validate_bootable.
+        let text = format!(
+            "{BOOTABLE_BASE}\n\
+             [discovery]\n\
+             enabled = true\n\
+             budget_cents_per_day = 0\n"
+        );
+        let dcfg = DaemonToml::parse(&text).expect("a zero-budget config still PARSES");
+        let err = dcfg
+            .validate_bootable()
+            .expect_err("an enabled discovery with a non-positive budget must be REJECTED");
+        match err {
+            BootError::BadConfig { reason } => {
+                assert!(
+                    reason.contains("discovery") && reason.contains("budget_cents_per_day"),
+                    "the refusal names the offending [discovery] knob, got: {reason}"
+                );
+            }
+            other => panic!("expected BadConfig for the zero budget, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn discovery_disabled_with_zero_budget_is_not_validated() {
+        // A DISABLED [discovery] never wires the step, so a non-positive budget is
+        // NOT a boot refusal (it cannot mislead a step that does not run). Proves
+        // the budget check is gated on `enabled`. NON-VACUOUS vs the enabled test.
+        let text = format!(
+            "{BOOTABLE_BASE}\n\
+             [discovery]\n\
+             enabled = false\n\
+             budget_cents_per_day = 0\n"
+        );
+        let dcfg = DaemonToml::parse(&text).expect("parses");
+        assert!(
+            dcfg.discovery.is_some(),
+            "the section is present (disabled)"
+        );
+        dcfg.validate_bootable()
+            .expect("a DISABLED discovery section is not budget-checked");
     }
 }
