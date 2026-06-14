@@ -425,6 +425,37 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-14 — F7 live plug-in slice 2: the drive() weather plug-in (Aeolus forecast → live Kalshi edges)
+
+**Added — the F7 seam now RUNS in the live daemon (`fortuna-live`, opt-in, default-off).** Slice 1
+gave the day-set source; this wires it through `drive()` so an `aeolus.forecast` signal produces
+TRADEABLE weather beliefs + edges end-to-end:
+- **`drive()` F7 weather step** (in the `[discovery]` block, BEFORE the synthesis edge-refresh — so an
+  auto-confirmed `Direct` edge is priced the SAME segment, mirroring market-back). Per segment: read
+  fresh `aeolus.forecast` signals → parse (untrusted DATA: try `parse_response` then `parse_envelope`,
+  a total failure is a routed defect + skip, never a panic) → `station_series` (unmapped ⇒ skip) →
+  `weather_source.day_set` → keep ACTIVE markets → `market_to_bucket` → `aeolus_bucket_edges` →
+  persist the propose-only beliefs (`persist_beliefs`, which creates each `aeolus:{ticker}` event for
+  the edge FK) + the 1:1 auto-confirmed `Direct` edges (`insert_edge`, `proposed_by =
+  "aeolus_bucket_match"`). IDEMPOTENT across segments: a market already carrying a current edge is
+  skipped (`current_edges_for_market`, mirroring market-back). Alert-and-continue throughout; never
+  panics; belief stays propose-only (I6) and any order still crosses the gate (I1).
+- **`DiscoveryWiring.weather_source: Option<Arc<dyn WeatherMarketSource>>`** — `Some` ONLY on
+  `venue = "kalshi"` (built from the SAME signed transport the runner trades through), `None` on sim ⇒
+  the step is INERT. So F7 is live ⟺ kalshi venue AND `[discovery].enabled` (operator-gated).
+- **`build_kalshi_demo_transport`** (extracted from `compose_kalshi_runner`) — ONE signed demo
+  transport, SHARED by the runner + the read-only weather source (the PEM is read once, wrapped in
+  `Secret`, never duplicated/logged). `main.rs` builds it in the kalshi arm and threads the
+  `KalshiWeatherSource` into the discovery wiring.
+- **e2e (3 tests, `#[sqlx::test]`, recorded data):** happy path — recorded `knyc_tmax` forecast +
+  recorded active June-14 KXHIGHNY book → 6 propose-only `aeolus:` beliefs + 6 auto-confirmed Direct
+  kalshi edges (every market a recorded ticker); a SECOND drive is a clean no-op (still 6 — the dedup
+  is load-bearing). MUTATION — drop one market from the day-set → exactly 5 beliefs/edges, the dropped
+  ticker referenced by nothing. ACTIVE-ONLY — a settled (`determined`) day-set → 0 (the tradeable-status
+  filter). Standing mutation: every sibling drive-test wires `weather_source: None` and persists 0
+  `aeolus:` rows. Full battery green (fmt + clippy `--workspace --all-targets -D warnings` +
+  `cargo test --workspace` 0-failed + `run-dst 200`).
+
 ### 2026-06-14 — F7 live plug-in slice 1: the Kalshi day-set source (`WeatherMarketSource`)
 
 **Added (`fortuna-venues::kalshi::weather`, additive — the live half of the F7 venue seam).**

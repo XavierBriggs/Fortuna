@@ -17,8 +17,9 @@ use fortuna_core::clock::{Clock, RealClock, SimClock};
 use fortuna_live::boot::{validate_env, DaemonToml};
 use fortuna_live::compose::DegradeScrape;
 use fortuna_live::daemon::{
-    compose_kalshi_runner, compose_runner, default_degrade_thresholds, drive, mind_from_env,
-    triage_from_env, ActiveRunner, PgHaltPoller, SYNTH_MIND_TIMEOUT_SECS,
+    build_kalshi_demo_transport, compose_kalshi_runner_with_transport, compose_runner,
+    default_degrade_thresholds, drive, mind_from_env, triage_from_env, ActiveRunner, PgHaltPoller,
+    SYNTH_MIND_TIMEOUT_SECS,
 };
 use fortuna_live::run_loop::{LoopConfig, RealCadence};
 use fortuna_ops::dashboard::{serve_dashboard, DashboardSnapshot};
@@ -142,14 +143,31 @@ async fn main() -> Result<()> {
     // composes the Sim runner as before, wrapped ActiveRunner::Sim. The
     // ActiveRunner enum lets ONE drive() + ONE between-segments closure drive
     // either; the Sim arm is the unchanged sim path.
-    let mut active_runner = match dcfg.daemon.venue.as_str() {
+    // `weather_source` is the F7 live Kalshi day-set source: `Some` ONLY on the
+    // kalshi venue (built from the SAME signed transport the runner trades
+    // through — no second key read), `None` on sim ⇒ the F7 weather plug-in is
+    // INERT off the kalshi demo. It is threaded into the discovery wiring below.
+    let (mut active_runner, weather_source): (
+        ActiveRunner,
+        Option<Arc<dyn fortuna_venues::kalshi::WeatherMarketSource>>,
+    ) = match dcfg.daemon.venue.as_str() {
         "kalshi" => {
             // The paper runner's clock: the SAME Arc<SimClock> RealCadence
             // advances by wall-elapsed ms (so the demo tracks real time). The
             // Sim path builds its clock inside compose_runner from `start`; for
             // Kalshi we build it here and thread it into the venue/transport.
             let clock = Arc::new(SimClock::new(start));
-            let runner = compose_kalshi_runner(
+            // Build ONE signed demo transport and SHARE it: the runner trades
+            // through it; the read-only F7 weather day-set source discovers
+            // through it. The PEM is read once, never duplicated.
+            let transport_clock: Arc<dyn Clock> = clock.clone();
+            let transport = build_kalshi_demo_transport(&env, transport_clock)
+                .context("kalshi demo transport")?;
+            let weather: Option<Arc<dyn fortuna_venues::kalshi::WeatherMarketSource>> =
+                Some(Arc::new(fortuna_venues::kalshi::KalshiWeatherSource::new(
+                    transport.clone(),
+                )));
+            let runner = compose_kalshi_runner_with_transport(
                 pool.clone(),
                 &full,
                 &dcfg,
@@ -158,15 +176,15 @@ async fn main() -> Result<()> {
                 clock,
                 synthesis_mind.clone(),
                 triage,
-                &env,
+                transport,
             )
             .await
             .context("kalshi composition")?;
             eprintln!(
                 "fortuna-live: composed (venue=kalshi, stage=paper, series from [kalshi], \
-                 demo creds from env, journal+audit in Postgres)"
+                 demo creds from env, journal+audit in Postgres; F7 weather day-set source ON)"
             );
-            ActiveRunner::Kalshi(runner)
+            (ActiveRunner::Kalshi(runner), weather)
         }
         _ => {
             let runner = compose_runner(
@@ -183,7 +201,7 @@ async fn main() -> Result<()> {
             eprintln!(
                 "fortuna-live: composed (venue=sim, markets from [sim], journal+audit in Postgres)"
             );
-            ActiveRunner::Sim(runner)
+            (ActiveRunner::Sim(runner), None)
         }
     };
 
@@ -435,8 +453,13 @@ async fn main() -> Result<()> {
                     enabled: r.enabled,
                 });
             }
+            let f7_weather = if weather_source.is_some() {
+                "ON (kalshi day-set)"
+            } else {
+                "off (sim — no live book)"
+            };
             eprintln!(
-                "fortuna-live: discovery ACTIVE ({source_count} registry source(s); strategy=world-forward; market-back catalog INERT until T4.2)"
+                "fortuna-live: discovery ACTIVE ({source_count} registry source(s); strategy=world-forward; market-back catalog INERT until T4.2; F7 weather {f7_weather})"
             );
             Some(fortuna_live::daemon::DiscoveryWiring {
                 pool: pool.clone(),
@@ -466,6 +489,9 @@ async fn main() -> Result<()> {
                 catalog: Vec::new(),
                 event_id_base: start_ms.max(0) as u64,
                 edge_id_base: start_ms.max(0) as u64,
+                // F7 live weather day-set source: Some on kalshi, None on sim
+                // (built in the venue match above from the shared transport).
+                weather_source,
             })
         }
         _ => None,

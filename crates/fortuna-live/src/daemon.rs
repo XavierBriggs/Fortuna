@@ -528,21 +528,34 @@ pub async fn compose_kalshi_runner(
     triage: TriageDecision,
     env: &BTreeMap<String, String>,
 ) -> Result<SimRunner<KalshiVenue, PgIntentJournal>, DaemonError> {
-    // KALSHI_API_DEMO_KEY_ID: the API-key id (routing data, not a secret) — but
-    // it still passes check_value so a placeholder ("changeme", "your-...") is
-    // refused, never trusted.
+    let transport_clock: Arc<dyn Clock> = clock.clone();
+    let transport = build_kalshi_demo_transport(env, transport_clock)?;
+    compose_kalshi_runner_with_transport(
+        pool, full, dcfg, start, audit_seed, clock, mind, triage, transport,
+    )
+    .await
+}
+
+/// Build the demo Kalshi transport — SHARED by the runner AND the F7 read-only
+/// weather day-set source, so one signed transport is read once (the key never
+/// re-read, never duplicated). Reads the demo credentials from `env`:
+/// `KALSHI_API_DEMO_KEY_ID` is the API-key id (routing data — but it still
+/// passes the boot placeholder check, so "changeme"/"your-…" is refused) and
+/// `KALSHI_DEMO_PRIVATE_KEY_PATH` is the filesystem PATH to the RSA private-key
+/// PEM. The PATH is routing data; the file CONTENT is the SECRET — read it and
+/// IMMEDIATELY wrap in `Secret` so the key text cannot be logged/audited/
+/// Debug-printed (house secrets rule). A read failure names the PATH, never the
+/// key body. The PEM text reaches ONLY `KalshiSigner::new`; nothing else holds
+/// the bare string. Returns `Arc<dyn KalshiTransport>` so callers can share the
+/// one signed transport.
+pub fn build_kalshi_demo_transport(
+    env: &BTreeMap<String, String>,
+    clock: Arc<dyn Clock>,
+) -> Result<Arc<dyn KalshiTransport>, DaemonError> {
     let key_id =
         crate::boot::required(env, "KALSHI_API_DEMO_KEY_ID").map_err(|e| DaemonError::Compose {
             reason: format!("kalshi demo credential: {e}"),
         })?;
-    // KALSHI_DEMO_PRIVATE_KEY_PATH: the filesystem PATH to the RSA private key
-    // PEM (the established demo convention — the recorders read the same var).
-    // The PATH is routing data (validate present + non-placeholder via the boot
-    // gate); the file CONTENT is the SECRET. Read it, then IMMEDIATELY wrap in
-    // Secret so the key text cannot be logged/audited/Debug-printed (house
-    // secrets rule). A read failure names the PATH (a filesystem location),
-    // never the key body. The PEM text reaches only KalshiSigner::new below;
-    // nothing else ever holds the bare string.
     let key_path = crate::boot::required(env, "KALSHI_DEMO_PRIVATE_KEY_PATH").map_err(|e| {
         DaemonError::Compose {
             reason: format!("kalshi demo credential: {e}"),
@@ -560,28 +573,16 @@ pub async fn compose_kalshi_runner(
     let signer = KalshiSigner::new(key_pem.expose(), key_id).map_err(|e| DaemonError::Compose {
         reason: format!("kalshi signer construction: {e}"),
     })?;
-    let transport_clock: Arc<dyn Clock> = clock.clone();
     let transport = ReqwestKalshiTransport::new(
         KALSHI_DEMO_BASE_URL,
         signer,
-        transport_clock,
+        clock,
         Duration::from_secs(KALSHI_DEMO_HTTP_TIMEOUT_SECS),
     )
     .map_err(|e| DaemonError::Compose {
         reason: format!("kalshi transport construction: {e}"),
     })?;
-    compose_kalshi_runner_with_transport(
-        pool,
-        full,
-        dcfg,
-        start,
-        audit_seed,
-        clock,
-        mind,
-        triage,
-        Arc::new(transport),
-    )
-    .await
+    Ok(Arc::new(transport))
 }
 
 /// The transport-injection seam (demo-flip Phase 2): everything
@@ -1295,6 +1296,18 @@ pub struct DiscoveryWiring {
     /// like `event_id_base`. Its OWN counter so the event ("01EVT") and edge
     /// ("01EDG") id spaces advance independently.
     pub edge_id_base: u64,
+    /// F7 WEATHER PLUG-IN (the Aeolus↔Kalshi seam): the LIVE Kalshi day-set
+    /// source. `Some` ONLY when `venue = "kalshi"` (the demo runner shares its
+    /// signed transport); `None` on Sim (no live book) ⇒ the weather step is
+    /// INERT. When `Some`, each segment reads fresh `aeolus.forecast` signals,
+    /// maps the forecast's station to a Kalshi series (`aeolus_venue::station_series`),
+    /// discovers the live day-set, keeps the ACTIVE markets, builds
+    /// `WeatherBucket`s, and persists the propose-only beliefs + 1:1 auto-confirmed
+    /// `Direct` edges (`aeolus_venue::aeolus_bucket_edges`). Like the rest of
+    /// discovery: default-off, alert-and-continue, never panics. The edges are
+    /// idempotent across segments (a market that already carries a current edge is
+    /// skipped, mirroring the market-back dedup).
+    pub weather_source: Option<std::sync::Arc<dyn fortuna_venues::kalshi::WeatherMarketSource>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1740,6 +1753,240 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                             ),
                                         ));
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // OPT-IN F7 WEATHER plug-in (default-off; spec §5.12 world-forward — the
+        // Aeolus↔Kalshi seam that makes weather beliefs TRADEABLE). Runs only when
+        // a live day-set source is wired (`weather_source` Some ⟺ venue=kalshi);
+        // INERT on Sim (no live book to match). Placed BEFORE the synthesis
+        // edge-refresh below ON PURPOSE: an auto-confirmed `Direct` edge minted
+        // here becomes an `EdgeTier::Confirmed` row the refresh picks up THIS SAME
+        // segment (mirrors the market-back placement). On a segment: read fresh
+        // `aeolus.forecast` signals, parse each (untrusted DATA — a parse failure
+        // is a routed defect + skip, never a panic; spec 5.11), map the forecast's
+        // station→Kalshi series (`station_series`; unmapped ⇒ skip), discover the
+        // live day-set for the target date, keep the ACTIVE markets (a
+        // settled/closed day is recorded by Aeolus but NOT traded), build
+        // `WeatherBucket`s, and run `aeolus_bucket_edges` for the propose-only
+        // beliefs + 1:1 auto-confirmed `Direct` edges. Persist each FRESH market's
+        // belief (which CREATES its `aeolus:{ticker}` event, satisfying the edge
+        // FK) then its edge; a market already carrying a current edge is SKIPPED
+        // (idempotent across segments, mirroring the market-back dedup). EVERYTHING
+        // is alert-and-continue: discovery beliefs are the calibration substrate,
+        // not the money path — no failure here crashes the loop, the belief stays
+        // propose-only (I6), and any resulting order still crosses the gate (I1) on
+        // the operator-gated `kalshi` venue. NEVER panics (every Option/Result is
+        // matched; no expect on the belief/money path, CLAUDE.md).
+        if let Some(dw) = discovery.as_mut() {
+            if let Some(ws) = dw.weather_source.clone() {
+                let now = Clock::now(runner.clock().as_ref());
+                let now_iso = now.to_iso8601();
+                let after_ms = now.epoch_millis() - (dw.window_hours as i64) * 3_600_000;
+                match fortuna_core::clock::UtcTimestamp::from_epoch_millis(after_ms) {
+                    Err(e) => alerts.push((
+                        fortuna_ops::MessageKind::Ops,
+                        format!("weather discovery window timestamp invalid — step skipped: {e}"),
+                    )),
+                    Ok(after_ts) => {
+                        let after_iso = after_ts.to_iso8601();
+                        let rows = match fortuna_ledger::SignalsRepo::new(dw.pool.clone())
+                            .recent_by_kind(
+                                &[crate::aeolus_venue::AEOLUS_FORECAST_SIGNAL_KIND.to_string()],
+                                &after_iso,
+                                dw.max_signals,
+                            )
+                            .await
+                        {
+                            Ok(rows) => rows,
+                            Err(e) => {
+                                alerts.push((
+                                    fortuna_ops::MessageKind::Ops,
+                                    format!(
+                                        "weather signal read FAILED — step skipped this segment: {e}"
+                                    ),
+                                ));
+                                Vec::new()
+                            }
+                        };
+                        for r in rows {
+                            // Untrusted payload: try the `{forecasts:[...]}` wrapper
+                            // (the recorded envelope shape), then a single envelope. A
+                            // total parse failure is a routed defect + skip — the
+                            // signal is DATA, never instructions (spec 5.11), and a
+                            // malformed frame is never a fabricated forecast.
+                            let body = r.payload.to_string();
+                            let forecasts =
+                                match fortuna_cognition::aeolus_forecast::parse_response(&body) {
+                                    Ok(fs) => fs,
+                                    Err(_) => {
+                                        match fortuna_cognition::aeolus_forecast::parse_envelope(
+                                            &body,
+                                        ) {
+                                            Ok(f) => vec![f],
+                                            Err(e) => {
+                                                runner.apply_external_alert(
+                                                    "weather",
+                                                    &format!(
+                                                    "aeolus.forecast signal {} did not parse: {e}",
+                                                    r.signal_id
+                                                ),
+                                                );
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                };
+                            for fc in &forecasts {
+                                // station→series: an unmapped station is simply not
+                                // traded (no edge), never an error.
+                                let Some(series) = crate::aeolus_venue::station_series(
+                                    fc.station(),
+                                    fc.variable(),
+                                ) else {
+                                    continue;
+                                };
+                                // Discover the live day-set for the target date. An Err
+                                // alerts + skips this forecast; an empty day-set (no
+                                // live market) is simply nothing to trade.
+                                let day = match ws.day_set(series, fc.target_date()).await {
+                                    Ok(d) => d,
+                                    Err(e) => {
+                                        alerts.push((
+                                            fortuna_ops::MessageKind::Ops,
+                                            format!(
+                                                "weather day_set FAILED (series {series}, {}): {e}",
+                                                fc.target_date()
+                                            ),
+                                        ));
+                                        continue;
+                                    }
+                                };
+                                // ACTIVE markets only — a settled/closed day is not
+                                // tradeable (market_to_bucket is pure kind-derivation
+                                // and does NOT filter status, so the filter is here).
+                                let buckets: Vec<_> = day
+                                    .iter()
+                                    .filter(|m| {
+                                        m.status
+                                            == fortuna_venues::kalshi::dto::KalshiMarketStatus::Active
+                                    })
+                                    .filter_map(crate::aeolus_venue::market_to_bucket)
+                                    .collect();
+                                if buckets.is_empty() {
+                                    continue;
+                                }
+                                let (drafts, edges) =
+                                    crate::aeolus_venue::aeolus_bucket_edges(fc, &buckets);
+                                // Dedup per-market by current edge (idempotent across
+                                // segments, mirroring market-back). For each edge whose
+                                // market has NO current edge, pair it with its belief
+                                // draft (matched by event_id — edges ⊆ drafts, 1:1).
+                                let mut fresh_drafts: Vec<fortuna_cognition::beliefs::BeliefDraft> =
+                                    Vec::new();
+                                let mut fresh_edges: Vec<fortuna_cognition::events::EdgeProposal> =
+                                    Vec::new();
+                                for edge in edges {
+                                    let market_str = edge.market.as_str();
+                                    match fortuna_ledger::EdgesRepo::new(dw.pool.clone())
+                                        .current_edges_for_market(market_str)
+                                        .await
+                                    {
+                                        Ok(existing) if !existing.is_empty() => continue,
+                                        Ok(_) => {}
+                                        Err(e) => {
+                                            alerts.push((
+                                                fortuna_ops::MessageKind::Ops,
+                                                format!(
+                                                    "weather edge-dedup query FAILED ({market_str}) — market skipped: {e}"
+                                                ),
+                                            ));
+                                            continue;
+                                        }
+                                    }
+                                    if let Some(draft) =
+                                        drafts.iter().find(|d| d.event_id == edge.event_id)
+                                    {
+                                        fresh_drafts.push(draft.clone());
+                                        fresh_edges.push(edge);
+                                    }
+                                }
+                                if fresh_edges.is_empty() {
+                                    continue;
+                                }
+                                // Persist the beliefs FIRST — persist_beliefs creates
+                                // each `aeolus:{ticker}` event (EXISTS-guarded) so the
+                                // edge FK holds — then the edges.
+                                let pairs: Vec<_> = fresh_drafts
+                                    .iter()
+                                    .map(|d| (dw.strategy.clone(), d.clone()))
+                                    .collect();
+                                match persist_beliefs(&dw.pool, &pairs, &now_iso, belief_id_base)
+                                    .await
+                                {
+                                    Ok(persisted) => belief_id_base += persisted as u64,
+                                    Err(e) => {
+                                        alerts.push((
+                                            fortuna_ops::MessageKind::Ops,
+                                            format!(
+                                                "weather belief persist FAILED — {} belief(s) lost: {e}",
+                                                pairs.len()
+                                            ),
+                                        ));
+                                        continue;
+                                    }
+                                }
+                                for edge in &fresh_edges {
+                                    let mapping_str = match edge.mapping {
+                                        fortuna_cognition::events::MappingType::Direct => "direct",
+                                        fortuna_cognition::events::MappingType::Negation => {
+                                            "negation"
+                                        }
+                                        fortuna_cognition::events::MappingType::BracketComponent => {
+                                            "bracket_component"
+                                        }
+                                        fortuna_cognition::events::MappingType::ConditionalOn => {
+                                            "conditional_on"
+                                        }
+                                    };
+                                    let edge_id = format!("01EDG{:021}", dw.edge_id_base);
+                                    if let Err(e) = fortuna_ledger::EdgesRepo::new(dw.pool.clone())
+                                        .insert_edge(
+                                            &edge_id,
+                                            edge.market.as_str(),
+                                            &edge.venue,
+                                            &edge.event_id,
+                                            mapping_str,
+                                            edge.confidence,
+                                            // proposed_by = the F7 matcher's own
+                                            // identity ("aeolus_bucket_match"), NOT
+                                            // the discovery strategy — so these edges
+                                            // are distinguishable from world-forward /
+                                            // market-back ones. (The BELIEF is attributed
+                                            // to dw.strategy via persist_beliefs, the I7
+                                            // gate/scoring boundary.)
+                                            &edge.proposed_by,
+                                            edge.confirmed_by.as_deref(),
+                                            None,
+                                            &now_iso,
+                                        )
+                                        .await
+                                    {
+                                        alerts.push((
+                                            fortuna_ops::MessageKind::Ops,
+                                            format!(
+                                                "weather edge persist FAILED ({edge_id} for {}): {e}",
+                                                edge.market.as_str()
+                                            ),
+                                        ));
+                                        continue;
+                                    }
+                                    dw.edge_id_base = dw.edge_id_base.wrapping_add(1);
                                 }
                             }
                         }

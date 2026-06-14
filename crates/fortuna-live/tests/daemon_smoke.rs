@@ -2311,6 +2311,7 @@ async fn discovery_world_forward_persists_watchlist_events_and_beliefs(pool: PgP
         catalog: vec![],
         event_id_base: 0,
         edge_id_base: 0,
+        weather_source: None, // F7 weather plug-in not exercised by this world-forward e2e
     };
 
     // No watch events before the drive.
@@ -2547,6 +2548,7 @@ async fn discovery_market_back_auto_confirms_and_synthesis_drafts_a_belief(pool:
         catalog,
         event_id_base: t0_epoch_ms,
         edge_id_base: t0_epoch_ms,
+        weather_source: None, // F7 weather plug-in not exercised by this market-back e2e
     };
 
     // Nothing before the drive: no canonical events, no edges, no beliefs.
@@ -2660,5 +2662,406 @@ async fn discovery_market_back_auto_confirms_and_synthesis_drafts_a_belief(pool:
         synthesis_belief >= 1,
         "the synthesis arm believed on the discovered event (got {synthesis_belief}) — \
          the catalog->event->auto-confirmed-edge->synthesis-belief chain is load-bearing"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// F7 LIVE WEATHER PLUG-IN (Aeolus↔Kalshi seam) — drive() end-to-end.
+//
+// The plug-in: for a fresh `aeolus.forecast` signal, parse it, map the
+// forecast's station→Kalshi series (`station_series`), discover the live
+// day-set (the injected `WeatherMarketSource`), keep the ACTIVE markets, build
+// `WeatherBucket`s, and persist propose-only beliefs + 1:1 auto-confirmed
+// `Direct` edges. All over RECORDED data:
+//   * the forecast is the recorded `knyc_tmax` envelope (target_date 2026-06-13),
+//   * the day-set is the recorded active June-15 KXHIGHNY book.
+// Pairing the 06-13 forecast with the June-15 day-set is a deliberate test seam:
+// date-MATCHING is the SOURCE's job (proved in
+// fortuna-venues::tests::kalshi_weather_source); here the stub returns a known
+// ACTIVE set so the signal→day_set→buckets→edges→persist WIRING is what's under
+// test. Every ticker asserted is from the recorded book — none fabricated.
+// ---------------------------------------------------------------------------
+
+const AEOLUS_KNYC_FIXTURE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../fixtures/sources/aeolus/knyc_tmax.json"
+);
+const KALSHI_HIGH_TEMP_FIXTURE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../fixtures/kalshi/markets__high_temp.json"
+);
+
+/// The recorded `{ "forecasts": [...] }` envelope as the signal payload Value.
+fn knyc_forecast_payload() -> serde_json::Value {
+    let raw = std::fs::read_to_string(AEOLUS_KNYC_FIXTURE).expect("read aeolus fixture");
+    serde_json::from_str(&raw).expect("aeolus fixture is json")
+}
+
+/// The recorded KXHIGHNY markets whose event_ticker carries `token` (e.g.
+/// "26JUN15" for the active day-set, "26JUN13" for the settled one).
+fn recorded_markets_for(token: &str) -> Vec<fortuna_venues::kalshi::dto::KalshiMarket> {
+    let raw = std::fs::read_to_string(KALSHI_HIGH_TEMP_FIXTURE).expect("read kalshi fixture");
+    let root: serde_json::Value = serde_json::from_str(&raw).expect("kalshi fixture is json");
+    let all: Vec<fortuna_venues::kalshi::dto::KalshiMarket> =
+        serde_json::from_value(root.get("markets").cloned().expect("markets array"))
+            .expect("Vec<KalshiMarket>");
+    all.into_iter()
+        .filter(|m| m.event_ticker.contains(token))
+        .collect()
+}
+
+/// A stub day-set source: returns a FIXED recorded day-set for any (series,date).
+struct StubWeatherSource {
+    day: Vec<fortuna_venues::kalshi::dto::KalshiMarket>,
+}
+
+#[async_trait::async_trait]
+impl fortuna_venues::kalshi::WeatherMarketSource for StubWeatherSource {
+    async fn day_set(
+        &self,
+        _series: &str,
+        _target_date: &str,
+    ) -> Result<Vec<fortuna_venues::kalshi::dto::KalshiMarket>, fortuna_venues::VenueError> {
+        Ok(self.day.clone())
+    }
+}
+
+/// Build a DiscoveryWiring whose ONLY active sub-step is the F7 weather plug-in:
+/// `signal_kinds` empty (world-forward inert) + `catalog` empty (market-back
+/// inert) + `weather_source = Some(stub)`. Beliefs/edges attribute to the
+/// discovery strategy (the I7 boundary), exactly like main.rs.
+fn weather_wiring(
+    pool: PgPool,
+    day: Vec<fortuna_venues::kalshi::dto::KalshiMarket>,
+) -> fortuna_live::daemon::DiscoveryWiring {
+    use fortuna_cognition::discovery::{DiscoveryBudget, PrefilterConfig};
+    use fortuna_cognition::signals::SourceRegistry;
+    use fortuna_core::market::StrategyId;
+    fortuna_live::daemon::DiscoveryWiring {
+        pool,
+        mind: stub_mind(), // never called by the F7 weather step (no mind path)
+        budget: DiscoveryBudget::new(500),
+        registry: SourceRegistry::new(),
+        strategy: StrategyId::new("world-forward").unwrap(), // TEST code: unwrap fine
+        signal_kinds: vec![],                                // world-forward inert
+        window_hours: 48,
+        max_signals: 200,
+        prefilter: PrefilterConfig {
+            category_allowlist: vec![],
+            min_volume_contracts: 0,
+            min_category_quality: 0.0,
+            category_quality: std::collections::BTreeMap::new(),
+        },
+        catalog: vec![], // market-back inert
+        event_id_base: 0,
+        edge_id_base: 0,
+        weather_source: Some(Arc::new(StubWeatherSource { day })),
+    }
+}
+
+/// Run ONE drive() with the given discovery wiring over a Sim runner (the
+/// StopAtCadence one-segment harness; all other opt-in params None).
+async fn drive_with_discovery(
+    runner: &mut fortuna_live::daemon::ActiveRunner,
+    wiring: fortuna_live::daemon::DiscoveryWiring,
+) {
+    let (tx, mut stop) = tokio::sync::oneshot::channel::<()>();
+    let mut cadence = StopAtCadence {
+        clock: runner.clock().clone(),
+        sleeps: 0,
+        fire_at: 6,
+        tx: Some(tx),
+    };
+    let mut poller = NeverHalted;
+    let loop_cfg = LoopConfig {
+        tick_interval_ms: 1000,
+        halt_poll_ms: 500,
+    };
+    let mut scrape = DegradeScrape::new(default_degrade_thresholds());
+    let mut daily = fortuna_live::daemon::DailyScheduler::new();
+    let (_stats, _shutdown) = drive(
+        runner,
+        &mut cadence,
+        &mut poller,
+        &loop_cfg,
+        4,
+        &mut stop,
+        |_r, _s| {},
+        &mut scrape,
+        None,
+        &mut daily,
+        None, // synthesis_refresh
+        None, // scalar persist
+        None, // reconciliation
+        None, // reviews
+        None, // perp feed
+        None, // [personas]
+        Some(wiring),
+    )
+    .await
+    .expect("daemon drive");
+}
+
+/// Seed the recorded KNYC tmax forecast as one `aeolus.forecast` signal within
+/// the discovery window.
+async fn seed_forecast_signal(pool: &PgPool) {
+    use fortuna_cognition::context::content_hash_of;
+    let now_iso = t0().to_iso8601();
+    fortuna_ledger::SignalsRepo::new(pool.clone())
+        .insert(
+            "sig-aeolus-1",
+            "aeolus",
+            "aeolus.forecast",
+            &now_iso,
+            &content_hash_of("aeolus-knyc-tmax-2026-06-13"),
+            &knyc_forecast_payload(),
+        )
+        .await
+        .unwrap();
+}
+
+/// HAPPY PATH + IDEMPOTENCY: a recorded forecast + a Some(weather_source) of 6
+/// ACTIVE June-15 markets persists 6 propose-only `aeolus:` beliefs + 6
+/// auto-confirmed `Direct` edges. A SECOND drive is a clean no-op (the markets
+/// already carry a current edge) — still 6, never 12: the per-market dedup is
+/// load-bearing. MUTATION (standing): every sibling drive-test wires
+/// `weather_source: None` and persists ZERO `aeolus:` rows.
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn drive_persists_aeolus_weather_beliefs_and_edges_when_wired(pool: PgPool) {
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let dcfg = DaemonToml::parse(&text).expect("example parses");
+    let full = FortunaConfig::load_file(example_path).expect("example full-config parses");
+    let runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        t0(),
+        88,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .expect("composition");
+    arb_books(&runner);
+    seed_forecast_signal(&pool).await;
+
+    let active_june15 = recorded_markets_for("26JUN15");
+    assert_eq!(
+        active_june15.len(),
+        6,
+        "the recorded June-15 active set is 6 markets"
+    );
+
+    // Nothing before the drive.
+    let before: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM market_event_edges WHERE proposed_by = 'aeolus_bucket_match'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(before, 0, "no aeolus edges before drive");
+
+    let mut runner = fortuna_live::daemon::ActiveRunner::Sim(runner);
+    drive_with_discovery(
+        &mut runner,
+        weather_wiring(pool.clone(), active_june15.clone()),
+    )
+    .await;
+
+    // 6 propose-only beliefs on aeolus: events.
+    let beliefs: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM beliefs WHERE event_id LIKE 'aeolus:%'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        beliefs, 6,
+        "one belief per active June-15 bucket (got {beliefs})"
+    );
+    // 6 aeolus: events were created (FK for the edges).
+    let events: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE event_id LIKE 'aeolus:%'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(events, 6, "one event per bucket (got {events})");
+    // 6 auto-confirmed Direct kalshi edges, all attributed to the matcher.
+    let edges: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM market_event_edges WHERE proposed_by = 'aeolus_bucket_match' \
+         AND confirmed_by = 'discovery:auto' AND mapping_type = 'direct' AND venue = 'kalshi'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        edges, 6,
+        "6 auto-confirmed Direct kalshi edges (got {edges})"
+    );
+    // Every edge's market is a recorded June-15 ticker (never fabricated).
+    let recorded_market_edges: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM market_event_edges WHERE proposed_by = 'aeolus_bucket_match' \
+         AND market_id LIKE 'KXHIGHNY-26JUN15-%'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        recorded_market_edges, 6,
+        "every edge market is a recorded June-15 ticker"
+    );
+
+    // IDEMPOTENCY: a SECOND drive with the SAME day-set is a clean no-op — the
+    // markets already carry a current edge, so nothing is re-persisted.
+    drive_with_discovery(&mut runner, weather_wiring(pool.clone(), active_june15)).await;
+    let beliefs_after: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM beliefs WHERE event_id LIKE 'aeolus:%'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        beliefs_after, 6,
+        "re-drive does NOT duplicate beliefs (got {beliefs_after}, the dedup is load-bearing)"
+    );
+    let edges_after: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM market_event_edges WHERE proposed_by = 'aeolus_bucket_match'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        edges_after, 6,
+        "re-drive does NOT duplicate edges (got {edges_after})"
+    );
+}
+
+/// MUTATION (the operator's F7 gate): drop one market from the day-set → the
+/// matcher emits one fewer edge. 5 markets in ⇒ exactly 5 beliefs + 5 edges, and
+/// the dropped ticker is referenced by NOTHING. (Reds if the plug-in re-emitted
+/// the dropped market or ignored the day-set content.)
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn drive_weather_plugin_drops_an_edge_when_its_market_leaves_the_day_set(pool: PgPool) {
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let dcfg = DaemonToml::parse(&text).expect("example parses");
+    let full = FortunaConfig::load_file(example_path).expect("example full-config parses");
+    let runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        t0(),
+        88,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .expect("composition");
+    arb_books(&runner);
+    seed_forecast_signal(&pool).await;
+
+    // Drop the T85 (greater) market from the active June-15 set: 6 → 5.
+    let mut day = recorded_markets_for("26JUN15");
+    day.retain(|m| !m.ticker.contains("-T85"));
+    assert_eq!(day.len(), 5, "exactly the T85 market removed");
+
+    let mut runner = fortuna_live::daemon::ActiveRunner::Sim(runner);
+    drive_with_discovery(&mut runner, weather_wiring(pool.clone(), day)).await;
+
+    let edges: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM market_event_edges WHERE proposed_by = 'aeolus_bucket_match'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(edges, 5, "five edges after the drop (got {edges})");
+    let beliefs: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM beliefs WHERE event_id LIKE 'aeolus:%'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(beliefs, 5, "five beliefs after the drop (got {beliefs})");
+    // NOTHING references the dropped T85 market.
+    let dropped_edges: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM market_event_edges WHERE market_id LIKE '%-T85'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(dropped_edges, 0, "the dropped T85 market has no edge");
+    let dropped_beliefs: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM beliefs WHERE event_id LIKE '%-T85'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(dropped_beliefs, 0, "the dropped T85 market has no belief");
+}
+
+/// ACTIVE-ONLY FILTER: a SETTLED day-set (the recorded `determined` June-13
+/// markets) is recorded by Aeolus but NOT traded — the plug-in builds zero
+/// buckets and persists zero edges/beliefs. (Proves the tradeable-status filter
+/// in the plug-in, not the source.)
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn drive_weather_plugin_skips_a_settled_day_set(pool: PgPool) {
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let dcfg = DaemonToml::parse(&text).expect("example parses");
+    let full = FortunaConfig::load_file(example_path).expect("example full-config parses");
+    let runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        t0(),
+        88,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .expect("composition");
+    arb_books(&runner);
+    seed_forecast_signal(&pool).await;
+
+    // The recorded June-13 set is all `determined` (settled).
+    let settled_june13 = recorded_markets_for("26JUN13");
+    assert_eq!(
+        settled_june13.len(),
+        6,
+        "the recorded June-13 set is 6 markets"
+    );
+    assert!(
+        settled_june13
+            .iter()
+            .all(|m| m.status == fortuna_venues::kalshi::dto::KalshiMarketStatus::Determined),
+        "June 13 is settled"
+    );
+
+    let mut runner = fortuna_live::daemon::ActiveRunner::Sim(runner);
+    drive_with_discovery(&mut runner, weather_wiring(pool.clone(), settled_june13)).await;
+
+    let edges: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM market_event_edges WHERE proposed_by = 'aeolus_bucket_match'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        edges, 0,
+        "a settled day-set yields no tradeable edges (got {edges})"
+    );
+    let beliefs: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM beliefs WHERE event_id LIKE 'aeolus:%'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        beliefs, 0,
+        "a settled day-set yields no beliefs (got {beliefs})"
     );
 }
