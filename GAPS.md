@@ -18,6 +18,23 @@ Minors closed at head). Everything below is an OPERATOR action. One Minor stays 
 regression-seed corpus is empty (no randomized run has produced a red
 seed; discipline in place).
 
+## TRACK C — Kalshi demo-flip Phase 1 DONE; Phase 2 ready, live run operator-blocked (2026-06-14)
+
+The demo-flip is BLUEPRINTED (docs/design/kalshi-demo-flip.md — Explore-traced +
+architect-validated) and PHASE 1 is landed gate-clean: `Venue::account()` (de4d2d8) + the
+`SimRunner<V: Venue = SimVenue, J>` generalization (f8e3ad3). The runner now drives ANY
+venue; the SIM PATH IS PROVEN BYTE-IDENTICAL (the whole DST corpus replays unchanged; an
+ADD-ONLY invariant pins that `SimRunner::new` still refuses Stage::Paper). The KalshiVenue
+adapter is already trait-complete.
+PHASE 2 (buildable now, NOT yet built): `compose_kalshi_runner` + the `[daemon].stage` boot
+gate (kalshi@paper allowed, live_min/scaled refused) + an `ActiveRunner` enum + main routing
+— all specified in the design doc; tests use MockKalshiTransport (never the live API).
+OPERATOR-BLOCKED for the LIVE demo run (NOT the code): (1) demo credentials
+`KALSHI_DEMO_KEY_ID` + `KALSHI_DEMO_KEY_PEM` (operator generates on the Kalshi demo portal →
+.env); (2) the T4.2 fixture-clearance checklist (27 items); (3) the `[kalshi].series`
+tickers. The CODE compiles + the boot gate opens kalshi@paper without these; only the actual
+network run waits on them.
+
 ## TRACK C — 3-tier cognition COMPLETE: registry + synthesis/reconciliation/triage (2026-06-13)
 
 DONE (operator-requested, both parts delivered). The full 3-tier cognition role is built:
