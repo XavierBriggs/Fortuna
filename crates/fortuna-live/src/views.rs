@@ -323,8 +323,14 @@ fn sources_board(sources: &[SourceTelemetry], generated_at: &str) -> Value {
         .map(|t| t.epoch_millis())
         .ok();
     let mut rows = Vec::with_capacity(sources.len());
-    let (mut healthy, mut degraded, mut quarantined, mut acc_total, mut drop_total) =
-        (0u64, 0u64, 0u64, 0u64, 0u64);
+    let (
+        mut healthy,
+        mut degraded,
+        mut quarantined,
+        mut acc_total,
+        mut drop_total,
+        mut fetch_err_total,
+    ) = (0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
     for s in sources {
         match s.health {
             "healthy" => healthy += 1,
@@ -333,6 +339,7 @@ fn sources_board(sources: &[SourceTelemetry], generated_at: &str) -> Value {
         }
         acc_total += s.accepted;
         drop_total += s.dropped_future + s.dropped_republished + s.dropped_over_volume;
+        fetch_err_total += s.fetch_errors;
         let last_ok_age_s = match (&s.last_success_at, now_ms) {
             (Some(ts), Some(now)) => UtcTimestamp::parse_iso8601(ts)
                 .ok()
@@ -364,8 +371,14 @@ fn sources_board(sources: &[SourceTelemetry], generated_at: &str) -> Value {
             "dropped_republished": s.dropped_republished,
             "dropped_over_volume": s.dropped_over_volume,
             "empty_rate_pct": empty_rate_pct,
+            "fetch_errors": s.fetch_errors,
             "quarantines": s.quarantines,
+            "rearms": s.rearms,
             "next_due_at": s.next_due_at,
+            // The redacted+capped last fetch error (the producer never puts secrets
+            // here) — the operational "why" behind a degraded/quarantined source;
+            // honest null when the source has not errored.
+            "last_error": s.last_error,
         }));
     }
     json!({
@@ -383,12 +396,15 @@ fn sources_board(sources: &[SourceTelemetry], generated_at: &str) -> Value {
             {"key":"dropped_republished","label":"D:rep"},
             {"key":"dropped_over_volume","label":"D:vol"},
             {"key":"empty_rate_pct","label":"304%"},
+            {"key":"fetch_errors","label":"Fetch err"},
             {"key":"quarantines","label":"Quar"},
+            {"key":"rearms","label":"Rearm"},
             {"key":"next_due_at","label":"Next due"},
+            {"key":"last_error","label":"Last error"},
         ],
         "rows": rows,
         "summary": {"healthy": healthy, "degraded": degraded, "quarantined": quarantined,
-                    "accepted": acc_total, "dropped": drop_total},
+                    "accepted": acc_total, "dropped": drop_total, "fetch_errors": fetch_err_total},
     })
 }
 

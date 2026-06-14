@@ -33,7 +33,7 @@ use fortuna_core::clock::{SimClock, UtcTimestamp};
 use fortuna_ledger::{
     connect, connect_readonly_pool, AuditWriter, BeliefScoresRepo, BeliefsRepo,
     CalibrationParamsRepo, DomainAnalysesRepo, EventsRepo, LedgerError, PersonasRepo, PgPool,
-    ScalarBeliefsRepo,
+    ScalarBeliefsRepo, TradabilityRepo,
 };
 use fortuna_ops::dashboard::{serve_dashboard, DashboardSnapshot};
 use fortuna_ops::metrics::MetricsRegistry;
@@ -683,6 +683,21 @@ async fn seed(pool: &PgPool) -> Result<(), BoxErr> {
             eprintln!("[rota_local] seed 'edge' skipped: {e}");
         }
     }
+    // A tradability score for the CONFIRMED edge's market only (B65) → the Discovery —
+    // Edges board surfaces it; the proposed B70 is unscored → honest-null Trad.
+    warn_seed(
+        "tradability",
+        TradabilityRepo::new(pool.clone())
+            .insert(
+                "01J0TRAD000000000000B65",
+                "KXNYCHIGH-26JUN13-B65",
+                "sim",
+                0.73,
+                &json!({"spread_bps": 40, "depth_contracts": 1200, "horizon_days": 1}),
+                "2026-06-12T18:12:00.000Z",
+            )
+            .await,
+    );
 
     // Five audit rows of distinct kinds via the real append path (ULID + clock
     // supplied), advancing a SimClock between them so ids/timestamps order.
@@ -822,27 +837,34 @@ fn representative_views(generated_at: &str) -> Value {
                 { "key": "dropped_republished", "label": "D:rep" },
                 { "key": "dropped_over_volume", "label": "D:vol" },
                 { "key": "empty_rate_pct", "label": "304%" },
+                { "key": "fetch_errors", "label": "Fetch err" },
                 { "key": "quarantines", "label": "Quar" },
+                { "key": "rearms", "label": "Rearm" },
                 { "key": "next_due_at", "label": "Next due" },
+                { "key": "last_error", "label": "Last error" },
             ],
             "rows": [
                 { "source_id": "nws_alerts", "domains": "weather", "trust_tier": 1,
                   "health": "healthy", "last_ok_age_s": 12,
                   "polls": 420, "accepted": 58, "dropped_future": 3, "dropped_republished": 11,
-                  "dropped_over_volume": 0, "empty_rate_pct": 86, "quarantines": 0,
-                  "next_due_at": "2026-06-13T12:35:30Z" },
+                  "dropped_over_volume": 0, "empty_rate_pct": 86, "fetch_errors": 0,
+                  "quarantines": 0, "rearms": 0, "next_due_at": "2026-06-13T12:35:30Z",
+                  "last_error": Value::Null },
                 { "source_id": "nws_afd", "domains": "weather", "trust_tier": 2,
                   "health": "degraded", "last_ok_age_s": 340,
                   "polls": 140, "accepted": 12, "dropped_future": 0, "dropped_republished": 2,
-                  "dropped_over_volume": 171, "empty_rate_pct": 52, "quarantines": 1,
-                  "next_due_at": "2026-06-13T12:36:00Z" },
+                  "dropped_over_volume": 171, "empty_rate_pct": 52, "fetch_errors": 5,
+                  "quarantines": 1, "rearms": 1, "next_due_at": "2026-06-13T12:36:00Z",
+                  "last_error": "HTTP 429 rate limited (capped)" },
                 { "source_id": "aeolus_forecast", "domains": "weather", "trust_tier": 1,
                   "health": "healthy", "last_ok_age_s": 48,
                   "polls": 96, "accepted": 96, "dropped_future": 0, "dropped_republished": 0,
-                  "dropped_over_volume": 0, "empty_rate_pct": 0, "quarantines": 0,
-                  "next_due_at": "2026-06-13T12:40:00Z" },
+                  "dropped_over_volume": 0, "empty_rate_pct": 0, "fetch_errors": 0,
+                  "quarantines": 0, "rearms": 0, "next_due_at": "2026-06-13T12:40:00Z",
+                  "last_error": Value::Null },
             ],
-            "summary": { "healthy": 2, "degraded": 1, "quarantined": 0, "accepted": 166, "dropped": 188 },
+            "summary": { "healthy": 2, "degraded": 1, "quarantined": 0, "accepted": 166,
+                         "dropped": 188, "fetch_errors": 5 },
         },
         // D-contract V1 Live Signal Feed — the marquee view: recent signals
         // newest-first with their actual (redacted) payload summary + accept/drop

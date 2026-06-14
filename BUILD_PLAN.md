@@ -582,6 +582,18 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       + degraded-unavailable coverage + screenshot rota-discovery-edges-2026-06-14.png;
       code-reviewer-clean; full battery green. So the buildable T4.5 surface is now (e)+
       (e)+(b)+(a); only (c) WS counters + (d) full money model remain (operator-BLOCKED).
+      (a) Tradability⋈Edges JOIN COMPLETE (2026-06-14, "complete all slices"): the
+      Discovery — Edges board gains a Trad column (the market's latest tradability_scores
+      score, correlated subquery; honest-null when unscored) — the literal "Tradability/
+      Edges discovery join" §4 named. + two more ready ROTA follow-ons drained the same
+      pass: Sources Health operational fields (fetch_errors/rearms/last_error) and the
+      Analyses §20.2 expander (per-analysis findings + signal_manifest, untrusted →
+      truncate_evidence + esc'd). Tests + curl-verified (browser screenshots deferred —
+      chrome-devtools MCP disconnected); full workspace battery GREEN (167 suites 0-fail /
+      DST exit-0). Remaining ROTA work is all data/operator-BLOCKED or marginal (GAPS
+      "COMPLETE ALL SLICES"): T4.6 perp-CDF (track-C basis-v2), money mark-loop, WS
+      counters, Vendor Scorecard, Forecast→Outcome, Hypothesis-Lifecycle full, persona
+      verdict; sparklines/DB-drill-in/Events-drill-in are diminishing-returns.
 
 - [x] T4.6 ROTA TOTAL OBSERVABILITY (mission 2; track B re-missioned 2026-06-13) — ✅ DONE: all 13 sub-boards built + screenshot-verified (the only open item in its range was this parent box). Ticked 2026-06-14 (verifier de-stale).
       — the operator single pane of glass consuming the C/D/E observability

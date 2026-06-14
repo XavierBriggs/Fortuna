@@ -510,14 +510,14 @@ fn sample_telemetry() -> IngestionTelemetry {
             next_due_at: Some("2026-06-13T13:00:30.000Z".to_string()),
             polls: 420,
             empty_polls: 360,
-            fetch_errors: 0,
+            fetch_errors: 2,
             accepted: 58,
             dropped_future: 3,
             dropped_republished: 11,
             dropped_over_volume: 0,
             quarantines: 0,
-            rearms: 0,
-            last_error: None,
+            rearms: 1,
+            last_error: Some("HTTP 503 from upstream".to_string()),
         }],
         funnel: FunnelCounts {
             fetched: 1240,
@@ -577,6 +577,14 @@ fn merge_ingest_views_shapes_the_three_live_boards_to_the_handler_envelopes() {
         cols.iter().any(|c| c["key"] == "domains"),
         "the Domains column is present: {src}"
     );
+    // Operational health: fetch errors + rearms + the redacted last-error diagnostic.
+    assert_eq!(src["rows"][0]["fetch_errors"], 2, "{src}");
+    assert_eq!(src["rows"][0]["rearms"], 1, "{src}");
+    assert_eq!(
+        src["rows"][0]["last_error"], "HTTP 503 from upstream",
+        "the redacted last-error diagnostic is surfaced: {src}"
+    );
+    assert_eq!(src["summary"]["fetch_errors"], 2, "{src}");
 
     // V1 Live Signal Feed (untrusted summary carried verbatim as DATA).
     let feed = &views["ingest_feed"];
@@ -615,6 +623,7 @@ fn sources_board_domains_join_and_are_honest_null_when_untagged() {
     untagged.source_id = "untagged_src".to_string();
     untagged.domain_tags = vec![];
     untagged.trust_tier = 0;
+    untagged.last_error = None; // a clean source → honest-null diagnostic.
     tel.sources.push(multi);
     tel.sources.push(untagged);
     let mut views = serde_json::json!({});
@@ -629,6 +638,10 @@ fn sources_board_domains_join_and_are_honest_null_when_untagged() {
     assert!(
         rows[2]["domains"].is_null(),
         "an untagged source → honest null, never an empty string: {views}"
+    );
+    assert!(
+        rows[2]["last_error"].is_null(),
+        "a source that has not errored → honest-null diagnostic, never a fabricated one: {views}"
     );
 }
 

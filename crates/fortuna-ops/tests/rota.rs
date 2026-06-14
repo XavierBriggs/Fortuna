@@ -1456,6 +1456,18 @@ async fn discovery_edges_board_joins_live_mappings_to_their_event(pool: sqlx::Pg
         )
         .await
         .unwrap();
+    // A tradability score for M1 ONLY → M1 surfaces it; M2/M3 (unscored) → honest-null.
+    fortuna_ledger::TradabilityRepo::new(pool.clone())
+        .insert(
+            "01TRADSCORE0000000000M1",
+            "M1",
+            "sim",
+            0.73,
+            &serde_json::json!({"spread_bps": 40, "depth": 1200}),
+            "2026-06-12T11:05:00.000Z",
+        )
+        .await
+        .unwrap();
     let state = RotaState {
         snapshot: empty_snapshot(),
         pool: Some(pool),
@@ -1493,12 +1505,22 @@ async fn discovery_edges_board_joins_live_mappings_to_their_event(pool: sqlx::Pg
     assert_eq!(j["rows"][0]["status"], "confirmed");
     assert_eq!(j["rows"][0]["confirmed_by"], "discovery_v2");
     assert!((j["rows"][0]["confidence"].as_f64().unwrap() - 0.95).abs() < 1e-9);
-    // A PROPOSED edge → honest-null confirmer, never a fabricated one.
+    // The Tradability⋈Edges join: M1's latest tradability score is surfaced.
+    assert!(
+        (j["rows"][0]["tradability"].as_f64().unwrap() - 0.73).abs() < 1e-9,
+        "M1's latest tradability score is joined in: {j}"
+    );
+    // A PROPOSED edge → honest-null confirmer, never a fabricated one. M2 is also
+    // UNSCORED → honest-null tradability (never a fabricated 0).
     assert_eq!(j["rows"][1]["market_id"], "M2");
     assert_eq!(j["rows"][1]["status"], "proposed");
     assert!(
         j["rows"][1]["confirmed_by"].is_null(),
         "a proposed edge has no confirmer: {j}"
+    );
+    assert!(
+        j["rows"][1]["tradability"].is_null(),
+        "an unscored market → honest-null tradability: {j}"
     );
     // M3 is the SUPERSEDING confirmed edge (M3B) — proving the superseded M3A is gone.
     assert_eq!(j["rows"][2]["market_id"], "M3");
@@ -1756,8 +1778,9 @@ async fn personas_board_serves_the_registry_grouped_newest_version_first(pool: s
 // the content-hash replay anchor truncated, and the supersession status. Seeds two
 // analyses for one region where the later supersedes the earlier, and asserts the
 // produced_at-DESC ordering, the persona render, the per-row cost + hash prefix, the
-// honest open-vs-superseded status, and the {analyses,open,cost_cents} summary. (The
-// findings/signal_manifest expander — UNTRUSTED model output — is a §20.2 follow-on.)
+// honest open-vs-superseded status, the {analyses,open,cost_cents} summary, and the
+// §20.2 expander (the persona's findings + the signal_manifest it read — UNTRUSTED
+// model output, surfaced as size-capped escaped data).
 #[sqlx::test(migrations = "../fortuna-ledger/migrations")]
 async fn analyses_board_serves_artifacts_newest_first_with_supersession(pool: sqlx::PgPool) {
     use fortuna_ledger::{BeliefsRepo, DomainAnalysesRepo};
@@ -1873,6 +1896,22 @@ async fn analyses_board_serves_artifacts_newest_first_with_supersession(pool: sq
     assert_eq!(
         j["summary"]["beliefs"], 2,
         "total fanout across artifacts: {j}"
+    );
+    // §20.2 expander: the persona's FINDINGS + the SIGNAL_MANIFEST it read are now
+    // surfaced (untrusted model output — rendered as data, size-capped via the same
+    // truncate_evidence proven by cognition_truncates_evidence_over_4kb). A2's content:
+    assert!(
+        (j["rows"][0]["findings"]["thresholds"][0]["p"]
+            .as_f64()
+            .unwrap()
+            - 0.95)
+            .abs()
+            < 1e-9,
+        "the persona's findings are surfaced as data: {j}"
+    );
+    assert_eq!(
+        j["rows"][0]["signal_manifest"][0]["signal_id"], "sig-2",
+        "the signal_manifest the analysis read is surfaced: {j}"
     );
 }
 
