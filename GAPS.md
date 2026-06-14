@@ -1906,6 +1906,33 @@ TRADES FOLLOW-ONS (ledgered, NOT built — mission item 3 remainder):
   is exposed (operator/track-A). Fills carry no strategy column (attribution is runtime
   PositionBook state) — per-fill strategy needs the digest path, not the fills table.
 
+### OBS-3 RENDER DONE (2026-06-13) — Sources Health surfaces domain_tags + trust_tier (closes the orchestrator "domain_tags" item; track-B is NOT stalled)
+Resolves the orchestration-view line "OBS-2/2c/3 funnel snapshots + ROTA read wiring +
+domain_tags, T4.5 ROTA panels — track-b stalled/maybe-done." Triage against current main
+(aff6a65):
+- **ROTA read wiring + funnel snapshots — already DONE.** OBS-2c shapes the live V1/V2/V3
+  boards (note below); the V3 funnel board already renders the OBS-2a loop-stages
+  (Fetched → Validated → Normalized → Persisted, with deduped + persist_failures in the
+  detail). No gap. T4.5 ROTA panels = TRACK-A + operator-BLOCKED (see "TRACK A — T4.5"
+  section: the buildable surface is done; the 2 remaining pieces are WS-counter / Slack,
+  operator-gated) — NOT track-B's.
+- **domain_tags — the one real gap, now closed.** Track-D's OBS-3 populated
+  `SourceTelemetry.domain_tags` (+ `trust_tier`) from the source_registry admission AFTER
+  my OBS-2c `sources_board` shaping, so the Sources Health board didn't surface them.
+  THIS SLICE: `sources_board` (fortuna-live/src/views.rs — the ROTA-serving seam I own)
+  now emits two registry-admission columns — **Domains** (`domain_tags` joined; an
+  untagged source → honest null "—", never an empty string) and **Tier** (`trust_tier`).
+  "What this source IS and how trusted", beside its counters. These are system config
+  (Layer-0 admission), NOT untrusted data; `boardTable` renders them generically, so ROTA
+  handler + JS are unchanged (R2 pure projection). VERIFICATION: the existing
+  `merge_ingest_views_shapes_…` test asserts domains/tier; a new
+  `sources_board_domains_join_and_are_honest_null_when_untagged` asserts the join +
+  honest-null (clone-and-mutate of the sample source). Screenshot with real rows (3
+  sources, Domains/Tier columns): `docs/reviews/rota-visual/rota-sources-health-domains-2026-06-13.png`.
+  Full workspace battery green. The remaining unsurfaced SourceTelemetry fields
+  (`kind`, `fetch_errors`, `rearms`, `last_error`) are an operational follow-on (would
+  widen the board; ledgered here, not built).
+
 ### OBS-2c DONE (2026-06-13) — the live ingestion boards (V1/V2/V3) now render LIVE daemon data
 Track-D's OBS-2b landed the `IngestionTelemetryHandle` (`Arc<RwLock<IngestionTelemetry>>`,
 fortuna-live/ingestion.rs) on main; OBS-2c (the ROTA read, explicitly track-B's) is
