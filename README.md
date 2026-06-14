@@ -72,7 +72,10 @@ where existing tests may never be weakened — additions only.
   ([aeolus_beliefs.rs](crates/fortuna-cognition/src/aeolus_beliefs.rs), F8), and
   independent Brier+CRPS settlement scoring against the NWS-graded realized
   temperature ([aeolus_reliability.rs](crates/fortuna-cognition/src/aeolus_reliability.rs),
-  F9), with F5 dedup and F7 world-forward market matching. Propose-only (I6),
+  F9), with F5 dedup and the F7 Aeolus↔Kalshi bucket match
+  ([aeolus_buckets.rs](crates/fortuna-cognition/src/aeolus_buckets.rs) + the
+  `aeolus_venue.rs` / `kalshi/weather.rs` live day-set wiring) that turns each live
+  Kalshi temperature bucket into a tradeable `Direct` edge. Propose-only (I6),
   scored like any source; inert until an operator enables an `aeolus` source.
 - **3-tier cognition.** The frontier tier is now resolved by a `ModelRegistry`
   ([mind.rs](crates/fortuna-cognition/src/mind.rs)) that maps each role's tier to

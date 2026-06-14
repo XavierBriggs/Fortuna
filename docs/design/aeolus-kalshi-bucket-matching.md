@@ -90,7 +90,7 @@ have the bounds structurally without a new field on the shared `BeliefDraft`.
 
 ## 5. F9 reliability (Track-E, per-kind outcome)
 
-`score_bucket_reliability(&AeolusForecast, &[WeatherBucket], realized_f)` scores each bucket
+`score_bucket_briers(&AeolusForecast, &[WeatherBucket], realized_f)` scores each bucket
 belief by Brier — outcome = `lo ≤ realized ≤ hi` / `realized ≥ M` / `realized ≤ M` per kind;
 CRPS stays on the μ/σ fan. (A small extension to F9, taking the same `WeatherBucket[]`.)
 F8's ge-ladder beliefs STAY as the reliability/cross-check vehicle — they are not the

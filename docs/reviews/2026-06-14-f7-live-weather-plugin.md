@@ -1,5 +1,12 @@
+> **track-A SELF-REVIEW — not a verifier verdict.** The authoritative gate verdict is the
+> verifier's, recorded on the bus (`docs/reviews/GATE-FINDINGS-LATEST.md`): slices 1-3 were
+> INDEPENDENTLY gated ACCEPT @5b93f8e / @533ce17 / @72170c6 (full battery + DST + mutation-proofs
+> on the merged tree). This file is track-A's thorough pre-submission self-analysis, retained for
+> its value; its conclusion is independently confirmed. Tracks must not author "Verdict" lines in
+> `docs/reviews/` — that surface belongs to the verifier.
+
 # Review: F7 live weather plug-in (track-A) — 2026-06-14
-Base: bf3d57b~1 (3ed2ba1)  Head: b7cf6ee  Verdict: ACCEPT
+Base: bf3d57b~1 (3ed2ba1)  Head: b7cf6ee  Self-assessed verdict: ACCEPT (verifier-confirmed; see bus)
 Protected crate touched: no (git diff --name-only | grep invariants => NO INVARIANTS CHANGES)
 
 Scope: 3 commits — bf3d57b (WeatherMarketSource + KalshiWeatherSource), d1ebc45

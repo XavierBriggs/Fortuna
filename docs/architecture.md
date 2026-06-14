@@ -205,13 +205,20 @@ tier — comparator plus the shared Kelly sizing
 library, calibration (Platt/isotonic with shrinkage prior), the swappable
 scoring layer ([`prob_claims/v1` scalar beliefs + `ScoringRule`](design/perp-strategies-and-scalar-claims.md):
 Brier + native-CRPS over immutable `PredictiveDistribution`/`RealizedOutcome`),
-the daily/weekly/monthly loops, and the reduce-only model veto. The **Aeolus
+the basis-v2 perp fair-probability kernel (`basis_v2.rs`: the §3.3 A3 per-bracket
+`q_j` via an in-house lognormal-settlement CDF + the A9 implied-ladder no-arb guard
+— pure `f64` forecast signal, never money), the daily/weekly/monthly loops, and the
+reduce-only model veto. The **Aeolus
 weather pipeline (F5–F9)** lives here too: the strict `aeolus.forecast/v2`
 envelope parser + μ/σ→bracket-probability backbone (`aeolus_forecast.rs`, F6),
 the propose-only producer emitting binary temperature-bracket drafts and a
 scalar μ/σ quantile fan (`aeolus_beliefs.rs`, F8), independent Brier+CRPS
 settlement scoring vs the NWS-graded realized temperature
-(`aeolus_reliability.rs`, F9), and F5 dedup / F7 world-forward market matching —
+(`aeolus_reliability.rs`, F9), F5 dedup, and the complete F7 Aeolus↔Kalshi bucket
+match (one propose-only belief + auto-confirmed `Direct` edge per live Kalshi
+temperature bucket: cognition matcher `aeolus_buckets.rs`, venue derivation +
+read-only live day-set discovery `aeolus_venue.rs` / `kalshi/weather.rs` wired into
+`drive()`; [design](design/aeolus-kalshi-bucket-matching.md)) —
 the proprietary forecast vendor turned into scored beliefs, never orders. Must
 never: mutate external state — `MindOutput` is propose-only, and `f64` here is
 for probabilities, never money.
