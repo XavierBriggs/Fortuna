@@ -214,7 +214,12 @@ envelope parser + μ/σ→bracket-probability backbone (`aeolus_forecast.rs`, F6
 the propose-only producer emitting binary temperature-bracket drafts and a
 scalar μ/σ quantile fan (`aeolus_beliefs.rs`, F8), independent Brier+CRPS
 settlement scoring vs the NWS-graded realized temperature
-(`aeolus_reliability.rs`, F9), F5 dedup, and the complete F7 Aeolus↔Kalshi bucket
+(`aeolus_reliability.rs`, F9), the resolution loop that CLOSES F9 — routing each
+due open weather belief to its NWS CLI product by grading station and
+resolving+scoring it against the independent realized grade (`aeolus_resolve.rs`
++ `resolve_and_score_weather_beliefs` in `fortuna-live`, mirroring the funding
+resolver; the realized value is the NWS grade, never Aeolus) — F5 dedup, and the
+complete F7 Aeolus↔Kalshi bucket
 match (one propose-only belief + auto-confirmed `Direct` edge per live Kalshi
 temperature bucket: cognition matcher `aeolus_buckets.rs`, venue derivation +
 read-only live day-set discovery `aeolus_venue.rs` / `kalshi/weather.rs` wired into
