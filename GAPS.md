@@ -19,9 +19,11 @@ Contract: `docs/design/aeolus-fortuna-source-contract.md` (rev 3). Changelog:
 - **F5 — identity-tuple dedup — DONE (this commit).** `aeolus_dedup::dedup_forecasts` collapses
   forecasts by `(station, variable, target_date)`, newest `run_at` wins (same-`run_at` correction →
   later-received supersedes). Pure/deterministic over F6's typed `AeolusForecast`. 5 tests.
-- **F7** — world-forward match (forecast→Kalshi temp-bracket market-family). KNOWN SEAM: no live
-  station→Kalshi-market discovery exists; F7 produces the forecast-side market family (brackets +
-  resolution) and the live-market match is a venue seam (ledger here + e2e uses the recorded fixture).
+- **F7 — world-forward match — DONE (this commit).** `aeolus_match::match_forecast` synthesizes the
+  predicted `WeatherMarketFamily` (events keyed `aeolus:{event_hint}` + the resolution declaration so
+  events are scoreable). SEAM still open: intersecting with the LIVE Kalshi book (does the bracket
+  trade?) is venue-discovery (Track A/venues), not cognition — F7 delivers the forecast side; e2e
+  uses the recorded fixture's brackets.
 - **F8** — emit bracket `BeliefDraft`s (binary fan-out, propose-only `p_raw`, `event_id =
   aeolus:{event_hint}`) + a scalar `ScalarBeliefDraft` (μ/σ→quantile fan) for CRPS. Calibration is
   applied DOWNSTREAM (the producer emits `p_raw` only, like funding_forecast).

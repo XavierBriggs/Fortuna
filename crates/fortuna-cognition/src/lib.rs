@@ -28,6 +28,7 @@
 
 pub mod aeolus_dedup;
 pub mod aeolus_forecast;
+pub mod aeolus_match;
 pub mod basis;
 pub mod beliefs;
 pub mod calibration;

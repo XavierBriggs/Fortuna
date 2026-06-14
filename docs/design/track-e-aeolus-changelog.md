@@ -16,7 +16,27 @@ FULL workspace battery as the commit gate.
 
 ---
 
-## F5 — identity-tuple dedup (newest run per slot) (this commit)
+## F7 — world-forward match (forecast → predicted weather market-family) (this commit)
+
+New `crates/fortuna-cognition/src/aeolus_match.rs`: `match_forecast(&AeolusForecast) ->
+WeatherMarketFamily` synthesizes the temperature-bracket events a forecast predicts (spec §5.12
+world-forward discovery). One `WeatherEvent` per bracket, keyed `aeolus:{event_hint}` (the v1
+namespace), carrying threshold/comparison + Aeolus's own bracket p (the F8 cross-check); the family
+carries the forecast identity, `model_version`, and the RESOLUTION declaration (grading
+`nws_station_id` + authority + `settles_after`) so every synthesized event is SCOREABLE (§5.12). Pure
++ deterministic; bracket order preserved. SEAM (GAPS): intersecting the synthesized family with the
+LIVE Kalshi book (does this bracket trade now?) is a venue-discovery concern, not this cognition
+transform — F7 produces the forecast side.
+
+Test against the RECORDED fixture: 14 events keyed `aeolus:knyc-2026-06-13-tmax-ge81…ge94`,
+thresholds 81..94 in order, and the grading station resolved to "NYC" (DISTINCT from the Aeolus
+station "KNYC" — taken from `resolution.*`, never inferred). Built directly (small, pure),
+tests-first. Verified: `cargo test -p fortuna-cognition --test aeolus_match` green; `fmt` + `clippy
+--workspace --all-targets -D warnings` clean; full workspace test green.
+
+Shared-doc touches: none (new file only).
+
+## F5 — identity-tuple dedup (newest run per slot) (commit d78c335)
 
 New `crates/fortuna-cognition/src/aeolus_dedup.rs`: `dedup_forecasts(Vec<AeolusForecast>) ->
 Vec<AeolusForecast>` collapses forecasts to one per `(station, variable, target_date)` slot — the
