@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT funding_rate\n               FROM funding_rates_historical\n               WHERE market_ticker = $1 AND funding_time = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "funding_rate",
+        "type_info": "Float8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "dbbc0d40b7db1f96dc96523f9ba0117cb1d168ecc89a72f226e1f2f56846910d"
+}

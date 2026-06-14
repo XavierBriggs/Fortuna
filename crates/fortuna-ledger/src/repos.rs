@@ -2224,3 +2224,91 @@ impl BeliefScoresRepo {
             .collect())
     }
 }
+
+/// Realized-funding ledger ops (design §9.1): the durable record of FINALIZED
+/// 8h funding rates from the PUBLIC `GET /margin/funding_rates/historical`.
+/// The resolve/score loop reads `realized_rate` to settle a scalar funding
+/// belief against ground truth; the poller reads `latest_funding_time` for
+/// incremental backfill. INSERT-only at the app layer: a finalized rate never
+/// changes, so a re-poll of the same `(market_ticker, funding_time)` is an
+/// idempotent no-op (`ON CONFLICT DO NOTHING`) — NOT a mutation, so the
+/// append-only `funding_rates_historical_append_only` trigger never fires.
+/// UPDATE/DELETE are refused by that trigger.
+pub struct FundingRatesHistoricalRepo {
+    pool: PgPool,
+}
+
+impl FundingRatesHistoricalRepo {
+    pub fn new(pool: PgPool) -> FundingRatesHistoricalRepo {
+        FundingRatesHistoricalRepo { pool }
+    }
+
+    /// Insert one finalized funding rate. `mark_price` is the venue's
+    /// per-contract dollar STRING, stored verbatim (no float round-trip).
+    /// `Ok(true)` when a row was inserted; `Ok(false)` when the
+    /// `(market_ticker, funding_time)` was already recorded (idempotent
+    /// re-poll — a finalized rate never changes). The conflict is a no-op at
+    /// the row level, so the append-only trigger is never reached.
+    pub async fn insert(
+        &self,
+        market_ticker: &str,
+        funding_time: &str,
+        funding_rate: f64,
+        mark_price: &str,
+        captured_at: &str,
+    ) -> Result<bool, LedgerError> {
+        let result = sqlx::query!(
+            r#"INSERT INTO funding_rates_historical
+               (market_ticker, funding_time, funding_rate, mark_price, captured_at)
+               VALUES ($1,$2,$3,$4,$5)
+               ON CONFLICT (market_ticker, funding_time) DO NOTHING"#,
+            market_ticker,
+            funding_time,
+            funding_rate,
+            mark_price,
+            captured_at
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    /// The finalized `funding_rate` for one `(market_ticker, funding_time)`, or
+    /// `None` if it has not been captured yet. The resolve/score loop calls
+    /// this to settle a scalar funding belief.
+    pub async fn realized_rate(
+        &self,
+        market_ticker: &str,
+        funding_time: &str,
+    ) -> Result<Option<f64>, LedgerError> {
+        let row = sqlx::query!(
+            r#"SELECT funding_rate
+               FROM funding_rates_historical
+               WHERE market_ticker = $1 AND funding_time = $2"#,
+            market_ticker,
+            funding_time
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| r.funding_rate))
+    }
+
+    /// The newest captured `funding_time` for one market (the poller's
+    /// incremental-backfill cursor), or `None` if the market has no rows yet.
+    /// `funding_time` is ISO8601 TEXT that sorts lexically == chronologically,
+    /// so `MAX` is the latest boundary.
+    pub async fn latest_funding_time(
+        &self,
+        market_ticker: &str,
+    ) -> Result<Option<String>, LedgerError> {
+        let row = sqlx::query!(
+            r#"SELECT MAX(funding_time) AS "latest?"
+               FROM funding_rates_historical
+               WHERE market_ticker = $1"#,
+            market_ticker
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.latest)
+    }
+}

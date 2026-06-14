@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO funding_rates_historical\n               (market_ticker, funding_time, funding_rate, mark_price, captured_at)\n               VALUES ($1,$2,$3,$4,$5)\n               ON CONFLICT (market_ticker, funding_time) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Float8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d39d2b92e5e26cf3059fb0bf6e2460fc4e5f855cad02fce6a3d25614132543fa"
+}

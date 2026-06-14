@@ -18,6 +18,17 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
+- **A2d SLICE 3 Part 1 — the realized-funding store** (`fortuna-ledger`, additive): an APPEND-ONLY
+  `funding_rates_historical(market_ticker, funding_time, funding_rate, mark_price, captured_at)` table
+  (UNIQUE(market_ticker, funding_time), `fortuna_refuse_mutation` trigger — a finalized 8h rate never
+  changes, I5) + a `FundingRatesHistoricalRepo`: `insert` (ON CONFLICT DO NOTHING → idempotent re-poll,
+  returns inserted?), `realized_rate(market, funding_time)` (the resolve/score loop's ground truth),
+  `latest_funding_time(market)` (the poller's backfill cursor). `funding_rate` is f64 cognition-domain
+  (not money); `mark_price` is the venue per-contract dollar STRING stored verbatim. Compile-checked
+  sqlx (`.sqlx` cache regenerated); 5 `#[sqlx::test]` tests incl. the append-only-trigger refusal +
+  idempotent re-insert. This is the realized-funding source the verifier bus (961fa7a) found public
+  (`GET /margin/funding_rates/historical`) — Part 1 of 3 (Part 2 = the poller; Part 3 = the
+  resolve→score loop).
 - **perp basis-v2 §3.3 — the fair-probability kernel (V0–V2)** (`fortuna-cognition::basis_v2`,
   additive pure-f64 kernel): the §3.3 per-bracket fair-probability model (A3) + the ladder
   no-arbitrage guard (A9). `normal_cdf` (Φ via the in-house A&S 7.1.26 erf — no new dependency,

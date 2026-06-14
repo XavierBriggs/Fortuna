@@ -130,9 +130,11 @@ its strategy/wiring):
   source was FOUND = public `GET /margin/funding_rates/historical` (no auth, no I7/secret surface;
   perps_openapi.yaml:887), already fixture-captured on disk (raw/live_prod_funding_hist_all.json: 100
   finalized records / 11 markets, 2026-06-06→06-11). My earlier "BUILD-BLOCKED" (@c8775c9) is SUPERSEDED.
-  TRACK-C ASSIGNMENT (3 parts, build after the v2 kernel commits to avoid concurrent fortuna-cognition
-  edits): (1) `fortuna-ledger` append-only migration `funding_rates_historical(market_ticker, funding_time,
-  funding_rate, mark_price, captured_at)` UNIQUE(market_ticker,funding_time) + repo; (2) a public-GET
+  TRACK-C ASSIGNMENT (3 parts): (1) ✅ DONE — `fortuna-ledger` append-only migration
+  `funding_rates_historical(market_ticker, funding_time, funding_rate, mark_price, captured_at)`
+  UNIQUE(market_ticker,funding_time) + `FundingRatesHistoricalRepo` (idempotent insert / realized_rate /
+  latest_funding_time), 5 #[sqlx::test] green incl. the append-only-trigger refusal, .sqlx cache regen.
+  REMAINING: (2) a public-GET
   POLLER (NO creds, pinned Kalshi host, payload = untrusted data spec 5.11 → validate shape +
   refuse/quarantine; backfill no-start_ts then poll past each 8h boundary 04/12/20 UTC; mirror the Aeolus
   poll-and-persist cron); (3) the resolve→score loop (read realized → `ScalarBeliefsRepo::resolve` →
