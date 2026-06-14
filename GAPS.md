@@ -105,7 +105,7 @@ kernel-first plan ledgered below. The live Kalshi DEMO run also remains an OPERA
 .env + `[kalshi]` series tickers + the T4.2 fixture checklist — the code/gate need none; runbook in the
 demo-flip GAPS entry below).
 
-## TRACK C — §2.6 A2b DONE + A2d SLICE 1+2 DONE (4-baseline edge gate); A2d SLICE 3 (wiring) next (2026-06-14)
+## TRACK C — §2.6 A2b DONE + A2d SLICE 1+2 DONE + SLICE 3 Part 1+3 DONE (resolve→score loop); Part 2 poller (track-D) remains (2026-06-14)
 
 A2d SLICE 2 — ✅ DONE: `compare_against_baselines` + `BaselineComparison` scores funding_forecast vs
 FOUR baselines (carry-forward, last-rate, estimate-RW, last_realized-anchored PERSISTENCE-RW) via
@@ -163,11 +163,21 @@ its strategy/wiring):
   `funding_rates_historical(market_ticker, funding_time, funding_rate, mark_price, captured_at)`
   UNIQUE(market_ticker,funding_time) + `FundingRatesHistoricalRepo` (idempotent insert / realized_rate /
   latest_funding_time), 5 #[sqlx::test] green incl. the append-only-trigger refusal, .sqlx cache regen.
+  (3) ✅ DONE — the resolve→score loop `fortuna-live::daemon::resolve_and_score_funding_beliefs(pool, now,
+  score_id_base)`: drains DUE (`horizon <= now`) + captured funding_forecast beliefs via the new
+  `ScalarBeliefsRepo::unresolved_due(producer, now_iso, limit)`, resolves set-once → `compare_against_baselines`
+  → FIVE `BeliefScoresRepo::insert` legs (rule_id `crps_pinball`[:carry_forward|last_rate|rw_estimate|
+  rw_persistence]). Anchors read off the persisted fan, never an evidence parse (estimate=v@0.50,
+  rw_band=(v@0.90−v@0.50)/Z90 clamped≥0, last_realized=prior-8h window with a NON-fabricating CURRENT-realized
+  fallback that only TIGHTENS the gate); defensive per-belief SKIP (bad event_key / uncaptured / malformed fan)
+  + idempotent (set-once resolve + UNIQUE(belief_id,rule_id) catch). 4 #[sqlx::test] fixture-grounded
+  (KXBCHPERP public capture), .sqlx regen, MUTATION-PROVEN (neutralizing resolve reds resolved + idempotency).
+  `drive()` UNTOUCHED — the one additive wire-line (mirror persist_scalar_beliefs) is a deliberate follow-on.
   REMAINING: (2) a public-GET
   POLLER (NO creds, pinned Kalshi host, payload = untrusted data spec 5.11 → validate shape +
   refuse/quarantine; backfill no-start_ts then poll past each 8h boundary 04/12/20 UTC; mirror the Aeolus
-  poll-and-persist cron); (3) the resolve→score loop (read realized → `ScalarBeliefsRepo::resolve` →
-  `compare_against_baselines` → `BeliefScoresRepo::insert`, rule_id="crps_pinball"[:baseline] per leg).
+  poll-and-persist cron) — belongs in track-D's `fortuna-sources` (FetchClient host-pinned public GET);
+  operator decision pending (build cross-crate or reassign).
   WIRE + correctness-validate on the fixtures NOW; the STATISTICAL beats-baselines edge accrues over the
   soak (an I7 forward-validation gate is time-gated — building the loop is unblocked, DECLARING an edge is
   not). Sim stays funding-free (score against REAL captured rates, never a synthetic sim model). ROTA §9.1

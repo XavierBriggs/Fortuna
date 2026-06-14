@@ -2083,6 +2083,53 @@ impl ScalarBeliefsRepo {
         Ok(())
     }
 
+    /// Unresolved beliefs from one `producer` whose window has CLOSED at
+    /// `now_iso` (the resolve/score loop's work queue, design §9.1). A row
+    /// qualifies iff `producer = $1 AND realized_value IS NULL AND horizon <=
+    /// $2`: the window closes at `horizon` (the `next_funding_time` the forecast
+    /// resolves at), so `horizon <= now` means it is due. `horizon` is ISO8601
+    /// TEXT with fixed millisecond precision, which sorts lexically ==
+    /// chronologically, so `ORDER BY horizon ASC` is oldest-due-first and the
+    /// `<=` bound is a correct chronological gate. `limit` caps the batch (the
+    /// loop drains in bounded chunks; a later run picks up the rest). A belief
+    /// still missing its realized rate stays unresolved here and is re-listed by
+    /// the NEXT run — being due is necessary but not sufficient to score.
+    pub async fn unresolved_due(
+        &self,
+        producer: &str,
+        now_iso: &str,
+        limit: i64,
+    ) -> Result<Vec<ScalarBeliefRow>, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT belief_id, producer, event_key, quantiles, unit, horizon,
+                      provenance, created_at, realized_value, resolved_at
+               FROM scalar_beliefs
+               WHERE producer = $1 AND realized_value IS NULL AND horizon <= $2
+               ORDER BY horizon ASC, belief_id ASC
+               LIMIT $3"#,
+            producer,
+            now_iso,
+            limit
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| ScalarBeliefRow {
+                belief_id: r.belief_id,
+                producer: r.producer,
+                event_key: r.event_key,
+                quantiles: r.quantiles,
+                unit: r.unit,
+                horizon: r.horizon,
+                provenance: r.provenance,
+                created_at: r.created_at,
+                realized_value: r.realized_value,
+                resolved_at: r.resolved_at,
+            })
+            .collect())
+    }
+
     /// The newest `limit` scalar beliefs (the ROTA §9.1 scorecard feed). ULIDs
     /// order lexically == chronologically, so `belief_id DESC` is newest-first
     /// without a timestamp parse. `limit` clamps to [1, 500] — a read-only
