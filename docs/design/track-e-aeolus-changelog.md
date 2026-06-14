@@ -16,7 +16,40 @@ FULL workspace battery as the commit gate.
 
 ---
 
-## e2e — the assignment GATE: recorded forecast → persisted, scored bracket belief (this commit) — PIPELINE COMPLETE
+## F4b — release-aware cadence (Aeolus scheduler consumes next_run_at) (this commit)
+
+Operator-directed refinement (2026-06-14): Aeolus refinements F4b + F10 reassigned to track-e. This
+touches Track-D's `crates/fortuna-sources` (operator-authorized for this slice), built so it CANNOT
+change any other source's cadence.
+
+F4b: the D9 ingestion scheduler schedules Aeolus's next poll JUST AFTER the advertised next forecast
+run instead of a blind steady interval (contract §3.4 — arrive right after Aeolus publishes). Three
+small changes, all OPT-IN:
+- `aeolus.rs`: `aeolus_next_run_at(signal) -> Option<UtcTimestamp>` — an exact mirror of
+  `aeolus_claimed_time` reading `payload["next_run_at"]` (wrong-kind / missing / unparseable → None).
+- `scheduler.rs`: a `ReleaseHintFn` per-source fn-pointer (analogue of `ClaimedTimeFn`), an opt-in
+  `release_hint: Option<ReleaseHintFn>` on `Registered` (init None — `register()` signature
+  UNCHANGED, so its ~10 callers are untouched), `set_release_hint(id, hint)`, and the pure
+  `release_aware_due_ms`: poll at `next_run_at + 90s lead`, clamped to `[now+30s, now+2·base]` (a
+  past/imminent hint → poll soon; an absurd hint → cap at ~2 steady intervals). The tick reads the
+  hint BEFORE the signal is moved and tracks the max next-run; the `next_due` `None` arm is
+  BYTE-IDENTICAL to the pre-F4b `interval_at` code — VERIFIED in the diff, so a source without a hint
+  is completely unchanged.
+- `factory.rs`: `build_adapter` also yields the per-source release hint (aeolus → `Some`, all others
+  `None`); `build_scheduler` calls `set_release_hint` only when present.
+
+Subagent-built tests-first; main-loop read + verified the scheduler tick diff (the byte-identical
+fallback is the load-bearing safety property). +12 tests (the clamp band, the extractor, an opt-in
+release-cadence scheduler test, and `source_without_release_hint_keeps_exact_steady_cadence`). 131
+fortuna-sources tests pass (0 regressed) + 5 DST. Verified: full workspace clippy + test (see commit).
+
+NOTE on the sibling items: **F10's Layer-0 dossier already exists and is complete**
+(`docs/research/sources/aeolus/dossier.md`, tier-7 sober, authored 2026-06-13) — the remaining F10
+`source_registry` row is an operator seed action (ledgered). **E.3/E.5 are DONE** — the persona
+runner-loop + scoring-scope merged into main via `persona-live-integration`; no new Track-E build
+(operator-confirmed 2026-06-14).
+
+## e2e — the assignment GATE: recorded forecast → persisted, scored bracket belief (commit ec2300a) — PIPELINE COMPLETE
 
 New `crates/fortuna-ledger/tests/aeolus_e2e.rs` (`#[sqlx::test]`): the whole F5–F9 chain on the
 RECORDED fixture, persisted to the real ledger. recorded forecast → F6 strict parse + μ/σ→p → F5
