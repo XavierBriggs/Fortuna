@@ -15,6 +15,36 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-14, cont'd — verifier loop pass)
 
+- **✅ TRACK E — F7 BUCKET-MATCHING (cognition side) MERGED → main @de9054a = GATE ACCEPT.** The seam
+  that makes Aeolus weather forecasts tradeable on Kalshi's daily temperature buckets. New
+  `fortuna_cognition::aeolus_buckets`: `WeatherBucket{market_key,kind}` +
+  `BucketKind{InRange{lo,hi}|GreaterEq|LessEq}` seam types; `aeolus_bucket_beliefs` (one propose-only
+  `BeliefDraft` per discovered bucket — `p==p_raw`, `event_id=aeolus:{market_key}` → Direct 1:1, via
+  the F6 ladder-difference `ge(lo)−ge(hi+1)`); `score_bucket_briers` (F9 per-kind outcome). Contract:
+  `docs/design/aeolus-kalshi-bucket-matching.md`. A forecast now yields 6 real Direct edges (was 0).
+  - BATTERY (merged tree): fmt + 347 cognition tests (incl. 3 new) + clippy -D warnings + invariants
+    I1-I7 (**protected crate untouched**) + DST 7 planes × 2000 + all corpora, 0 violations. I6
+    propose-only surface PINNED (serialized keys are EXACTLY {event_id,evidence,horizon,p,p_raw,
+    provenance} — no exec fields). f64 forecast-domain only (temps/probs, never money); no
+    panic/unwrap in source (Option-guarded; the `.unwrap()`s are test-only).
+  - MUTATION-PROVEN (both load-bearing): drop the `+1` in `InRange` → `ge(lo)−ge(hi)` reds the
+    telescoping test (sum→0.712≠1); `<= hi` → `< hi` reds the per-kind Brier test (88∉[87,88]).
+  - FIXTURES REAL: the Aeolus `knyc_tmax.json` is a pre-existing real `sar-semos-v1` recording
+    (μ87.347/σ1.903), untouched by this branch; the KXHIGHNY 2026-06-13 day-set is grounded in
+    recorded Kalshi strike fields (contract §2 table), not fabricated.
+  - **📋 TRACK-A GATE-AHEAD (the venue half — the verifier will hold it to this when it lands):**
+    Track-A owns the `KalshiMarket` strike-field DTO (`strike_type`/`floor`/`cap`), the `KNYC`+tmax→
+    `KXHIGHNY` series map (grounded; other cities ONLY as each NWS↔Kalshi pairing is confirmed, never
+    guessed), live discovery → the COMPLETE active day-set, the Direct edges, the `drive()` wiring.
+    **The derivation is the off-by-one surface:** `between(F,C)→InRange{F,C}`,
+    `greater(floor=F)→GreaterEq{F+1}`, `less(cap=C)→LessEq{C−1}` — UNEXERCISED by Track-E's test
+    (which hardcodes the kinds), so an off-by-one silently breaks the partition (sum≠1) and misprices
+    the tails. Track-A's gate MUST drive the derivation from real recorded strikes + re-prove
+    sum-to-1 e2e, and must NOT pass incomplete/overlapping day-sets (the partition guarantee is
+    Track-A's — Track-E computes each bucket independently).
+  - Minor (doc nit, non-blocking): contract §5 names the score fn `score_bucket_reliability`;
+    code/handoff use `score_bucket_briers`. Code is correct + tested; reconcile the doc name.
+
 - **🟢 A2d SLICE-3 DATA SOURCE — FOUND & FIXTURE-BACKED (resolves track-C's BUILD-BLOCKED ledger
   @c8775c9). Realized funding IS publicly available; no creds, no I7/secret surface.** Verifier
   research, grounded in `docs/research/venue/kinetics-perps-2026-06-10/` and re-verified 2026-06-14
