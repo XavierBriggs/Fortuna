@@ -15,6 +15,23 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST (2026-06-14, cont'd — verifier loop pass)
 
+- **🎉 WEATHER CALIBRATION LOOP — CLOSED END-TO-END.** F7 produces weather beliefs (@de9054a→@533ce17),
+  the F2 NWS grader provides realized °F (@2732787), and now the **weather scoring bridge** scores the
+  beliefs against the grader (@341340e). A weather forecast is now produced → matched → traded-as-belief
+  → **scored against independent ground truth** — the full belief→reality loop.
+
+- **✅ TRACK E — WEATHER SCORING BRIDGE MERGED → main @341340e = GATE ACCEPT (closes F9).**
+  `resolve_and_score_weather_beliefs` (fortuna-live, STANDALONE — drive() untouched, I7-safe data-only):
+  routes each due weather belief by AWIPS station, grades the realized high/low from the persisted
+  `nws.cli` product via the F2 grader (`nws_cli_realized` — the **INDEPENDENT** NWS source, NEVER Aeolus
+  the forecaster), then Briers the binary brackets + CRPSs the scalar fan vs the realized °F. **Skip-
+  don't-grade throughout** (None→OPEN, unroutable→open, jammed→no grade, unknown variable→"never grade
+  on a guess", CorruptRow→idempotent). New cognition `aeolus_resolve.rs` (station-serves / realized_f /
+  score_bracket helpers) + `open_weather_due` ledger query + a DEV-only fortuna-sources dep (e2e through
+  the real grader; no prod coupling/cycle). Battery: fmt + workspace **1713/0** + clippy `--workspace
+  -D warnings` + DST 0 violations + invariants UNTOUCHED. MUTATION-PROVEN: the date-match (`==`→`!=`)
+  reds the resolve + idempotent tests.
+
 - **✅ TRACK C — basis-v2 §3.3 V4: A5 horizon gating + A4/A8 EV gate (the FIRST PROPOSING slice) MERGED
   → main @a8b0141 = GATE ACCEPT.** Per-bin EV `q − ask − fee − slippage − reserve − adverse`, STRICT
   `> ev_threshold`; the **fee-trap** fee `2·ceil(fee_coeff·p·(1−p)·100)/100` (ceil-UP — a promo-$0 can
