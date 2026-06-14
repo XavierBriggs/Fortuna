@@ -92,13 +92,36 @@ its strategy/wiring):
   random-walk (DEFINE precisely — recommend: last observed estimate as the point forecast with the
   RW-scaled band, or a degenerate at the last value; pick one, document, mutation-pin). Extend the kernel
   + comparison struct.
-- SLICE 3 (wiring, BIGGER — needs the scalar-belief RESOLUTION/scoring loop): persist the baseline CRPS
-  as `belief_scores` rows keyed by a producer/baseline label, driven by a loop that resolves realized
-  funding (`funding__rates_historical`) per resolved window and scores funding_forecast + each baseline
-  side-by-side. CHECK FIRST whether a scalar-belief scoring loop already exists (the binary-belief
-  resolution path may NOT cover scalar/funding); if absent, that loop is part of this slice (the larger
-  cost — a fresh-context design item). ROTA §9.1 surfacing is track-B's once these rows exist.
-- A2d gates NOTHING live (funding_forecast stays Sim/DATA-ONLY until it MEASURABLY beats carry-forward;
+- SLICE 3 (the resolve/score loop) — ⛔ DESIGN-COMPLETE but BUILD-BLOCKED on a REALIZED-FUNDING SOURCE
+  (operator/recorder — same class as the v2 e2e fixture). Investigated against the codebase 2026-06-14
+  (Explore agent, file:line-grounded). FINDINGS:
+  - **The scoring INFRA ALL EXISTS** (SLICE 1b already landed it): `belief_scores` table + `BeliefScoresRepo`
+    (insert/scores_for_belief/scores_for_rule; append-only; UNIQUE(belief_id,rule_id)) at
+    fortuna-ledger/migrations/20260613000002_scalar_beliefs.sql + repos.rs:2118-2226; `scalar_beliefs`
+    table + `ScalarBeliefsRepo` with `resolve(belief_id, realized_value, resolved_at)` (set-once) +
+    `recent()` at repos.rs:1963-2116; `CrpsPinballRule` ready (scoring.rs:318-367); and the daemon ALREADY
+    drains+persists funding_forecast's scalar beliefs each segment (daemon.rs persist_scalar_beliefs).
+  - **ROTA §9.1 is READY (track-B, NO track-C change)**: `view_forecasts`/`forecast_scorecard`
+    (rota.rs:870-971) already joins `scalar_beliefs ⋈ belief_scores WHERE realized_value IS NOT NULL`,
+    groups by `(producer, rule_id)`, AVG(score) + coverage — it LIGHTS UP automatically once scored rows
+    exist (empty → honest-empty, no fabrication).
+  - **THE GAP = the daemon resolve→score LOOP**: query unresolved `scalar_beliefs` (realized_value IS
+    NULL) whose horizon has passed → obtain the REALIZED funding → `resolve()` → score funding_forecast +
+    the 4 baselines (`compare_against_baselines`, SLICE 2) → `BeliefScoresRepo::insert()` one row per
+    leg (rule_id = "crps_pinball" for the forecast, "crps_pinball:carry_forward|last_rate|rw_estimate|
+    rw_persistence" for the baselines — fits UNIQUE(belief_id,rule_id) + the §9.1 group-by).
+  - **THE BLOCKER**: there is NO realized-funding source. No `funding__rates_historical` TABLE/API/live
+    feed exists (only fixtures); the PerpTick stream carries no `realized_rate`; the Sim venue pays no
+    funding. So the LIVE loop cannot produce real scores until the operator/recorder supplies realized
+    funding (a venue funding-history fetch, or a recorded series). DESIGN condition §2.6(b) "score by CRPS
+    against realized funding (`funding__rates_historical`), validated not asserted" is satisfiable on the
+    FIXTURE (a fixture-driven validation test is buildable + un-blocked) but the live loop is blocked.
+  - BUILD ORDER when unblocked: 3a (a pure `score_belief_against_baselines` mapping
+    compare_against_baselines → labeled belief_scores rows; deriving last_realized + rw_band from the
+    belief evidence/prior window) + 3a fixture-validation (design §2.6(b)); 3c (the daemon loop, with the
+    realized-funding source as an INJECTED seam — fail-closed: no realized ⇒ no resolution). NO ledger
+    migration / NO rota.rs change needed.
+- A2d gates NOTHING live (funding_forecast stays Sim/DATA-ONLY until it MEASURABLY beats the baselines;
   promotion is the operator's call, I7). So it is safely incremental, kernel-first.
 
 ## TRACK C — demo-flip Phase 2 GATE-BLOCK remediation DONE: merged main + reconciled drive() (2026-06-14)
