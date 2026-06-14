@@ -2550,6 +2550,15 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
             labels: Vec::new(),
             value: i64::from(self.gates.halts().global_halted().is_some()),
         });
+        // T5.B8: per-strategy diagnostic gauges (e.g. perp basis-v2's A10
+        // numbers). Appended AFTER the runner's own samples, in strategy
+        // REGISTRATION order, so the export stays deterministic. Default-empty
+        // for every strategy that does not override `metric_samples`, so this
+        // adds nothing for the mechanical/synthesis arms — it is purely
+        // additive. Read-only (`metric_samples` does not drain).
+        for strategy in &self.strategies {
+            samples.extend(strategy.metric_samples());
+        }
         samples
     }
 

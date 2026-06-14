@@ -1365,4 +1365,154 @@ impl Strategy for PerpEventBasisV2 {
     fn metrics(&self) -> StrategyMetrics {
         self.metrics
     }
+
+    /// T5.B8: emit the A10 diagnostic snapshot ([`V2Eval`]) as headline
+    /// point-in-time GAUGE [`MetricSample`]s, so the dashboard/Prometheus surface
+    /// can read what the model last saw, scaled, and priced. V5 DEFERRED this
+    /// "richer named-`MetricSample` emission" to this telemetry slice; it is the
+    /// metrics-export half of the §9 data-vs-view split (C produced the numbers in
+    /// `last_eval`; this ships them).
+    ///
+    /// # The dashboard contract (every sample; INTEGER-ONLY — ratios/decodings are
+    /// the dashboard's, per the Explore "integer-only; ratios computed by the
+    /// dashboard"). Every sample carries a `market=<perp_market>` label so multiple
+    /// perps never collide; the metric NAMES are `&'static str` literals (the
+    /// per-instance value rides the labels, never the name).
+    ///
+    /// | metric | scale (decode) | meaning |
+    /// |---|---|---|
+    /// | `fortuna_perp_basis_v2_active` | as-is (0/1) | 1 when a [`V2Eval`] exists (σ ready + a matching tick seen); 0 otherwise. The ONLY sample emitted when no eval exists. |
+    /// | `fortuna_perp_basis_v2_cdf_divergence_tenthou` | ÷10_000 | A10 implied-vs-model CDF sup-distance (∈[0,2]) in ten-thousandths. Omitted when `cdf_divergence` is `None` (the tick did not price) or non-finite. |
+    /// | `fortuna_perp_basis_v2_sigma_tau_micro` | ÷1_000_000 | A5 horizon-scaled dispersion σ_τ in micro-units (for a `Disabled` tick this is the per-step σ_step — see [`V2Eval::sigma_tau`]). Omitted when non-finite. |
+    /// | `fortuna_perp_basis_v2_anchor_dollars` | as-is (whole $) | A6 BRTI settlement anchor S₀ in whole BTC dollars (`round`). Omitted when non-finite. |
+    /// | `fortuna_perp_basis_v2_horizon_ms` | as-is (ms) | A5 τ = `close_at − now` for the representative bracket. Omitted when `tau_ms` is `None` (τ unknown). |
+    /// | `fortuna_perp_basis_v2_obs_count` | as-is | DC-1 readiness counter (log-returns folded; always ≥ `min_vol_obs` here). |
+    /// | `fortuna_perp_basis_v2_anchor_stale` | as-is (0/1) | A6 stale-anchor flag (1 ⇒ the whole tick was disabled). |
+    /// | `fortuna_perp_basis_v2_regime` | as-is (0/1) | A5 horizon regime, as a one-hot gauge: value 1 carrying an extra `regime=direct\|vol_adjusted\|disabled` label. |
+    ///
+    /// SCALE DISCIPLINE (the f64→i64 bridges; [`MetricSample::value`] is `i64`, the
+    /// A10 numbers are f64): each f64 is multiplied by its fixed scale and
+    /// `.round() as i64`; a NON-FINITE f64 SKIPS that sample (never an undefined
+    /// cast). This is telemetry (diagnostic integers), NOT money — no `Cents`. Kept
+    /// to the HEADLINE set (≈8 samples); per-bin [`BinEv`] emission is a deliberate
+    /// follow-on (it needs a bounded label set), NOT this slice. No
+    /// `panic`/`unwrap`/`expect`.
+    fn metric_samples(&self) -> Vec<crate::runner::MetricSample> {
+        let market_label = || {
+            (
+                "market".to_string(),
+                self.cfg.perp_market.as_str().to_string(),
+            )
+        };
+        // No eval yet (σ not ready / no matching tick): emit ONLY active=0, so the
+        // dashboard can distinguish "inactive" from "missing series" without a
+        // stale/undefined reading on the other gauges.
+        let Some(eval) = self.last_eval.as_ref() else {
+            return vec![crate::runner::MetricSample {
+                name: "fortuna_perp_basis_v2_active",
+                help: "1 when the perp basis-v2 strategy has a current A10 eval (σ ready); else 0",
+                counter: false,
+                labels: vec![market_label()],
+                value: 0,
+            }];
+        };
+
+        let mut out: Vec<crate::runner::MetricSample> = Vec::new();
+
+        // active=1: an eval exists this export.
+        out.push(crate::runner::MetricSample {
+            name: "fortuna_perp_basis_v2_active",
+            help: "1 when the perp basis-v2 strategy has a current A10 eval (σ ready); else 0",
+            counter: false,
+            labels: vec![market_label()],
+            value: 1,
+        });
+
+        // cdf_divergence (∈[0,2]) ×10_000 → ten-thousandths. Some+finite only.
+        if let Some(div) = eval.cdf_divergence {
+            if div.is_finite() {
+                out.push(crate::runner::MetricSample {
+                    name: "fortuna_perp_basis_v2_cdf_divergence_tenthou",
+                    help: "A10 implied-vs-model CDF sup-distance, x10000 (divide by 10000; \
+                           in [0,2]); absent when the tick did not price",
+                    counter: false,
+                    labels: vec![market_label()],
+                    value: (div * 10_000.0).round() as i64,
+                });
+            }
+        }
+
+        // sigma_tau ×1_000_000 → micro. Finite only.
+        if eval.sigma_tau.is_finite() {
+            out.push(crate::runner::MetricSample {
+                name: "fortuna_perp_basis_v2_sigma_tau_micro",
+                help: "A5 horizon-scaled dispersion sigma_tau, x1000000 (divide by 1000000); \
+                       per-step sigma on a Disabled tick",
+                counter: false,
+                labels: vec![market_label()],
+                value: (eval.sigma_tau * 1_000_000.0).round() as i64,
+            });
+        }
+
+        // anchor (BTC dollars) → whole dollars. Finite only.
+        if eval.anchor.is_finite() {
+            out.push(crate::runner::MetricSample {
+                name: "fortuna_perp_basis_v2_anchor_dollars",
+                help: "A6 BRTI settlement anchor S0 in whole BTC dollars (rounded)",
+                counter: false,
+                labels: vec![market_label()],
+                value: eval.anchor.round() as i64,
+            });
+        }
+
+        // horizon τ (ms) as-is. Some only (None ⇒ τ unknown ⇒ omit).
+        if let Some(tau_ms) = eval.tau_ms {
+            out.push(crate::runner::MetricSample {
+                name: "fortuna_perp_basis_v2_horizon_ms",
+                help: "A5 horizon tau = close_at - now for the representative bracket (ms); \
+                       absent when tau is unknown",
+                counter: false,
+                labels: vec![market_label()],
+                value: tau_ms,
+            });
+        }
+
+        // obs_count as-is.
+        out.push(crate::runner::MetricSample {
+            name: "fortuna_perp_basis_v2_obs_count",
+            help: "DC-1 readiness counter: per-step log-returns folded into the sigma EWMA",
+            counter: false,
+            labels: vec![market_label()],
+            value: eval.obs_count as i64,
+        });
+
+        // anchor_stale 0/1.
+        out.push(crate::runner::MetricSample {
+            name: "fortuna_perp_basis_v2_anchor_stale",
+            help: "A6 stale-anchor flag: 1 when the BRTI anchor was stale (tick disabled)",
+            counter: false,
+            labels: vec![market_label()],
+            value: i64::from(eval.anchor_stale),
+        });
+
+        // regime: one-hot gauge value 1 with a regime=<name> label.
+        let regime_name = match eval.regime {
+            HorizonRegime::Direct => "direct",
+            HorizonRegime::VolAdjusted => "vol_adjusted",
+            HorizonRegime::Disabled => "disabled",
+        };
+        out.push(crate::runner::MetricSample {
+            name: "fortuna_perp_basis_v2_regime",
+            help: "A5 horizon regime as a one-hot gauge: value 1 with a \
+                   regime=direct|vol_adjusted|disabled label",
+            counter: false,
+            labels: vec![
+                market_label(),
+                ("regime".to_string(), regime_name.to_string()),
+            ],
+            value: 1,
+        });
+
+        out
+    }
 }

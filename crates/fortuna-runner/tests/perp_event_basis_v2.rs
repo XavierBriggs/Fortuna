@@ -2505,3 +2505,252 @@ fn cdf_divergence_implied_cumulative_is_hand_checked() {
         "a CDF sup-distance is in [0,1], got {div}"
     );
 }
+
+// ── T5.B8: A10 diagnostics → named MetricSample emission ──────────────────────
+//
+// V5 DEFERRED the "richer named-MetricSample emission" to this telemetry slice
+// (T5.B8). These tests pin the metrics-export contract: a PRICED strategy emits
+// the headline gauge set (each with a `market` label), a NOT-READY strategy emits
+// only `active=0`, and a strategy that does NOT override the trait default emits
+// nothing.
+//
+// ## Mutation-check note (which mutation reds which test)
+// - DROPPING the σ_τ / cdf finite-guard (emit on a non-finite f64) or MIS-SCALING
+//   either one (e.g. ×1_000 instead of ×1_000_000 for σ_τ, or ×100 instead of
+//   ×10_000 for cdf) reds `metric_samples_priced_scalings_pinned` (the scaling
+//   equality) and the name-set assertion in `metric_samples_priced_headline_set`.
+// - Returning a NON-empty Vec from the trait DEFAULT reds
+//   `metric_samples_default_trait_method_is_empty`.
+// - Emitting the full set (not just `active=0`) when `last_eval` is None reds
+//   `metric_samples_not_ready_emits_only_active_zero`.
+// - Dropping the `market` label reds `metric_samples_priced_headline_set` (the
+//   "every sample carries market=<perp>" assertion).
+
+/// The metric NAMES the headline set emits on a priced tick (the `regime` one-hot
+/// gauge included). Pinned here so a rename/drop reds.
+const PRICED_METRIC_NAMES: &[&str] = &[
+    "fortuna_perp_basis_v2_active",
+    "fortuna_perp_basis_v2_cdf_divergence_tenthou",
+    "fortuna_perp_basis_v2_sigma_tau_micro",
+    "fortuna_perp_basis_v2_anchor_dollars",
+    "fortuna_perp_basis_v2_horizon_ms",
+    "fortuna_perp_basis_v2_obs_count",
+    "fortuna_perp_basis_v2_anchor_stale",
+    "fortuna_perp_basis_v2_regime",
+];
+
+/// Drive the SAME priced configuration the A10 `cdf_divergence` tests use (straddle
+/// ladder, coherent books, τ=2h, Δ=1s, 6 constant-log-step ticks) to a ready,
+/// PRICED `last_eval`, and return the strategy + the world for inspection.
+fn priced_v2_strategy() -> (PerpEventBasisV2, World) {
+    let ladder = straddle_ladder();
+    let mut w = World::new();
+    put_straddle_coherent_books(&mut w);
+    let (tau_ms, dt_ms) = (7_200_000_i64, 1000_i64);
+    put_ladder_markets(&mut w, &ladder, tau_ms);
+    let mut s = PerpEventBasisV2::new(cfg_v4(ladder.clone())).unwrap();
+    let obs0 = ts("2026-06-12T16:59:55.000Z");
+    drive_constant_step_obs(&mut s, &w, 6.3000, 1.0001, 6, obs0, dt_ms);
+    (s, w)
+}
+
+/// T5.B8 (a): a PRICED strategy emits exactly the headline gauge set; every sample
+/// is a GAUGE (`counter == false`), carries a `market=<perp>` label, has a finite
+/// i64 value, and the `regime` sample additionally carries a `regime=` label. The
+/// set of NAMES equals `PRICED_METRIC_NAMES`.
+#[test]
+fn metric_samples_priced_headline_set() {
+    let (s, _w) = priced_v2_strategy();
+    let eval = s.last_eval().expect("priced ⇒ eval exists");
+    assert!(!eval.q_j.is_empty(), "precondition: the tick priced");
+    assert!(
+        eval.cdf_divergence.is_some(),
+        "precondition: cdf_divergence populated"
+    );
+
+    let samples = s.metric_samples();
+
+    // Exactly the headline names (cdf + σ_τ + anchor are present because they are
+    // finite here; horizon is present because τ is known).
+    let mut names: Vec<&str> = samples.iter().map(|m| m.name).collect();
+    names.sort_unstable();
+    let mut want: Vec<&str> = PRICED_METRIC_NAMES.to_vec();
+    want.sort_unstable();
+    assert_eq!(names, want, "the priced headline metric NAME set");
+
+    for m in &samples {
+        // All point-in-time gauges (never counters).
+        assert!(!m.counter, "{} must be a gauge (counter:false)", m.name);
+        // Every sample carries the market label = the perp market.
+        let market = m
+            .labels
+            .iter()
+            .find(|(k, _)| k == "market")
+            .map(|(_, v)| v.as_str());
+        assert_eq!(
+            market,
+            Some(PERP),
+            "{} must carry market=<perp_market>",
+            m.name
+        );
+        // i64 value is well-formed (a finite cast, never an undefined one).
+        let _ = m.value;
+    }
+
+    // The regime sample is the one-hot gauge: value 1 with a regime= label.
+    let regime = samples
+        .iter()
+        .find(|m| m.name == "fortuna_perp_basis_v2_regime")
+        .expect("regime sample present");
+    assert_eq!(regime.value, 1, "regime is a one-hot gauge (value 1)");
+    let regime_label = regime
+        .labels
+        .iter()
+        .find(|(k, _)| k == "regime")
+        .map(|(_, v)| v.as_str());
+    // τ = 2h and direct_max_ms = 4h ⇒ 2h ≤ 4h ⇒ Direct.
+    assert_eq!(
+        regime_label,
+        Some("direct"),
+        "τ=2h ≤ direct_max=4h ⇒ Direct regime"
+    );
+}
+
+/// T5.B8 (a, scaling): the cdf_divergence and sigma_tau samples equal a hand-applied
+/// fixed scale of the eval's OWN f64 (×10_000 ten-thousandths; ×1_000_000 micro),
+/// `.round() as i64`. Pins the documented dashboard decode + the finite-guard (a
+/// dropped guard / wrong scale reds this).
+#[test]
+fn metric_samples_priced_scalings_pinned() {
+    let (s, _w) = priced_v2_strategy();
+    let eval = s.last_eval().expect("priced ⇒ eval exists");
+    let div = eval.cdf_divergence.expect("priced ⇒ cdf_divergence Some");
+    let sigma_tau = eval.sigma_tau;
+    assert!(div.is_finite() && sigma_tau.is_finite(), "finite inputs");
+
+    let samples = s.metric_samples();
+    let by_name = |name: &str| -> i64 {
+        samples
+            .iter()
+            .find(|m| m.name == name)
+            .unwrap_or_else(|| panic!("missing {name}"))
+            .value
+    };
+
+    let want_cdf = (div * 10_000.0).round() as i64;
+    assert_eq!(
+        by_name("fortuna_perp_basis_v2_cdf_divergence_tenthou"),
+        want_cdf,
+        "cdf_divergence ×10_000 ten-thousandths (decode ÷10_000)"
+    );
+
+    let want_sigma = (sigma_tau * 1_000_000.0).round() as i64;
+    assert_eq!(
+        by_name("fortuna_perp_basis_v2_sigma_tau_micro"),
+        want_sigma,
+        "sigma_tau ×1_000_000 micro (decode ÷1_000_000)"
+    );
+
+    // anchor → whole dollars; horizon → ms as-is; obs_count/anchor_stale as-is.
+    assert_eq!(
+        by_name("fortuna_perp_basis_v2_anchor_dollars"),
+        eval.anchor.round() as i64,
+        "anchor rounded to whole BTC dollars"
+    );
+    assert_eq!(
+        by_name("fortuna_perp_basis_v2_horizon_ms"),
+        eval.tau_ms.expect("τ known"),
+        "horizon τ in ms, as-is"
+    );
+    assert_eq!(
+        by_name("fortuna_perp_basis_v2_obs_count"),
+        eval.obs_count as i64,
+        "obs_count as-is"
+    );
+    assert_eq!(
+        by_name("fortuna_perp_basis_v2_anchor_stale"),
+        i64::from(eval.anchor_stale),
+        "anchor_stale as 0/1"
+    );
+}
+
+/// T5.B8 (b): a NOT-READY strategy (σ never reaches `min_vol_obs` ⇒ `last_eval`
+/// None) emits ONLY a single `active=0` gauge — never the full set on a stale/absent
+/// eval, so the dashboard sees "inactive", not a missing or stale series.
+#[test]
+fn metric_samples_not_ready_emits_only_active_zero() {
+    let ladder = straddle_ladder();
+    let w = World::new();
+    // A config whose readiness gate (min_vol_obs) is far above the ticks we feed.
+    let mut cfg = cfg_v4(ladder.clone());
+    cfg.min_vol_obs = 1_000;
+    let mut s = PerpEventBasisV2::new(cfg).unwrap();
+    // One matching tick: σ folds but stays not-ready ⇒ no eval recorded.
+    let _ = run(&mut s, &w, &perp_tick_v2(PERP, "6.3500", "6.3000"));
+    assert!(
+        s.last_eval().is_none(),
+        "precondition: σ not ready ⇒ no eval"
+    );
+
+    let samples = s.metric_samples();
+    assert_eq!(samples.len(), 1, "not-ready ⇒ exactly one sample");
+    let only = &samples[0];
+    assert_eq!(only.name, "fortuna_perp_basis_v2_active");
+    assert_eq!(only.value, 0, "active=0 when no eval exists");
+    assert!(!only.counter, "active is a gauge");
+    assert_eq!(
+        only.labels
+            .iter()
+            .find(|(k, _)| k == "market")
+            .map(|(_, v)| v.as_str()),
+        Some(PERP),
+        "active=0 still carries the market label"
+    );
+}
+
+/// T5.B8 (c): a strategy that does NOT override `metric_samples` gets the trait
+/// DEFAULT (empty Vec). Asserted against a tiny dummy `Strategy` so the test pins
+/// the DEFAULT itself (not any particular non-overriding production strategy).
+#[test]
+fn metric_samples_default_trait_method_is_empty() {
+    use async_trait::async_trait;
+    use fortuna_core::bus::BusEvent;
+    use fortuna_core::market::StrategyId;
+    use fortuna_runner::{
+        CoreHandle, MetricSample, Proposal, RunnerError, Stage, Strategy, StrategyKind,
+        StrategyMetrics,
+    };
+
+    struct DummyStrategy;
+
+    #[async_trait]
+    impl Strategy for DummyStrategy {
+        fn id(&self) -> StrategyId {
+            StrategyId::new("dummy_no_metrics").unwrap()
+        }
+        fn kind(&self) -> StrategyKind {
+            StrategyKind::Mechanical
+        }
+        fn stage(&self) -> Stage {
+            Stage::Sim
+        }
+        async fn on_event(
+            &mut self,
+            _ev: &BusEvent,
+            _core: &CoreHandle<'_>,
+        ) -> Result<Vec<Proposal>, RunnerError> {
+            Ok(Vec::new())
+        }
+        fn metrics(&self) -> StrategyMetrics {
+            StrategyMetrics::default()
+        }
+        // NB: `metric_samples` is intentionally NOT overridden — the default applies.
+    }
+
+    let s = DummyStrategy;
+    let samples: Vec<MetricSample> = s.metric_samples();
+    assert!(
+        samples.is_empty(),
+        "the Strategy::metric_samples default returns an empty Vec"
+    );
+}

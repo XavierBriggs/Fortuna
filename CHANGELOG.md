@@ -18,6 +18,19 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
+- **T5.B8 telemetry — perp basis-v2 A10 diagnostics → `MetricSample`s** (`fortuna-runner`, additive): the
+  V5-deferred "richer named-MetricSample emission." A new additive `Strategy::metric_samples()` default
+  (`Vec::new()`, mirroring the `drain_*` idiom — so the other 5 strategies are unchanged) is overridden by
+  `PerpEventBasisV2` to emit ~8 headline GAUGE samples from its A10 `V2Eval` snapshot (cdf_divergence ×10_000,
+  sigma_tau ×1e6, anchor whole-dollars, horizon_ms, obs_count, anchor_stale, regime one-hot, active), each
+  carrying a `market=<perp_market>` label; `metrics_export()` drains every strategy's `metric_samples()`
+  (deterministic registration order, appended after the existing fixed metrics). Every f64→i64 scale is
+  finite-guarded + documented in the metric `help` (the dashboard divides back); not-ready ⇒ a single
+  `active=0` (so the dashboard distinguishes "inactive" from "missing series"). No money/gate/order path
+  touched (diagnostic integers); no `panic`/`unwrap`. 4 tests; VERIFIER-ACCEPT (`docs/reviews/2026-06-14-T5.B8.md`
+  — full battery + DST green, purely additive, 0 deletions). Remaining T5.B8: the per-bin emission + the
+  margin-state telemetry (needs daemon/paper wiring), the ROTA §9.2 perps panel (track-B), and the kill-switch
+  perp-flatten (track-A's `fortuna-killswitch` crate — plan ready, escalated for the ownership/sequencing call).
 - **perp basis-v2 §3.3 SLICE V5 — measured informativeness + diagnostics (A7 + A10)**
   (`fortuna-runner::perp_event_basis_v2`, additive; the LAST v2 slice — the v2 strategy is now COMPLETE):
   "measure that the perp leads, don't assume it." Per candidate bin, A7 computes an `InfoVerdict` from
