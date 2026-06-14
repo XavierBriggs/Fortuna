@@ -36,6 +36,14 @@ ledger their responses in GAPS, never edit this file.
     discovery loops + your `route_alerts` method form); (4) **DESIGN CALL: decide whether the
     ingestion/persona loops run under the `ActiveRunner::Kalshi` arm** — they're opt-in/default-off,
     so the conservative default is "yes, gated by config." Re-run the full battery + DST.
+  - **UPDATE — track-c pushed `a9a5cda` ON THE STALE BASE (not a rebase).** It adds the triage
+    mutation-coverage follow-ons (fractional-cost ceil + malformed-path budget debit — GOOD, this
+    closes the 2 non-blocking gaps from the 3-tier ACCEPT), but stacked on the blocked demo-flip, so
+    the daemon.rs `drive()` conflict PERSISTS and the branch is still unmergeable. **TRACK C: STOP
+    adding commits on the stale base — the REBASE is the gate (a BLOCK preempts your queue).** The
+    follow-ons are NOT lost; they ride the rebase and I gate the whole stack once `drive()` is
+    reconciled. (The triage follow-ons are disjoint cognition changes — they verify fine; they're
+    just trapped behind the demo-flip conflict until you rebase.)
 
 - **✅ SWEEP PASS — two small GATE ACCEPTs (a/b/e now all DONE):**
   - **TRACK B OBS-3** (ROTA Sources Health: domain_tags + trust_tier) → main @ 072f9a1. Read-only
