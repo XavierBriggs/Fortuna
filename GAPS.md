@@ -573,6 +573,24 @@ unit tests could not catch (the live socket round-trip was the one untested seam
   venue=kalshi un-refuse) and live order/exec round-trips. This exercise was demo
   market-data only.
 
+## TRACK A — F7 LIVE PLUG-IN SLICE 1 DONE: the Kalshi day-set source (operator "finish everything", 2026-06-14)
+
+`fortuna-venues::kalshi::weather` — the read-only live half of the F7 seam (the matcher needs a LIVE
+day-set to match against). `WeatherMarketSource::day_set(series, target_date)` → the markets grading on
+that date; `KalshiWeatherSource` is the live impl over a shared `Arc<dyn KalshiTransport>` (paginated
+READ-ONLY `GET /markets?series_ticker=…`, no status filter — complete day-set; the caller filters to a
+tradeable status). `event_grades_on` is the pure date-match key (derives `26JUN13` from the ISO date,
+matches it as a '-'-delimited ticker segment — a MATCH key, never a constructed market ticker).
+Grounded e2e replays `fixtures/kalshi/markets__high_temp.json` via `MockKalshiTransport` (6 active
+June-15 / 6 settled June-13 / empty June-16 / one read-only GET). Scoped-green (fmt+clippy+6/6);
+additive+inert until plug-in slice 2 wires it. Full battery rides slice 2's commit.
+
+ASSUMPTION (ledgered, conservative-by-design): `event_grades_on` ZERO-PADS the day (`26JUN05`), matching
+the 2-digit days in the recorded fixture + Kalshi's documented `YYMMMDD` event-ticker form. Single-digit
+days are not in the fixture, so the padding is unconfirmed for them. A WRONG padding can only MISS a day
+(empty day-set → "not traded"), never mis-match a market — so it can never produce a fabricated trade.
+To confirm: a recorded single-digit-day fixture.
+
 ## TRACK A — F7 VENUE BUCKET MATCHER DONE (Aeolus↔Kalshi seam, operator-directed 2026-06-14)
 
 The venue half of the Track-E↔Track-A F7 contract (docs/design/aeolus-kalshi-bucket-matching.md) is
