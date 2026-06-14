@@ -33,11 +33,11 @@ pub use repos::{
     halt_scope_string, parse_halt_scope, BeliefPanelRow, BeliefRow, BeliefScoreRow,
     BeliefScoresRepo, BeliefsRepo, CalibrationParamsRepo, CalibrationParamsRow,
     CalibrationScopeRow, DiscrepanciesRepo, DomainAnalysesRepo, DomainAnalysisRow, EdgeRow,
-    EdgesRepo, EventRow, EventsRepo, FillsRepo, HaltsRepo, JournalRepo, JournalRow, LessonRow,
-    LessonsRepo, PersonaRow, PersonasRepo, RecentSignalRow, ReservationsRepo, ResolvedPersonaStats,
-    ResolvedStat, ScalarBeliefRow, ScalarBeliefsRepo, SettlementEntryRow, SettlementsRepo,
-    SignalsRepo, SnapshotRow, SnapshotsRepo, SourceRegistryRepo, SourceRegistryRow,
-    TradabilityRepo, TradabilityRow,
+    EdgesRepo, EventRow, EventsRepo, FillsRepo, FundingRatesHistoricalRepo, HaltsRepo, JournalRepo,
+    JournalRow, LessonRow, LessonsRepo, PersonaRow, PersonasRepo, RecentSignalRow,
+    ReservationsRepo, ResolvedPersonaStats, ResolvedStat, ScalarBeliefRow, ScalarBeliefsRepo,
+    SettlementEntryRow, SettlementsRepo, SignalsRepo, SnapshotRow, SnapshotsRepo,
+    SourceRegistryRepo, SourceRegistryRow, TradabilityRepo, TradabilityRow,
 };
 
 pub use sqlx::PgPool;

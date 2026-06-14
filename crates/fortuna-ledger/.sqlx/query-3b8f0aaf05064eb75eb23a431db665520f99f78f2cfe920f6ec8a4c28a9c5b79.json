@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT MAX(funding_time) AS \"latest?\"\n               FROM funding_rates_historical\n               WHERE market_ticker = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "latest?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "3b8f0aaf05064eb75eb23a431db665520f99f78f2cfe920f6ec8a4c28a9c5b79"
+}
