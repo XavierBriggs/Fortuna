@@ -1369,6 +1369,21 @@ with real rows (archived under `docs/reviews/rota-visual/`). Live status matrix:
   scalar companion to the binary `/cognition` panel; completes §9.1's two halves (scorecard +
   rich feed). Screenshot-verified with real rows
   (`docs/reviews/rota-visual/rota-forecast-feed-rich-2026-06-13.png`).
+- **Perps board — §9.2** (`GET /api/rota/v1/perps`) — the DISPLAY half of the §9.2
+  perps view (track-C produces the numbers; ROTA only reads). A composite of three
+  independently-honest sections: (1) **realized funding** — the recent finalized 8h
+  rates per market from `funding_rates_historical` (runtime query, read pool; rate as a
+  percentage, mark_price verbatim); (2) the **§2.6 A2d edge gate** — `funding_forecast`
+  mean CRPS vs the four baselines (`crps_pinball:{carry_forward,last_rate,rw_estimate,
+  rw_persistence}`) side-by-side with per-baseline `beats` + `beats_all` (lower CRPS is
+  better; the gate never claims an edge when a baseline wins — safety-tested); (3) **perp
+  basis-v2 (A10)** — per-perp live regime + model-vs-implied CDF divergence, DAEMON-shaped
+  from `runner.metrics_export()` via the new `fortuna_live::views::perps_basis_board`
+  into `views["perps_basis"]` and served through `read_view` (R2 — a structured registry
+  read, never Prometheus-text parsing; `cdf_divergence_tenthou`÷10_000,
+  `sigma_tau_micro`÷1_000_000, one-hot `regime=`). Each section degrades to
+  honest-unavailable/empty independently; untrusted venue strings are `esc()`'d. Purely
+  additive (rota.rs handler + the views_from seam); no track-C/A files touched.
 - **Forecasts scorecard — band coverage** (§9.1 calibration metric): the Forecasts
   scorecard gains a quantile-band coverage column — per (producer, rule), the fraction
   of resolved forecasts whose realized outcome fell inside the 0.1–0.9 band (a

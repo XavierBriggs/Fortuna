@@ -2513,6 +2513,35 @@ TRADES FOLLOW-ONS (ledgered, NOT built — mission item 3 remainder):
   is exposed (operator/track-A). Fills carry no strategy column (attribution is runtime
   PositionBook state) — per-fill strategy needs the digest path, not the fills table.
 
+### §9.2 /perps board DONE (2026-06-14, operator) — the perps DISPLAY half; unblocks the prior "next-C-slice" matrix gap
+Operator directive: build the read-only §9.2 perps view (the DISPLAY half — track-C produces
+the numbers, ROTA only reads). `/api/rota/v1/perps` (route + handler in rota.rs, mirroring §9.1)
+is a composite of three independently-honest sections:
+1. **REALIZED FUNDING** — recent finalized 8h rates per market from `funding_rates_historical`
+   (filled by fortuna-live::funding_poller), via a runtime query on the dedicated READ POOL
+   (§9.1 precedent). Rate shown as a percentage; mark_price verbatim; honest-empty when none.
+2. **§2.6 A2d EDGE GATE** — per-rule mean CRPS over RESOLVED `funding_forecast` beliefs:
+   the forecast (`crps_pinball`) vs the four baselines (`crps_pinball:carry_forward|last_rate|
+   rw_estimate|rw_persistence`) side-by-side, each with `beats`, + `beats_all` (the forecast
+   strictly beats EVERY baseline — lower CRPS is better). `scalar_beliefs ⋈ belief_scores`,
+   read pool. SAFETY-tested: `beats_all` is FALSE when any baseline wins (no false edge claim).
+3. **PERP BASIS-v2 (A10)** — per-perp live regime + model-vs-implied CDF divergence. R2 path:
+   the daemon shapes `runner.metrics_export()` (structured `Vec<MetricSample>`, integer-valued)
+   via the NEW `fortuna_live::views::perps_basis_board` into `views["perps_basis"]`; ROTA serves
+   it through `read_view` — NEVER parses Prometheus text (the telemetry-board precedent). Scales
+   `cdf_divergence_tenthou`÷10_000, `sigma_tau_micro`÷1_000_000; one-hot `regime=` → the active
+   regime; active/anchor_stale flags. honest-empty when no perp is active.
+OWNERSHIP: purely additive — rota.rs (handler + 2 runtime queries + custom renderer + route +
+panel), the views_from seam in fortuna-live (perps_basis_board + wiring), tests, harness. NO
+track-C/track-A files touched. READ-ONLY (zero mutating endpoints; per-section honest-unavailable
+at HTTP 200; untrusted venue strings esc'd). Tests: 2 #[sqlx::test] (funding + edge-gate
+beats_all true AND the false safety case) + 2 perps_basis_board unit tests (shaping + honest-empty)
++ the GET-only-200 sweep. Verified live via the harness JSON (funding 3/edge_gate beats_all/basis
+2 perps); browser screenshot deferred (chrome-devtools MCP disconnected — curl + tests are the
+verification). Full workspace battery GREEN (176 suites 0-fail / DST exit-0). OPEN (item-4,
+coordinate-with-C, NOT fabricated): a funding-RATE regime classifier (a cognition-side enum,
+distinct from the basis-v2 regime which IS surfaced) — request to track-C if wanted.
+
 ### COMPLETE ALL SLICES (2026-06-14, operator) — the 3 ready ROTA follow-ons DONE; the rest blocked/marginal
 Operator: "complete all slices." Drained the track-B ROTA follow-on queue. The THREE
 data-ready follow-ons are now BUILT (one commit each-ish; all read-only, honest-null,

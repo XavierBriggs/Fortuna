@@ -596,6 +596,11 @@ Polymarket research+fixtures, spec v0.9 touch-up).
       verdict; sparklines/DB-drill-in/Events-drill-in are diminishing-returns.
 
 - [x] T4.6 ROTA TOTAL OBSERVABILITY (mission 2; track B re-missioned 2026-06-13) — ✅ DONE: all 13 sub-boards built + screenshot-verified (the only open item in its range was this parent box). Ticked 2026-06-14 (verifier de-stale).
+      §9.2 /perps DONE (2026-06-14): the perps DISPLAY half — realized funding + the §2.6
+      A2d edge gate (forecast vs 4 baselines, beats_all) + perp basis-v2 (A10) regime +
+      CDF divergence (the previously C-blocked perp-CDF, now shaped R2-clean from
+      runner.metrics_export() via perps_basis_board→views["perps_basis"]). rota.rs +
+      views_from seam; 4 tests; full battery GREEN. GAPS "§9.2 /perps board DONE".
       — the operator single pane of glass consuming the C/D/E observability
       contracts. Authoritative tracker (board matrix + changelog):
       docs/design/rota-observability.md; sequenced queue + cross-track data-seam

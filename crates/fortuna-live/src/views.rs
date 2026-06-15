@@ -41,7 +41,7 @@ use fortuna_core::clock::UtcTimestamp;
 use fortuna_core::market::{Action, Side};
 use fortuna_exec::IntentJournal;
 use fortuna_gates::GateCheck;
-use fortuna_runner::SimRunner;
+use fortuna_runner::{MetricSample, SimRunner};
 use fortuna_sources::{FunnelCounts, IngestionTelemetry, SignalRecord, SourceTelemetry};
 use fortuna_venues::sim::SimVenue;
 use serde_json::{json, Value};
@@ -190,6 +190,12 @@ pub fn views_from<J: IntentJournal + Send>(
         .collect();
     let working_count = working_rows.len();
 
+    // §9.2 perp basis-v2 (A10): shape the basis-v2 diagnostic gauges from the runner's
+    // structured metric export into the ROTA board envelope (R2 — structured registry
+    // read, never Prometheus-text parsing; the telemetry-board precedent). Honest-empty
+    // (no rows) when no perp is active.
+    let perps_basis = perps_basis_board(&runner.metrics_export(), generated_at);
+
     json!({
         "health": {
             "generated_at": generated_at,
@@ -280,6 +286,93 @@ pub fn views_from<J: IntentJournal + Send>(
             "rows": working_rows,
             "summary": {"working": working_count},
         },
+        "perps_basis": perps_basis,
+    })
+}
+
+/// §9.2 perp basis-v2 (A10) board envelope, shaped from the runner's STRUCTURED metric
+/// export (`runner.metrics_export()` — `Vec<MetricSample>`, integer-valued). One row per
+/// perp `market`: the live `regime` (the `fortuna_perp_basis_v2_regime` one-hot gauge —
+/// the `regime=` label whose value is 1), whether the eval is `active`, the
+/// model-vs-implied CDF divergence (`cdf_divergence_tenthou` ÷10_000, ∈[0,2]), the
+/// horizon-scaled dispersion σ_τ (`sigma_tau_micro` ÷1_000_000), the BRTI anchor $, the
+/// horizon ms, the obs count, and the stale-anchor flag. A PURE read of the structured
+/// samples (R2 — never Prometheus-TEXT parsing; the telemetry-board precedent); the
+/// daemon calls this into `views["perps_basis"]` and ROTA serves it via `read_view`.
+/// Honest-empty (no rows) when no perp is active; an absent metric is a null cell, never
+/// a fabricated number.
+pub fn perps_basis_board(samples: &[MetricSample], generated_at: &str) -> Value {
+    use std::collections::BTreeMap;
+    // market -> (basis field -> integer value); and market -> active regime label.
+    let mut per_market: BTreeMap<String, BTreeMap<&str, i64>> = BTreeMap::new();
+    let mut regimes: BTreeMap<String, String> = BTreeMap::new();
+    for s in samples {
+        let Some(field) = s.name.strip_prefix("fortuna_perp_basis_v2_") else {
+            continue;
+        };
+        let Some(market) = s
+            .labels
+            .iter()
+            .find(|(k, _)| k == "market")
+            .map(|(_, v)| v.clone())
+        else {
+            continue;
+        };
+        if field == "regime" {
+            // One-hot: the regime= label carried on the sample whose value is 1.
+            if s.value == 1 {
+                if let Some((_, r)) = s.labels.iter().find(|(k, _)| k == "regime") {
+                    regimes.insert(market, r.clone());
+                }
+            }
+        } else {
+            per_market.entry(market).or_default().insert(field, s.value);
+        }
+    }
+    // The market universe: any market that emitted a field OR a regime.
+    let mut markets: Vec<String> = per_market.keys().cloned().collect();
+    for m in regimes.keys() {
+        if !markets.contains(m) {
+            markets.push(m.clone());
+        }
+    }
+    markets.sort();
+    let round6 = |x: f64| (x * 1_000_000.0).round() / 1_000_000.0;
+    let rows: Vec<Value> = markets
+        .iter()
+        .map(|m| {
+            let f = per_market.get(m);
+            let get = |k: &str| f.and_then(|fm| fm.get(k)).copied();
+            json!({
+                "market": m,
+                "regime": regimes.get(m),
+                // active=1 -> "active" (the renderer pills it green); 0 -> "idle".
+                "active": get("active").map(|v| if v == 1 { "active" } else { "idle" }),
+                "cdf_divergence": get("cdf_divergence_tenthou").map(|v| round6(v as f64 / 10_000.0)),
+                "sigma_tau": get("sigma_tau_micro").map(|v| round6(v as f64 / 1_000_000.0)),
+                "anchor_dollars": get("anchor_dollars"),
+                "horizon_ms": get("horizon_ms"),
+                "obs_count": get("obs_count"),
+                "anchor_stale": get("anchor_stale").map(|v| if v == 1 { "stale" } else { "fresh" }),
+            })
+        })
+        .collect();
+    json!({
+        "title": "Perp basis-v2",
+        "generated_at": generated_at,
+        "columns": [
+            {"key":"market","label":"Market"},
+            {"key":"regime","label":"Regime","pill":true},
+            {"key":"active","label":"Active","pill":true},
+            {"key":"cdf_divergence","label":"CDF div (0..2)"},
+            {"key":"sigma_tau","label":"σ_τ"},
+            {"key":"anchor_dollars","label":"Anchor $"},
+            {"key":"horizon_ms","label":"Horizon ms"},
+            {"key":"obs_count","label":"Obs"},
+            {"key":"anchor_stale","label":"Anchor"},
+        ],
+        "rows": rows,
+        "summary": {"perps": markets.len()},
     })
 }
 

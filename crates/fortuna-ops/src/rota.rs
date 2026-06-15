@@ -86,6 +86,7 @@ pub fn rota_router(state: RotaState) -> Router {
         .route("/api/rota/v1/analyses", get(view_analyses))
         .route("/api/rota/v1/forecasts", get(view_forecasts))
         .route("/api/rota/v1/forecast_feed", get(view_forecast_feed))
+        .route("/api/rota/v1/perps", get(view_perps))
         .route("/api/rota/v1/db", get(view_db))
         .route("/api/rota/v1/telemetry", get(view_telemetry))
         .route("/api/rota/v1/audit", get(audit_tail))
@@ -1109,6 +1110,185 @@ pub async fn forecast_scorecard(pool: &PgPool) -> Result<Vec<ForecastRowTuple>, 
     .await
 }
 
+/// §9.2 Perps board (track-C §9.2 — the DISPLAY half of the §9 data-vs-view split;
+/// track-C produces every number, this view only reads). Three sections:
+///   1. REALIZED FUNDING — the recent finalized 8h funding rates per market
+///      (`funding_rates_historical`, filled by the funding_poller).
+///   2. A2d EDGE GATE — the `funding_forecast` mean CRPS vs the four baselines
+///      (carry_forward / last_rate / rw_estimate / rw_persistence) side-by-side, with
+///      `beats_all` (the forecast strictly beats EVERY baseline — lower CRPS is
+///      better). `scalar_beliefs ⋈ belief_scores`, realized only.
+///   3. PERP BASIS-v2 (A10) — the live regime + model-vs-implied CDF divergence per
+///      perp, DAEMON-SHAPED into `views["perps_basis"]` from `runner.metrics_export()`
+///      (R2: ROTA reads the shaped view via `read_view`, never parses Prometheus text —
+///      the telemetry-board precedent). Honest-unavailable until the daemon emits it.
+///
+/// DB sections use the dedicated read pool (the §9.1 precedent); each section degrades
+/// to honest-unavailable independently (HTTP 200), never a fabricated row.
+async fn view_perps(State(s): State<RotaState>) -> impl IntoResponse {
+    let generated_at = { s.snapshot.read().await.generated_at.clone() }; // R8
+                                                                         // Section 3 (basis): the daemon-shaped view (R2 — structured, never Prometheus text).
+    let basis = read_view(&s, "perps_basis").await;
+    // Sections 1+2 (DB): the dedicated read pool, each independently honest-unavailable.
+    let (funding, edge_gate) = match s.pool.clone() {
+        Some(pool) => (
+            recent_funding_section(&pool, &generated_at).await,
+            funding_edge_gate_section(&pool).await,
+        ),
+        None => {
+            let na = json!({
+                "status": "unavailable",
+                "detail": "postgres capability absent (standalone ROTA)",
+            });
+            (na.clone(), na)
+        }
+    };
+    Json(json!({
+        "title": "Perps — §9.2",
+        "generated_at": generated_at,
+        "basis": basis,
+        "edge_gate": edge_gate,
+        "funding": funding,
+    }))
+}
+
+/// One realized-funding row: (market_ticker, funding_time, funding_rate, mark_price).
+type FundingRateTuple = (String, String, f64, String);
+
+/// The recent finalized 8h funding rates, newest-first (a small cross-market time
+/// series; the latest boundary per market floats to the top). Runtime sqlx (audit-tail
+/// precedent); limit clamped to [1, 200].
+pub async fn recent_funding_rates(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<Vec<FundingRateTuple>, sqlx::Error> {
+    let limit = limit.clamp(1, 200);
+    sqlx::query_as::<_, FundingRateTuple>(
+        "SELECT market_ticker, funding_time, funding_rate, mark_price \
+         FROM funding_rates_historical \
+         ORDER BY funding_time DESC, market_ticker ASC LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
+/// Section 1 board: the recent realized 8h rates. `funding_rate` is a decimal fraction
+/// per 8h → shown as a percentage (4dp; the raw f64 is the honest source). `mark_price`
+/// is the venue's per-contract dollar STRING, rendered verbatim (esc'd by the renderer
+/// — venue data, never interpreted). Honest-unavailable on a pool error; empty rows
+/// render "no rows yet" (never a fabricated rate).
+async fn recent_funding_section(pool: &PgPool, _generated_at: &str) -> Value {
+    match recent_funding_rates(pool, 40).await {
+        Ok(rows) => {
+            let n = rows.len();
+            let markets = rows
+                .iter()
+                .map(|r| r.0.as_str())
+                .collect::<std::collections::HashSet<_>>()
+                .len();
+            let json_rows: Vec<Value> = rows
+                .into_iter()
+                .map(|(market_ticker, funding_time, rate, mark_price)| {
+                    json!({
+                        "market_ticker": market_ticker,
+                        "funding_time": funding_time,
+                        "funding_rate_pct": (rate * 100.0 * 10_000.0).round() / 10_000.0,
+                        "mark_price": mark_price,
+                    })
+                })
+                .collect();
+            json!({
+                "columns": [
+                    {"key":"market_ticker","label":"Market"},
+                    {"key":"funding_time","label":"Funding time (UTC)"},
+                    {"key":"funding_rate_pct","label":"Rate % (8h)"},
+                    {"key":"mark_price","label":"Mark $"},
+                ],
+                "rows": json_rows,
+                "summary": {"rates": n, "markets": markets},
+            })
+        }
+        Err(e) => {
+            eprintln!("rota: perps funding read degraded: {e}");
+            json!({"status": "unavailable", "detail": "funding read unavailable (pool degraded)"})
+        }
+    }
+}
+
+/// One funding-score row: (rule_id, mean_crps, n).
+type FundingScoreTuple = (String, f64, i64);
+
+/// Per-(scoring rule) mean CRPS over RESOLVED `funding_forecast` scalar beliefs — the
+/// forecast rule (`crps_pinball`) and its baselines (`crps_pinball:<name>`). The §9.2
+/// edge-gate cut of the §9.1 scorecard. Runtime sqlx (audit-tail precedent).
+pub async fn funding_forecast_scores(pool: &PgPool) -> Result<Vec<FundingScoreTuple>, sqlx::Error> {
+    sqlx::query_as::<_, FundingScoreTuple>(
+        "SELECT bs.rule_id, AVG(bs.score) AS mean_crps, COUNT(*) AS n \
+         FROM scalar_beliefs sb JOIN belief_scores bs ON bs.belief_id = sb.belief_id \
+         WHERE sb.producer = 'funding_forecast' AND sb.realized_value IS NOT NULL \
+         GROUP BY bs.rule_id ORDER BY bs.rule_id ASC",
+    )
+    .fetch_all(pool)
+    .await
+}
+
+/// Section 2 board (§2.6 A2d EDGE GATE): the `funding_forecast` CRPS vs each baseline,
+/// side-by-side, with `beats` per baseline and `beats_all` in the summary (the forecast
+/// strictly beats EVERY baseline — lower CRPS is better). The forecast rule is
+/// `crps_pinball`; baselines are `crps_pinball:<name>`. Honest: `beats`/`forecast_crps`
+/// are null when there is no scored forecast yet (never a fabricated win).
+async fn funding_edge_gate_section(pool: &PgPool) -> Value {
+    match funding_forecast_scores(pool).await {
+        Ok(rows) => {
+            let round6 = |x: f64| (x * 1_000_000.0).round() / 1_000_000.0;
+            // The forecast's own CRPS (rule = "crps_pinball").
+            let forecast_crps = rows.iter().find(|r| r.0 == "crps_pinball").map(|r| r.1);
+            // The baselines (rule = "crps_pinball:<name>").
+            let baselines: Vec<&FundingScoreTuple> = rows
+                .iter()
+                .filter(|r| r.0.starts_with("crps_pinball:"))
+                .collect();
+            let json_rows: Vec<Value> = baselines
+                .iter()
+                .map(|(rule, bcrps, n)| {
+                    let name = rule.strip_prefix("crps_pinball:").unwrap_or(rule);
+                    // Does the forecast beat THIS baseline (strictly lower CRPS)?
+                    let beats = forecast_crps.map(|f| f < *bcrps);
+                    json!({
+                        "baseline": name,
+                        "baseline_crps": round6(*bcrps),
+                        "forecast_crps": forecast_crps.map(round6),
+                        "beats": beats,
+                        "resolved_n": n,
+                    })
+                })
+                .collect();
+            // beats_all: a scored forecast AND ≥1 baseline AND it beats every one.
+            let beats_all = match forecast_crps {
+                Some(f) if !baselines.is_empty() => baselines.iter().all(|(_, b, _)| f < *b),
+                _ => false,
+            };
+            json!({
+                "columns": [
+                    {"key":"baseline","label":"Baseline"},
+                    {"key":"baseline_crps","label":"Baseline CRPS"},
+                    {"key":"forecast_crps","label":"Forecast CRPS"},
+                    {"key":"beats","label":"Forecast wins?"},
+                    {"key":"resolved_n","label":"Resolved"},
+                ],
+                "rows": json_rows,
+                "summary": {"forecast_crps": forecast_crps.map(round6),
+                            "beats_all": beats_all, "baselines": baselines.len()},
+            })
+        }
+        Err(e) => {
+            eprintln!("rota: perps edge-gate read degraded: {e}");
+            json!({"status": "unavailable", "detail": "edge-gate read unavailable (pool degraded)"})
+        }
+    }
+}
+
 /// Forecast feed (track-C §9.1 + the operator "completely see the belief and
 /// everything" want, 2026-06-13) — the recent individual scalar beliefs,
 /// newest-first, each FULLY inspectable. The summary line carries the at-a-glance
@@ -1868,6 +2048,7 @@ const ROTA_SHELL: &str = r#"<!doctype html><html lang="en"><head>
   <div class="panel wide"><h2>Domain Analyses</h2><div id="analyses">…</div></div>
   <div class="panel wide"><h2>Forecasts</h2><div id="forecasts">…</div></div>
   <div class="panel wide"><h2>Forecast Feed</h2><div id="forecast_feed">…</div></div>
+  <div class="panel wide"><h2>Perps — §9.2</h2><div id="perps">…</div></div>
   <div class="panel wide"><h2>Database</h2><div id="db">…</div></div>
   <div class="panel wide"><h2>Telemetry</h2><div id="telemetry">…</div></div>
   <div class="panel"><h2>Audit tail</h2><div id="audit">…</div></div>
@@ -2002,6 +2183,21 @@ const R={
     +`<div class="row dim">${esc(String(b.belief_id).slice(-8))} · horizon ${esc(b.horizon)} · fan: ${fan||"—"}</div>`
     +`<pre>evidence: ${esc(JSON.stringify(b.evidence,null,1))}\nprovenance: ${esc(JSON.stringify(b.provenance,null,1))}</pre></details>`;});
   return h;},
+ // §9.2 perps: a composite of three sub-section boards (basis / edge-gate / funding),
+ // each a {columns,rows,summary} envelope OR {status:"unavailable"} (honest per
+ // section). The A2d edge gate carries a beats_all flag → a green/red pill. Each
+ // sub-board reuses the generic boardTable; untrusted venue strings are esc()'d there.
+ perps(j){
+  const sec=(label,b,extra)=>{
+   const inner=(!b||b.status==="unavailable")?`<div class="warn">${esc((b&&b.detail)||"unavailable")}</div>`:boardTable(b);
+   return `<div class="bsum" style="margin-top:10px">${esc(label)}${extra||""}</div>`+inner;};
+  let gateFlag="";
+  const eg=j.edge_gate;
+  if(eg&&eg.summary&&eg.summary.beats_all!==undefined)
+   gateFlag=" "+(eg.summary.beats_all?pill("beats all baselines","ok"):pill("not beating all","bad"));
+  return sec("Perp basis-v2 (A10) — regime · model-vs-implied CDF divergence per perp",j.basis)
+   +sec("A2d edge gate — funding_forecast CRPS vs baselines (lower=better)",j.edge_gate,gateFlag)
+   +sec("Realized funding — recent finalized 8h rates",j.funding);},
  db(j){return boardTable(j);},
  telemetry(j){return boardTable(j);},
  audit(j){if(!j.available)return `<div class="warn">${esc(j.detail||"unavailable")}</div>`;
@@ -2016,5 +2212,5 @@ async function poll(name){const el=document.getElementById(name);
 function every(ms,names){names.forEach(poll);setInterval(()=>names.forEach(poll),ms);}
 every(2000,["health","audit"]);every(5000,["money","gates","ingest_sources","ingest_feed","ingest_funnel"]);
 every(10000,["cognition","settlement","fills","strategies","working_orders"]);every(15000,["streams","discovery","discovery_edges"]);
-every(30000,["db","personas","persona_scores","persona_pipeline","analyses","forecasts","forecast_feed","telemetry"]);
+every(30000,["db","personas","persona_scores","persona_pipeline","analyses","forecasts","forecast_feed","perps","telemetry"]);
 </script></body></html>"#;
