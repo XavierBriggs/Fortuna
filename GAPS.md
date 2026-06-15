@@ -13,6 +13,18 @@ by the controller). σ/τ are CALLER-injected; the kernel invents nothing. The v
 all are Sim-stage I7 knobs that gate nothing live but must be operator-endorsed before treated as a real
 edge claim):
 
+**✅ DC-1..DC-6 DEFAULTS ENDORSED by the operator 2026-06-14** as the Sim-stage STARTING OPERATING POINT +
+the tune-over-soak plan (the recommended conservative defaults below are the agreed starting knobs; all stay
+config-overridable and will be tuned as real resolved data accrues). SCOPE (explicit): this endorses the
+PARAMETER VALUES the v2 strategy runs with — it is NOT an edge declaration and NOT a live-capital
+authorization. A DECLARED edge stays I7-gated on the measured result (funding_forecast's CRPS must strictly
+beat all four A2d baselines; the v2 EV gate must be net-positive over real fills across the soak); promotion
+to live capital is a SEPARATE operator action (spec I7 — "never simulate the human"). v2 remains DATA-ONLY /
+Sim until those gates clear. DC-2 + DC-4 were already effectively settled (a numerical choice + an in-lane
+lookup); DC-1/DC-3/DC-5/DC-6 are the substantive knobs (vol estimator, EV thresholds + fee-trap, no-arb
+tolerance, informativeness/staleness) — endorsed at the conservative defaults, to be optimized via CRPS
+(forecasts) + EV/PnL (trades) as the data grows.
+
 **V3+V4+V5 STATUS (2026-06-14): the v2 STRATEGY is COMPLETE (§3.3 A3/A6/A9/A5/A4/A8/A7/A10)** — a new propose-only, Sim-stage,
 DATA-ONLY `fortuna-runner::perp_event_basis_v2` strategy wires the kernel onto live data (A6 BRTI anchor +
 A9 no-arb gate + A3 q_j + A10 median-as-diagnostic), proposing NOTHING (the EV gate is V4). It IMPLEMENTS
