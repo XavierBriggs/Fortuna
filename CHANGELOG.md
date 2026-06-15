@@ -39,6 +39,20 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
+- **C-next-1b — wire the producer into the daemon (the basis-v2 arm is now LIVE-fed)** (`fortuna-live`
+  daemon/main + tests, ADDITIVE + GATED): feeds the C-next-1a producer's ticks to the perp basis-v2 arm on the
+  live path. `run_perp_tick_producer` mirrors the funding poller — a Clock-driven, cancellable, fixed-interval
+  loop that polls `poll_perp_ticks_once` and hands each mapped tick to `on_report`. `drive()` gains ONE opt-in
+  LAST param (an mpsc receiver of `(venue, market, marks, funding)` tuples) drained at each segment head into
+  `inject_perp_tick` — the SAME path as the recorded `perp_tick_feed`; `None` ⇒ byte-identical daemon. `main`
+  spawns the producer gated on `[perp_event_basis_v2]` (its own `RealClock`, the `perp_market` ticker, a `watch`
+  cancel stopped on shutdown); its `on_report` pushes each tick (kinetics venue id added) onto the channel; no
+  creds. I6/I7 intact (no order/size; Sim/demo). Tests: a deterministic loop-delivery test + a daemon_smoke e2e
+  (`drive_drains_the_live_perp_tick_channel_and_persists_a_scalar_belief`) feeding ONE recorded tick via the
+  channel → `funding_forecast` drafts → persists, MUTATION-PROVEN (neuter the drain inject ⇒ "got 0"). Full
+  battery green (fmt/clippy --workspace/test --workspace/DST). The basis-v2 arm's inject→UNSIZED-proposal
+  behavior is separately proven by `demo_v2_full_decision_walkthrough`; the live Kinetics round-trip stays an
+  operator action.
 - **C-next-1a — the live PerpTick producer KERNEL** (`fortuna-venues` kinetics + `fortuna-live`, fixtures-first,
   fail-closed): closes the gap that left the perp basis-v2 arm INERT on the LIVE path (it fires only on
   `EventPayload::PerpTick`, which nothing produced from live venue data). New `KineticsPerpObservation::from_rest(

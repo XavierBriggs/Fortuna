@@ -698,6 +698,93 @@ async fn main() -> Result<()> {
         None => (None, None),
     };
 
+    // C-next-1b: spawn the LIVE PerpTick producer alongside the trading loop,
+    // GATED on `[perp_event_basis_v2]` (the SAME opt-in as the funding poller —
+    // default OFF => byte-unchanged daemon; `perp_tick_rx` stays `None` and no
+    // task spawns). It fetches the public, UNAUTHENTICATED Kinetics market +
+    // funding-estimate GETs (no credential read on this path), maps each to a
+    // perp-domain `(market, marks, funding)` tuple, and pushes it down an mpsc
+    // channel; `drive()` drains the channel at each segment head and injects the
+    // ticks (the SAME inject path the recorded `perp_tick_feed` uses) so the
+    // basis-v2 arm FIRES on live data. I6/I7: the producer carries NO order/size;
+    // Sim/demo only. It is INDEPENDENT of the deterministic trading cycle: the
+    // spawn does NOT block boot, and it STOPS with the daemon via a `watch` cancel
+    // (paired sender sent/dropped after `drive()` returns).
+    let (perp_tick_tx, perp_tick_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (perp_tick_cancel, perp_tick_handle) = if dcfg.perp_event_basis_v2.is_some() {
+        // Build the host-pinned public fetch (no credential). A construction
+        // failure (reqwest client build) is a LOUD boot error, not a silent skip —
+        // the operator opted in via [perp_event_basis_v2].
+        let fetch = fortuna_live::perp_tick_producer::KineticsPublicPerpFetch::production()
+            .context("building the perp-tick public fetch")?;
+        // The perp whose ticks feed the basis-v2 arm (the [perp_event_basis_v2]
+        // ticker). Gated above, so this is always present here; own it into the
+        // 'static task (do not borrow a local).
+        let perp_market = dcfg
+            .perp_event_basis_v2
+            .as_ref()
+            .map(|s| s.perp_market.clone())
+            .unwrap_or_default();
+        let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(());
+        eprintln!(
+            "fortuna-live: live PerpTick producer ACTIVE (public Kinetics GET, no creds; \
+             feeds the perp basis-v2 arm with mapped market/funding ticks)"
+        );
+        let handle = tokio::spawn(async move {
+            let ticker = perp_market;
+            // The producer's own wall-time clock; RealClock is the binary's one
+            // wall source. Fixed interval — perp marks/funding update continuously.
+            let clock = RealClock;
+            fortuna_live::perp_tick_producer::run_perp_tick_producer(
+                &fetch,
+                &ticker,
+                &clock,
+                std::time::Duration::from_secs(
+                    fortuna_live::perp_tick_producer::PERP_TICK_POLL_INTERVAL_SECS,
+                ),
+                cancel_rx,
+                move |report: &fortuna_live::perp_tick_producer::PerpTickPollReport| {
+                    if report.fetch_failed {
+                        eprintln!(
+                            "fortuna-live: perp-tick poll FETCH FAILED: {}",
+                            report.fetch_alert.as_deref().unwrap_or("(no detail)")
+                        );
+                    } else if report.quarantined {
+                        eprintln!(
+                            "fortuna-live: perp-tick poll QUARANTINED: {}",
+                            report.quarantine_alert.as_deref().unwrap_or("(no detail)")
+                        );
+                    } else if let Some((market, marks, funding)) = &report.tick {
+                        // The daemon adds the kinetics venue id here (the kernel
+                        // yields perp-domain components only). A static, known-good
+                        // id — the ONE allowed expect, on a constant.
+                        let venue = fortuna_core::market::VenueId::new("kinetics")
+                            .expect("static venue id");
+                        // A send error means drive() has dropped the receiver
+                        // (shutdown) — drop the tick, the loop ends on cancel next.
+                        // `PerpMarks`/`FundingObservation` are `Copy` (deref, not
+                        // clone); `MarketId` is owned-by-clone.
+                        let _ = perp_tick_tx.send((venue, market.clone(), *marks, *funding));
+                    }
+                },
+            )
+            .await;
+        });
+        (Some(cancel_tx), Some(handle))
+    } else {
+        // Not opted in: drop the sender so the (unused) channel closes cleanly; no
+        // task is spawned and `drive()` receives `None` below.
+        drop(perp_tick_tx);
+        (None, None)
+    };
+    // `Some(rx)` only when the producer is spawned; `None` otherwise (fail closed:
+    // drive() never injects live ticks).
+    let perp_tick_rx_for_drive = if perp_tick_handle.is_some() {
+        Some(perp_tick_rx)
+    } else {
+        None
+    };
+
     let snapshot_for_segments = snapshot.clone();
     // OBS-2c: a read handle to the live ingestion telemetry, merged into the ROTA
     // snapshot each segment so the V1/V2/V3 ingestion boards render LIVE daemon
@@ -761,6 +848,9 @@ async fn main() -> Result<()> {
         // per UTC day against the NWS-CLI / realized-funding ledger (off the money
         // path). The one ledger pool; the resolvers self-skip a day with nothing due.
         Some(pool.clone()),
+        // C-next-1b: the LIVE PerpTick channel receiver — `Some` only when the
+        // producer was spawned (gated on [perp_event_basis_v2]); `None` otherwise.
+        perp_tick_rx_for_drive,
     )
     .await
     .context("daemon loop")?;
@@ -808,6 +898,22 @@ async fn main() -> Result<()> {
             eprintln!("fortuna-live: funding-rates poller task join error: {e}");
         } else {
             eprintln!("fortuna-live: funding-rates poller stopped");
+        }
+    }
+
+    // C-next-1b: stop the live PerpTick producer with the daemon. Sending on (then
+    // dropping) the `watch::Sender` ends `run_perp_tick_producer`'s `cancel.changed()`
+    // wait; the join awaits its clean exit. `None` => the producer was never spawned
+    // (no [perp_event_basis_v2]).
+    if let Some(cancel_tx) = perp_tick_cancel {
+        let _ = cancel_tx.send(());
+        drop(cancel_tx);
+    }
+    if let Some(h) = perp_tick_handle {
+        if let Err(e) = h.await {
+            eprintln!("fortuna-live: live PerpTick producer task join error: {e}");
+        } else {
+            eprintln!("fortuna-live: live PerpTick producer stopped");
         }
     }
 

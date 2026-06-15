@@ -182,6 +182,7 @@ async fn daemon_smoke_boot_ticks_signal_shutdown(pool: PgPool) {
         None,              // [personas]: none in this smoke
         None,              // [discovery]: none in this smoke
         None,              // resolution_pool: none in this smoke
+        None,              // C-next-1b: no live PerpTick channel in this smoke
     )
     .await
     .expect("daemon drive");
@@ -290,6 +291,7 @@ async fn signal_with_working_orders_cancels_them_and_audits(pool: PgPool) {
         None,              // [personas]: none in this smoke
         None,              // [discovery]: none in this smoke
         None,              // resolution_pool: none in this smoke
+        None,              // C-next-1b: no live PerpTick channel in this smoke
     )
     .await
     .expect("daemon drive");
@@ -523,6 +525,7 @@ async fn per_segment_refresh_picks_up_a_newly_confirmed_edge(pool: PgPool) {
         None,              // [personas]: none in this smoke
         None,              // [discovery]: none in this smoke
         None,              // resolution_pool: none in this smoke
+        None,              // C-next-1b: no live PerpTick channel in this smoke
     )
     .await
     .expect("daemon drive");
@@ -667,6 +670,7 @@ async fn refresh_failure_keeps_last_known_edges_alerts_and_survives(pool: PgPool
         None,              // [personas]: none in this smoke
         None,              // [discovery]: none in this smoke
         None,              // resolution_pool: none in this smoke
+        None,              // C-next-1b: no live PerpTick channel in this smoke
     )
     .await
     .expect("the loop must SURVIVE a failing refresh");
@@ -1236,6 +1240,7 @@ async fn drive_drains_and_persists_the_synthesis_arms_beliefs(pool: PgPool) {
         None,              // [personas]: none in this smoke
         None,              // [discovery]: none in this smoke
         None,              // resolution_pool: none in this smoke
+        None,              // C-next-1b: no live PerpTick channel in this smoke
     )
     .await
     .expect("daemon drive");
@@ -1343,6 +1348,7 @@ async fn drive_drains_and_persists_funding_forecast_scalar_beliefs(pool: PgPool)
         None,               // [personas]: none in this smoke
         None,               // [discovery]: none in this smoke
         None,               // resolution_pool: none in this smoke
+        None,               // C-next-1b: no live PerpTick channel in this smoke
     )
     .await
     .expect("daemon drive");
@@ -1382,6 +1388,140 @@ async fn drive_drains_and_persists_funding_forecast_scalar_beliefs(pool: PgPool)
     assert_eq!(
         qlen, 7,
         "the persisted quantile fan is the fixed §2.6 A2b seven-quantile forecast"
+    );
+}
+
+/// C-next-1b: the LIVE PerpTick CHANNEL wired end-to-end. This mirrors the
+/// slice-4e scalar-egress e2e above, but sources the PerpTick via the NEW
+/// `perp_tick_rx` channel arg of `drive()` (the live producer's egress) instead
+/// of the recorded `perp_tick_feed` — proving `drive()` DRAINS the channel ->
+/// `inject_perp_tick` (the 4b seam) -> `funding_forecast` drafts -> drain+persist
+/// to `scalar_beliefs`. The tick itself is sourced from the SAME recorded
+/// kinetics capture (via `PerpTickFeed::next_tick`, which yields the exact
+/// `(venue, market, marks, funding)` tuple the channel carries) — NEVER
+/// fabricated. `perp_tick_feed` is `None` here, so the ONLY source of the tick is
+/// the channel.
+///
+/// NON-VACUOUS + MUTATION-PROOF: `scalar_beliefs` is empty before drive; the only
+/// writer fires only when a PerpTick reaches the runner. Drop the `tx.send` (no
+/// tick on the channel) and `funding_forecast` never drafts -> the post-drive
+/// count stays 0 -> this reds. Pass `None` for `scalar_belief_persist` and the
+/// drain never persists -> also 0.
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn drive_drains_the_live_perp_tick_channel_and_persists_a_scalar_belief(pool: PgPool) {
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let full = FortunaConfig::load_file(example_path).unwrap();
+
+    // [funding_forecast] composes the zero-capital scalar producer; it drafts on
+    // each PerpTick. The PerpTick arrives via the channel below, not the sim venue.
+    let dcfg = DaemonToml::parse(&format!("{text}\n[funding_forecast]\n")).unwrap();
+    let runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        t0(),
+        70,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .expect("composition with funding_forecast");
+
+    // Build ONE recorded PerpTick tuple from the SAME committed kinetics capture
+    // the slice-4e feed uses (NEVER fabricated). `PerpTickFeed::next_tick` yields
+    // the exact `(venue, market, marks, funding)` tuple the live channel carries.
+    let mut feed = fortuna_live::perp_feed::PerpTickFeed::from_ws_ticker_jsonl(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/kinetics-perps/ws__public_orderbook_ticker.jsonl"
+    ))
+    .expect("recorded ticker fixture parses");
+    let (venue, market, marks, funding) = feed.next_tick();
+
+    let before: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM scalar_beliefs WHERE producer = 'funding_forecast'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(before, 0, "no scalar beliefs before drive");
+
+    // The LIVE channel: send ONE recorded tick, then DROP the sender so the
+    // segment-head drain reads it (and the channel closes cleanly). This is the
+    // exact tuple `run_perp_tick_producer`'s `on_report` pushes in production.
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    tx.send((venue, market, marks, funding))
+        .expect("send the recorded tick");
+    drop(tx);
+
+    let (stop_tx, mut stop) = tokio::sync::oneshot::channel::<()>();
+    let mut cadence = StopAtCadence {
+        clock: runner.clock.clone(),
+        sleeps: 0,
+        fire_at: 6, // one full 4-wake segment injects + drains + persists first
+        tx: Some(stop_tx),
+    };
+    let mut poller = NeverHalted;
+    let loop_cfg = LoopConfig {
+        tick_interval_ms: 1000,
+        halt_poll_ms: 500,
+    };
+    let mut scrape = DegradeScrape::new(default_degrade_thresholds());
+    let mut daily = fortuna_live::daemon::DailyScheduler::new();
+
+    let mut runner = fortuna_live::daemon::ActiveRunner::Sim(runner);
+    let (_stats, _shutdown) = drive(
+        &mut runner,
+        &mut cadence,
+        &mut poller,
+        &loop_cfg,
+        4,
+        &mut stop,
+        |_r, _s| {},
+        &mut scrape,
+        None,
+        &mut daily,
+        None,               // synthesis_refresh: no synth arm in this smoke
+        Some(pool.clone()), // the scalar producer IS composed -> persist
+        None,               // reconciliation: none in this smoke
+        None,               // reviews: none in this smoke
+        "claude-opus-4-8",  // S5b: configured synthesis model id (scope key)
+        None,               // perp_tick_feed: NONE — the tick comes via the channel
+        None,               // [personas]: none in this smoke
+        None,               // [discovery]: none in this smoke
+        None,               // resolution_pool: none in this smoke
+        Some(rx),           // C-next-1b: the LIVE PerpTick channel (one recorded tick queued)
+    )
+    .await
+    .expect("daemon drive");
+
+    let after: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM scalar_beliefs WHERE producer = 'funding_forecast'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        after >= 1,
+        "drive() drained the live PerpTick channel -> funding_forecast drafted -> \
+         the scalar belief was persisted (got {after})"
+    );
+
+    // SHAPE check (as in slice-4e): a well-formed funding-rate scalar claim, not
+    // an empty husk — proving the drain carried the real draft through the channel.
+    let unit: String = sqlx::query_scalar(
+        "SELECT unit FROM scalar_beliefs WHERE producer = 'funding_forecast' \
+         ORDER BY created_at LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        unit, "rate",
+        "funding_forecast persists a funding-rate claim from the live-channel tick"
     );
 }
 
@@ -1605,6 +1745,7 @@ async fn drive_runs_daily_reconciliation_at_the_utc_day_boundary(pool: PgPool) {
         None, // [personas]: none in this e2e
         None, // [discovery]: none in this e2e
         None, // resolution_pool: none in this e2e
+        None, // C-next-1b: no live PerpTick channel in this smoke
     )
     .await
     .expect("daemon drive");
@@ -1975,6 +2116,7 @@ async fn drive_runs_the_weekly_review_at_the_week_boundary(pool: PgPool) {
         None,              // [personas]: none in this smoke
         None,              // [discovery]: none in this smoke
         None,              // resolution_pool: none in this smoke
+        None,              // C-next-1b: no live PerpTick channel in this smoke
     )
     .await
     .expect("daemon drive");
@@ -2143,6 +2285,7 @@ async fn drive_runs_the_monthly_review_at_the_month_boundary(pool: PgPool) {
         None,              // [personas]: none in this smoke
         None,              // [discovery]: none in this smoke
         None,              // resolution_pool: none in this smoke
+        None,              // C-next-1b: no live PerpTick channel in this smoke
     )
     .await
     .expect("daemon drive");
@@ -2356,6 +2499,7 @@ async fn drive_persists_persona_analysis_and_beliefs_when_wired(pool: PgPool) {
         Some(wiring), // [personas]: the wiring under test
         None,         // [discovery]: none in this persona e2e
         None,         // resolution_pool: none in this persona e2e
+        None,         // C-next-1b: no live PerpTick channel in this smoke
     )
     .await
     .expect("daemon drive");
@@ -2608,6 +2752,7 @@ async fn discovery_world_forward_persists_watchlist_events_and_beliefs(pool: PgP
         // MUTATION PROOF: flip this to `None` and watch events + beliefs stay 0 => RED.
         Some(wiring), // [discovery]: the wiring under test
         None,         // resolution_pool: not exercised by the world-forward e2e
+        None,         // C-next-1b: no live PerpTick channel in this smoke
     )
     .await
     .expect("daemon drive");
@@ -2850,6 +2995,7 @@ async fn discovery_market_back_auto_confirms_and_synthesis_drafts_a_belief(pool:
         // all stay 0 => RED (no discovery means no edge to believe against).
         Some(wiring),
         None, // resolution_pool: not exercised here
+        None, // C-next-1b: no live PerpTick channel in this smoke
     )
     .await
     .expect("daemon drive");
@@ -3050,6 +3196,7 @@ async fn drive_with_discovery(
         None,              // [personas]
         Some(wiring),
         None, // resolution_pool: not exercised here
+        None, // C-next-1b: no live PerpTick channel in this smoke
     )
     .await
     .expect("daemon drive");
@@ -3482,6 +3629,7 @@ async fn drive_one_boundary_with_resolution(
         None,              // [personas]
         None,              // [discovery]
         Some(pool.clone()),
+        None, // C-next-1b: no live PerpTick channel in this smoke
     )
     .await
     .expect("daemon drive");
