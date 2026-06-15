@@ -28,8 +28,18 @@
 )]
 
 use fortuna_core::clock::Clock;
+use fortuna_core::ids::{IdGen, IntentId};
+use fortuna_core::market::{Action, ClientOrderId, Contracts, StrategyId, VenueId};
+use fortuna_core::money::Cents;
+use fortuna_core::perp::{MarginAccountView, PerpPrice};
+use fortuna_gates::perp::{PerpCandidateOrder, PerpGateInputs};
+use fortuna_gates::{GateConfig, GatePipeline};
+use fortuna_venues::kinetics::adapter::KineticsAdapter;
+use fortuna_venues::kinetics::client::TimeInForce;
+use fortuna_venues::kinetics::dto;
 use fortuna_venues::{Venue, VenueError};
 use serde::Serialize;
+use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::Path;
 use thiserror::Error;
@@ -40,6 +50,10 @@ pub enum KillSwitchError {
     Journal(#[from] std::io::Error),
     #[error("venue error: {0}")]
     Venue(#[from] VenueError),
+    /// A fixed setup constant (the flatten strategy id) could not be built —
+    /// refuse BEFORE any venue call (fail-closed; never panic on a constant).
+    #[error("kill-switch setup error: {0}")]
+    Setup(String),
 }
 
 /// What the switch did, per order/position, plus the summary.
@@ -52,6 +66,13 @@ pub struct KillReport {
     pub positions_seen: usize,
     pub flatten_orders_placed: usize,
     pub flatten_orders_failed: usize,
+    /// Perp positions left un-flattened because no live price could be crossed
+    /// (no book / empty side / overflow) — never an un-priced order. 0 on the
+    /// freeze (event-contract) path.
+    pub flatten_orders_skipped_no_price: usize,
+    /// Perp closes the gate refused (should be ~0 for an honest reduce-only —
+    /// e.g. a slippage > price-band PriceSanity self-reject). 0 on the freeze path.
+    pub flatten_orders_rejected_by_gate: usize,
     pub at: String,
 }
 
@@ -108,6 +129,8 @@ pub async fn freeze_and_cancel(
         positions_seen: 0,
         flatten_orders_placed: 0,
         flatten_orders_failed: 0,
+        flatten_orders_skipped_no_price: 0,
+        flatten_orders_rejected_by_gate: 0,
         at: clock.now().to_iso8601(),
     };
     journal_line(journal_path, &serde_json::to_value(&report)?)?;
@@ -225,4 +248,439 @@ pub fn load_kalshi_creds(
         private_key_pem,
         base_url,
     })
+}
+
+/// Load the kill-switch's SEPARATE Kinetics (perps) credential pair — ENV-ONLY,
+/// FAIL-CLOSED, mirroring [`load_kalshi_creds`] (I4: the switch keeps its own
+/// creds, never the runtime's). Its own `FORTUNA_KILLSWITCH_KINETICS_*` vars.
+/// Pure (no env access); `main` reads the env and builds the venue only after
+/// this passes. Reuses [`KalshiCreds`] (generic id/pem/base_url).
+pub fn load_kinetics_creds(
+    api_key_id: Option<String>,
+    private_key_path: Option<String>,
+    base_url: Option<String>,
+) -> Result<KalshiCreds, String> {
+    fn require(value: Option<String>, var: &str) -> Result<String, String> {
+        match value {
+            Some(v) if !v.trim().is_empty() => Ok(v),
+            _ => Err(format!("{var} is required (env-only, fail-closed)")),
+        }
+    }
+    let api_key_id = require(api_key_id, "FORTUNA_KILLSWITCH_KINETICS_API_KEY_ID")?;
+    let private_key_path = require(
+        private_key_path,
+        "FORTUNA_KILLSWITCH_KINETICS_PRIVATE_KEY_PATH",
+    )?;
+    let base_url = require(base_url, "FORTUNA_KILLSWITCH_KINETICS_BASE_URL")?;
+    let private_key_pem = std::fs::read_to_string(&private_key_path).map_err(|e| {
+        format!(
+            "cannot read FORTUNA_KILLSWITCH_KINETICS_PRIVATE_KEY_PATH ({private_key_path}): {e}"
+        )
+    })?;
+    if private_key_pem.trim().is_empty() {
+        return Err(
+            "the private key at FORTUNA_KILLSWITCH_KINETICS_PRIVATE_KEY_PATH is empty".to_string(),
+        );
+    }
+    Ok(KalshiCreds {
+        api_key_id,
+        private_key_pem,
+        base_url,
+    })
+}
+
+/// Load + validate the gate config from `FORTUNA_KILLSWITCH_GATE_CONFIG_PATH`,
+/// FAIL-CLOSED (mirror [`load_kalshi_creds`]). A missing / unreadable /
+/// unparseable / `validate()`-failing config REFUSES before any venue call;
+/// the error names the ENV VAR (and the path), never the config contents.
+///
+/// The operator's TOML MUST carry `[per_strategy.killswitch_flatten]`,
+/// `[perp.venues.<venue_id>]`, `[perp.assets.<each-ticker>]`, and
+/// `[rate.<venue_id>]` — without them the perp `SizeSanity`/`PriceSanity` checks
+/// fail-closed and EVERY close is gate-rejected (a no-op cancel-only flatten,
+/// surfaced as `flatten_orders_rejected_by_gate`). Pure (takes the path value).
+pub fn load_gate_config(path: Option<String>) -> Result<GateConfig, String> {
+    let path = match path {
+        Some(p) if !p.trim().is_empty() => p,
+        _ => {
+            return Err(
+                "FORTUNA_KILLSWITCH_GATE_CONFIG_PATH is required (env-only, fail-closed)"
+                    .to_string(),
+            )
+        }
+    };
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| format!("cannot read FORTUNA_KILLSWITCH_GATE_CONFIG_PATH ({path}): {e}"))?;
+    let config: GateConfig = toml::from_str(&text).map_err(|e| {
+        format!("FORTUNA_KILLSWITCH_GATE_CONFIG_PATH ({path}) did not parse as a gate config: {e}")
+    })?;
+    config
+        .validate()
+        .map_err(|e| format!("gate config at FORTUNA_KILLSWITCH_GATE_CONFIG_PATH ({path}): {e}"))?;
+    Ok(config)
+}
+
+/// The IOC limit that crosses the live touch, rounding the slippage AGAINST us.
+/// Closing a LONG (Sell, hit the bid): `limit = bid − ceil(bid·bps/10_000)`.
+/// Closing a SHORT (Buy, lift the ask): `limit = ask + ceil(ask·bps/10_000)`.
+/// `None` on a degenerate (negative) product or ANY arithmetic overflow ⇒ the
+/// caller SKIPS the position (never a fabricated / un-priced order). Pure.
+fn crossed_close_limit(action: Action, touch: PerpPrice, slippage_bps: i64) -> Option<PerpPrice> {
+    let product = touch.raw().checked_mul(slippage_bps)?;
+    if product < 0 {
+        return None; // a negative touch or bps is degenerate — skip, never guess.
+    }
+    // ceil(product / 10_000) for product >= 0.
+    let slip = PerpPrice::new(product.checked_add(9_999)? / 10_000);
+    match action {
+        Action::Sell => touch.checked_sub(slip).ok(),
+        Action::Buy => touch.checked_add(slip).ok(),
+    }
+}
+
+/// PERP FLATTEN (spec 5.15, T5.B8): cancel EVERY open perp order, then close
+/// each non-flat position with a REDUCE-ONLY IOC that crosses the live book —
+/// every close a SEALED `GatedPerpOrder` through the real perp gate (I1: the
+/// switch sits on the consumer side of the seal; it constructs a candidate and
+/// asks the gate, exactly like the trading path). Best-effort + fail-closed: no
+/// panic anywhere; a per-position failure (no price / gate-reject / place-error)
+/// is JOURNALED and the sweep CONTINUES. Only a journal-write failure aborts.
+///
+/// I4 holds: no Postgres, no cognition, no event loop; the adapter carries the
+/// switch's OWN credential pair; `evaluate_perp` is pure. The margin view is
+/// balance-only (the reduce-only capital checks waive, so the gate never reads
+/// `account.equity` on this path — an honest, sufficient view; no fabricated
+/// marks/positions). `conservative_mark` = the touch we cross, so
+/// `|limit − mark| = slippage`; if `slippage_bps` exceeds the config price-band
+/// the gate self-rejects `PriceSanity` (counted, never fatal).
+pub async fn freeze_cancel_perp_and_flatten(
+    adapter: &KineticsAdapter,
+    gates: &mut GatePipeline,
+    venue_id: &VenueId,
+    slippage_bps: i64,
+    clock: &dyn Clock,
+    journal: &Path,
+) -> Result<KillReport, KillSwitchError> {
+    // Build the fixed flatten strategy id ONCE, fail-closed BEFORE any venue
+    // call (never panic on a constant).
+    let strategy = StrategyId::new("killswitch_flatten")
+        .map_err(|e| KillSwitchError::Setup(format!("killswitch_flatten strategy id: {e}")))?;
+
+    journal_line(
+        journal,
+        &serde_json::json!({
+            "event": "flatten_started",
+            "venue": venue_id.to_string(),
+            "slippage_bps": slippage_bps,
+            "at": clock.now().to_iso8601(),
+        }),
+    )?;
+
+    // ---- CANCEL-ALL open perp orders (retry once; NotFound == cancelled) ----
+    let mut orders_seen = 0usize;
+    let mut cancelled = 0usize;
+    let mut cancel_failed = 0usize;
+    match adapter.client().list_orders(None, Some(100)).await {
+        Ok(listing) => {
+            orders_seen = listing.orders.len();
+            for o in &listing.orders {
+                let mut ok = false;
+                for _ in 0..2 {
+                    match adapter.cancel(&o.order_id).await {
+                        Ok(_) | Err(VenueError::NotFound { .. }) => {
+                            ok = true;
+                            break;
+                        }
+                        Err(_) => continue,
+                    }
+                }
+                if ok {
+                    cancelled += 1;
+                } else {
+                    cancel_failed += 1;
+                    journal_line(
+                        journal,
+                        &serde_json::json!({
+                            "event": "cancel_failed",
+                            "order_id": o.order_id,
+                            "at": clock.now().to_iso8601(),
+                        }),
+                    )?;
+                }
+            }
+        }
+        Err(e) => journal_line(
+            journal,
+            &serde_json::json!({
+                "event": "flatten_list_orders_failed",
+                "reason": e.to_string(),
+                "at": clock.now().to_iso8601(),
+            }),
+        )?,
+    }
+
+    // ---- balance-only margin view (gate-irrelevant on reduce-only; honest) ----
+    let balance = match adapter.client().balance(false).await {
+        // settled_funds is a DOLLAR string; floor to cents (never overstate
+        // cash). parse_dollars (VenueError) and from_dollars_floor (MoneyError)
+        // have different error types, so chain through Option, not `?`.
+        Ok(b) => match dto::parse_dollars(&b.settled_funds)
+            .ok()
+            .and_then(|d| Cents::from_dollars_floor(d).ok())
+        {
+            Some(c) => c,
+            None => {
+                journal_line(
+                    journal,
+                    &serde_json::json!({
+                        "event": "flatten_balance_unparsed",
+                        "at": clock.now().to_iso8601(),
+                    }),
+                )?;
+                Cents::ZERO
+            }
+        },
+        Err(e) => {
+            journal_line(
+                journal,
+                &serde_json::json!({
+                    "event": "flatten_balance_failed",
+                    "reason": e.to_string(),
+                    "at": clock.now().to_iso8601(),
+                }),
+            )?;
+            Cents::ZERO
+        }
+    };
+    // compute(&[]) is infallible (no PnL math); the manual fallback is the same
+    // balance-only view, so this never panics and never fabricates a position.
+    let account =
+        MarginAccountView::compute(balance, &[], Cents::ZERO).unwrap_or(MarginAccountView {
+            balance,
+            unrealized: Cents::ZERO,
+            pending_funding: Cents::ZERO,
+            equity: balance,
+            unmarked_flag: false,
+        });
+
+    // ---- per-position REDUCE-ONLY close ----
+    let mut positions_seen = 0usize;
+    let mut placed = 0usize;
+    let mut order_failed = 0usize;
+    let mut skipped_no_price = 0usize;
+    let mut rejected_by_gate = 0usize;
+    // Local, no-cognition id source seeded from the (injected) clock.
+    let mut ids = IdGen::new(clock.now().epoch_millis().max(0) as u64);
+    let empty_recent_ids: BTreeSet<String> = BTreeSet::new();
+
+    match adapter.positions().await {
+        Err(e) => journal_line(
+            journal,
+            &serde_json::json!({
+                "event": "flatten_positions_failed",
+                "reason": e.to_string(),
+                "at": clock.now().to_iso8601(),
+            }),
+        )?,
+        Ok(positions) => {
+            for kp in &positions {
+                let pos = &kp.position;
+                if pos.is_flat() {
+                    continue;
+                }
+                positions_seen += 1;
+
+                // Cross the LIVE book: a long closes by SELLing into the bid; a
+                // short closes by BUYing the ask. No book / empty side / overflow
+                // ⇒ journal + skip (never an un-priced order).
+                let (action, touch) = {
+                    let book = match adapter
+                        .client()
+                        .orderbook(pos.market.as_str(), 0, None)
+                        .await
+                    {
+                        Ok(b) => b,
+                        Err(_) => {
+                            journal_line(
+                                journal,
+                                &serde_json::json!({
+                                    "event": "flatten_skipped_no_price",
+                                    "market": pos.market.to_string(),
+                                    "reason": "orderbook fetch failed",
+                                    "at": clock.now().to_iso8601(),
+                                }),
+                            )?;
+                            skipped_no_price += 1;
+                            continue;
+                        }
+                    };
+                    let side = if pos.is_long() {
+                        book.orderbook.best_bid()
+                    } else {
+                        book.orderbook.best_ask()
+                    };
+                    match side {
+                        Ok(Some((price, _qty))) => {
+                            let action = if pos.is_long() {
+                                Action::Sell
+                            } else {
+                                Action::Buy
+                            };
+                            (action, price)
+                        }
+                        _ => {
+                            journal_line(
+                                journal,
+                                &serde_json::json!({
+                                    "event": "flatten_skipped_no_price",
+                                    "market": pos.market.to_string(),
+                                    "reason": "empty book side",
+                                    "at": clock.now().to_iso8601(),
+                                }),
+                            )?;
+                            skipped_no_price += 1;
+                            continue;
+                        }
+                    }
+                };
+
+                let Some(limit) = crossed_close_limit(action, touch, slippage_bps) else {
+                    journal_line(
+                        journal,
+                        &serde_json::json!({
+                            "event": "flatten_skipped_no_price",
+                            "market": pos.market.to_string(),
+                            "reason": "limit-price overflow",
+                            "at": clock.now().to_iso8601(),
+                        }),
+                    )?;
+                    skipped_no_price += 1;
+                    continue;
+                };
+
+                // qty = |position|, opposite the position (validated reduce-only).
+                let Some(qty_abs) = pos.qty.raw().checked_abs() else {
+                    journal_line(
+                        journal,
+                        &serde_json::json!({
+                            "event": "flatten_skipped_no_price",
+                            "market": pos.market.to_string(),
+                            "reason": "position size overflow",
+                            "at": clock.now().to_iso8601(),
+                        }),
+                    )?;
+                    skipped_no_price += 1;
+                    continue;
+                };
+
+                // Mint the intent id locally (no cognition); a (near-impossible)
+                // id error is a per-position failure, never a panic/abort.
+                let intent_id = match ids.next(clock.now()) {
+                    Ok(ulid) => IntentId::new(ulid),
+                    Err(e) => {
+                        journal_line(
+                            journal,
+                            &serde_json::json!({
+                                "event": "flatten_order_failed",
+                                "market": pos.market.to_string(),
+                                "reason": format!("intent id mint: {e}"),
+                                "at": clock.now().to_iso8601(),
+                            }),
+                        )?;
+                        order_failed += 1;
+                        continue;
+                    }
+                };
+
+                let candidate = PerpCandidateOrder {
+                    intent_id,
+                    strategy: strategy.clone(),
+                    venue: venue_id.clone(),
+                    market: pos.market.clone(),
+                    action,
+                    reduce_only: true,
+                    limit_price: limit,
+                    qty: Contracts::new(qty_abs),
+                    fair_value: touch,
+                    holding_windows: 1,
+                    client_order_id: ClientOrderId::from_intent(intent_id),
+                };
+                let inputs = PerpGateInputs {
+                    now: clock.now(),
+                    account: &account,
+                    position: Some(pos),
+                    conservative_mark: touch,
+                    venue_open_notional_cents: Cents::ZERO,
+                    own_resting: &[],
+                    recent_client_order_ids: &empty_recent_ids,
+                };
+
+                // THE SEAL: a close is a GatedPerpOrder only if the gate builds it.
+                match gates.evaluate_perp(&candidate, &inputs).gated {
+                    Err(rej) => {
+                        journal_line(
+                            journal,
+                            &serde_json::json!({
+                                "event": "flatten_gate_rejected",
+                                "market": pos.market.to_string(),
+                                "check": format!("{:?}", rej.check),
+                                "reason": rej.reason,
+                                "at": clock.now().to_iso8601(),
+                            }),
+                        )?;
+                        rejected_by_gate += 1;
+                    }
+                    Ok(gated) => {
+                        // Venue requires IOC/FOK on reduce-only: IOC, post_only None.
+                        match adapter
+                            .place(&gated, TimeInForce::ImmediateOrCancel, None)
+                            .await
+                        {
+                            Ok(placement) => {
+                                journal_line(
+                                    journal,
+                                    &serde_json::json!({
+                                        "event": "flatten_order_placed",
+                                        "market": pos.market.to_string(),
+                                        "venue_order_id": placement.venue_order_id.to_string(),
+                                        "filled": placement.filled.raw(),
+                                        "remaining": placement.remaining.raw(),
+                                        "at": clock.now().to_iso8601(),
+                                    }),
+                                )?;
+                                placed += 1;
+                            }
+                            Err(e) => {
+                                journal_line(
+                                    journal,
+                                    &serde_json::json!({
+                                        "event": "flatten_order_failed",
+                                        "market": pos.market.to_string(),
+                                        "reason": e.to_string(),
+                                        "at": clock.now().to_iso8601(),
+                                    }),
+                                )?;
+                                order_failed += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let report = KillReport {
+        action: "flatten_perps",
+        orders_seen,
+        orders_cancelled: cancelled,
+        orders_cancel_failed: cancel_failed,
+        positions_seen,
+        flatten_orders_placed: placed,
+        flatten_orders_failed: order_failed,
+        flatten_orders_skipped_no_price: skipped_no_price,
+        flatten_orders_rejected_by_gate: rejected_by_gate,
+        at: clock.now().to_iso8601(),
+    };
+    journal_line(journal, &serde_json::to_value(&report)?)?;
+    Ok(report)
 }

@@ -917,9 +917,20 @@ code.
       live-market catalog (folded into the Kalshi demo-flip).
 - [x] T5.B8 Ops: kill-switch perps flatten (reduce_only IOC + cancel-all),
       margin/funding telemetry, funding-regime dashboard panel.
-      ✅ DONE — landed per the Phase-5 EXIT ("T5.B8 ops landed: kill-switch perps
-      flatten, margin/funding telemetry, ROTA panel"). Live perps TRADING is the
-      separate I7-ladder/operator scope, not T5.B8. Ticked 2026-06-14 (verifier de-stale).
+      ✅ DONE. The margin/funding telemetry + ROTA panel landed first (box ticked
+      2026-06-14). The KILL-SWITCH PERP FLATTEN itself landed 2026-06-14 (track-A):
+      `freeze_cancel_perp_and_flatten` (fortuna-killswitch) cancels all open perp
+      orders then closes each non-flat position with a REDUCE-ONLY IOC that crosses
+      the live book — every close a SEALED `GatedPerpOrder` via the real perp gate
+      (`GatePipeline::evaluate_perp`; I1 STRENGTHENED — the switch is on the consumer
+      side of the seal, no constructor/visibility/`place` change). Its OWN cred pair
+      (`FORTUNA_KILLSWITCH_KINETICS_*`) + gate config (`..._GATE_CONFIG_PATH`,
+      fail-closed); a one-shot current-thread runtime; no Postgres/cognition/event
+      loop (I4 preserved — only fortuna-gates added, none of the forbidden set).
+      New `flatten-perps` verb. Pinned by perp_i4_flatten_seal.rs (seal a/b/c/d +
+      dep-graph) + fortuna-killswitch/tests/flatten.rs (long→SELL/short→BUY IOC,
+      skip/error/cancel-sweep/gate-reject/fail-closed). Live perps TRADING is the
+      separate I7-ladder/operator scope, not T5.B8.
 
 PHASE 5 EXIT (written 2026-06-13, completion-audit finding — no EXIT existed):
 the perps plane merged to main gate-clean (re-merge package: client-id test

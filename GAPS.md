@@ -831,6 +831,44 @@ unit tests could not catch (the live socket round-trip was the one untested seam
   venue=kalshi un-refuse) and live order/exec round-trips. This exercise was demo
   market-data only.
 
+## TRACK A — KILL-SWITCH PERP FLATTEN (spec 5.15, T5.B8) BUILT (operator handoff, 2026-06-14)
+
+The kill switch gains perps coverage: `flatten-perps` = cancel-all open perp orders + reduce-only IOC
+closes that cross the live book, EACH a sealed `GatedPerpOrder` via `GatePipeline::evaluate_perp` (I1
+strengthened — consumer side of the seal; no gates/venues/core source touched, consume-only). Own cred
+pair (`FORTUNA_KILLSWITCH_KINETICS_*`) + gate config (`..._GATE_CONFIG_PATH`, fail-closed); one-shot
+current-thread runtime; no Postgres/cognition/event loop (I4 preserved — only fortuna-gates added, none
+of the forbidden set; existing i4_killswitch_independence stays green). New `freeze_cancel_perp_and_flatten`
++ `load_gate_config` + `load_kinetics_creds` + 2 KillReport fields + `flatten-perps` verb. Pinned by
+`perp_i4_flatten_seal.rs` (seal a/b/c/d + dep-graph) + `flatten.rs` (8 behavioral cases). ASSUMPTIONS.md
+updated (the "never constructs orders" bullet scoped to the event switch + the perp reduce-only exception).
+Full battery green.
+
+DESIGN DECISIONS (resolved, per the handoff):
+- Close price = CROSS THE LIVE BOOK (best_bid/best_ask ∓ ceil(touch·slippage_bps/10_000), against us);
+  conservative_mark = the crossed touch ⇒ |limit−mark| = slippage. slippage_bps default 50; if it exceeds
+  the gate price-band the close self-rejects PriceSanity (counted, never a wrong fill).
+- No book / empty side / overflow ⇒ journal `flatten_skipped_no_price` + CONTINUE (best-effort, never an
+  un-priced order, never a panic).
+- Balance-only MarginAccountView (`compute(balance,&[],ZERO)`; balance floored from `settled_funds`, ZERO +
+  journal note on failure): the reduce-only waivers mean the gate never reads `equity` on this path —
+  honest + sufficient; no fabricated marks/positions.
+
+OWNERSHIP NOTE: fortuna-killswitch is track-A's sole-owned crate; this is the sequenced T5.B8 flatten
+(the prior kill-switch Kalshi `freeze` plug was track-A's earlier item). Built only against the
+handoff-owned files (killswitch lib/main/Cargo/tests, the new invariants test, ASSUMPTIONS.md); no
+gates/venues/core SOURCE modified — the exact discipline that avoids the prior perps-merge cross-tree revert.
+
+VERIFIER: ACCEPT (gate record docs/reviews/2026-06-14-T5.B8-killswitch-perp-flatten.md) — 0 critical, 0
+major, 1 minor (operational). Minor (LEDGERED, not a blocker): a SINGLE-CLIP flatten. A non-flat position
+whose |qty| exceeds the per-order SizeSanity cap (venue/strategy `max_order_contracts`) is GATE-REJECTED
+(reduce-only waives the CAPITAL checks, but SizeSanity still runs) → counted `flatten_orders_rejected_by_gate`,
+the position is LEFT OPEN, exit 5 → operator reconciles. This is correct fail-CLOSED behavior (spec 5.4
+"best-effort emergency flatten, an accepted emergency cost"; a single IOC above the venue max would be
+venue-rejected anyway) and re-running is idempotent — but flatten does NOT chunk a position larger than the
+cap into multiple clips. A multi-clip flatten (split |pos| into ≤cap IOC slices) is the follow-on if ever
+desired; today the operator clips an over-cap position manually (or raises the cap in the flatten gate config).
+
 ## TRACK A — OBS-2 CLOSED: ingestion funnel populated-path proven + box ticked (operator handoff, 2026-06-14)
 
 OBS-2 (ingestion funnel loop-stages + snapshot publish, contract §2 "one writer, many readers") was
