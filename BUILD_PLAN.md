@@ -913,8 +913,18 @@ code.
       seam) — funding_forecast now fires + PERSISTS in a soak. PROVEN end-to-end
       by a #[sqlx::test] (recorded PerpTick → scalar_beliefs row, MUTATION-PROVEN);
       5 new tests, all 8 drive() smokes at the 15-arg sig. Inert-producer finding
-      CLOSED. Remaining for T5.B7: live wt-c daemon-run proof + perp_event_basis
-      live-market catalog (folded into the Kalshi demo-flip).
+      CLOSED (for funding_forecast, Sim-soak file feed). Remaining for T5.B7: live
+      wt-c daemon-run proof + perp_event_basis live-market catalog (folded into the
+      Kalshi demo-flip).
+      C-next-1a DONE (post-EXIT, the LIVE-path producer kernel): the basis-v2 arm
+      fires only on PerpTick and nothing produced one from LIVE venue data, so it
+      stayed inert on the live path. KineticsPerpObservation::from_rest (markets +
+      funding-estimate REST → PerpTick, BRTI-reference fail-closed, obs_at ← anchor
+      ts_ms) + fortuna-live::perp_tick_producer (host-pinned UNAUTH GET seam,
+      poll_perp_ticks_once, fail-closed) mirror the funding poller; 11 tests,
+      mutation-proven; full battery green. C-next-1b (the async loop + drive() drain
+      + main spawn gated on [perp_event_basis_v2] + an e2e UNSIZED-proposal proof)
+      makes the arm non-inert — NEXT slice; the arm stays inert until 1b. See GAPS.
 - [x] T5.B8 Ops: kill-switch perps flatten (reduce_only IOC + cancel-all),
       margin/funding telemetry, funding-regime dashboard panel.
       ✅ DONE. The margin/funding telemetry + ROTA panel landed first (box ticked

@@ -97,4 +97,239 @@ impl KineticsPerpObservation {
             },
         })
     }
+
+    /// Build the observation from the two PUBLIC REST surfaces the perp-tick
+    /// producer reads: a `GET /margin/markets/{ticker}` market (the settlement
+    /// mark + the CF-Benchmarks reference) and a `GET
+    /// /margin/funding_rates/estimate` estimate (the funding rate +
+    /// `next_funding_time`). Field-by-field VERBATIM (nothing derived/invented),
+    /// mirroring [`from_ws_ticker`](Self::from_ws_ticker):
+    ///
+    /// - `market`                    ← `market.ticker`
+    /// - `marks.venue_settlement`    ← `market.settlement_mark_price.price` (ten-thousandths)
+    /// - `marks.conservative`        ← `None` (no independent venue-boundary mark)
+    /// - `funding.estimate`          ← `estimate.funding_rate` (`f64` rate → `Decimal`)
+    /// - `funding.next_funding_time` ← `estimate.next_funding_time` (REST ISO string)
+    /// - `funding.reference_price`   ← `market.reference_price.price` (ten-thousandths)
+    /// - `funding.obs_at`            ← `market.reference_price.ts_ms` (the BRTI
+    ///   anchor's OWN stamp — what the basis-v2 A6 stale-anchor veto measures;
+    ///   mirrors `from_ws_ticker` keying `obs_at` off the frame `ts_ms`)
+    ///
+    /// The two payloads MUST agree on the market: a `market.ticker` /
+    /// `estimate.market_ticker` mismatch is rejected (never correlate two
+    /// different markets). The `reference_price` is REQUIRED — it is basis-v2's
+    /// A6 BRTI anchor; an absent reference fails closed (`Invalid`) rather than
+    /// silently emitting an anchorless tick.
+    ///
+    /// Returns [`VenueError::Invalid`] (never panics) on a ticker mismatch, an
+    /// absent settlement/reference stamp, a malformed price string, a non-exact
+    /// `f64` rate, or an unparseable `next_funding_time` / `ts_ms`.
+    pub fn from_rest(
+        market: &crate::kinetics::dto::MarginMarket,
+        estimate: &crate::kinetics::dto::FundingEstimateResponse,
+    ) -> Result<Self, VenueError> {
+        // Cross-check FIRST: the market and the estimate must describe the SAME
+        // perp, or these two reads cannot be correlated into one observation.
+        if market.ticker != estimate.market_ticker {
+            return Err(VenueError::Invalid {
+                reason: format!(
+                    "perp rest market ticker {:?} != funding estimate market_ticker {:?}",
+                    market.ticker, estimate.market_ticker
+                ),
+            });
+        }
+        let market_id = MarketId::new(&market.ticker).map_err(|e| VenueError::Invalid {
+            reason: format!("perp rest market {:?}: {e}", market.ticker),
+        })?;
+        let settlement_stamp =
+            market
+                .settlement_mark_price
+                .as_ref()
+                .ok_or_else(|| VenueError::Invalid {
+                    reason: format!(
+                        "perp rest market {:?}: settlement_mark_price absent",
+                        market.ticker
+                    ),
+                })?;
+        let venue_settlement = dto::parse_perp_price(&settlement_stamp.price)?;
+        // The BRTI reference is the A6 anchor — its absence is a fail-closed
+        // Invalid, never a silently anchorless tick (the load-bearing guard).
+        let ref_stamp = market
+            .reference_price
+            .as_ref()
+            .ok_or_else(|| VenueError::Invalid {
+                reason: format!(
+                    "perp rest market {:?}: reference_price absent (A6 BRTI anchor missing)",
+                    market.ticker
+                ),
+            })?;
+        let reference_price = dto::parse_perp_price(&ref_stamp.price)?;
+        // obs_at is the BRTI anchor's OWN timestamp (the A6 stale-anchor measure),
+        // exactly as `from_ws_ticker` keys `obs_at` off the frame `ts_ms`.
+        let obs_at =
+            UtcTimestamp::from_epoch_millis(ref_stamp.ts_ms).map_err(|e| VenueError::Invalid {
+                reason: format!(
+                    "perp rest market {:?}: reference_price ts_ms {}: {e}",
+                    market.ticker, ref_stamp.ts_ms
+                ),
+            })?;
+        // The funding rate is a small dimensionless per-window fraction (the
+        // venue payload's `f64` rate domain); convert at this boundary to the
+        // `Decimal` the bus carries.
+        let estimate_rate =
+            Decimal::try_from(estimate.funding_rate).map_err(|e| VenueError::Invalid {
+                reason: format!(
+                    "perp rest funding rate {} not representable: {e}",
+                    estimate.funding_rate
+                ),
+            })?;
+        // REST gives an ISO-8601 STRING (the WS path used epoch-ms instead).
+        let next_funding_time =
+            UtcTimestamp::parse_iso8601(&estimate.next_funding_time).map_err(|e| {
+                VenueError::Invalid {
+                    reason: format!(
+                        "perp rest next_funding_time {:?}: {e}",
+                        estimate.next_funding_time
+                    ),
+                }
+            })?;
+
+        Ok(Self {
+            market: market_id,
+            marks: PerpMarks {
+                venue_settlement,
+                conservative: None,
+            },
+            funding: FundingObservation {
+                estimate: estimate_rate,
+                next_funding_time,
+                reference_price,
+                obs_at,
+            },
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kinetics::dto::{FundingEstimateResponse, MarginMarket, MarketResponse};
+
+    /// The operator-recorded market fixture (`{"market":{...}}`, KXBTCPERP1).
+    const MARKET_FIXTURE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/kinetics-perps/markets__single.json"
+    ));
+    /// The operator-recorded funding-estimate fixture (KXBTCPERP1).
+    const ESTIMATE_FIXTURE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/kinetics-perps/funding__rates_estimate.json"
+    ));
+
+    fn recorded_market() -> MarginMarket {
+        // Top level is {"market":{...}} → MarketResponse.
+        serde_json::from_str::<MarketResponse>(MARKET_FIXTURE)
+            .expect("markets__single fixture parses as MarketResponse")
+            .market
+    }
+
+    fn recorded_estimate() -> FundingEstimateResponse {
+        serde_json::from_str::<FundingEstimateResponse>(ESTIMATE_FIXTURE)
+            .expect("funding__rates_estimate fixture parses")
+    }
+
+    #[test]
+    fn from_rest_maps_every_field_from_the_recorded_market_and_estimate() {
+        let market = recorded_market();
+        let estimate = recorded_estimate();
+        // The recorded reference_price.ts_ms — obs_at must equal exactly this.
+        let recorded_ref_ts_ms = market
+            .reference_price
+            .as_ref()
+            .expect("recorded reference_price present")
+            .ts_ms;
+        assert_eq!(recorded_ref_ts_ms, 1_781_258_941_000);
+
+        let obs = KineticsPerpObservation::from_rest(&market, &estimate).expect("maps cleanly");
+
+        assert_eq!(obs.market, MarketId::new("KXBTCPERP1").unwrap());
+        assert_eq!(
+            obs.marks.venue_settlement,
+            dto::parse_perp_price("6.3332").unwrap()
+        );
+        assert_eq!(obs.marks.conservative, None);
+        assert_eq!(
+            obs.funding.reference_price,
+            dto::parse_perp_price("6.3676").unwrap()
+        );
+        assert_eq!(obs.funding.estimate, Decimal::from(0));
+        assert_eq!(
+            obs.funding.next_funding_time,
+            UtcTimestamp::parse_iso8601("2026-06-12T20:00:00Z").unwrap()
+        );
+        // obs_at is the BRTI anchor's OWN stamp (reference_price.ts_ms).
+        assert_eq!(
+            obs.funding.obs_at,
+            UtcTimestamp::from_epoch_millis(recorded_ref_ts_ms).unwrap()
+        );
+        assert_eq!(
+            obs.funding.obs_at,
+            UtcTimestamp::from_epoch_millis(1_781_258_941_000).unwrap()
+        );
+    }
+
+    #[test]
+    fn an_absent_reference_price_fails_closed_invalid() {
+        let mut market = recorded_market();
+        market.reference_price = None;
+        let estimate = recorded_estimate();
+        let err = KineticsPerpObservation::from_rest(&market, &estimate)
+            .expect_err("absent BRTI anchor must fail closed");
+        match err {
+            VenueError::Invalid { reason } => {
+                assert!(
+                    reason.contains("reference"),
+                    "reason names the reference price: {reason:?}"
+                );
+            }
+            other => panic!("expected Invalid, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_absent_settlement_mark_fails_closed_invalid() {
+        let mut market = recorded_market();
+        market.settlement_mark_price = None;
+        let estimate = recorded_estimate();
+        let err = KineticsPerpObservation::from_rest(&market, &estimate)
+            .expect_err("absent settlement mark must fail closed");
+        assert!(matches!(err, VenueError::Invalid { .. }), "got {err:?}");
+    }
+
+    #[test]
+    fn a_market_estimate_ticker_mismatch_is_invalid() {
+        let market = recorded_market();
+        let mut estimate = recorded_estimate();
+        estimate.market_ticker = "KXETHPERP1".to_string();
+        let err = KineticsPerpObservation::from_rest(&market, &estimate)
+            .expect_err("two different markets must not be correlated");
+        match err {
+            VenueError::Invalid { reason } => {
+                // Names BOTH tickers.
+                assert!(reason.contains("KXBTCPERP1"), "names market: {reason:?}");
+                assert!(reason.contains("KXETHPERP1"), "names estimate: {reason:?}");
+            }
+            other => panic!("expected Invalid, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_unparseable_next_funding_time_is_invalid() {
+        let market = recorded_market();
+        let mut estimate = recorded_estimate();
+        estimate.next_funding_time = "not-a-time".to_string();
+        let err = KineticsPerpObservation::from_rest(&market, &estimate)
+            .expect_err("a bad next_funding_time must fail closed");
+        assert!(matches!(err, VenueError::Invalid { .. }), "got {err:?}");
+    }
 }

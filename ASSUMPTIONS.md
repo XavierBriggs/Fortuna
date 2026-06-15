@@ -2288,3 +2288,16 @@ domain-analysis artifact (authoritative design: docs/design/domain-analysis-pers
   model); the LIVE macro wiring is deferred until Track D provides macro signals.
 - **tier = synthesis for the macro persona** (vs cheap for the meteorologist) — exercising
   that the tier is config (resolved to a model by Track M's factory), not code.
+- **C-next-1a PerpTick producer — REST (markets + estimate) chosen over the WS ticker, and
+  `obs_at` ← `reference_price.ts_ms`.** Three grounded sources can yield a PerpTick: the WS
+  `ticker` frame (atomic; already mapped by `from_ws_ticker`), or the two PUBLIC REST reads
+  `GET /margin/markets/{ticker}` (carries `settlement_mark_price` + `reference_price`) +
+  `GET /margin/funding_rates/estimate?ticker=` (carries `funding_rate` + `next_funding_time`;
+  it does NOT carry `reference_price`, so the estimate ALONE is insufficient — basis-v2's A6
+  anchor needs the BRTI reference). The producer KERNEL uses the REST pair to MIRROR the
+  funding poller (a real host-pinned unauthenticated GET, no new WS client, no overlap with
+  Track A's WS dial); both endpoints + their fields are fixture-grounded (committed KXBTCPERP1
+  `markets__single` + `funding__rates_estimate`). `from_rest` sets `obs_at` to the BRTI
+  `reference_price` stamp's own `ts_ms` (the anchor's true age — what the A6 stale-veto
+  measures — mirroring `from_ws_ticker` keying `obs_at` off the frame `ts_ms`), NOT the poll
+  wall-clock. The two reads MUST agree on the ticker (a mismatch is rejected, never correlated).
