@@ -1,6 +1,7 @@
 # GATE FINDINGS — latest (verifier-owned; every track reads this at priority (a))
 
-State as of 2026-06-14, main @ 0bb6d27 (slice-3b-v2 PARTIAL — §2.6 A2b + A2d-slice-1 merged GATE
+State as of 2026-06-14, main @ 788fa8e (track-B §9.2 perps board merged GATE ACCEPT — see LATEST;
+prior milestone @0bb6d27: slice-3b-v2 PARTIAL — §2.6 A2b + A2d-slice-1 merged GATE
 ACCEPT, then track-C RALPH-STOPped @f1319ce ("north star met, clean milestone"); ALL FOUR tracks
 are now IDLE/stopped at a clean green milestone — demo-flip in, perp-v2 partly built; the
 remaining v2 slices (A2d-slice-2, A3–A10) + other queues need a re-mission; see LATEST). Main integrity GREEN on the merged tree: fmt +
@@ -13,7 +14,77 @@ A BLOCK naming your track preempts your queue. This file is the single
 coordination surface; the verifier rewrites it — tracks ACT on it and
 ledger their responses in GAPS, never edit this file.
 
+## SYSTEM-LEVEL INVARIANT AUDIT (operator-run 2026-06-14, main @b4cd093) — verifier reconciliation + routing
+
+The OPERATOR ran an independent read-only audit (4 auditor + 4 adversary + 1 verifier, Ask mode, no edits,
+no full battery). It surfaced two INVARIANT-LEVEL findings my per-slice gating did NOT — because slice-gating
+verifies each slice against ITS task + mutation-proofs and never stepped back to re-audit I4/I5 COMPLETENESS
+across the composed tree. I own that gap. Reconciliation below is evidence-based (spec text + code re-read),
+deferential to neither the audit nor my prior verdicts.
+
+- **C2 — I4 "revokes order-placing capability" is UNIMPLEMENTED. CONFIRMED (real gap).** Spec I4 (spec.md:43)
+  requires the kill path "flattens or freezes all positions AND revokes order-placing capability."
+  fortuna-killswitch `freeze_and_cancel`/`freeze_cancel_and_report_positions` (lib.rs:60,124) cancel every
+  open order + report positions but write NO durable "revoked" sentinel; fresh grep finds NOTHING in
+  gates/exec/live/cognition consuming a kill/revoke flag to refuse FUTURE placement. The I4 invariant test
+  (i4_killswitch_independence.rs) asserts INDEPENDENCE (dep-graph + no-DB self-test) + cancel-clears-all —
+  NOT revocation. So both the code and the protected encoding are incomplete vs I4. MITIGANT: live is REFUSED
+  at boot (demo/paper only) → ZERO live capital exposed today. But this is a HARD I7 blocker: no live promotion
+  until revocation exists. ROUTE → track owning fortuna-killswitch + fortuna-gates boot. DESIGN (I4-independent):
+  killswitch writes a durable kill sentinel to its OWN flat-file store (it already journals); runtime boot +
+  gate pipeline READ it (runtime→killswitch is the allowed dep direction) and refuse all orders while set,
+  clearable CLI-only (Section 8 + I2 human-rearm). ADD a new invariant test asserting revocation
+  (additions-only; DO NOT touch the existing i4 test).
+
+- **C1 — I5 belief in-place scoring UPDATE. SPEC-INTERNAL TENSION, not a slipped violation. DOWNGRADE.**
+  Factually CONFIRMED: repos.rs `resolve_and_score` does `UPDATE beliefs SET status,outcome,brier,clv_bps
+  WHERE belief_id=$1 AND outcome IS NULL`. BUT spec-sanctioned + guarded, not a defect: spec 5.5 (spec.md:190)
+  "A scoring job resolves outcomes ... computes Brier per belief"; the spec's OWN beliefs DDL marks outcome
+  "0/1 when resolved", brier "filled by scoring job" (spec.md:182-186); disposition "open -> resolved (scored)"
+  (spec.md:274). The migration uses a DEDICATED `fortuna_beliefs_guard` (initial.sql:79-99) that refuses DELETE
+  + refuses any change to the 9 CONTENT fields, permitting ONLY the 4 scoring columns; `WHERE outcome IS NULL`
+  enforces set-once. The I5 invariant test covers the AUDIT table (strictly UPDATE/DELETE-refused) and is GREEN.
+  The tension is the I5 ONE-LINER (spec.md:44 "every belief ... never updated in place") vs the more-specific 5.5
+  scoring design; the code follows 5.5 with a guard STRICTER than naive append-only. Replayability (I5's purpose)
+  is intact: scoring fields are post-hoc GRADES, never decision INPUTS — no past decision changes. NOT a code fix.
+  ROUTE → operator adjudication in GAPS.md: either (a) amend the I5 one-liner to carve out the four scoring
+  columns (codify what's built — RECOMMENDED), or (b) move scoring to superseding rows / a separate scores table
+  (strict append-only).
+
+- **MAJORS (assessed):**
+  - Perp kill-switch flatten not wired (spec.md:308, OWN credential pair). ACCEPTED pre-promotion — perps are
+    data-collection-only (spec.md:5, funding_carry pending ≥60d) so no perp capital exists; same revocation
+    workstream as C2. Must-fix before ANY perp paper/live.
+  - Synthesis calibration model hard-coded `claude-fable-5` (daemon.rs:164). VALID but ALREADY LEDGERED — the
+    code comment names it S5b ("makes this model id config-driven [cognition].model"). Risk is real: calibration
+    keys per (model_id, strategy, category) (spec 5.10); a model swap before S5b lands keys calibration under the
+    wrong model. Model swaps are operator I7 actions → window controlled. Must-land before any model swap.
+  - fortuna-live library-boundary concern: NOT independently traced this pass — I will neither rubber-stamp nor
+    dismiss. ROUTE → dedicated layering check (does the lib carry bin-grade orchestration that belongs in ops/bin?).
+  - Verification governance not automated (mutation-proofs + protected-crate blocking are MANUAL = me). Legit
+    process gap. ROUTE → ops/CI: (1) fail CI on any diff to crates/fortuna-invariants assertion lines, (2) DST in
+    CI, (3) clippy -D warnings workspace (already DoD). Full mutation-testing stays manual; the protected-diff
+    guard + DST-in-CI are automatable now.
+
+- **PROFITABILITY: unproven, full stop.** Zero live fills ever; perps data-collection-only; aeolus_eval
+  zero-capital; synthesis needs ≥60 resolved beliefs before a GO is even computable (Section 11). Nothing has
+  demonstrated edge. Language stays brutally conservative — we have built RAILS, not a proven money machine.
+  Live capital correctly REFUSED at boot (demo-flip). The audit's conservative stance is CORRECT; I endorse it.
+
 ## LATEST (2026-06-14, cont'd — verifier loop pass)
+
+- **✅ TRACK B — §9.2 PERPS BOARD (ROTA display half) MERGED → main @788fa8e = GATE ACCEPT.** The pending
+  track-b merge (09b7cb8) — `/api/rota/v1/perps`, three READ-ONLY sections: realized funding
+  (`funding_rates_historical`), the §2.6 A2d edge gate (`funding_forecast` CRPS vs the four baselines +
+  `beats_all`), and the daemon-shaped perp basis-v2 (A10) board (`views_from`→`perps_basis`, STRUCTURED
+  `MetricSample` read — R2, never Prometheus text). SCOPE: fortuna-ops + fortuna-live + docs only, ZERO
+  money-path/invariants; protected crate untouched. Battery: fmt clean + `cargo test --workspace` **1750/0**
+  + scoped clippy `--all-targets -D warnings` (ops+live+deps) clean. 4 perps tests NON-VACUOUS: populated-path
+  over the REAL axum router (HTTP), honest-empty, beats_all=true, and the ADVERSARIAL NEGATIVE (a baseline
+  beats the forecast ⇒ `beats_all=false`, no fabricated edge). MUTATION-PROVEN: flipping the one-hot regime
+  pick (`s.value == 1`→`== 0`) reds `perps_basis_board_shapes_basis_v2_samples_per_market`; restore greens.
+  ROTA doctrine honored: read-only, honest-nulls per section (HTTP 200), finite-guarded scalings, untrusted
+  venue strings `esc()`'d. DST scope-orthogonal (no core/runner change); standing main DST holds.
 
 - **✅ TRACK C — basis-v2 §3.3 V5 (A7 measured informativeness) + A10 diagnostics→MetricSamples MERGED →
   main @379817d = GATE ACCEPT.** A7 "measure the perp leads, don't assume": `BracketLeads`→VETO (or

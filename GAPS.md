@@ -3,6 +3,28 @@
 Open items the implementation defers, lacks, or needs from the operator. Acceptance
 requires this file to contain ONLY operator-blocked items, each with exact unblock steps.
 
+## SYSTEM-LEVEL INVARIANT AUDIT (operator-run 2026-06-14) — two completeness items the verifier owns
+
+The operator's independent audit surfaced two invariant-COMPLETENESS gaps that per-slice gating did not.
+Full reconciliation + routing on the bus (GATE-FINDINGS-LATEST.md, "SYSTEM-LEVEL INVARIANT AUDIT"). Both
+are OPERATOR/track-actionable; neither is a current live-capital risk (live REFUSED at boot, demo/paper only).
+
+1. **I4 revocation gap (real; HARD I7 blocker for live).** Spec I4 (spec.md:43) requires the kill path to
+   "revoke order-placing capability." fortuna-killswitch cancels open orders but writes no durable kill
+   sentinel, and nothing in gates/exec consumes one to refuse FUTURE placement. UNBLOCK (build): killswitch
+   writes a durable kill sentinel to its own flat-file store; runtime boot + gate pipeline read it and refuse
+   all orders while set; clearable CLI-only. ADD a new invariant test for revocation (additions-only — do NOT
+   modify i4_killswitch_independence.rs). Owner: track holding fortuna-killswitch + fortuna-gates boot.
+
+2. **I5 belief-scoring spec tension (operator DECISION, not a bug).** `resolve_and_score` updates beliefs in
+   place (status/outcome/brier/clv_bps, set-once via WHERE outcome IS NULL), guarded by `fortuna_beliefs_guard`
+   which locks all 9 content fields + refuses DELETE. This follows spec 5.5 ("scoring job ... computes Brier per
+   belief"; DDL fields "filled by scoring job") but contradicts the I5 one-liner (spec.md:44 "every belief ...
+   never updated in place"). DECISION NEEDED: (a) amend the I5 one-liner to carve out the four scoring columns
+   (codifies what's built — RECOMMENDED), or (b) move scoring to superseding rows / a separate scores table.
+   No code change until the operator picks; replayability is intact either way (scoring fields are post-hoc
+   grades, never decision inputs).
+
 ## RALPH STOP 2026-06-14T17:34:59Z — Track-E build queue EXHAUSTED (clean stop)
 
 The operator's final handoff — wire the weather scoring bridge ("close the loop") —
