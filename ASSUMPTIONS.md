@@ -3,6 +3,29 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## TRACK C — daemon wire-in (v2 + funding pipeline live) (2026-06-14; operator-directed, additive+gated)
+
+- **ADDITIVE + GATED, 0 deletions — the track-A safety contract.** Every wire-in (the `[perp_event_basis_v2]`
+  registration at both runner sites, the per-segment `resolve_and_score_funding_beliefs` call, the `main`
+  poller spawn) is a NEW gated block; no existing line in compose.rs/daemon.rs/main.rs was modified. A daemon
+  without `[perp_event_basis_v2]` composes the same strategies, runs the same segment step, and spawns the same
+  tasks as before (daemon_smoke passes UNCHANGED). This is the conservative reading of "don't disturb track A".
+- **The funding-poller gate = the PRESENCE of `[perp_event_basis_v2]`** (no new config flag): the v2 arm is
+  what consumes scored funding beliefs, so its opt-in is the natural opt-in to FILLING the funding store. If
+  v2-without-poller (or poller-without-v2) is ever wanted, a dedicated `[funding_poller] enabled` flag is the
+  documented split — deferred (not needed for this slice). Interprets the AMENDMENT (Part 2 wiring).
+- **`funding_score_id_base` is threaded EXACTLY like `scalar_belief_id_base`**: a `drive()` local seeded from
+  the drive-start epoch, carried across segments (NOT reset), advanced `+= resolved * 5` per call (five
+  belief_scores legs per resolved belief — the fn contract). Its own "01BSC" id space, independent of the
+  belief id bases. Interprets the I5 append-only id discipline.
+- **The poller spawn uses `RealClock` + a dedicated `watch::channel(())` cancel** (the daemon's existing
+  shutdown is a `oneshot` consumed by `drive()` itself, not a reusable broadcast, so reusing it would change
+  track-A signatures — a dedicated watch is the minimal additive cancel that still stops the poller on daemon
+  shutdown). `on_report` logs each poll to STDERR (mirroring the ingestion task's summary) rather than the
+  daemon's Slack path (which is segment-bound inside `drive()`); structured Slack routing for poll reports is a
+  later ops slice. A `KineticsPublicFetch::production()` build failure is a LOUD boot error (the operator opted
+  in via the config), not a silent skip. Interprets the Clock money-rule + the I4-adjacent no-creds public GET.
+
 ## TRACK C — A2d slice-3 Part 2 funding-rates poller (2026-06-14; interprets the AMENDMENT + spec 5.11/5.15)
 
 - **NO-creds HTTP = option (b): a host-PINNED UNAUTHENTICATED `reqwest` GET in the poller's own module**

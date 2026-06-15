@@ -1533,6 +1533,79 @@ fn ev_gate_clears_emits_unsized_maker_join_at_bid() {
     );
 }
 
+/// DEMO (operator walkthrough — run with `--nocapture` to read it). The full v2
+/// trading decision on a realistic straddle ladder: σ is warmed over six BRTI
+/// ticks, then a coherent, fresh tick in the Direct horizon regime drives the A3
+/// per-bracket `q_j` model, the A4+A8 per-bin EV gate, and the emitted UNSIZED
+/// maker leg — plus the A7 informativeness verdict and the A10 telemetry
+/// `MetricSample`s (the T5.B8 emission). Reuses the proven harness; asserts a
+/// single maker leg fires (so it doubles as a smoke).
+#[test]
+fn demo_v2_full_decision_walkthrough() {
+    let ladder = straddle_ladder();
+    let mut w = World::new();
+    w.put(book("KXBTC-LESS60K", 24, 26)); // bottom tail, mid 0.25
+    w.put(book("KXBTC-B63K", 49, 51)); // the contained between bin, mid 0.50
+    w.put(book("KXBTC-GT66K", 24, 26)); // top tail, mid 0.25
+    let (tau_ms, dt_ms) = (7_200_000_i64, 1000_i64); // τ = 2h ⇒ the Direct regime
+    put_ladder_markets(&mut w, &ladder, tau_ms);
+    let mut s = PerpEventBasisV2::new(cfg_v4(ladder.clone())).unwrap();
+    let obs0 = ts("2026-06-12T16:59:55.000Z");
+    let out = drive_capture_first_proposal(&mut s, &w, 6.3000, 1.0001, 6, obs0, dt_ms);
+    let eval = s.last_eval().expect("σ ready after the warm-up ticks");
+
+    eprintln!("\n========== perp basis-v2 — full decision walkthrough ==========");
+    eprintln!("A6  anchor S0 (BRTI reference) : ${:.2}", eval.anchor);
+    eprintln!(
+        "A5  horizon regime / τ        : {:?} / {:.2}h",
+        eval.regime,
+        eval.tau_ms.unwrap_or(0) as f64 / 3_600_000.0
+    );
+    eprintln!(
+        "A5  σ_step → σ_τ (horizon)    : {:.6} → {:.6}",
+        eval.sigma, eval.sigma_tau
+    );
+    eprintln!("A9  ladder no-arb health      : {:?}", eval.health);
+    eprintln!("A10 implied-vs-model CDF Δ    : {:?}", eval.cdf_divergence);
+    eprintln!(
+        "A10 rung-0 median (health)    : {:?}",
+        eval.median_diagnostic
+    );
+    eprintln!("--- per-bin: A3 q_j | A4 ask | A4+A8 EV | A7 verdict | proposed? ---");
+    for b in &eval.bin_evs {
+        eprintln!(
+            "  {:<34} q={:.4}  ask={:?}  ev={:?}  info={:?}  proposed={}",
+            format!("{:?}", b.kind),
+            b.q,
+            b.ask.map(|a| (a * 1000.0).round() / 1000.0),
+            b.ev.map(|e| (e * 1000.0).round() / 1000.0),
+            b.info,
+            b.proposed
+        );
+    }
+    eprintln!("--- I6 UNSIZED maker proposals (the harness sizes) ---");
+    for p in &out {
+        for leg in &p.legs {
+            eprintln!(
+                "  {:?} {:?} on {}   limit {}   fair {}   ({:?})",
+                leg.action, leg.side, leg.market, leg.limit_price, leg.fair_value, p.urgency
+            );
+        }
+        eprintln!("  thesis: {}", p.thesis);
+    }
+    eprintln!("--- A10 telemetry MetricSamples (the T5.B8 emission) ---");
+    for m in s.metric_samples() {
+        eprintln!("  {:<42} {:?} = {}", m.name, m.labels, m.value);
+    }
+    eprintln!("===============================================================\n");
+
+    assert_eq!(
+        out.len(),
+        1,
+        "the demo scenario fires exactly one maker leg"
+    );
+}
+
 /// EV REJECTS (below threshold): the between bin priced RICH (ask 95c) ⇒ EV < thr
 /// ⇒ no proposal for it. The fixture recomputes EV and asserts it is below thr.
 #[test]

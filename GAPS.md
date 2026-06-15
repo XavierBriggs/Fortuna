@@ -123,15 +123,29 @@ HANDOFFS (status as of 2026-06-14):
    (several sites in one product) would need a site-section split — future
    enhancement, not Phase-A-blocking.
 
-## TRACK C — perp basis-v2 (§3.3): fair-prob KERNEL DONE (V0–V2); strategy wiring needs 6 OPERATOR DESIGN-CALLS (2026-06-14)
+## TRACK C — ✅ COMPLETE (2026-06-14): perp basis-v2 §3.3 (V0–V5) built + wired + DC defaults endorsed; A2d slice-3 end-to-end; telemetry. Remaining = the soak (run it) + other tracks (B's ROTA §9.2 panel, A's kill-switch) + the recorder e2e fixture
 
 The v2 fair-probability kernel (`fortuna-cognition::basis_v2`: A3 per-bracket `q_j` lognormal model +
 A9 no-arb guard) is BUILT + battery-green + mutation-proven (the no-circularity A3 invariant re-verified
-by the controller). σ/τ are CALLER-injected; the kernel invents nothing. The v2 STRATEGY (V3–V7 +
-`perp_event_basis.rs` integration) is BLOCKED on 6 never-invent DESIGN-CALLS the operator must make
+by the controller). σ/τ are CALLER-injected; the kernel invents nothing. **UPDATE 2026-06-14: the v2
+STRATEGY (V3–V5) is now COMPLETE, wired into the daemon, with all 6 design-calls ENDORSED (✅ below) —
+DATA-ONLY/Sim (I7) until the soak.** The original framing (the strategy was BLOCKED on 6 never-invent
+DESIGN-CALLS the operator must make — now all implemented + endorsed) is kept below for the record
 (the Plan agent flagged each as under-specified in §3.3; my recommended conservative default in parens;
 all are Sim-stage I7 knobs that gate nothing live but must be operator-endorsed before treated as a real
 edge claim):
+
+**✅ DC-1..DC-6 DEFAULTS ENDORSED by the operator 2026-06-14** as the Sim-stage STARTING OPERATING POINT +
+the tune-over-soak plan (the recommended conservative defaults below are the agreed starting knobs; all stay
+config-overridable and will be tuned as real resolved data accrues). SCOPE (explicit): this endorses the
+PARAMETER VALUES the v2 strategy runs with — it is NOT an edge declaration and NOT a live-capital
+authorization. A DECLARED edge stays I7-gated on the measured result (funding_forecast's CRPS must strictly
+beat all four A2d baselines; the v2 EV gate must be net-positive over real fills across the soak); promotion
+to live capital is a SEPARATE operator action (spec I7 — "never simulate the human"). v2 remains DATA-ONLY /
+Sim until those gates clear. DC-2 + DC-4 were already effectively settled (a numerical choice + an in-lane
+lookup); DC-1/DC-3/DC-5/DC-6 are the substantive knobs (vol estimator, EV thresholds + fee-trap, no-arb
+tolerance, informativeness/staleness) — endorsed at the conservative defaults, to be optimized via CRPS
+(forecasts) + EV/PnL (trades) as the data grows.
 
 **V3+V4+V5 STATUS (2026-06-14): the v2 STRATEGY is COMPLETE (§3.3 A3/A6/A9/A5/A4/A8/A7/A10)** — a new propose-only, Sim-stage,
 DATA-ONLY `fortuna-runner::perp_event_basis_v2` strategy wires the kernel onto live data (A6 BRTI anchor +
@@ -152,12 +166,18 @@ info_max_age_ms 5000, info_adverse_penalty 0.02, info_veto_on_bracket_leads true
 recorded NOT gated — different units), feeding the EV gate conservatively-only (BracketLeads⇒veto,
 Unfavorable⇒+penalty, never up-weight); the model-vs-implied CDF sup-distance + verdict + freshness/spread/depth
 in the V2Eval snapshot + thesis (the §9 data half). All six DC defaults (DC-1..DC-6) are now IMPLEMENTED +
-config-overridable; all stay operator-endorse-before-edge-claim. **What REMAINS for v2 is NOT track-C code**:
+config-overridable; all stay operator-endorse-before-edge-claim. **WIRE-IN DONE 2026-06-14 (operator-directed,
+ADDITIVE+GATED, 0 deletions)**: the `[perp_event_basis_v2]` compose registration (both runner sites), the
+per-segment `resolve_and_score_funding_beliefs` call (sibling of `persist_scalar_beliefs`, `funding_score_id_base`
+threaded), and the `main` funding-poller spawn (host-pinned public GET, watch-cancel on shutdown) all landed —
+ALL gated on `[perp_event_basis_v2]` presence, so a daemon without it is byte-identical (daemon_smoke unchanged);
+the T5.B8 telemetry MetricSample emission also landed (617366f). NOTE: the poller gate is COUPLED to the
+v2-strategy presence (enabling `[perp_event_basis_v2]` enables the funding poller); a separate `[funding_poller]
+enabled` flag is the documented split if v2-without-poller is wanted. **What REMAINS for v2 is NOT track-C code**:
 (a) operator endorsement of the DC defaults before any DECLARED edge (I7), (b) a v2 paired-cycle e2e fixture
 (operator/recorder — BRTI reference_price+ts, a settlement close_at, a mark series/σ; the kernel slices are
-synthetic-green, synthetic ≠ e2e-validated), and (c) the track-A `[perp_event_basis_v2]` compose registration
-(a documented follow-on, like the kernel + the resolve_and_score `drive()` wire) + the T5.B8 telemetry
-MetricSample emission + the track-B ROTA §9.2 display. NO compose.rs wire-in was made here.
+synthetic-green, synthetic ≠ e2e-validated), and (c) the track-B ROTA §9.2 display (prompt handed to the
+operator for track-B).
 - **DC-1 σ source (A3/A5)** — §3.3 says "σ from realized vol of the perp-mark series scaled by √τ" but NO
   perp-mark series is buffered anywhere. NEEDS: the rolling buffer + estimator. (Rec: a bounded N=64
   rolling `settlement_mark` buffer in the strategy state; σ = EWMA(λ=0.94) stddev of log-returns; require

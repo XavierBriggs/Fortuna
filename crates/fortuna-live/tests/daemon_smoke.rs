@@ -847,6 +847,89 @@ async fn compose_runner_composes_perp_strategies_only_when_configured(pool: PgPo
 }
 
 #[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn compose_runner_composes_perp_basis_v2_only_when_configured(pool: PgPool) {
+    // slice-3b-v2 follow-on (the additive, GATED wire-in): a [perp_event_basis_v2]
+    // section (MINIMAL — perp_market + ladder, every DC knob defaulted) composes the
+    // propose-only basis-v2 strategy ALONGSIDE mech_structural (and rung-0 if also
+    // present), NOT veto-enrolled (so no veto mind is required). Its ABSENCE leaves
+    // it out (fail closed) — proving the gate. NON-VACUOUS: WITH the section the
+    // runner BOOTS and strategy_ids contains "perp_event_basis_v2"; WITHOUT it, the
+    // composed set is unchanged (no perp_event_basis_v2 id).
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let full = FortunaConfig::load_file(example_path).unwrap();
+
+    // WITH a MINIMAL [perp_event_basis_v2] (perp_market + a 3-rung ladder, NO knobs
+    // — they default to the DC values): composed, and the runner boots clean.
+    let dcfg_with = DaemonToml::parse(&format!(
+        "{text}\n\
+         [perp_event_basis_v2]\n\
+         perp_market = \"KXBTCPERP\"\n\
+         [perp_event_basis_v2.ladder.\"KXBTC-LO\"]\n\
+         kind = \"less\"\n\
+         cap_dollars = 60000.0\n\
+         [perp_event_basis_v2.ladder.\"KXBTC-MID\"]\n\
+         kind = \"between\"\n\
+         floor_dollars = 60000.0\n\
+         cap_dollars = 70000.0\n\
+         [perp_event_basis_v2.ladder.\"KXBTC-HI\"]\n\
+         kind = \"greater\"\n\
+         floor_dollars = 70000.0\n"
+    ))
+    .unwrap();
+    let runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg_with,
+        t0(),
+        1,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .expect("boots with the v2 basis strategy composed (not veto-enrolled)");
+    let ids: Vec<String> = runner
+        .strategy_ids()
+        .iter()
+        .map(|i| i.to_string())
+        .collect();
+    assert!(
+        ids.iter().any(|i| i == "perp_event_basis_v2"),
+        "[perp_event_basis_v2] present => composed: {ids:?}"
+    );
+    assert!(
+        ids.iter().any(|i| i == "mech_structural"),
+        "mech_structural still composed alongside: {ids:?}"
+    );
+
+    // WITHOUT [perp_event_basis_v2]: not composed (fail closed — the gate).
+    let dcfg_without = DaemonToml::parse(&text).unwrap();
+    let runner2 = compose_runner(
+        pool,
+        &full,
+        &dcfg_without,
+        t0(),
+        2,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .unwrap();
+    let ids2: Vec<String> = runner2
+        .strategy_ids()
+        .iter()
+        .map(|i| i.to_string())
+        .collect();
+    assert!(
+        !ids2.iter().any(|i| i == "perp_event_basis_v2"),
+        "no [perp_event_basis_v2] => not composed: {ids2:?}"
+    );
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
 async fn synthesis_arm_trades_with_ledger_calibration_and_an_injected_mind(pool: PgPool) {
     // T4.1/S5a (the high-value step): the daemon-composed synthesis arm TRADES
     // when [synthesis].category selects a calibration scope the ledger has
