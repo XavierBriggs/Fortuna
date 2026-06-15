@@ -493,6 +493,16 @@ async fn main() -> Result<()> {
     } else {
         None
     };
+    // slice-3b-v2 follow-on: clone the pool for the FUNDING-RATES poller BEFORE it
+    // moves into the halt poller. GATED on `[perp_event_basis_v2]` (the v2 arm
+    // scores funding beliefs, so its presence opts the daemon into FILLING the
+    // funding store the resolve/score loop reads). Absent => None => no clone, no
+    // poller spawn — today's behavior is byte-unchanged.
+    let funding_poll_pool = if dcfg.perp_event_basis_v2.is_some() {
+        Some(pool.clone())
+    } else {
+        None
+    };
     let mut poller = PgHaltPoller::new(pool);
     let loop_cfg = LoopConfig {
         tick_interval_ms: dcfg.daemon.tick_interval_ms,
@@ -554,6 +564,65 @@ async fn main() -> Result<()> {
             )
         }
         _ => (None, None),
+    };
+
+    // slice-3b-v2 follow-on: spawn the FUNDING-RATES poller alongside the trading
+    // loop, GATED on `[perp_event_basis_v2]` (default OFF => byte-unchanged daemon).
+    // It fills `funding_rates_historical` (the public, UNAUTHENTICATED Kinetics GET
+    // — no credential read on this path) so the per-segment resolve/score loop has
+    // realized rates to score against. It is INDEPENDENT of the deterministic
+    // trading cycle: the spawn does NOT block boot, and it STOPS with the daemon via
+    // a `watch` cancel — the paired `watch::Sender` is dropped after `drive()`
+    // returns (a dropped/sent sender ends `run_funding_poller`'s `cancel.changed()`
+    // wait). `KineticsPublicFetch::production()` is host-PINNED (no payload-derived
+    // URL); `on_report` logs each poll's outcome (the structured Slack routing is a
+    // later ops slice — the daemon's existing alert path is segment-bound, so the
+    // poller logs to stderr here, mirroring the ingestion task's eprintln summary).
+    let (funding_poll_cancel, funding_poll_handle) = match funding_poll_pool {
+        Some(fpool) => {
+            // Build the host-pinned public fetch (no credential). A construction
+            // failure (reqwest client build) is a LOUD boot error, not a silent
+            // skip — the operator opted in via [perp_event_basis_v2].
+            let fetch = fortuna_live::funding_poller::KineticsPublicFetch::production()
+                .context("building the funding-rates public fetch")?;
+            let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(());
+            eprintln!(
+                "fortuna-live: funding-rates poller ACTIVE (public Kinetics GET, no creds; \
+                 fills funding_rates_historical for the v2 belief scoring)"
+            );
+            let handle = tokio::spawn(async move {
+                let repo = fortuna_ledger::FundingRatesHistoricalRepo::new(fpool);
+                // The poller's own wall-time clock (it polls past real 8h funding
+                // boundaries); RealClock is the binary's one wall source.
+                let clock = RealClock;
+                fortuna_live::funding_poller::run_funding_poller(
+                    &fetch,
+                    &repo,
+                    &clock,
+                    cancel_rx,
+                    |report: &fortuna_live::funding_poller::FundingPollReport| {
+                        if report.fetch_failed {
+                            eprintln!(
+                                "fortuna-live: funding poll FETCH FAILED: {}",
+                                report.fetch_alert.as_deref().unwrap_or("(no detail)")
+                            );
+                        } else {
+                            eprintln!(
+                                "fortuna-live: funding poll — fetched={} inserted={} \
+                                 skipped_dup={} quarantined={}",
+                                report.fetched,
+                                report.inserted,
+                                report.skipped_dup,
+                                report.quarantined,
+                            );
+                        }
+                    },
+                )
+                .await;
+            });
+            (Some(cancel_tx), Some(handle))
+        }
+        None => (None, None),
     };
 
     let snapshot_for_segments = snapshot.clone();
@@ -643,6 +712,22 @@ async fn main() -> Result<()> {
                 snap.funnel.persisted,
                 snap.sources.len(),
             );
+        }
+    }
+
+    // slice-3b-v2 follow-on: stop the funding-rates poller with the daemon. Sending
+    // on (then dropping) the `watch::Sender` ends `run_funding_poller`'s
+    // `cancel.changed()` wait; the join awaits its clean exit. `None` => the poller
+    // was never spawned (no [perp_event_basis_v2]).
+    if let Some(cancel_tx) = funding_poll_cancel {
+        let _ = cancel_tx.send(());
+        drop(cancel_tx);
+    }
+    if let Some(h) = funding_poll_handle {
+        if let Err(e) = h.await {
+            eprintln!("fortuna-live: funding-rates poller task join error: {e}");
+        } else {
+            eprintln!("fortuna-live: funding-rates poller stopped");
         }
     }
 

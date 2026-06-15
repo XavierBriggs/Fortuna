@@ -18,6 +18,22 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
+- **slice-3b-v2 + A2d follow-on — the daemon WIRE-IN (v2 strategy registration + the funding pipeline live)**
+  (`fortuna-live` compose/boot/daemon/main, ADDITIVE + GATED, **0 deletions**): makes the perp basis-v2 strategy
+  AND the funding resolve/score + poller pipeline LIVE in the daemon. (1) A `[perp_event_basis_v2]` config
+  section + `build_perp_event_basis_v2_config` (mirrors rung-0; `perp_market` + `ladder` required, the 16 DC
+  knobs optional with the DC defaults) + the `Option` field on `DaemonToml`; the strategy is composed at BOTH
+  runner sites, gated on the section's presence. (2) `resolve_and_score_funding_beliefs` is now called PER
+  SEGMENT as a sibling of `persist_scalar_beliefs` (same scalar-pool gate, same alert-never-crash posture; a new
+  `funding_score_id_base` counter threaded EXACTLY like `scalar_belief_id_base`, +5/resolved per the fn
+  contract). (3) The funding-rates poller is spawned in `main` as an independent cancellable task (host-pinned
+  public GET, NO creds), gated on `[perp_event_basis_v2]`, stopped on daemon shutdown via a `watch` cancel.
+  EVERY change is additive (0 deletions) and gated — a daemon WITHOUT `[perp_event_basis_v2]` is BYTE-IDENTICAL
+  to today (the `daemon_smoke` suite passes UNCHANGED). 5 new tests (4 compose-builder + 1 gating). The v2
+  trader stays DATA-ONLY/Sim (I7) — an edge is DECLARED only after operator endorsement of the DC defaults + a
+  v2 e2e fixture. NOTE: the poller gate is coupled to the v2-strategy presence (enabling `[perp_event_basis_v2]`
+  enables the funding poller); a separate `[funding_poller] enabled` flag is the documented split if
+  v2-without-poller is ever wanted.
 - **A2d slice-3 Part 2 — the funding-rates POLLER** (`fortuna-live::funding_poller`, additive): the missing
   piece that FILLS the `funding_rates_historical` store (Part 1 store + Part 3 resolve→score loop are merged;
   production was EMPTY until this — nothing wrote the store outside tests). A PUBLIC-GET, NO-creds, host-pinned

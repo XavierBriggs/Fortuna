@@ -382,6 +382,7 @@ struct RawToml {
     mech_extremes: Option<crate::compose::MechExtremesSection>,
     funding_forecast: Option<crate::compose::FundingForecastSection>,
     perp_event_basis: Option<crate::compose::PerpEventBasisSection>,
+    perp_event_basis_v2: Option<crate::compose::PerpEventBasisV2Section>,
     review: Option<crate::compose::ReviewSection>,
     ingestion: Option<IngestionSection>,
     personas: Option<PersonasSection>,
@@ -415,6 +416,13 @@ pub struct DaemonToml {
     /// the propose-only perp/bracket basis strategy over the config-supplied
     /// ladder. Absent => not composed (fail closed).
     pub perp_event_basis: Option<crate::compose::PerpEventBasisSection>,
+    /// Optional `[perp_event_basis_v2]` opt-in (TRACK C slice-3b-v2). Its PRESENCE
+    /// composes the propose-only perp/bracket BASIS-V2 strategy over the
+    /// config-supplied ladder (the DC σ/horizon/EV knobs are optional, defaulted),
+    /// ALONGSIDE rung-0. Absent => not composed (fail closed). It additionally
+    /// gates the funding-rates POLLER spawn in main (the v2 arm scores funding
+    /// beliefs, so its presence opts the daemon into filling the funding store).
+    pub perp_event_basis_v2: Option<crate::compose::PerpEventBasisV2Section>,
     /// Optional `[review]` opt-in (T4.1/M2). Its PRESENCE composes the weekly/
     /// monthly review cadence (GO/NO-GO thresholds; advisory only, I7). Absent
     /// => no review fires (fail closed).
@@ -464,6 +472,7 @@ impl DaemonToml {
             mech_extremes: raw.mech_extremes,
             funding_forecast: raw.funding_forecast,
             perp_event_basis: raw.perp_event_basis,
+            perp_event_basis_v2: raw.perp_event_basis_v2,
             review: raw.review,
             ingestion: raw.ingestion,
             personas: raw.personas,

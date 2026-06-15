@@ -32,12 +32,18 @@ info_max_age_ms 5000, info_adverse_penalty 0.02, info_veto_on_bracket_leads true
 recorded NOT gated — different units), feeding the EV gate conservatively-only (BracketLeads⇒veto,
 Unfavorable⇒+penalty, never up-weight); the model-vs-implied CDF sup-distance + verdict + freshness/spread/depth
 in the V2Eval snapshot + thesis (the §9 data half). All six DC defaults (DC-1..DC-6) are now IMPLEMENTED +
-config-overridable; all stay operator-endorse-before-edge-claim. **What REMAINS for v2 is NOT track-C code**:
+config-overridable; all stay operator-endorse-before-edge-claim. **WIRE-IN DONE 2026-06-14 (operator-directed,
+ADDITIVE+GATED, 0 deletions)**: the `[perp_event_basis_v2]` compose registration (both runner sites), the
+per-segment `resolve_and_score_funding_beliefs` call (sibling of `persist_scalar_beliefs`, `funding_score_id_base`
+threaded), and the `main` funding-poller spawn (host-pinned public GET, watch-cancel on shutdown) all landed —
+ALL gated on `[perp_event_basis_v2]` presence, so a daemon without it is byte-identical (daemon_smoke unchanged);
+the T5.B8 telemetry MetricSample emission also landed (617366f). NOTE: the poller gate is COUPLED to the
+v2-strategy presence (enabling `[perp_event_basis_v2]` enables the funding poller); a separate `[funding_poller]
+enabled` flag is the documented split if v2-without-poller is wanted. **What REMAINS for v2 is NOT track-C code**:
 (a) operator endorsement of the DC defaults before any DECLARED edge (I7), (b) a v2 paired-cycle e2e fixture
 (operator/recorder — BRTI reference_price+ts, a settlement close_at, a mark series/σ; the kernel slices are
-synthetic-green, synthetic ≠ e2e-validated), and (c) the track-A `[perp_event_basis_v2]` compose registration
-(a documented follow-on, like the kernel + the resolve_and_score `drive()` wire) + the T5.B8 telemetry
-MetricSample emission + the track-B ROTA §9.2 display. NO compose.rs wire-in was made here.
+synthetic-green, synthetic ≠ e2e-validated), and (c) the track-B ROTA §9.2 display (prompt handed to the
+operator for track-B).
 - **DC-1 σ source (A3/A5)** — §3.3 says "σ from realized vol of the perp-mark series scaled by √τ" but NO
   perp-mark series is buffered anywhere. NEEDS: the rolling buffer + estimator. (Rec: a bounded N=64
   rolling `settlement_mark` buffer in the strategy state; σ = EWMA(λ=0.94) stddev of log-returns; require

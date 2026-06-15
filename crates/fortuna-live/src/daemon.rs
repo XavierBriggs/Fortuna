@@ -81,6 +81,7 @@ use fortuna_runner::funding_forecast::FundingForecast;
 use fortuna_runner::mech_extremes::{MechExtremes, MechExtremesConfig};
 use fortuna_runner::mech_structural::{MechStructural, MechStructuralConfig};
 use fortuna_runner::perp_event_basis::PerpEventBasis;
+use fortuna_runner::perp_event_basis_v2::PerpEventBasisV2;
 use fortuna_runner::synthesis::{SynthesisConfig, SynthesisStrategy};
 use fortuna_runner::{RunnerConfig, RunnerError, SimRunner, Stage, Strategy};
 use fortuna_state::MarkPolicy;
@@ -441,6 +442,24 @@ pub async fn compose_runner(
             }
         })?));
     }
+    // slice-3b-v2: the v2 basis strategy, composed ALONGSIDE rung-0 (both coexist;
+    // v2 activates only on coherent inputs, rung-0 is the fallback) and gated on the
+    // PRESENCE of `[perp_event_basis_v2]`. Like rung-0 it is NOT veto-enrolled (it
+    // proposes UNSIZED Sim legs; no veto mind required) and INERT until a PerpTick
+    // producer feeds it. Additive: with no `[perp_event_basis_v2]` this is a no-op
+    // and the composed set is byte-identical to today.
+    if let Some(pebv2) = &dcfg.perp_event_basis_v2 {
+        let cfg = crate::compose::build_perp_event_basis_v2_config(pebv2).map_err(|e| {
+            DaemonError::Compose {
+                reason: format!("perp_event_basis_v2 ladder invalid: {e}"),
+            }
+        })?;
+        strategies.push(Box::new(PerpEventBasisV2::new(cfg).map_err(|e| {
+            DaemonError::Compose {
+                reason: format!("perp_event_basis_v2 rejected its config: {e}"),
+            }
+        })?));
+    }
 
     let envelopes = full
         .envelopes
@@ -762,6 +781,20 @@ pub async fn compose_kalshi_runner_with_transport(
         strategies.push(Box::new(PerpEventBasis::new(cfg).map_err(|e| {
             DaemonError::Compose {
                 reason: format!("perp_event_basis rejected its config: {e}"),
+            }
+        })?));
+    }
+    // slice-3b-v2: the v2 basis strategy, gated on `[perp_event_basis_v2]`,
+    // mirroring compose_runner. Additive: absent => the composed set is unchanged.
+    if let Some(pebv2) = &dcfg.perp_event_basis_v2 {
+        let cfg = crate::compose::build_perp_event_basis_v2_config(pebv2).map_err(|e| {
+            DaemonError::Compose {
+                reason: format!("perp_event_basis_v2 ladder invalid: {e}"),
+            }
+        })?;
+        strategies.push(Box::new(PerpEventBasisV2::new(cfg).map_err(|e| {
+            DaemonError::Compose {
+                reason: format!("perp_event_basis_v2 rejected its config: {e}"),
             }
         })?));
     }
@@ -1379,6 +1412,15 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     // increment keeps them unique within a run). Its OWN counter so the scalar
     // ("01SCB") and binary ("01BLF") id spaces advance independently.
     let mut scalar_belief_id_base = belief_id_base;
+    // slice-3b-v2 follow-on: the FUNDING belief-SCORE id monotonic base, seeded
+    // identically (drive-start epoch — unique across runs; the per-call increment
+    // keeps them unique within a run). Its OWN counter (the "01BSC" score-id space
+    // resolve_and_score_funding_beliefs mints) so it advances independently of the
+    // belief id bases. Advanced by `resolved * 5` per call (five belief_scores legs
+    // — forecast + four A2d baselines — per resolved funding belief, the fn's
+    // contract). Threaded EXACTLY like `scalar_belief_id_base`: a `drive()` local
+    // carried across segments (NOT reset per segment).
+    let mut funding_score_id_base = scalar_belief_id_base;
     // persona-analysis id monotonic base, seeded identically (drive-start epoch —
     // unique across runs; the per-insert increment keeps them unique within a
     // run). Its OWN counter ("01PAN" prefix) so the analysis-id space advances
@@ -1835,6 +1877,25 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                         ),
                     )),
                 }
+            }
+
+            // slice-3b-v2 follow-on: RESOLVE + SCORE due funding beliefs each
+            // segment, a SIBLING of the scalar persist under the SAME `Some(spool)`
+            // gate (it needs the same pool; the funding belief-producer that drafts
+            // them runs on the same scalar path). Mirrors the scalar-persist failure
+            // posture: a failure ALERTS + counts but never crashes the loop (the
+            // belief_scores are the calibration substrate, not the money path). `now`
+            // is the injected clock (a UtcTimestamp, like the `now_iso` line above).
+            // The funding score-id base advances by `resolved * 5` (five legs per
+            // resolved belief — the fn's contract). `None` spool => no funding
+            // producer composed => nothing to resolve (fail closed).
+            let now = Clock::now(runner.clock().as_ref());
+            match resolve_and_score_funding_beliefs(spool, now, funding_score_id_base).await {
+                Ok(resolved) => funding_score_id_base += (resolved as u64) * 5,
+                Err(e) => alerts.push((
+                    fortuna_ops::MessageKind::Ops,
+                    format!("funding belief resolve/score FAILED this segment: {e}"),
+                )),
             }
         }
         // OPT-IN persona-analysis step (default-off; `None` => skipped entirely,
