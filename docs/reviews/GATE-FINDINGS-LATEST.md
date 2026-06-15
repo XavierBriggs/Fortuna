@@ -1,7 +1,8 @@
 # GATE FINDINGS — latest (verifier-owned; every track reads this at priority (a))
 
-State as of 2026-06-14, main @ 8a0f5cf (track-C perp-basis-v2 daemon wire-in + track-A kill-switch perp
-flatten + track-B §9.2 perps board ALL merged GATE ACCEPT — see LATEST;
+State as of 2026-06-14, main @ ec51a48 (C2 I4-revocation @4b6d692 + full doc de-stale sweep @ec51a48
+merged; track-C perp-basis-v2 daemon wire-in + track-A kill-switch perp flatten + track-B §9.2 perps
+board ALL merged GATE ACCEPT — see LATEST;
 prior milestone @0bb6d27: slice-3b-v2 PARTIAL — §2.6 A2b + A2d-slice-1 merged GATE
 ACCEPT, then track-C RALPH-STOPped @f1319ce ("north star met, clean milestone"); ALL FOUR tracks
 are now IDLE/stopped at a clean green milestone — demo-flip in, perp-v2 partly built; the
@@ -73,6 +74,19 @@ deferential to neither the audit nor my prior verdicts.
   Live capital correctly REFUSED at boot (demo-flip). The audit's conservative stance is CORRECT; I endorse it.
 
 ## LATEST (2026-06-14, cont'd — verifier loop pass)
+
+- **✅ C2 — I4 "revoke order-placing capability" MERGED → main @4b6d692 = GATE ACCEPT. The open audit
+  Critical is CLOSED.** The kill switch now REVOKES, not just cancels: a durable `KILLSWITCH_REVOKED`
+  sentinel (sibling of the journal) written by every kill action + a `clear-revocation` CLI verb (operator
+  out-of-band); the runtime's `RevocationHaltPoller` turns a present sentinel into the existing global halt
+  (the loop polls before it ticks ⇒ even a restart boots halted). **fortuna-gates SOURCE untouched** (reuses
+  the halt; I1 unchanged); killswitch stays I4-independent (pure std::fs). Independently re-verified: MUTATION-
+  PROVEN (breaking `RevocationHaltPoller` reds `killswitch_revocation_halts_then_clears_and_survives_restart`;
+  restore greens); FULL invariants crate 0-fail incl. the new ADD-ONLY `i4_killswitch_revocation` (2/0) AND
+  `i4_killswitch_independence` STILL green (108s — revocation did not regress I4 independence); existing i4
+  test EMPTY-DIFF; fmt + scoped clippy `-D warnings` clean; killswitch+live tests 0-fail; DST 0-fail (gate
+  exit 0). Audit C2 → RESOLVED. Remaining audit item: C1 (I5 belief-scoring) — operator spec decision.
+  Docs: full de-stale sweep + new `docs/runbooks/demo-bringup.md` merged @ec51a48.
 
 - **✅ TRACK C — perp basis-v2 DAEMON WIRE-IN + A2d funding pipeline (slice-3b-v2) MERGED → main @8a0f5cf
   = GATE ACCEPT.** Wires the propose-only basis-v2 strategy into compose_runner + compose_kalshi_runner,

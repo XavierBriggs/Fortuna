@@ -8,6 +8,22 @@ concise bullet per logical change; newest-relevant first.
 
 ## [Unreleased]
 
+### Kill switch, I4 & demo bring-up (fortuna-killswitch / fortuna-live / docs, verifier-landed)
+
+#### Added
+- **I4 revocation (audit C2 CLOSED)** — the kill switch now *revokes order-placing capability*, not just
+  cancels: a durable `KILLSWITCH_REVOKED` sentinel + a `clear-revocation` CLI verb, consumed by the runtime's
+  `RevocationHaltPoller` as the existing global halt (boots halted after a restart). fortuna-gates source
+  untouched; killswitch stays I4-independent. New add-only `i4_killswitch_revocation` invariant test;
+  mutation-proven. Merged @4b6d692.
+- **Kill-switch PERP FLATTEN** (spec 5.15) — cancel-all + reduce-only IOC closes through the real
+  `GatedPerpOrder` seal (I1), own Kinetics creds (I4). `perp_i4_flatten_seal` add-only test. Merged @4969f11.
+- **§9.2 perps ROTA board** (read-only: realized funding + A2d edge gate + basis-v2 A10 diagnostics). Merged @788fa8e.
+- **perp basis-v2 daemon wire-in + A2d funding pipeline** — opt-in `[perp_event_basis_v2]`; propose-only/
+  unsized (I6), Sim+demo only (I7). Merged @8a0f5cf.
+- **Docs** — full de-stale sweep (operator + architecture + runbooks + CLI, verified against code) and the new
+  `docs/runbooks/demo-bringup.md` umbrella bring-up runbook. Merged @ec51a48.
+
 ### Cognition belief-pipeline & perps (fortuna-cognition / fortuna-ledger / fortuna-core, Track C)
 
 The `prob_claims/v1` scalar-belief foundation + perp strategies (design
