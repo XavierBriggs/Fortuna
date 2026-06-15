@@ -583,6 +583,57 @@ async fn seed(pool: &PgPool) -> Result<(), BoxErr> {
             .await,
     );
 
+    // §9.2 PERPS — realized funding: a few finalized 8h rates per perp market
+    // (funding_rates_historical) so the /perps funding section renders live rows.
+    for (mkt, ftime, rate, mark) in [
+        ("KXBTCPERP", "2026-06-14T00:00:00Z", 0.0001_f64, "64250.00"),
+        ("KXBTCPERP", "2026-06-14T08:00:00Z", 0.00012_f64, "64310.00"),
+        ("KXETHPERP", "2026-06-14T08:00:00Z", -0.00003_f64, "3420.00"),
+    ] {
+        let r = sqlx::query(
+            "INSERT INTO funding_rates_historical \
+             (market_ticker, funding_time, funding_rate, mark_price, captured_at) \
+             VALUES ($1,$2,$3,$4,'2026-06-14T08:01:00Z')",
+        )
+        .bind(mkt)
+        .bind(ftime)
+        .bind(rate)
+        .bind(mark)
+        .execute(pool)
+        .await;
+        if let Err(e) = r {
+            eprintln!("[rota_local] seed 'funding_rate' skipped: {e}");
+        }
+    }
+    // §9.2 A2d edge gate: the four baseline CRPS scores on the funding_forecast beliefs
+    // (their own crps_pinball is seeded above) — so the Perps edge gate shows the
+    // forecast vs each baseline. Tuned so the forecast (mean crps_pinball ≈ 0.00004)
+    // beats every baseline → beats_all = true in the console.
+    for ff in ["01J0SB00000000000FF1", "01J0SB00000000000FF2"] {
+        for (k, (rule, sc)) in [
+            ("crps_pinball:carry_forward", 0.00009_f64),
+            ("crps_pinball:last_rate", 0.00008_f64),
+            ("crps_pinball:rw_estimate", 0.00007_f64),
+            ("crps_pinball:rw_persistence", 0.00010_f64),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            warn_seed(
+                "baseline.score",
+                scores
+                    .insert(
+                        &format!("{ff}BL{k}"),
+                        ff,
+                        rule,
+                        sc,
+                        "2026-06-13T16:00:02.000Z",
+                    )
+                    .await,
+            );
+        }
+    }
+
     // A few executed fills for the Recent Fills board (raw INSERT — the fills
     // table is a plain append-only row table; the dashboard reads it read-only).
     for (id, market, side, action, price, qty, fee, maker, at) in [
@@ -976,6 +1027,35 @@ fn representative_views(generated_at: &str) -> Value {
                   "created_at": "2026-06-13T15:57:30.000Z" },
             ],
             "summary": { "working": 2 },
+        },
+        // §9.2 perp basis-v2 (A10): the per-perp regime + CDF divergence board. In prod
+        // the daemon shapes this from runner.metrics_export() via
+        // fortuna_live::views::perps_basis_board into views["perps_basis"]; fortuna-ops
+        // can't dep fortuna-live (R2), so this representative mock mirrors that exact
+        // envelope so the /perps basis section renders live rows locally.
+        "perps_basis": {
+            "title": "Perp basis-v2",
+            "generated_at": generated_at,
+            "columns": [
+                { "key": "market", "label": "Market" },
+                { "key": "regime", "label": "Regime", "pill": true },
+                { "key": "active", "label": "Active", "pill": true },
+                { "key": "cdf_divergence", "label": "CDF div (0..2)" },
+                { "key": "sigma_tau", "label": "σ_τ" },
+                { "key": "anchor_dollars", "label": "Anchor $" },
+                { "key": "horizon_ms", "label": "Horizon ms" },
+                { "key": "obs_count", "label": "Obs" },
+                { "key": "anchor_stale", "label": "Anchor" },
+            ],
+            "rows": [
+                { "market": "KXBTCPERP", "regime": "vol_adjusted", "active": "active",
+                  "cdf_divergence": 0.15, "sigma_tau": 0.0025, "anchor_dollars": 64000,
+                  "horizon_ms": 3600000, "obs_count": 120, "anchor_stale": "fresh" },
+                { "market": "KXETHPERP", "regime": "direct", "active": "active",
+                  "cdf_divergence": 0.08, "sigma_tau": 0.0019, "anchor_dollars": 3420,
+                  "horizon_ms": 3600000, "obs_count": 96, "anchor_stale": "fresh" },
+            ],
+            "summary": { "perps": 2 },
         },
         // Telemetry (mission item 6): exercise the REAL MetricsRegistry::telemetry_board
         // shaping with a representative cross-subsystem registry, so the screenshot

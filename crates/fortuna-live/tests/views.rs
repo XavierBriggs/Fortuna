@@ -15,7 +15,7 @@
 //! fakes a field it cannot yet source honestly. Each view was written
 //! red-first against a `views_from` that did not yet emit it.
 
-use fortuna_live::views::{merge_ingest_views, views_from};
+use fortuna_live::views::{merge_ingest_views, perps_basis_board, views_from};
 use fortuna_runner::{AuditSink, RunnerError, SimRunner};
 use fortuna_sources::{
     FunnelCounts, IngestionTelemetry, SignalRecord, SourceTelemetry, TickTelemetry,
@@ -662,4 +662,109 @@ fn merge_ingest_views_is_inert_when_ingestion_never_ticked() {
     assert!(views.get("ingest_feed").is_none(), "{views}");
     assert!(views.get("ingest_funnel").is_none(), "{views}");
     assert_eq!(views["health"]["x"], 1, "existing views untouched: {views}");
+}
+
+// §9.2 perp basis-v2 (A10): perps_basis_board shapes the runner's STRUCTURED metric
+// samples (integer-valued, market=/regime= labels) into the per-perp board — the
+// regime one-hot, the ÷10_000 / ÷1_000_000 scaling, active/stale flags. Non-basis
+// samples are ignored; an absent metric is a null cell.
+#[test]
+fn perps_basis_board_shapes_basis_v2_samples_per_market() {
+    use fortuna_runner::MetricSample;
+    let g = |name: &'static str, labels: Vec<(&str, &str)>, value: i64| MetricSample {
+        name,
+        help: "",
+        counter: false,
+        labels: labels
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+        value,
+    };
+    let samples = vec![
+        g(
+            "fortuna_perp_basis_v2_active",
+            vec![("market", "KXBTCPERP")],
+            1,
+        ),
+        g(
+            "fortuna_perp_basis_v2_cdf_divergence_tenthou",
+            vec![("market", "KXBTCPERP")],
+            1500,
+        ),
+        g(
+            "fortuna_perp_basis_v2_sigma_tau_micro",
+            vec![("market", "KXBTCPERP")],
+            2500,
+        ),
+        g(
+            "fortuna_perp_basis_v2_anchor_dollars",
+            vec![("market", "KXBTCPERP")],
+            64000,
+        ),
+        g(
+            "fortuna_perp_basis_v2_horizon_ms",
+            vec![("market", "KXBTCPERP")],
+            3_600_000,
+        ),
+        g(
+            "fortuna_perp_basis_v2_obs_count",
+            vec![("market", "KXBTCPERP")],
+            120,
+        ),
+        g(
+            "fortuna_perp_basis_v2_anchor_stale",
+            vec![("market", "KXBTCPERP")],
+            0,
+        ),
+        // one-hot regime: vol_adjusted is the ACTIVE one (value 1); direct is 0.
+        g(
+            "fortuna_perp_basis_v2_regime",
+            vec![("market", "KXBTCPERP"), ("regime", "vol_adjusted")],
+            1,
+        ),
+        g(
+            "fortuna_perp_basis_v2_regime",
+            vec![("market", "KXBTCPERP"), ("regime", "direct")],
+            0,
+        ),
+        // a NON-basis sample → must be ignored by the shaper.
+        g("fortuna_runner_ticks_total", vec![], 99),
+    ];
+    let b = perps_basis_board(&samples, "2026-06-14T12:00:00.000Z");
+    let rows = b["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 1, "one perp market: {b}");
+    assert_eq!(b["summary"]["perps"], 1);
+    let r = &rows[0];
+    assert_eq!(r["market"], "KXBTCPERP");
+    assert_eq!(
+        r["regime"], "vol_adjusted",
+        "the one-hot regime (value==1): {b}"
+    );
+    assert_eq!(r["active"], "active");
+    assert!(
+        (r["cdf_divergence"].as_f64().unwrap() - 0.15).abs() < 1e-9,
+        "cdf_divergence_tenthou ÷10_000: {b}"
+    );
+    assert!(
+        (r["sigma_tau"].as_f64().unwrap() - 0.0025).abs() < 1e-9,
+        "sigma_tau_micro ÷1_000_000: {b}"
+    );
+    assert_eq!(r["anchor_dollars"], 64000);
+    assert_eq!(r["obs_count"], 120);
+    assert_eq!(r["anchor_stale"], "fresh");
+}
+
+// Honest-empty: no basis-v2 samples (no perp active) → zero rows, never a fabricated
+// perp. (Daemon-side: views_from always emits views["perps_basis"]; an idle daemon
+// shows an empty board, not a missing one.)
+#[test]
+fn perps_basis_board_is_honest_empty_with_no_samples() {
+    let b = perps_basis_board(&[], "2026-06-14T12:00:00.000Z");
+    assert_eq!(
+        b["rows"].as_array().unwrap().len(),
+        0,
+        "no perps -> empty: {b}"
+    );
+    assert_eq!(b["summary"]["perps"], 0);
 }

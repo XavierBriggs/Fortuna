@@ -66,7 +66,7 @@ async fn serve() -> (String, tokio::task::JoinHandle<()>) {
     (format!("http://{addr}"), handle)
 }
 
-const PATHS: [&str; 27] = [
+const PATHS: [&str; 28] = [
     "/rota",
     "/favicon.ico",
     "/assets/rota/logo.svg",
@@ -91,6 +91,7 @@ const PATHS: [&str; 27] = [
     "/api/rota/v1/analyses",
     "/api/rota/v1/forecasts",
     "/api/rota/v1/forecast_feed",
+    "/api/rota/v1/perps",
     "/api/rota/v1/db",
     "/api/rota/v1/telemetry",
     "/api/rota/v1/audit",
@@ -2860,4 +2861,204 @@ async fn persona_pipeline_funnels_analyses_beliefs_resolved_per_persona(pool: sq
     assert_eq!(j["summary"]["analyses"], 2);
     assert_eq!(j["summary"]["beliefs"], 3);
     assert_eq!(j["summary"]["resolved"], 2);
+}
+
+// Seed a resolved funding_forecast belief scored by the forecast rule (crps_pinball)
+// + the four baselines (crps_pinball:<name>). Helper for the §9.2 edge-gate tests.
+#[cfg(test)]
+async fn seed_funding_forecast_scores(
+    pool: &sqlx::PgPool,
+    belief_id: &str,
+    scores: &[(&str, f64)],
+) {
+    use fortuna_ledger::{BeliefScoresRepo, ScalarBeliefsRepo};
+    let sb = ScalarBeliefsRepo::new(pool.clone());
+    sb.insert(
+        belief_id,
+        "funding_forecast",
+        "KXBTCPERP1:2026-06-14T08:00:00Z",
+        &serde_json::json!([{"q":0.1,"v":0.00005},{"q":0.5,"v":0.0001},{"q":0.9,"v":0.00018}]),
+        "rate",
+        "2026-06-14T08:00:00.000Z",
+        &serde_json::json!({"provenance": {}, "evidence": {}}),
+        "2026-06-14T00:00:00.000Z",
+    )
+    .await
+    .unwrap();
+    sb.resolve(belief_id, 0.00011, "2026-06-14T08:00:01.000Z")
+        .await
+        .unwrap();
+    let repo = BeliefScoresRepo::new(pool.clone());
+    for (i, (rule, score)) in scores.iter().enumerate() {
+        repo.insert(
+            &format!("{belief_id}SC{i:02}"),
+            belief_id,
+            rule,
+            *score,
+            "2026-06-14T08:00:02.000Z",
+        )
+        .await
+        .unwrap();
+    }
+}
+
+// §9.2 Perps board (DISPLAY half): composite of realized-funding + the §2.6 A2d edge
+// gate + the (daemon-shaped) basis section. POPULATED-path — seeds
+// funding_rates_historical rows + a resolved funding_forecast belief scored by the
+// forecast rule and the four baselines where the forecast BEATS ALL. Asserts the
+// funding section (rows/markets/ordering/percent), the edge-gate side-by-side +
+// beats_all=true, and the basis section honest-unavailable (no perps_basis view here).
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn perps_board_shows_funding_and_the_a2d_edge_gate(pool: sqlx::PgPool) {
+    // Realized funding: two markets, three finalized 8h rates.
+    for (mkt, ftime, rate, mark) in [
+        ("KXBTCPERP", "2026-06-14T00:00:00Z", 0.0001f64, "64250.00"),
+        ("KXBTCPERP", "2026-06-14T08:00:00Z", 0.00012f64, "64310.00"),
+        ("KXETHPERP", "2026-06-14T08:00:00Z", -0.00003f64, "3420.00"),
+    ] {
+        sqlx::query(
+            "INSERT INTO funding_rates_historical \
+             (market_ticker, funding_time, funding_rate, mark_price, captured_at) \
+             VALUES ($1,$2,$3,$4,'2026-06-14T08:01:00Z')",
+        )
+        .bind(mkt)
+        .bind(ftime)
+        .bind(rate)
+        .bind(mark)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    // forecast (crps_pinball 0.00003) strictly beats every baseline.
+    seed_funding_forecast_scores(
+        &pool,
+        "01PERPSFFWIN0000000000001",
+        &[
+            ("crps_pinball", 0.00003),
+            ("crps_pinball:carry_forward", 0.00005),
+            ("crps_pinball:last_rate", 0.00006),
+            ("crps_pinball:rw_estimate", 0.00007),
+            ("crps_pinball:rw_persistence", 0.00008),
+        ],
+    )
+    .await;
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+        reviews_dir: None,
+    };
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/perps"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    // Section 1 — realized funding: 3 rows, 2 markets, newest funding_time first.
+    let f = &j["funding"];
+    assert_eq!(
+        f["rows"].as_array().unwrap().len(),
+        3,
+        "all realized rates: {j}"
+    );
+    assert_eq!(f["summary"]["markets"], 2);
+    assert_eq!(
+        f["rows"][0]["funding_time"], "2026-06-14T08:00:00Z",
+        "newest-first: {j}"
+    );
+    let r00 = f["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["funding_time"] == "2026-06-14T00:00:00Z")
+        .unwrap();
+    assert!(
+        (r00["funding_rate_pct"].as_f64().unwrap() - 0.01).abs() < 1e-9,
+        "0.0001 fraction -> 0.01%: {j}"
+    );
+    assert_eq!(r00["mark_price"], "64250.00", "mark price verbatim: {j}");
+
+    // Section 2 — the §2.6 A2d edge gate: four baselines, forecast beats all.
+    let eg = &j["edge_gate"];
+    assert_eq!(
+        eg["rows"].as_array().unwrap().len(),
+        4,
+        "four baselines: {j}"
+    );
+    assert!((eg["summary"]["forecast_crps"].as_f64().unwrap() - 0.00003).abs() < 1e-9);
+    assert_eq!(
+        eg["summary"]["beats_all"], true,
+        "forecast strictly beats every baseline: {j}"
+    );
+    let cf = eg["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["baseline"] == "carry_forward")
+        .unwrap();
+    assert!((cf["baseline_crps"].as_f64().unwrap() - 0.00005).abs() < 1e-9);
+    assert!((cf["forecast_crps"].as_f64().unwrap() - 0.00003).abs() < 1e-9);
+    assert_eq!(cf["beats"], true, "forecast beats carry_forward: {j}");
+
+    // Section 3 — basis: honest-unavailable (daemon-shaped view absent in this snapshot).
+    assert_eq!(
+        j["basis"]["status"], "unavailable",
+        "basis is daemon-shaped (views[perps_basis]); absent here, never fabricated: {j}"
+    );
+}
+
+// §2.6 A2d edge-gate SAFETY: beats_all is FALSE when any baseline beats the forecast —
+// the gate must never falsely claim an edge. Forecast CRPS 0.00007 loses to the
+// last_rate baseline (0.00005); beats_all = false, and that baseline's row beats=false.
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn perps_edge_gate_beats_all_is_false_when_a_baseline_wins(pool: sqlx::PgPool) {
+    seed_funding_forecast_scores(
+        &pool,
+        "01PERPSFFLOSE000000000001",
+        &[
+            ("crps_pinball", 0.00007),
+            ("crps_pinball:carry_forward", 0.00009),
+            ("crps_pinball:last_rate", 0.00005), // a baseline BEATS the forecast.
+            ("crps_pinball:rw_estimate", 0.00008),
+            ("crps_pinball:rw_persistence", 0.00010),
+        ],
+    )
+    .await;
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+        reviews_dir: None,
+    };
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let j: serde_json::Value = reqwest::get(format!("http://{addr}/api/rota/v1/perps"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let eg = &j["edge_gate"];
+    assert_eq!(
+        eg["summary"]["beats_all"], false,
+        "the gate must NOT claim an edge when a baseline wins: {j}"
+    );
+    let lr = eg["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["baseline"] == "last_rate")
+        .unwrap();
+    assert_eq!(lr["beats"], false, "forecast does NOT beat last_rate: {j}");
 }
