@@ -21,12 +21,33 @@ use fortuna_live::daemon::{
     default_degrade_thresholds, drive, mind_from_env, triage_from_env, ActiveRunner, PgHaltPoller,
     SYNTH_MIND_TIMEOUT_SECS,
 };
-use fortuna_live::run_loop::{LoopConfig, RealCadence};
+use fortuna_live::run_loop::{HaltPoller, LoopConfig, RealCadence, RevocationHaltPoller};
 use fortuna_ops::dashboard::{serve_dashboard, DashboardSnapshot};
 use fortuna_ops::FortunaConfig;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+
+/// The halt poller `drive()` runs, chosen at boot from `[killswitch]`. A single
+/// dispatch type keeps the (large) `drive()` call site ONE call regardless of
+/// whether I4 revocation is wired: `Pg` is the durable HaltsRepo poller exactly
+/// as before (byte-identical when `[killswitch].revocation_file` is absent),
+/// `Revoked` layers the `RevocationHaltPoller` over it (a kill sentinel halts
+/// every order; open audit C2 / I4 spec.md:43). The wrap is the ONLY difference
+/// in the configured case — the inner poll path is unchanged.
+enum BootHaltPoller {
+    Pg(PgHaltPoller),
+    Revoked(RevocationHaltPoller<PgHaltPoller>),
+}
+
+impl HaltPoller for BootHaltPoller {
+    async fn poll(&mut self) -> Result<Option<String>, String> {
+        match self {
+            BootHaltPoller::Pg(p) => p.poll().await,
+            BootHaltPoller::Revoked(p) => p.poll().await,
+        }
+    }
+}
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
@@ -530,7 +551,29 @@ async fn main() -> Result<()> {
     };
     // Clone (not move) so `pool` survives for the daily belief-resolution arg below
     // (merge: main's resolver arg at the drive() call needs `pool` after this).
-    let mut poller = PgHaltPoller::new(pool.clone());
+    // I4 revocation (open audit C2): when `[killswitch].revocation_file` is set,
+    // WRAP the durable HaltsRepo poller in a RevocationHaltPoller over that
+    // sentinel path so the standalone kill switch's KILLSWITCH_REVOKED file
+    // halts EVERY order before the first tick (the loop polls before it ticks,
+    // covering "boots revoked"). Absent => no wrap (byte-identical to today).
+    let pg_poller = PgHaltPoller::new(pool.clone());
+    let mut poller = match dcfg
+        .killswitch
+        .as_ref()
+        .and_then(|k| k.revocation_file.clone())
+    {
+        Some(path) => {
+            eprintln!(
+                "fortuna-live: I4 revocation ACTIVE — watching kill sentinel {path:?} \
+                 (a kill REVOKES order placement until cleared + restarted)"
+            );
+            BootHaltPoller::Revoked(RevocationHaltPoller {
+                revocation_file: std::path::PathBuf::from(path),
+                inner: pg_poller,
+            })
+        }
+        None => BootHaltPoller::Pg(pg_poller),
+    };
     let loop_cfg = LoopConfig {
         tick_interval_ms: dcfg.daemon.tick_interval_ms,
         halt_poll_ms: dcfg.daemon.halt_poll_ms,

@@ -1678,6 +1678,35 @@ crates/fortuna-venues/tests/kalshi_doc_samples/ are NOT recordings.
   (`FORTUNA_KILLSWITCH_GATE_CONFIG_PATH`, fail-closed), a one-shot current-thread
   runtime — no Postgres, no cognition, no event loop. (Pinned by
   fortuna-invariants `perp_i4_flatten_seal.rs` + fortuna-killswitch `flatten.rs`.)
+- **I4 "revoke order-placing capability" is a FILE-SENTINEL revocation (open
+  audit C2; spec.md:43).** The switch's freeze AND flatten verbs, after
+  cancelling, WRITE a durable kill sentinel — `KILLSWITCH_REVOKED`, a sibling of
+  the `--journal` path (`revocation_path()`), one fsync'd JSON line `{revoked_at,
+  by}`, idempotent. The runtime CONSUMES it: `fortuna-live`'s
+  `RevocationHaltPoller` (composed OVER the durable `PgHaltPoller`) reports the
+  sentinel's presence as a Global halt on EVERY poll, before any tick — so a kill
+  revokes FUTURE placement, not just resting orders, and a daemon that BOOTS with
+  the sentinel present halts on its first poll ("boots revoked"). Reading the
+  sentinel is std::fs only (no Postgres/cognition/event-loop), so the kill path's
+  effect survives the durable store being down — I4 independence holds (the
+  killswitch's OWN dep graph is unchanged; `fortuna-live` depends on
+  `fortuna-killswitch`, a one-way consumer edge the i4-independence dep-walk does
+  not inspect). DESIGN ASSUMPTION (operator-load-bearing): the daemon's
+  `[killswitch].revocation_file` MUST equal the killswitch's
+  `revocation_path(<journal>)` — they are SEPARATE processes that share only this
+  agreed path; a mismatch means the daemon watches a sentinel the switch never
+  writes (the kill still cancels + revokes via the switch's own file, but the
+  daemon would not halt on it). Re-arm is CLI-only + restart-gated (spec Section
+  8 + I2): `fortuna-killswitch clear-revocation --journal <path>` removes the
+  sentinel (no venue, no creds — idempotent), and the operator then RESTARTS the
+  daemon (the running daemon never auto-clears a halt; "no automatic
+  resumption"). FUTURE HARDENING (ledgered, not built): a file sentinel revokes
+  the FORTUNA runtime's placement, not the venue-side API key — true
+  capability revocation would additionally rotate/disable the trading credential
+  at the venue. That is a venue-API + secret-rotation item, out of scope for the
+  in-process halt. (Pinned by fortuna-invariants `i4_killswitch_revocation.rs` +
+  fortuna-live `revocation_poller.rs`; existing `i4_killswitch_independence.rs`
+  untouched.)
 - **The operator CLI is its own crate (fortuna-cli, binary `fortuna`)**
   because halt/re-arm persistence needs the ledger while ops/killswitch
   stay lighter. halt/rearm write durable halt_events + an audit row with

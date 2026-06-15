@@ -67,6 +67,43 @@ pub trait HaltPoller {
     fn poll(&mut self) -> impl std::future::Future<Output = Result<Option<String>, String>> + Send;
 }
 
+/// I4 REVOCATION (open audit C2): a composable `HaltPoller` wrapper that turns
+/// the standalone kill switch's durable kill sentinel into a GLOBAL halt before
+/// any order. Spec I4 (spec.md:43) requires the kill path to "revoke
+/// order-placing capability"; the killswitch WRITES `KILLSWITCH_REVOKED`
+/// (sibling of its journal), and this wrapper — layered OVER the durable
+/// `PgHaltPoller` — reports that revocation as a standing halt on EVERY poll
+/// while the sentinel exists.
+///
+/// The loop polls BEFORE it ticks, so a present sentinel halts the gate before
+/// the first order — including the first poll after a RESTART ("boots revoked").
+/// Reading the sentinel is std::fs only (no Postgres, no cognition), so the I4
+/// kill path's effect is honored even with the durable store degraded. Re-arm is
+/// out-of-band and restart-gated: the operator clears the sentinel
+/// (`fortuna-killswitch clear-revocation`) AND restarts (I2: no automatic
+/// resumption) — a cleared sentinel makes this wrapper delegate to `inner` again.
+pub struct RevocationHaltPoller<P: HaltPoller> {
+    pub revocation_file: std::path::PathBuf,
+    pub inner: P,
+}
+
+// `P: Send` is required because `HaltPoller::poll` returns a `Send` future and
+// the wrapper holds `&mut self` (and thus `&mut P`) across the `inner.poll()`
+// await; it does not change the trait contract — every real poller (PgHaltPoller,
+// the scripted test pollers) is already `Send`.
+impl<P: HaltPoller + Send> HaltPoller for RevocationHaltPoller<P> {
+    async fn poll(&mut self) -> Result<Option<String>, String> {
+        if fortuna_killswitch::is_revoked(&self.revocation_file) {
+            return Ok(Some(
+                "killswitch revocation: order-placing capability revoked (I4) — clear the \
+                 sentinel and restart to re-arm"
+                    .to_string(),
+            ));
+        }
+        self.inner.poll().await
+    }
+}
+
 /// Drive the composed runner: poll halts every wake, tick when due.
 /// `max_wakes` bounds the loop (tests and the DST smoke); the daemon
 /// passes a large bound per run-segment and re-enters.

@@ -9,12 +9,15 @@ The operator's independent audit surfaced two invariant-COMPLETENESS gaps that p
 Full reconciliation + routing on the bus (GATE-FINDINGS-LATEST.md, "SYSTEM-LEVEL INVARIANT AUDIT"). Both
 are OPERATOR/track-actionable; neither is a current live-capital risk (live REFUSED at boot, demo/paper only).
 
-1. **I4 revocation gap (real; HARD I7 blocker for live).** Spec I4 (spec.md:43) requires the kill path to
-   "revoke order-placing capability." fortuna-killswitch cancels open orders but writes no durable kill
-   sentinel, and nothing in gates/exec consumes one to refuse FUTURE placement. UNBLOCK (build): killswitch
-   writes a durable kill sentinel to its own flat-file store; runtime boot + gate pipeline read it and refuse
-   all orders while set; clearable CLI-only. ADD a new invariant test for revocation (additions-only — do NOT
-   modify i4_killswitch_independence.rs). Owner: track holding fortuna-killswitch + fortuna-gates boot.
+1. **I4 revocation gap — RESOLVED 2026-06-14.** The killswitch's freeze + flatten verbs now WRITE a durable
+   kill sentinel (`KILLSWITCH_REVOKED`, sibling of `--journal`; std::fs only, I4-independent), and
+   fortuna-live's `RevocationHaltPoller` (over the durable `PgHaltPoller`) reports its presence as a Global
+   halt on every poll — before any tick, so future placement is revoked and a daemon "boots revoked". Re-arm
+   is CLI-only + restart-gated (`fortuna-killswitch clear-revocation`; spec Section 8 + I2). New invariant test
+   `fortuna-invariants/tests/i4_killswitch_revocation.rs` (additions-only; `i4_killswitch_independence.rs`
+   untouched) + behavioral `fortuna-live/tests/revocation_poller.rs`. Operator action to ACTIVATE: set
+   `[killswitch].revocation_file` = the killswitch's `revocation_path(<journal>)` (ASSUMPTIONS.md). Residual
+   future hardening (ledgered, not a blocker): venue-side API-key revocation in addition to the in-process halt.
 
 2. **I5 belief-scoring spec tension (operator DECISION, not a bug).** `resolve_and_score` updates beliefs in
    place (status/outcome/brier/clv_bps, set-once via WHERE outcome IS NULL), guarded by `fortuna_beliefs_guard`

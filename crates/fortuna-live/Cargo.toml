@@ -9,6 +9,12 @@ fortuna-core = { path = "../fortuna-core" }
 fortuna-cognition = { path = "../fortuna-cognition" }
 fortuna-exec = { path = "../fortuna-exec" }
 fortuna-gates = { path = "../fortuna-gates" }
+# I4 revocation sentinel (C2): fortuna-live CONSUMES the kill sentinel the
+# standalone killswitch writes (RevocationHaltPoller in run_loop.rs). This is a
+# one-way edge — fortuna-live -> fortuna-killswitch — and does NOT touch the
+# killswitch's OWN dependency graph (the i4_killswitch_independence dep-walk
+# inspects fortuna-killswitch's normal deps, not its consumers).
+fortuna-killswitch = { path = "../fortuna-killswitch" }
 fortuna-ledger = { path = "../fortuna-ledger" }
 fortuna-ops = { path = "../fortuna-ops" }
 fortuna-runner = { path = "../fortuna-runner" }

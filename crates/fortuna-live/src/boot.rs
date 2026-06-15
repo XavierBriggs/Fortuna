@@ -239,6 +239,24 @@ pub struct SimSection {
     pub bracket_sets: Vec<Vec<String>>,
 }
 
+/// The `[killswitch]` section (I4 revocation, open audit C2; default-OFF). When
+/// `revocation_file` is set, the daemon wraps its `PgHaltPoller` in a
+/// `RevocationHaltPoller` over that path: a kill sentinel WRITTEN by the
+/// standalone `fortuna-killswitch` (the `KILLSWITCH_REVOKED` sibling of its
+/// `--journal`) becomes a global halt that refuses FUTURE order placement until
+/// the operator clears it out-of-band and RESTARTS (I2). Absent => no wrap (the
+/// daemon is byte-identical to today — fail closed). The path is the OPERATOR's
+/// responsibility to keep equal to the killswitch's sentinel path (ASSUMPTIONS).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KillswitchSection {
+    /// Filesystem path of the kill sentinel to watch. MUST equal the
+    /// `KILLSWITCH_REVOKED` sibling of the killswitch `--journal` path (i.e.
+    /// `revocation_path(<journal>)`). Absent => the daemon does not watch any
+    /// sentinel (the revocation poller is not wired).
+    pub revocation_file: Option<String>,
+}
+
 /// The `[ingestion]` section (D10, opt-in, default OFF). Its PRESENCE with
 /// `enabled = true` spawns the news-aggregation ingestion loop alongside the
 /// trading daemon (the Layer-1 validator runs live on the ingest path). Absent
@@ -377,6 +395,7 @@ struct RawToml {
     daemon: Option<DaemonSection>,
     cognition: Option<CognitionSection>,
     sim: Option<SimSection>,
+    killswitch: Option<KillswitchSection>,
     kalshi: Option<KalshiSection>,
     synthesis: Option<crate::compose::SynthesisSection>,
     mech_extremes: Option<crate::compose::MechExtremesSection>,
@@ -395,6 +414,11 @@ pub struct DaemonToml {
     pub daemon: DaemonSection,
     pub cognition: CognitionSection,
     pub sim: Option<SimSection>,
+    /// Optional `[killswitch]` (I4 revocation, open audit C2; default-OFF).
+    /// `revocation_file` set => the daemon wraps its halt poller in a
+    /// `RevocationHaltPoller` over that sentinel path (a kill REVOKES future
+    /// order placement). Absent / unset => no wrap (byte-identical to today).
+    pub killswitch: Option<KillswitchSection>,
     /// Optional `[kalshi]` section (demo-flip Phase 2). REQUIRED (non-empty
     /// `series`) when `venue = "kalshi", stage = "paper"`; absent/empty for the
     /// Sim daemon. Carries the demo trading universe + bracket arb world; the
@@ -467,6 +491,7 @@ impl DaemonToml {
             daemon,
             cognition,
             sim: raw.sim,
+            killswitch: raw.killswitch,
             kalshi: raw.kalshi,
             synthesis: raw.synthesis,
             mech_extremes: raw.mech_extremes,
@@ -662,6 +687,41 @@ per_cycle_budget_cents = 50
 [sim]
 bracket_sets = [["SIM-BKT-LO", "SIM-BKT-MID", "SIM-BKT-HI"]]
 "#;
+
+    #[test]
+    fn config_without_killswitch_section_parses_to_none_and_boots() {
+        // Omitting [killswitch] entirely => killswitch == None (the daemon is
+        // byte-identical to today; the revocation poller is not wired).
+        let dcfg = DaemonToml::parse(BOOTABLE_BASE).expect("base config parses");
+        assert!(
+            dcfg.killswitch.is_none(),
+            "no [killswitch] section => killswitch is None (default-off)"
+        );
+        dcfg.validate_bootable()
+            .expect("a config with no [killswitch] boots");
+    }
+
+    #[test]
+    fn killswitch_revocation_file_parses() {
+        // A [killswitch] with revocation_file set => the daemon wraps its halt
+        // poller. The value round-trips so a misspelled key is caught here, not
+        // silently dropped (deny_unknown_fields on the section).
+        let text = format!(
+            "{BOOTABLE_BASE}\n\
+             [killswitch]\n\
+             revocation_file = \"/var/run/fortuna/KILLSWITCH_REVOKED\"\n"
+        );
+        let dcfg = DaemonToml::parse(&text).expect("parses");
+        assert_eq!(
+            dcfg.killswitch
+                .as_ref()
+                .and_then(|k| k.revocation_file.as_deref()),
+            Some("/var/run/fortuna/KILLSWITCH_REVOKED"),
+            "revocation_file round-trips for the main wiring to read"
+        );
+        dcfg.validate_bootable()
+            .expect("a config with [killswitch].revocation_file boots");
+    }
 
     #[test]
     fn config_without_personas_section_parses_to_none_and_boots() {

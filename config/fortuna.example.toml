@@ -134,6 +134,23 @@ metrics_bind = "127.0.0.1:9187"   # GET-only Prometheus; wider exposure is opera
 [sim]                      # the Sim venue's market world (venue = "sim" requires it)
 bracket_sets = [["SIM-BKT-LO", "SIM-BKT-MID", "SIM-BKT-HI"]]
 
+# I4 revocation (spec.md:43 "revoke order-placing capability"; open audit C2).
+# When set, the daemon watches a durable kill sentinel WRITTEN by the standalone
+# `fortuna-killswitch` (its freeze / flatten-perps verbs write it after cancelling)
+# and treats its PRESENCE as a global halt that refuses FUTURE order placement.
+# Re-arm is out-of-band + restart-gated (I2): the operator runs
+# `fortuna-killswitch clear-revocation --journal <path>` AND restarts the daemon.
+#
+# revocation_file MUST equal the KILLSWITCH_REVOKED sibling of the killswitch
+# --journal path — i.e. if you run the switch with `--journal
+# /var/run/fortuna/killswitch.jsonl`, the sentinel is
+# /var/run/fortuna/KILLSWITCH_REVOKED and that is the value below. Keeping the
+# two paths consistent is the OPERATOR's responsibility (the daemon and the
+# switch are separate processes; see ASSUMPTIONS.md). Absent => the daemon does
+# not watch any sentinel (byte-identical to today — fail closed). Uncomment to wire.
+# [killswitch]
+# revocation_file = "/var/run/fortuna/KILLSWITCH_REVOKED"
+
 # The Kalshi DEMO arb world (demo-flip Phase 2). Uncomment + set venue = "kalshi"
 # and stage = "paper" above to run the daemon against the Kalshi demo (mock funds,
 # real venue). REQUIRED then: a non-empty `series` (the trading universe markets

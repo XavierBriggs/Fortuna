@@ -41,7 +41,7 @@ use fortuna_venues::{Venue, VenueError};
 use serde::Serialize;
 use std::collections::BTreeSet;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -179,6 +179,75 @@ fn journal_line(path: &Path, value: &serde_json::Value) -> Result<(), KillSwitch
     file.write_all(b"\n")?;
     file.sync_all()?;
     Ok(())
+}
+
+// ===========================================================================
+// I4 REVOCATION SENTINEL (open audit C2 / GAPS "I4 revocation gap").
+//
+// Spec I4 (spec.md:43) requires the kill path to "flatten or freeze all
+// positions AND revoke order-placing capability". The freeze/flatten paths
+// above cancel resting risk; these functions add the SECOND half — a DURABLE
+// kill sentinel the switch WRITES and the runtime CONSUMES as a global halt
+// that blocks FUTURE order placement until the operator clears it out-of-band.
+//
+// INDEPENDENCE PRESERVED: std::fs only — no Postgres, no cognition, no event
+// loop (the same flat-file posture as `journal_line`; spec Principle 9
+// exception). The sentinel is a sibling of the journal so the operator manages
+// ONE directory. Consumption lives in fortuna-live's RevocationHaltPoller
+// (which polls BEFORE every tick), so a present sentinel halts the gate before
+// any order — including the first poll after a restart ("boots revoked").
+// ===========================================================================
+
+/// The kill-sentinel path: a sibling of the journal named `KILLSWITCH_REVOKED`.
+/// A journal with no parent (a bare filename) sits in the current directory, so
+/// the sentinel does too — `unwrap_or`, NEVER `unwrap()` (no panic on a path).
+pub fn revocation_path(journal: &Path) -> PathBuf {
+    journal
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join("KILLSWITCH_REVOKED")
+}
+
+/// WRITE the revocation sentinel: create + truncate + fsync ONE JSON line
+/// `{"revoked_at": <iso8601>, "by": <verb>}`. Idempotent — a kill that fires
+/// twice simply re-truncates to a fresh line (the file's PRESENCE is the halt;
+/// its contents are the audit trail of who revoked and when). fsync so the
+/// halt survives a crash the instant the switch returns (durable revocation).
+pub fn write_revocation(path: &Path, clock: &dyn Clock, by: &str) -> Result<(), KillSwitchError> {
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(path)?;
+    let line = serde_json::to_string(&serde_json::json!({
+        "revoked_at": clock.now().to_iso8601(),
+        "by": by,
+    }))?;
+    file.write_all(line.as_bytes())?;
+    file.write_all(b"\n")?;
+    file.sync_all()?;
+    Ok(())
+}
+
+/// CLEAR the revocation sentinel — the operator's out-of-band re-arm
+/// prerequisite (spec Section 8: kill-switch reversal is CLI-only). Idempotent:
+/// a missing file is `Ok(())` (clearing an already-clear state succeeds), so the
+/// operator can run it safely whether or not a kill fired.
+pub fn clear_revocation(path: &Path) -> Result<(), KillSwitchError> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(KillSwitchError::Journal(e)),
+    }
+}
+
+/// Is order-placing capability revoked? The sentinel's PRESENCE is the halt —
+/// a read-only check the runtime poller makes before every tick. Deliberately
+/// total (no error): an unreadable parent dir reports "not revoked", but the
+/// poller is layered OVER the durable PgHaltPoller, so a real halt is never lost
+/// to a transient FS hiccup here.
+pub fn is_revoked(path: &Path) -> bool {
+    path.exists()
 }
 
 impl From<serde_json::Error> for KillSwitchError {

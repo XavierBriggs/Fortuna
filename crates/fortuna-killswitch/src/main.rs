@@ -23,8 +23,8 @@ use fortuna_core::market::{Action, ClientOrderId, Contracts, MarketId, Side, Ven
 use fortuna_core::money::Cents;
 use fortuna_gates::GatePipeline;
 use fortuna_killswitch::{
-    freeze_cancel_and_report_positions, freeze_cancel_perp_and_flatten, load_gate_config,
-    load_kalshi_creds, load_kinetics_creds,
+    clear_revocation, freeze_cancel_and_report_positions, freeze_cancel_perp_and_flatten,
+    load_gate_config, load_kalshi_creds, load_kinetics_creds, revocation_path, write_revocation,
 };
 use fortuna_venues::fees::{FeeSchedule, ScheduleFeeModel};
 use fortuna_venues::kalshi::client::{KalshiTransport, ReqwestKalshiTransport};
@@ -74,6 +74,14 @@ fn main() -> ExitCode {
 
     match command.as_str() {
         "self-test" => self_test(&journal),
+        // I4 RE-ARM PREREQUISITE (spec Section 8: kill-switch reversal is
+        // CLI-only). Clear the durable kill sentinel so a subsequent runtime
+        // RESTART boots un-revoked. Deliberately touches NO venue and reads NO
+        // creds — it is the operator's out-of-band un-revoke, not a trade. The
+        // halt the running daemon already applied is itself restart-gated (I2:
+        // "no automatic resumption"), so order-placing capability returns only
+        // after the operator both clears this AND restarts the daemon.
+        "clear-revocation" => clear_revocation_cmd(&journal),
         // PERP FLATTEN (spec 5.15): cancel-all + reduce-only IOC closes on the
         // Kinetics perp venue, through the real perp gate (its OWN cred pair +
         // gate config, env-only, fail-closed). `--venue` is ignored: kinetics is
@@ -192,12 +200,33 @@ fn freeze_kalshi(journal: &Path) -> ExitCode {
     ));
     match result {
         Ok(report) => {
+            // I4 SECOND HALF: a kill REVOKES as well as cancels. Write the
+            // durable kill sentinel (sibling of the journal) so the runtime
+            // refuses FUTURE order placement until the operator clears it
+            // out-of-band. A revocation-write failure is LOUD but does NOT undo
+            // the (successful) cancels — surface it and exit non-zero so the
+            // operator re-runs / clears manually rather than believing the
+            // capability was revoked when it was not (fail-closed reporting).
+            let rev_path = revocation_path(journal);
+            if let Err(e) = write_revocation(&rev_path, clock.as_ref(), "freeze_and_cancel") {
+                eprintln!(
+                    "FREEZE cancelled orders but the I4 revocation sentinel WRITE FAILED \
+                     ({}): {e} — order-placing capability is NOT revoked; write {} by hand \
+                     or re-run the freeze",
+                    rev_path.display(),
+                    rev_path.display()
+                );
+                return ExitCode::from(6);
+            }
+            let _ = journal_revocation(journal, clock.as_ref(), "freeze_and_cancel");
             println!(
-                "freeze OK (kalshi): cancelled {}/{} orders, {} failed; {} open positions reported; journal at {}",
+                "freeze OK (kalshi): cancelled {}/{} orders, {} failed; {} open positions reported; \
+                 order-placing capability REVOKED ({}); journal at {}",
                 report.orders_cancelled,
                 report.orders_seen,
                 report.orders_cancel_failed,
                 report.positions_seen,
+                rev_path.display(),
                 journal.display()
             );
             if report.orders_cancel_failed > 0 {
@@ -311,9 +340,25 @@ fn flatten_perps_kinetics(journal: &Path) -> ExitCode {
     ));
     match result {
         Ok(report) => {
+            // I4 SECOND HALF (mirrors the kalshi freeze): a kill REVOKES as well
+            // as flattens. Write the durable kill sentinel so the runtime refuses
+            // FUTURE order placement until the operator clears it out-of-band.
+            let rev_path = revocation_path(journal);
+            if let Err(e) = write_revocation(&rev_path, clock.as_ref(), "flatten_perps") {
+                eprintln!(
+                    "FLATTEN cancelled/closed perps but the I4 revocation sentinel WRITE FAILED \
+                     ({}): {e} — order-placing capability is NOT revoked; write {} by hand \
+                     or re-run the flatten",
+                    rev_path.display(),
+                    rev_path.display()
+                );
+                return ExitCode::from(6);
+            }
+            let _ = journal_revocation(journal, clock.as_ref(), "flatten_perps");
             println!(
                 "flatten-perps OK (kinetics): cancelled {}/{} orders ({} failed); {} positions seen, \
-                 {} closes placed, {} failed, {} skipped (no price), {} gate-rejected; journal at {}",
+                 {} closes placed, {} failed, {} skipped (no price), {} gate-rejected; \
+                 order-placing capability REVOKED ({}); journal at {}",
                 report.orders_cancelled,
                 report.orders_seen,
                 report.orders_cancel_failed,
@@ -322,6 +367,7 @@ fn flatten_perps_kinetics(journal: &Path) -> ExitCode {
                 report.flatten_orders_failed,
                 report.flatten_orders_skipped_no_price,
                 report.flatten_orders_rejected_by_gate,
+                rev_path.display(),
                 journal.display()
             );
             // Exit 5 if ANYTHING was left un-resolved — a failed cancel OR a
@@ -353,9 +399,86 @@ fn env_nonempty(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|v| !v.trim().is_empty())
 }
 
+/// `clear-revocation --journal <path>` (spec Section 8: kill-switch reversal is
+/// CLI-only): remove the durable kill sentinel so a subsequent runtime RESTART
+/// boots un-revoked. NO venue, NO creds — the operator's out-of-band un-revoke.
+/// Idempotent (a missing sentinel is success). Journals + prints the action.
+fn clear_revocation_cmd(journal: &Path) -> ExitCode {
+    let rev_path = revocation_path(journal);
+    match clear_revocation(&rev_path) {
+        Ok(()) => {
+            // RealClock is the legal time source out here in binary-land; the
+            // journal append is best-effort (the clear itself already succeeded).
+            let _ = journal_revocation_cleared(journal);
+            println!(
+                "revocation cleared: {} removed (idempotent). RESTART the daemon to re-arm \
+                 order-placing capability (I2: no automatic resumption); journal at {}",
+                rev_path.display(),
+                journal.display()
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!(
+                "clear-revocation FAILED for {}: {e} — remove the file by hand to re-arm",
+                rev_path.display()
+            );
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// Append a `revocation_written` line to the switch's journal (best-effort: the
+/// sentinel WRITE is the load-bearing act; this is the audit breadcrumb). Uses
+/// `OpenOptions::append` directly — the lib's `journal_line` is private, and the
+/// journal is the switch's own flat-file state main may append to.
+fn journal_revocation(journal: &Path, clock: &dyn Clock, by: &str) -> std::io::Result<()> {
+    append_journal_json(
+        journal,
+        &serde_json::json!({
+            "event": "revocation_written",
+            "by": by,
+            "sentinel": revocation_path(journal).display().to_string(),
+            "at": clock.now().to_iso8601(),
+        }),
+    )
+}
+
+/// Append a `revocation_cleared` line (best-effort breadcrumb; the file removal
+/// is the load-bearing act).
+fn journal_revocation_cleared(journal: &Path) -> std::io::Result<()> {
+    append_journal_json(
+        journal,
+        &serde_json::json!({
+            "event": "revocation_cleared",
+            "sentinel": revocation_path(journal).display().to_string(),
+            "at": RealClock.now().to_iso8601(),
+        }),
+    )
+}
+
+/// One JSON line appended + fsync'd to the journal (mirrors the lib's
+/// `journal_line` IO style; serde_json::to_string on a built Value never fails,
+/// so the only error is IO).
+fn append_journal_json(journal: &Path, value: &serde_json::Value) -> std::io::Result<()> {
+    use std::io::Write as _;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(journal)?;
+    let line = value.to_string();
+    file.write_all(line.as_bytes())?;
+    file.write_all(b"\n")?;
+    file.sync_all()?;
+    Ok(())
+}
+
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: fortuna-killswitch <freeze|flatten-perps|report|self-test> --journal <path> [--venue kalshi]\n\
+        "usage: fortuna-killswitch <freeze|flatten-perps|clear-revocation|report|self-test> --journal <path> [--venue kalshi]\n\
+         \n\
+         clear-revocation (spec Section 8): remove the durable I4 kill sentinel (KILLSWITCH_REVOKED,\n\
+           sibling of --journal) so a daemon RESTART re-arms order-placing capability. No venue, no creds.\n\
          \n\
          flatten-perps (spec 5.15): cancel-all + reduce-only IOC closes on Kinetics. Requires (env-only, fail-closed):\n\
            FORTUNA_KILLSWITCH_GATE_CONFIG_PATH        (gate config TOML; validated before any venue call)\n\

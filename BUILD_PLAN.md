@@ -1384,3 +1384,17 @@ ROTA views (§14/§20) + persona telemetry (§19) are operator-requested detaile
       clippy -p fortuna-sources -p fortuna-live --all-targets -D warnings +
       test -p fortuna-sources = 119 lib + 5 DST + test -p fortuna-live --lib
       ingestion 6/6. Subagent-built, main-loop reviewed + verified.) [06b247c]
+
+## System-level invariant audit (operator-run 2026-06-14) — fixes
+
+- [x] C2 / I4 "revoke order-placing capability" (spec.md:43): the killswitch's
+      freeze + flatten verbs now WRITE a durable kill sentinel (`KILLSWITCH_REVOKED`,
+      sibling of `--journal`; std::fs only — I4 independence intact) and fortuna-live's
+      `RevocationHaltPoller` (over `PgHaltPoller`) reports its presence as a Global halt
+      before any tick, so a kill revokes FUTURE placement and a daemon "boots revoked".
+      Re-arm is CLI-only + restart-gated (`fortuna-killswitch clear-revocation`; spec
+      Section 8 + I2). NEW invariant test `i4_killswitch_revocation.rs` (additions-only;
+      `i4_killswitch_independence.rs` UNTOUCHED) + behavioral `revocation_poller.rs` +
+      boot-parse tests for `[killswitch].revocation_file`. fortuna-gates byte-unchanged.
+      GAPS item 1 → RESOLVED; ASSUMPTIONS updated (incl. operator path-consistency + the
+      venue-API-key revocation future-hardening note). (DONE 2026-06-14 <hash>.)
