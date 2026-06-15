@@ -68,6 +68,19 @@ const PERP_FUNDING_ESTIMATE_PATH: &str = "/margin/funding_rates/estimate";
 /// the producer; a timeout classifies as a fetch failure ⇒ alert-and-continue).
 pub const PERP_TICK_HTTP_TIMEOUT_SECS: u64 = 20;
 
+/// Default poll cadence for the live perp-tick producer (perp marks/funding
+/// update continuously; the funding boundary cadence does not apply here).
+pub const PERP_TICK_POLL_INTERVAL_SECS: u64 = 5;
+
+/// Clock re-check granularity while waiting for the next poll (mirrors
+/// `funding_poller`'s `POLL_TICK_MS`): `run_perp_tick_producer` re-reads the
+/// injected clock this often while waiting for the next fixed interval, racing
+/// the cancel signal. It bounds how long after the interval (or a cancel) the
+/// loop reacts; it is NOT a wall-time sleep keyed to a deadline (the injected
+/// clock is the timing authority — a SimClock loop reacts as fast as it is
+/// advanced).
+const POLL_TICK_MS: u64 = 250;
+
 /// The fetch seam (creds-less + testable): yields the two PUBLIC payloads a
 /// PerpTick is assembled from. Tests inject the recorded fixtures without a
 /// network or credentials; the production impl ([`KineticsPublicPerpFetch`])
@@ -243,6 +256,72 @@ pub async fn poll_perp_ticks_once<F: PerpTickFetch + ?Sized>(
             quarantine_alert: Some(format!("quarantined perp tick (malformed venue data): {e}")),
             ..PerpTickPollReport::default()
         },
+    }
+}
+
+/// The Clock-driven perp-tick producer loop: poll IMMEDIATELY once, then poll
+/// every `poll_interval` (a FIXED cadence — perp marks/funding update
+/// continuously, so the funding poller's 8h boundary cadence does NOT apply
+/// here), until `cancel` fires. The wait is derived from the injected `&dyn
+/// Clock` (re-read every [`POLL_TICK_MS`], racing the cancel signal) — NOT a raw
+/// wall-time sleep keyed to a deadline, so a SimClock-driven test advances the
+/// clock to step the loop deterministically. Each poll's outcome (the assembled
+/// perp-domain tick, or a fetch-failure / quarantine alert) is surfaced via
+/// `on_report` and the loop CONTINUES — a bad poll never halts the loop.
+///
+/// `cancel` is a `watch::Receiver<()>` (the workspace-native cancellable,
+/// awaitable, `select!`-friendly stop signal, mirroring `run_funding_poller`):
+/// the owner triggers shutdown by sending on / dropping the paired
+/// `watch::Sender`.
+///
+/// This yields the perp-DOMAIN components only — the daemon adds the "kinetics"
+/// `venue` id at `inject_perp_tick` (mirroring [`crate::perp_feed`]). I6/I7: the
+/// producer carries NO order/size; it is OPT-IN (gated on `[perp_event_basis_v2]`
+/// at the `main.rs` spawn) and Sim/demo only. No `panic`/`unwrap`/`expect` on any
+/// path.
+pub async fn run_perp_tick_producer<F, R>(
+    fetch: &F,
+    ticker: &str,
+    clock: &dyn fortuna_core::clock::Clock,
+    poll_interval: std::time::Duration,
+    mut cancel: tokio::sync::watch::Receiver<()>,
+    mut on_report: R,
+) where
+    F: PerpTickFetch + ?Sized,
+    R: FnMut(&PerpTickPollReport),
+{
+    // Poll IMMEDIATELY once (then settle into the fixed-interval cadence).
+    let report = poll_perp_ticks_once(fetch, ticker).await;
+    on_report(&report);
+
+    let interval_ms = poll_interval.as_millis().min(i64::MAX as u128) as i64;
+    loop {
+        // Compute the next poll instant on the injected clock. On the
+        // (practically impossible) i64 epoch-millis overflow, degrade to `base`
+        // (poll again immediately) rather than panic.
+        let base = clock.now();
+        let target = base.checked_add_millis(interval_ms).unwrap_or(base);
+        // Wait until the injected clock reaches `target`, OR cancel fires. The
+        // clock is the timing authority: each tick re-reads `clock.now()` and a
+        // SimClock advanced past `target` ends the wait on the next tick (the
+        // wall-time `sleep` only bounds the re-check granularity, it does NOT key
+        // off the interval deadline).
+        loop {
+            if clock.now() >= target {
+                break;
+            }
+            tokio::select! {
+                _ = cancel.changed() => return,
+                _ = tokio::time::sleep(std::time::Duration::from_millis(POLL_TICK_MS)) => {}
+            }
+        }
+        // Re-check cancel once more before polling (it may have fired exactly at
+        // the interval boundary).
+        if cancel.has_changed().unwrap_or(true) {
+            return;
+        }
+        let report = poll_perp_ticks_once(fetch, ticker).await;
+        on_report(&report);
     }
 }
 

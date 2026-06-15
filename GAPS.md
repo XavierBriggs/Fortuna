@@ -26,7 +26,7 @@ are OPERATOR/track-actionable; neither is a current live-capital risk (live REFU
    code/schema change (the DB already enforces it); replayability intact (scoring fields are post-hoc grades,
    never decision inputs). Audit C1 CLOSED.
 
-## TRACK C — C-next-1a DONE (live PerpTick producer KERNEL); C-next-1b = the wiring (next slice) (2026-06-14)
+## TRACK C — C-next-1a + 1b DONE (live PerpTick producer + daemon wiring → basis-v2 arm LIVE-fed); C-next-2 next (2026-06-15)
 
 The perp basis-v2 strategy is composed in the daemon but was INERT on the LIVE path: it fires only on
 `EventPayload::PerpTick`, and nothing produced one from live venue data (slice-4e's `PerpTickFeed` replays a
@@ -45,11 +45,17 @@ RECORDED file for the Sim soak — not a live producer). C-next-1a closes the PR
   malformed payload quarantines, NEVER a panic). 11 tests, MUTATION-PROVEN (weakening the A6 guard reds
   `an_absent_reference_price_fails_closed_invalid`). Full battery green (fmt/clippy --workspace/test --workspace/
   DST 200+corpus). I6/I7 untouched (no order/size; Sim/demo).
-- **C-next-1b — THE NEXT SLICE (deferred, not operator-blocked):** the async `run_perp_tick_producer` loop
-  (Clock-driven, cancellable, gated on `[perp_event_basis_v2]`) + a channel→`drive()` drain seam (mirroring the
-  existing `perp_tick_feed` in-loop drain at daemon.rs) + the `main.rs` spawn, then an e2e proving the basis-v2
-  arm emits an UNSIZED proposal (I6) in Sim/demo (I7) from injected ticks. The basis-v2 arm REMAINS INERT until
-  1b wires the kernel. The live demo round-trip against the real Kinetics public host stays an OPERATOR action.
+- **C-next-1b — DONE 2026-06-15 (the wiring; the basis-v2 arm is now LIVE-fed):** `run_perp_tick_producer`
+  (Clock-driven, cancellable, fixed-interval loop mirroring the funding poller) + a channel→`drive()` drain seam
+  (a new opt-in LAST `drive()` param; an mpsc receiver drained at each segment head into `inject_perp_tick`, the
+  SAME path as `perp_tick_feed`; `None` ⇒ byte-identical daemon) + the `main.rs` spawn (gated on
+  `[perp_event_basis_v2]`, own RealClock + `watch` cancel, no creds). Tests: a deterministic loop-delivery test +
+  a daemon_smoke e2e (channel → drive drain → inject → `funding_forecast` persists, MUTATION-PROVEN: neuter the
+  drain inject ⇒ "got 0"). Full battery green. basis-v2's inject→UNSIZED-proposal is separately proven by
+  `demo_v2_full_decision_walkthrough`. The live Kinetics round-trip stays an OPERATOR action.
+- **C-next-2 — the NEXT (and LAST) track-C slice:** the recorder end-to-end fixture for paper-fill realism (maker
+  fills count only on trade-through, never touch) per `docs/runbooks/fixture-recording.md` — real, provenanced
+  recordings, never synthetic fills. After C-next-2 the track-C queue is EXHAUSTED ⇒ RALPH STOP.
 
 ## RALPH STOP 2026-06-14T17:34:59Z — Track-E build queue EXHAUSTED (clean stop)
 

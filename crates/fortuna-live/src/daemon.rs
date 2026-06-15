@@ -1408,6 +1408,18 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     // closed). main wires `Some(pool)`; smokes that do not exercise it pass `None`.
     // A failure ALERTS and continues (never crashes the boundary), like reconciliation.
     resolution_pool: Option<PgPool>,
+    // C-next-1b: OPT-IN live PerpTick channel. `Some(rx)` => the run_perp_tick_producer
+    // task pushes mapped (venue, market, marks, funding) tuples here; drive() drains all
+    // available at each segment head and injects them (the SAME inject path as the recorded
+    // perp_tick_feed). `None` => no live producer (byte-identical daemon — fail closed).
+    mut perp_tick_rx: Option<
+        tokio::sync::mpsc::UnboundedReceiver<(
+            fortuna_core::market::VenueId,
+            fortuna_core::market::MarketId,
+            fortuna_core::perp::PerpMarks,
+            fortuna_core::perp::FundingObservation,
+        )>,
+    >,
 ) -> Result<(LoopStats, fortuna_runner::ShutdownReport), DaemonError> {
     let mut total = LoopStats::default();
     // Dedup state OWNED ACROSS SEGMENTS (gate finding 2026-06-11: keeping
@@ -1456,6 +1468,12 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
         if let Some(feed) = &mut perp_tick_feed {
             let (venue, market, marks, funding) = feed.next_tick();
             runner.inject_perp_tick(venue, market, marks, funding);
+        }
+        // C-next-1b: drain any LIVE producer ticks delivered since the last segment.
+        if let Some(rx) = &mut perp_tick_rx {
+            while let Ok((venue, market, marks, funding)) = rx.try_recv() {
+                runner.inject_perp_tick(venue, market, marks, funding);
+            }
         }
         let stats = runner
             .run_loop_segment(

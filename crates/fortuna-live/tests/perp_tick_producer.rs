@@ -174,3 +174,51 @@ fn the_public_base_url_is_the_pinned_prod_host() {
         "https://external-api.kalshi.com/trade-api/v2"
     );
 }
+
+/// C-next-1b: the producer LOOP delivers its IMMEDIATE poll, then honors cancel.
+/// DETERMINISTIC: pre-fire the cancel BEFORE calling the loop, so the loop does
+/// exactly ONE immediate poll (which is clock-independent) and then exits at the
+/// first wait (the `cancel.changed()` arm is already ready). The 1-hour interval
+/// is never actually waited out — the cancel races it away — so the test does not
+/// depend on wall time. Asserts exactly one tick was delivered and it carries the
+/// recorded market + reference price (the same mapping the kernel test pins).
+///
+/// MUTATION-CHECK: drop the immediate `on_report(&report)` before the loop and
+/// `delivered.len()` is 0 -> reds. Swallow the cancel (loop never returns) and
+/// this test hangs/never-returns -> reds.
+#[tokio::test]
+async fn the_producer_loop_delivers_the_immediate_poll_then_honors_cancel() {
+    let fetch = FakeFetch::ok(recorded_market(), recorded_estimate());
+    let clock = fortuna_core::clock::RealClock; // the immediate poll is clock-independent
+    let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(());
+    cancel_tx.send(()).unwrap(); // pre-fire ⇒ one immediate poll, then exit at the first wait
+    let mut delivered = Vec::new();
+    fortuna_live::perp_tick_producer::run_perp_tick_producer(
+        &fetch,
+        "KXBTCPERP1",
+        &clock,
+        std::time::Duration::from_secs(3600),
+        cancel_rx,
+        |report| {
+            if let Some((m, marks, f)) = &report.tick {
+                // `PerpMarks`/`FundingObservation` are `Copy` (deref, not clone).
+                delivered.push((m.clone(), *marks, *f));
+            }
+        },
+    )
+    .await;
+    assert_eq!(
+        delivered.len(),
+        1,
+        "the immediate poll delivered exactly one tick before cancel"
+    );
+    let (market, _marks, funding) = &delivered[0];
+    assert_eq!(
+        *market,
+        fortuna_core::market::MarketId::new("KXBTCPERP1").unwrap()
+    );
+    assert_eq!(
+        funding.reference_price,
+        fortuna_venues::kinetics::dto::parse_perp_price("6.3676").unwrap()
+    );
+}

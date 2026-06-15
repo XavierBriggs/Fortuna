@@ -922,9 +922,14 @@ code.
       funding-estimate REST → PerpTick, BRTI-reference fail-closed, obs_at ← anchor
       ts_ms) + fortuna-live::perp_tick_producer (host-pinned UNAUTH GET seam,
       poll_perp_ticks_once, fail-closed) mirror the funding poller; 11 tests,
-      mutation-proven; full battery green. C-next-1b (the async loop + drive() drain
-      + main spawn gated on [perp_event_basis_v2] + an e2e UNSIZED-proposal proof)
-      makes the arm non-inert — NEXT slice; the arm stays inert until 1b. See GAPS.
+      mutation-proven; full battery green. C-next-1b DONE 2026-06-15 (the wiring):
+      run_perp_tick_producer (Clock loop) + a channel→drive() drain seam (new opt-in
+      last drive() param, drained at the segment head into inject_perp_tick — same
+      path as perp_tick_feed; None ⇒ byte-identical) + the main spawn gated on
+      [perp_event_basis_v2] (no creds). daemon_smoke e2e (channel → drive drain →
+      inject → funding_forecast persists, mutation-proven). basis-v2 inject→UNSIZED-
+      proposal proven separately (demo_v2_full_decision_walkthrough). The arm is now
+      LIVE-fed. NEXT (last): C-next-2 recorder e2e fixture, then RALPH STOP. See GAPS.
 - [x] T5.B8 Ops: kill-switch perps flatten (reduce_only IOC + cancel-all),
       margin/funding telemetry, funding-regime dashboard panel.
       ✅ DONE. The margin/funding telemetry + ROTA panel landed first (box ticked
