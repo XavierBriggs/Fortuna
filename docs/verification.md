@@ -5,8 +5,8 @@ can be believed, or who is about to make one — implementers before committing,
 the operator before approving anything, a verifier session inheriting the gate
 role. Read it before your first commit and before your first verdict.
 
-**Status honesty:** accurate as of commit `334612d` (main, 2026-06-12). The
-full verdict history lives in [docs/reviews/](reviews/) — 32 verdict-bearing
+**Status honesty:** accurate as of commit `2085bf0` (main, 2026-06-14). The
+full verdict history lives in [docs/reviews/](reviews/) — 44 verdict-bearing
 gate files at this commit (`grep -l "Verdict:" docs/reviews/*.md | wc -l`);
 the live findings bus is
 [reviews/GATE-FINDINGS-LATEST.md](reviews/GATE-FINDINGS-LATEST.md)
@@ -84,9 +84,17 @@ the failure class it catches.
    Every seed must replay byte-identically. New failure modes become scenarios
    (DoD item 3, [CLAUDE.md](../CLAUDE.md)).
 3. **Invariant tests** — I1–I7 as executable tests in the protected crate
-   [crates/fortuna-invariants/](../crates/fortuna-invariants/), one file per
-   invariant, plus compile-fail doctests proving `GatedOrder` cannot be
-   constructed or deserialized outside the gates. Additions only; any touch is
+   [crates/fortuna-invariants/](../crates/fortuna-invariants/)
+   ([tests/](../crates/fortuna-invariants/tests/)), plus compile-fail doctests
+   proving `GatedOrder` cannot be constructed or deserialized outside the gates.
+   The set has grown past one-file-per-invariant as facets were pinned: the core
+   `i1`–`i7` files, two I4 files (`i4_killswitch_independence` for the structural
+   dep-walk, `i4_killswitch_revocation` for the durable kill sentinel +
+   `RevocationHaltPoller` that revokes future placement), two I6 files
+   (`i6_propose_only_mind` and `i6_persona_propose_only`), and the perps
+   extensions `perp_i1_sealed_order`, `perp_i2_drawdown_extension`,
+   `perp_i3_cross_domain_halt`, and `perp_i4_flatten_seal` (the kill-switch
+   reduce-only perp flatten through the real seal). Additions only; any touch is
    an automatic gate BLOCK pending operator waive ([CLAUDE.md](../CLAUDE.md)).
 4. **Mutation checks** — standard for any commit whose deliverable is a test:
    the gate stubs or mutates the tested surface and requires the test to go

@@ -6,7 +6,7 @@ before bending it. Read this before your first edit; read [spec.md](spec.md)
 (v0.9, the normative design) for any detail this doc summarizes. When this doc
 and the spec disagree, the spec wins ([CLAUDE.md](../CLAUDE.md)).
 
-**Status honesty:** accurate as of 2026-06-13 (main). The
+**Status honesty:** accurate as of 2026-06-14 (main). The
 system runs Sim-only — the daemon's boot refuses every venue except `"sim"`
 ([track-c-final-gate, criterion C3](reviews/track-c-final-gate-2026-06-12.md));
 the system has never placed an order on a real venue (the only real-venue
@@ -17,7 +17,13 @@ operator action. The Kalshi adapter is fixtures-gated pending the operator
 recording session (BUILD_PLAN T4.2); the Kinetics perps pipeline (the
 `perp_event_basis` + `funding_forecast` strategies, the PerpTick ingestion seam,
 and the daemon composition) MERGED to main 2026-06-13 (`9c4026e`, `72adb7a`,
-`95799cc`) and is INERT in pure-sim until a recorded perp feed is opted in. The
+`95799cc`) and is INERT in pure-sim until a recorded perp feed is opted in. Its
+follow-ons are also on main: the basis-v2 fair-probability daemon wire-in plus
+the A2d funding-rates pipeline (`8a0f5cf`), the kill-switch perp FLATTEN path
+(`4969f11`, spec §5.15), and the §9.2 perps ROTA board (`788fa8e`). An I4
+*revocation* mechanism (audit C2: a durable kill sentinel + `RevocationHaltPoller`
+that revokes future order placement, not just resting risk) is on main and pinned
+by `i4_killswitch_revocation.rs`; see §2. The
 **demo-flip** (running a Kalshi DEMO at `Stage::Paper`, mock funds, pre-promotion,
 with prod/live still REFUSED at the boot gate) is **MERGED** (Phase 1 venue-generic
 `SimRunner` + Phase 2 `compose_kalshi_runner` + the paper-only boot gate, @`0586bab`).
@@ -115,16 +121,32 @@ software is built to be unable to substitute for one:
   ([operator-decisions-2026-06-12, item 3](reviews/operator-decisions-2026-06-12.md)).
 - **Why the kill switch has no Postgres (I4):** it is the control you reach for
   when the stack is the problem, so it may depend on nothing the stack can take
-  down with it. `fortuna-killswitch` depends only on `fortuna-core` and
-  `fortuna-venues` — no Postgres, no ledger, no cognition runtime, no event
-  loop, no Slack — and journals its actions to a local fsync'd flat file so the
+  down with it. `fortuna-killswitch` depends only on `fortuna-core`,
+  `fortuna-gates` (the seal — itself Postgres-free, so the perp flatten can
+  produce a `GatedPerpOrder`), and `fortuna-venues` — no Postgres, no ledger,
+  no cognition runtime, no event loop, no Slack — and journals its actions to a
+  local fsync'd flat file so the
   operator can reconstruct what it did even with the audit store dead
   ([killswitch lib.rs](../crates/fortuna-killswitch/src/lib.rs); spec
   Principle 9 exception). Its default action is freeze-and-cancel; emergency
   flatten through it skips the flatten planner's cost estimate as "an accepted
-  emergency cost" (spec §5.4). It holds its own credential set (spec §10) and
-  its independence is asserted by a test that spawns the real standalone binary
-  ([i4_killswitch_independence.rs](../crates/fortuna-invariants/tests/i4_killswitch_independence.rs))
+  emergency cost" (spec §5.4), and the perp `flatten-perps` path places
+  reduce-only IOC closes through the real perp gate (spec §5.15). I4 also
+  requires *revoking order-placing capability*, not just cancelling resting
+  risk: the switch writes a durable, fsync'd kill sentinel
+  (`KILLSWITCH_REVOKED`, a sibling of the journal — same Postgres-free posture),
+  and when `[killswitch].revocation_file` is set the daemon wraps its halt
+  poller in a `RevocationHaltPoller` that reads that sentinel *before every
+  tick* — so a present sentinel halts every order, including the first poll
+  after a restart ("boots revoked"). Clearing is out-of-band and restart-gated:
+  the standalone binary's `clear-revocation` subcommand removes the sentinel
+  (no venue, no creds), and capability returns only after the operator both
+  clears it *and* restarts (I2, no automatic resumption). It holds its own
+  credential set (spec §10) and its independence is asserted by a test that
+  spawns the real standalone binary
+  ([i4_killswitch_independence.rs](../crates/fortuna-invariants/tests/i4_killswitch_independence.rs)),
+  with the revocation half pinned separately
+  ([i4_killswitch_revocation.rs](../crates/fortuna-invariants/tests/i4_killswitch_revocation.rs)),
   plus a monthly drill ([scripts/killswitch-test.sh](../scripts/killswitch-test.sh)).
 - **Why promotions are operator-only (I7):** forward validation is the only
   validation this system accepts for LLM decisions (spec Principle 4), and the
@@ -273,9 +295,14 @@ never mid. Must never: grant a touch-fill or a mid fill — that optimism would
 corrupt every promotion gate downstream.
 
 **[fortuna-killswitch](../crates/fortuna-killswitch/src/lib.rs)** — the
-standalone kill switch, I4 (see §2 above). Depends only on `fortuna-core` and
-`fortuna-venues`; flat-file fsync'd journal. Must never: gain a dependency on
-Postgres, the ledger, cognition, the event loop, or Slack.
+standalone kill switch, I4 (see §2 above). Depends only on `fortuna-core`,
+`fortuna-gates`, and `fortuna-venues`; flat-file fsync'd journal. Owns both
+halves of I4: freeze/flatten (incl. the reduce-only perp flatten through the
+real seal) *and* the durable `KILLSWITCH_REVOKED` sentinel that revokes future
+order placement (`write_revocation` / `clear_revocation` / `is_revoked`; the
+binary's `clear-revocation` subcommand is the out-of-band un-revoke). Must
+never: gain a dependency on Postgres, the ledger, cognition, the event loop, or
+Slack.
 
 **[fortuna-ops](../crates/fortuna-ops/src/lib.rs)** — the operations layer
 (spec §8): whole-shape config loader with env-only secrets, the Slack client
@@ -455,9 +482,12 @@ record; verified end-to-end at the
   the confirmation machinery
   ([synthesis-edge-source-decision](design/synthesis-edge-source-decision.md));
   the `[mech_extremes]` arm opt-in, enrolled in the reduce-only model veto; the
-  `[funding_forecast]` and `[perp_event_basis]` perp arms opt-in (Sim-stage,
-  neither veto-enrolled — `funding_forecast` is a zero-capital scalar producer
-  that proposes nothing). Cognition is TIERED (spec 5.9): a `ModelRegistry` (the
+  `[funding_forecast]`, `[perp_event_basis]` (rung-0), and `[perp_event_basis_v2]`
+  (the basis-v2 fair-probability kernel, slice-3b-v2) perp arms opt-in (Sim-stage,
+  none veto-enrolled — `funding_forecast` is a zero-capital scalar producer that
+  proposes nothing; the v2 arm's presence also opts the daemon into the A2d
+  funding-rates poller that fills the store its resolve/score loop reads).
+  Cognition is TIERED (spec 5.9): a `ModelRegistry` (the
   mind layer) maps each role's tier → model as the single source of truth, and
   `mind_from_env` builds a per-role `AnthropicMind` when `ANTHROPIC_API_KEY` is
   present, else the stub (itself opt-in) — synthesis on `[cognition].synthesis_model`

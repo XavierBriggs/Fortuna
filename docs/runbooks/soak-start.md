@@ -11,7 +11,8 @@ secrets + a release build belong to the human).
 
 All commands run from the repo root. Times are UTC.
 
-Related: [halt-and-rearm.md](halt-and-rearm.md) ·
+Related: [demo-bringup.md](demo-bringup.md) ·
+[halt-and-rearm.md](halt-and-rearm.md) ·
 [troubleshooting.md](troubleshooting.md) ·
 [kill-switch-drill.md](kill-switch-drill.md)
 

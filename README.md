@@ -33,7 +33,7 @@ where existing tests may never be weakened — additions only.
 | I6 | Propose-only model interface: the model has zero tools that mutate external state; sizing, timing, order type, and execution belong to the harness. |
 | I7 | Promotion gates: no strategy touches live capital without passing forward validation; no model swap without shadow comparison. |
 
-## Status — as of 2026-06-13
+## Status — as of 2026-06-14
 
 - **Core: complete and independently gated.** Phases 0–3 (deterministic core,
   mechanical paper path, belief pipeline, closing loop) have EXIT-met evidence
@@ -50,18 +50,24 @@ where existing tests may never be weakened — additions only.
 - **ROTA: live.** The read-only gold/black operator console is served by the
   running daemon at `/rota` and passed its browser acceptance pass
   ([docs/reviews/GATE-FINDINGS-LATEST.md](docs/reviews/GATE-FINDINGS-LATEST.md),
-  R12). Remaining T4.3 items (full money model, audit-recents queries) are
-  listed at the [BUILD_PLAN.md](BUILD_PLAN.md) T4.3 entry.
+  R12). The §9.2 perps board (`/api/rota/v1/perps` — basis / edge-gate / realized
+  funding) is merged alongside it. Remaining T4.3 items (full money model,
+  audit-recents queries) are listed at the [BUILD_PLAN.md](BUILD_PLAN.md) T4.3
+  entry.
 - **Operator CLI: built.** `fortuna start/stop/status/logs/config check` plus
   `halt/rearm/kill` (T4.4 ticked in [BUILD_PLAN.md](BUILD_PLAN.md); design at
   [docs/design/fortuna-cli.md](docs/design/fortuna-cli.md)).
-- **Perps (Phase 5): merged to main.** Research, the spec 5.15 amendment, and the
-  perishable-data recorder (T5.0/B0/B1) plus the full perp pipeline — the
-  `perp_event_basis` basis-trader and the zero-capital `funding_forecast`
-  belief-producer, the PerpTick ingestion seam, scalar-belief persistence, and the
-  daemon composition — are now on main (gate-ACCEPT merges `9c4026e`, `72adb7a`,
-  `95799cc`, 2026-06-13). The strategies are propose-only (I6) and INERT in
-  pure-sim until an operator opts in a recorded perp feed.
+- **Perps (Phase 5): merged to main, EXIT-met.** Research, the spec 5.15
+  amendment, and the perishable-data recorder (T5.0/B0/B1) plus the full perp
+  pipeline — the `perp_event_basis` basis-trader and the zero-capital
+  `funding_forecast` belief-producer, the PerpTick ingestion seam, scalar-belief
+  persistence, and the daemon composition — are now on main (gate-ACCEPT merges
+  `9c4026e`, `72adb7a`, `95799cc`, 2026-06-13). The T5.B8 ops also landed: the
+  kill-switch PERP FLATTEN (spec 5.15 — `fortuna-killswitch flatten-perps`,
+  cancel-all + reduce-only IOC closes through the real perp gate, the switch's own
+  cred pair), margin/funding telemetry, and the ROTA §9.2 perps panel. The
+  strategies are propose-only (I6) and INERT in pure-sim until an operator opts in
+  a recorded perp feed; live perps trading stays behind the I7 ladder.
 - **A second edge source — Aeolus weather (F5–F9): on main.** The proprietary
   probabilistic temperature-forecast vendor is now a full belief pipeline in
   `fortuna-cognition`: the strict `aeolus.forecast/v2` envelope parser and the
@@ -92,17 +98,24 @@ where existing tests may never be weakened — additions only.
   beliefs/events/edges. All are `Option`-gated (absent ⇒ never run) and
   data-only — they persist beliefs, never orders (I6); orders still cross the
   universal gate (I1).
-- **Demo-flip (Kalshi DEMO at `Stage::Paper`): in progress, not merged.** A
-  track-c effort to let `fortuna-live` run a Kalshi *demo* (mock funds) at the
-  Paper stage, pre-promotion, while prod/live stays REFUSED at the boot gate.
-  Phase 1 (the venue-generic `SimRunner` refactor) is done on track-c; Phase 2
-  (`compose_kalshi_runner` + the boot gate) is next, and its live run is
-  operator-blocked behind the T4.2 clearance. Design:
-  `docs/design/kalshi-demo-flip.md` on track-c. This changes nothing about the
-  honest framing below.
-- **Live trading: NEVER enabled.** `sim` is the only bootable venue
-  ([config/fortuna.example.toml](config/fortuna.example.toml) `[daemon]`); the
-  Kalshi adapter refuses to boot without operator-recorded fixture clearance;
+- **Demo-flip (Kalshi DEMO at `Stage::Paper`): merged to main.** `fortuna-live`
+  now boots a Kalshi *demo* (mock funds) at the Paper stage: `venue = "kalshi",
+  stage = "paper"` plus a `[kalshi]` section composes the Kalshi demo runner
+  ([crates/fortuna-live/src/boot.rs](crates/fortuna-live/src/boot.rs)
+  `validate_bootable`). The boot gate REFUSES `live_min`/`scaled` (promotion past
+  Paper needs the I7 forward-validation gate, a human action) and refuses a
+  `sim`-stage Kalshi mis-wiring. Runtime credentials are env-only, gated later in
+  `compose_kalshi_runner`, never read by the boot gate. The live demo run is still
+  operator-gated behind the T4.2 fixture clearance. Operator umbrella runbook:
+  [docs/runbooks/demo-bringup.md](docs/runbooks/demo-bringup.md); flip mechanics:
+  [docs/runbooks/demo-flip.md](docs/runbooks/demo-flip.md). This changes nothing
+  about the honest framing below.
+- **Live trading: NEVER enabled.** The only bootable venues are `sim` (at
+  `stage = "sim"`) and the Kalshi **demo** at `stage = "paper"` (mock funds);
+  every live stage (`live_min`/`scaled`) is REFUSED at the boot gate
+  ([config/fortuna.example.toml](config/fortuna.example.toml) `[daemon]`;
+  [crates/fortuna-live/src/boot.rs](crates/fortuna-live/src/boot.rs)). The Kalshi
+  demo's live run is still gated on operator-recorded fixture clearance;
   promotions, re-arms, and live capital are operator-only actions (I7). No
   venue credentials are committed anywhere in this repository.
 
@@ -141,7 +154,7 @@ and the gate protocol are in [docs/verification.md](docs/verification.md).
 | [docs/architecture.md](docs/architecture.md) | The three planes (cognition/harness/safety), crate map, data flow. |
 | [docs/verification.md](docs/verification.md) | The verification doctrine: independent gates, DST, mutation checks. |
 | [docs/operations.md](docs/operations.md) | The operator's console: CLI as built, ROTA tour, daily rhythm. |
-| [docs/runbooks/](docs/runbooks/) | Procedures: soak start, halt and re-arm, kill-switch drill, troubleshooting, secrets, fixtures. |
+| [docs/runbooks/](docs/runbooks/) | Procedures: demo bring-up (umbrella), soak start, demo flip, halt and re-arm, kill-switch drill, troubleshooting, secrets, fixtures. |
 | [docs/design/](docs/design/) | Design decisions: orchestration tracks, ROTA, CLI, perps module plan, signal contract. |
 | [docs/reviews/](docs/reviews/) | Independent gate verdicts; `GATE-FINDINGS-LATEST.md` is the live findings bus. |
 | [docs/research/](docs/research/) | Dated, sourced venue research (fees, APIs, perps mechanics) — venue facts live here, never in memory. |

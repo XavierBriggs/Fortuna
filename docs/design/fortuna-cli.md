@@ -81,8 +81,8 @@ system if possible." Zero bloat; every command earns its place.
 
 ### 1.1 Existing CLI
 
-The binary `fortuna` already exists at `crates/fortuna-cli/src/main.rs`. Its
-commands as of this writing (lines 8-12):
+The binary `fortuna` already exists at `crates/fortuna-cli/src/main.rs`. The
+ORIGINAL pre-T4.4 command set this design extended was:
 
 ```
 fortuna status
@@ -91,28 +91,61 @@ fortuna rearm  <scope> --reason "..." --operator <name>
 fortuna kill   [--flatten] --journal <path>
 ```
 
-The arg parser is hand-rolled (`while i < raw.len()` loop, lines 63-89). There
-is no clap anywhere in the workspace. Deps: fortuna-core, fortuna-gates,
-fortuna-ledger, anyhow, tokio, serde_json.
+AS BUILT (post-T4.4), the binary now also ships `config check`, `logs`,
+`start`, and `stop` (the usage banner is in the `parse_args` `bail!`, and the
+module doc-comment header lists all eight); see §3 for the reconciled
+inventory.
+
+The arg parser is hand-rolled (the `while i < raw.len()` loop in `parse_args`).
+There is no clap anywhere in the workspace. Deps: fortuna-core, fortuna-gates,
+fortuna-ledger, fortuna-ops (added by this work, for `FortunaConfig`), anyhow,
+tokio, serde_json, toml.
 
 **Design rule: extend this binary. Do not create a second binary.**
 
 ### 1.2 Kill-switch independence (I4)
 
-`crates/fortuna-killswitch/Cargo.toml` lines 8-9 state the structural rule (no
+`crates/fortuna-killswitch/Cargo.toml` states the structural rule (no
 fortuna-ledger, sqlx, Postgres, cognition, event loop); the invariant suite
-asserts the dependency graph; `scripts/killswitch-test.sh` line 10 proves
-Postgres-free via `env -u DATABASE_URL`. The existing `kill` command (main.rs
-lines 109-138) already uses the correct pattern: subprocess exec, never a
-library call. Nothing in this design may add fortuna-killswitch to
-fortuna-cli's dependency tree.
+asserts the dependency graph; `scripts/killswitch-test.sh` proves Postgres-free
+via `env -u DATABASE_URL`. The `kill` command (in `kill()`,
+`crates/fortuna-cli/src/main.rs`) uses the correct pattern: it execs the
+standalone `fortuna-killswitch` binary (`Command::new("fortuna-killswitch")`,
+with a `cargo run -p fortuna-killswitch` dev fallback when the installed binary
+is absent), never a library call. `--flatten` selects the killswitch's `report`
+verb; otherwise it invokes `freeze`. Nothing in this design may add
+fortuna-killswitch to fortuna-cli's dependency tree.
+
+### 1.2a Standalone kill-switch verbs (the binary `fortuna kill` triggers)
+
+`crates/fortuna-killswitch/src/main.rs` is the I4 switch and is invoked
+directly by the operator, out-of-band, as well as via `fortuna kill`. Its
+verbs (each takes `--journal <path>`; `freeze` also accepts `--venue`,
+default `kalshi`):
+
+| Verb | Behavior |
+|---|---|
+| `freeze` | Cancel every open order at the venue (live: kalshi only; fail-closed on missing `FORTUNA_KILLSWITCH_KALSHI_*` creds), report positions, then WRITE the durable I4 revocation sentinel (`KILLSWITCH_REVOKED`, sibling of the journal) so the runtime refuses future order placement until cleared. |
+| `flatten-perps` | Cancel-all + reduce-only IOC closes on the Kinetics perp venue, each close a gated order through the real perp gate (spec 5.15); also writes the revocation sentinel. `--venue` is ignored (kinetics is the only perp venue). |
+| `clear-revocation` | **NEW (spec Section 8 — kill-switch reversal is CLI-only).** REMOVES the `KILLSWITCH_REVOKED` sentinel so a subsequent daemon RESTART boots un-revoked. Touches NO venue and reads NO creds — the operator's out-of-band un-revoke. Idempotent (a missing sentinel is success). This is the I4 reversal counterpart to `halt`/`rearm`'s I2 path: clearing the sentinel re-arms order-placing CAPABILITY, but the daemon resumes only on restart (I2: no automatic resumption). |
+| `self-test` | Exercise the full freeze machinery against an in-process sim venue (the monthly-test path, I4). |
+| `report` | NOT wired — prints guidance to use `freeze` (which reports positions after cancelling) and exits non-zero. |
+
+The re-arm + kill-reversal being CLI/operator-only is deliberate (spec
+Section 8): a compromised Slack token must not be able to un-halt a halted
+system or clear a revocation. See `docs/runbooks/halt-and-rearm.md` for the
+end-to-end re-arm sequence (`clear-revocation` + `fortuna rearm` + restart).
 
 ### 1.3 T4.1 daemon (the lifecycle subject)
 
 BUILD_PLAN Phase 4 T4.1 specifies fortuna-live: config load, repos +
 AuditWriter, tick loop, mind, dead-man pinger, halt poll <=500ms, graceful
 shutdown (cancel working orders, final audit row). SIGTERM is its shutdown
-signal; the CLI's `stop` manages it by SIGTERM only.
+signal; the CLI's `stop` manages it by SIGTERM only (AS BUILT: `send_sigterm`
+shells out `kill -15` — `nix` is not a workspace dep and `Child::kill` is
+SIGKILL). Per A1, `stop` confirms the daemon's clean-shutdown line
+(`"fortuna-live: clean shutdown"`, `DAEMON_SHUTDOWN_MARKER`) in the log AFTER
+the signal before declaring success — process exit alone is not success.
 
 ### 1.4 Recorder
 
@@ -144,14 +177,21 @@ whole shape; errors are typed `OpsError::Config`.
 
 **Pidfile + SIGTERM; foreground available for debugging; no launchd in v1.**
 
+> AS-BUILT note: the default runtime dir is `data/runtime/` (A5), NOT
+> `/tmp/...`; the `stop` default timeout is 60s (A7), NOT 30; liveness is via
+> `ps -p <pid> -o stat= -o comm=` (name-validated, zombie-aware), NOT a bare
+> `kill -0`. Operator walkthroughs: `docs/runbooks/demo-bringup.md` (start the
+> stack) and `docs/runbooks/halt-and-rearm.md` (stop / halt / re-arm).
+
 `start` starts fortuna-live and fortuna-recorder as detached background processes,
-PIDs written under `FORTUNA_RUNTIME_DIR` (default `/tmp/fortuna-pids/`),
-stdout/stderr redirected to `FORTUNA_RUNTIME_DIR/logs/<component>.log`. `stop`
-reads pidfiles, sends SIGTERM (daemon first, then recorder), waits up to
-`--timeout-secs` (default 30) for clean exit; on timeout it prints a warning
-and exits non-zero — it NEVER sends SIGKILL, because the daemon's shutdown path
-(cancel working orders, final audit row) must complete. `status` reads pidfiles
-+ `kill -0`.
+PIDs written under `FORTUNA_RUNTIME_DIR` (default `data/runtime/`, A5; anchored
+to the config-derived repo root, F-2), stdout/stderr redirected (append-mode, A4)
+to `FORTUNA_RUNTIME_DIR/logs/<component>.log`. `stop` reads pidfiles, sends
+SIGTERM (daemon first, then recorder), waits up to `--timeout-secs` (default 60,
+A7) for clean exit; on timeout it prints the A7 warning and exits non-zero — it
+NEVER sends SIGKILL, because the daemon's shutdown path (cancel working orders,
+final audit row) must complete. `status` reads pidfiles and validates each PID's
+liveness + identity.
 
 Why not launchd: XML config outside the repo, launchctl as a second tool, logs
 diverted to the unified log away from the audit trail, unload/load cycles on
@@ -166,18 +206,27 @@ CLI-only, kill switch stays a separate exec'd binary.
 
 All changes land in `crates/fortuna-cli/` only.
 
+> **Reconciled to the shipped binary (2026-06-12).** The table below is the
+> AS-BUILT inventory after the AMENDMENTS were applied. `mode` and
+> `db migrate-status` were CUT (A6) and never built; `--allow-pending-migrations`
+> does not exist; `status` gained a DB + audit-age section, NOT a metrics-endpoint
+> poll (deferred, A6). Both `start` and `stop` are operationalized in
+> `docs/runbooks/demo-bringup.md` (bring-up) and `docs/runbooks/halt-and-rearm.md`
+> (halt/re-arm lifecycle).
+
 | Command | Behavior | DB required |
 |---|---|---|
-| `fortuna start [--foreground] [--allow-pending-migrations]` | config check -> migration check -> refuse if already running -> start daemon + recorder w/ pidfiles + log redirect -> audit "lifecycle/start" (best-effort) | migrations check only |
-| `fortuna stop [--timeout-secs N]` | SIGTERM daemon then recorder; wait; never SIGKILL; idempotent; audit best-effort, never blocks shutdown | no |
-| `fortuna status` | Section 1 always (pidfile + kill -0, <200ms); Section 2 if DB (active halts, recent audit); Section 3 if daemon metrics endpoint reachable (last tick age, dead-man) — extends existing status arm (main.rs:152-176), existing DB queries unchanged | degradable |
-| `fortuna halt / rearm / kill` | EXISTING, unchanged | as today |
-| `fortuna logs <component> [-f]` | tail `FORTUNA_RUNTIME_DIR/logs/<component>.log`; components: daemon, recorder | no |
-| `fortuna db migrate-status` | list applied/pending via MIGRATOR; exit 0 only if none pending | yes |
-| `fortuna config check [--config-path <p>]` | `FortunaConfig::load_file` validation only; starts nothing | no |
-| `fortuna mode` | read-only print of venue/stage/mode from config + reminder that changes are edit + `stop && start` | no |
+| `fortuna start [--foreground] [--config-path <p>]` | config check -> refuse if already running (idempotent exit 0) -> A2 unmanaged-recorder refusal -> claim + spawn daemon + recorder w/ pidfiles + append-log redirect -> A8 active-halt visibility + best-effort "lifecycle/start" audit. `--foreground` exec-replaces with `fortuna-live` (no pidfile, no recorder). NO migration pre-flight (A6: the daemon's boot connect auto-migrates) | no (halt visibility + audit are best-effort) |
+| `fortuna stop [--timeout-secs N]` | SIGTERM daemon then recorder; wait (default 60s, A7); never SIGKILL; idempotent; daemon success requires the clean-shutdown line in the log AFTER the signal (A1); timeout leaves process + pidfile + `.stopping` marker and warns; audit best-effort, never blocks shutdown | no |
+| `fortuna status` | process-health section ALWAYS (name-validated pidfiles, exit 0 even without a DB, A9); "config on disk" line; then a DB section if `DATABASE_URL` is set and Pg answers within 5s (active halts, recent halt/gate/order rows, A8 audit-age crash-tell). NO metrics-endpoint poll — deferred (A6) | degradable |
+| `fortuna halt / rearm / kill` | EXISTING. `halt`/`rearm` write a durable halt + audit row (rearm prints the restart-required notice, M3); `kill` execs the standalone `fortuna-killswitch` (see §1.2) | halt/rearm yes; kill no |
+| `fortuna logs <component> [-f]` | exec `tail -n50 [-f] <log>` on the redirected `FORTUNA_RUNTIME_DIR/logs/<component>.log`; components: daemon, recorder | no |
+| `fortuna config check [--config-path <p>]` | `FortunaConfig::load_file` validation only; starts nothing, mutates nothing | no |
+| ~~`fortuna db migrate-status`~~ | **CUT (A6), never built.** The daemon's boot `fortuna_ledger::connect()` auto-migrates unconditionally, so a status command would either mutate schema or be theater. | — |
+| ~~`fortuna mode`~~ | **CUT (A6), never built.** Replaced by the `status` "config on disk: venue/mode (daemon may differ until restart)" line. Mode changes = edit config, then `stop && start`. | — |
 
-Six new commands; four existing (one extended).
+Four new commands (start, stop, logs, config check); `status` extended;
+halt/rearm/kill unchanged.
 
 ## 4. Explicitly NOT in v1
 
@@ -192,33 +241,44 @@ Six new commands; four existing (one extended).
 
 ## 5. Data flows
 
-`start`: config check (fail->exit 1) -> migration check (pending->exit 1 unless
-flag) -> already-running check (idempotent exit 0) -> spawn daemon w/ pidfile +
-log redirect -> spawn recorder likewise -> best-effort audit row -> print pids.
+> AS BUILT: there is no migration pre-flight (A6) and no metrics section
+> (deferred, A6). The flows below are corrected to the shipped binary.
 
-`stop`: per component: read pidfile -> not running? "already stopped" ->
-running? SIGTERM, wait <=N s -> clean? remove pidfile : warn + exit 1 ->
-best-effort audit row.
+`start`: config check (fail->exit 1) -> per-component already-running check
+(all running -> idempotent exit 0; stale pidfiles removed; mid-claim -> bail) ->
+A2 unmanaged-recorder refusal -> claim pidfile (O_EXCL) + spawn daemon w/ append
+log redirect -> spawn recorder likewise -> A8 active-halt visibility +
+best-effort lifecycle audit row -> print pids.
 
-`status`: always pidfile+kill -0 section; then DB section (active halts, recent
-halt audit) if DATABASE_URL; then metrics section (tick age, dead-man) if the
-daemon's GET endpoint answers.
+`stop`: per component: read pidfile -> not running / stale? "already stopped"
+-> running? write `.stopping` marker, SIGTERM, wait <=N s -> clean? remove
+pidfile (+ for the daemon, confirm the A1 shutdown line) : warn (NEVER SIGKILL),
+leave process + pidfile + marker -> best-effort audit row; any warning -> exit
+non-zero.
+
+`status`: always the process-health section (name-validated pidfiles); a
+"config on disk" line; then a DB section (active halts; recent halt/gate/order
+rows; A8 audit-age crash-tell) if DATABASE_URL is set and Pg answers within 5s.
+No metrics section (deferred).
 
 ## 6. Dependency changes
 
 Add `fortuna-ops = { path = "../fortuna-ops" }` to fortuna-cli (for
-FortunaConfig). Pidfiles via std::fs; spawning via std::process::Command;
-SIGTERM via the `nix` crate IF already transitive, else shell-out to
-`kill -15 <pid>` with a GAPS entry (std's Child::kill is SIGKILL — never use
-it here). No other new deps.
+FortunaConfig). Pidfiles via std::fs; spawning via std::process::Command.
+AS BUILT: `nix` is NOT a workspace dep, so SIGTERM is the shell-out
+`kill -15 <pid>` (`send_sigterm`); std's `Child::kill` is SIGKILL and is never
+used here. `toml` is also a dep (recorder invocation override + the
+`config on disk` line read raw `toml::Value`).
 
 ## 7. Audit and safety rules
 
 1. `start`/`stop` write best-effort `"lifecycle"` audit rows (action, pids,
    `$USER` as actor) when DB reachable; failures warn, never block.
-2. `start` refuses on config-check failure or pending migrations (unless flag).
-3. `stop` never SIGKILLs; timeout => exit 1, process left for the operator.
-4. `stop` idempotent; `mode` strictly read-only.
+2. `start` refuses on config-check failure, on a mid-claim pidfile, or on an
+   unmanaged recorder (A2). No migration pre-flight (A6 — cut).
+3. `stop` never SIGKILLs; timeout => exit non-zero, process left for the operator.
+4. `stop` idempotent. (`mode` was cut, A6; `status`'s config-on-disk line is the
+   read-only replacement.)
 5. Existing halt/rearm/kill semantics untouched.
 
 ## 8. Mode-change policy (justification)
@@ -230,14 +290,27 @@ tonight. Demo flip stays: `stop` -> edit config -> `config check` -> `start`.
 
 ## 9. Testing plan
 
-New `crates/fortuna-cli/tests/cli_integration.rs`, written BEFORE
-implementation: config_check_rejects_bad_toml; config_check_accepts_example;
-status_no_processes (empty runtime dir => "stopped", exit 0); stop_idempotent;
-mode_reads_config (prints venue, modifies nothing); db_migrate_status_no_db
-(informative non-zero). The start->status->stop smoke is a documented manual
-runbook check (real process forking is timing-flaky in CI); if T4.1's DST
-smoke composition allows, assert the shutdown audit row appears in the daemon
-log before exit.
+AS BUILT — `crates/fortuna-cli/tests/cli_integration.rs` exists and is the
+A9 plan, NOT the easy list once sketched here (no `mode`/`db migrate-status`
+tests — those commands were cut). It drives the real binary with a temp
+runtime dir and stub component binaries, covering: `config_check_*`
+(accepts example, rejects bad TOML, missing file fails);
+`status_*` (no processes exits 0; live pidfile reads running; dead-pid /
+name-mismatch / malformed pidfiles read stale; stopping marker shows
+"stopping since"; DB-unreachable still exits 0); `logs_*` (unknown / missing
+component, missing file, prints last 50); `start_*` (config check first;
+refuses on an unmanaged recorder; idempotent when all running; foreground
+exec + exit propagation; mid-claim pidfile is contended not stale);
+`stop_*` (idempotent; graceful daemon confirms the log line and cleans up;
+exit without the shutdown line is NOT success; pre-existing marker lines in
+the append log are ignored; timeout warns/proceeds/leaves state; never
+signals a name-mismatched pid; recorder needs no log line); and
+`usage_names_new_commands`. The A3/A4 primitives (claim race, append-mode
+redirect, pidfile classification, zombie liveness, log-offset) are unit-tested
+inline in `main.rs`. The start->status->stop smoke against REAL release
+binaries stays a manual runbook check (§13; real process forking is timing-flaky
+in CI). The A1 SIGTERM contract is asserted in `fortuna-live`'s own DST/smoke
+tests (see the AMENDMENT A1 bracket), the ship gate for `stop`.
 
 ## 10. Implementer validation checklist (run BEFORE building)
 
@@ -307,7 +380,7 @@ moot item 6; no misfit beyond what the amendments already resolve.
 | File | Change |
 |---|---|
 | crates/fortuna-cli/Cargo.toml | + fortuna-ops (+ nix only if chosen) |
-| crates/fortuna-cli/src/main.rs | 6 new command arms; status extended; usage string updated |
+| crates/fortuna-cli/src/main.rs | 4 new command arms (start, stop, logs, config check); status extended; usage string updated |
 | crates/fortuna-cli/tests/cli_integration.rs | NEW — Section 9 tests, written first |
 | GAPS.md / ASSUMPTIONS.md | SIGTERM/MIGRATOR fallbacks; runtime-dir choice |
 

@@ -5,7 +5,10 @@ running locally on the Sim venue, the ROTA console in a browser, and the test
 battery green. Read it once, in order. Live trading is not part of this
 document — this quickstart uses the Sim venue; the Kalshi DEMO also boots
 (`venue="kalshi", stage="paper"` + a `[kalshi]` section), with its live run
-operator-gated (see [runbooks/demo-flip.md](runbooks/demo-flip.md))
+operator-gated. To stand the whole system up in Kalshi demo and watch it run
+end-to-end, follow the umbrella runbook
+[runbooks/demo-bringup.md](runbooks/demo-bringup.md) (flip mechanics:
+[runbooks/demo-flip.md](runbooks/demo-flip.md))
 ([config/fortuna.example.toml](../config/fortuna.example.toml) `[daemon]`);
 the live path is [FINAL_REPORT.md](../FINAL_REPORT.md) §6.
 
@@ -98,9 +101,13 @@ variable — never its value.
 | `FORTUNA_DEADMAN_URL` | yes | External dead-man monitor; the daemon pings it every minute (the system cannot report its own death). |
 | `ANTHROPIC_API_KEY` | optional | The cognition feature flag: present ⇒ live AnthropicMind under config budgets; absent ⇒ stub mind, only if `[cognition] allow_stub_mind = true`. |
 
-Reserved names for the post-fixture live path (`KALSHI_*`,
-`FORTUNA_KILLSWITCH_*`) are documented in [.env.example](../.env.example);
-nothing in the Sim quickstart reads them.
+The reserved live-path Kalshi names (`KALSHI_*`) and the kill-switch's own set
+(`FORTUNA_KILLSWITCH_*`) are documented in [.env.example](../.env.example). The
+Kalshi **demo** run additionally reads `KALSHI_API_DEMO_KEY_ID` /
+`KALSHI_DEMO_PRIVATE_KEY_PATH` (the demo compose path,
+[crates/fortuna-live/src/daemon.rs](../crates/fortuna-live/src/daemon.rs)); the
+[demo-bringup runbook](runbooks/demo-bringup.md) is the secrets-and-bring-up
+procedure. Nothing in this Sim quickstart reads any of them.
 
 Load the file into your shell without committing anything:
 

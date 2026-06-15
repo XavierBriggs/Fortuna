@@ -5,12 +5,18 @@
 one that cannot beat the baselines.
 **When to read it:** before authoring or promoting a persona — registration is
 **hash-bound** and promotion is an **operator action the daemon never does for you**.
-**Status:** accurate as of commit `cc20e37` (2026-06-13). The persona layer is built
-and tested end to end (`crates/fortuna-cognition/src/persona*.rs`,
-`crates/fortuna-ledger/migrations/20260613000001_personas.sql`); the LIVE daemon wiring
-that runs personas on the trading loop is a pending Track-A coordination (see
-[GAPS.md](../../GAPS.md) "TRACK-A COORDINATION") — so today you author + register + score
-personas, but they do not yet fire on the live `drive()` loop.
+**Status:** accurate as of 2026-06-14. The persona layer is built and tested end to end
+(`crates/fortuna-cognition/src/persona*.rs`,
+`crates/fortuna-ledger/migrations/20260613000001_personas.sql`), AND the live daemon
+wiring has landed: an opt-in `[personas]` config section (default OFF) composes the
+persona step into the trading loop. When enabled, `fortuna-live` loads each configured
+persona fail-closed at boot (prints `persona analysis ACTIVE`) and runs the due ones
+every segment ([crates/fortuna-live/src/main.rs](../../crates/fortuna-live/src/main.rs)
+`personas_wiring`; [crates/fortuna-live/src/daemon.rs](../../crates/fortuna-live/src/daemon.rs)
+`run_due_personas` step; [crates/fortuna-live/src/boot.rs](../../crates/fortuna-live/src/boot.rs)
+`[personas]` validation). See §3a for turning it on. (The remaining gaps — folding persona
+scores into the weekly review, the `fortuna-invariants` field-surface pin, the ROTA panels,
+and a `fortuna persona` CLI — stay ledgered in [GAPS.md](../../GAPS.md).)
 
 The one-sentence version: **a persona is a versioned, operator-authored "skill file"
 whose method is trusted and whose signals are not; you register it by its content hash,
@@ -130,7 +136,32 @@ the loader cross-checks the version and the hash.
 
 ---
 
-## 3. How it runs (once Track A wires it live)
+## 3. How it runs (live)
+
+### 3a. Turning it on in the daemon
+
+The persona step is opt-in and default-OFF: with no `[personas]` section the daemon is
+byte-unchanged. To enable it, add the section in `fortuna.toml` with one
+`[[personas.persona]]` block per registered persona — its `id`, the `dir` holding
+`persona.md`/`schema.json`, and its firing `cadences`
+([crates/fortuna-live/src/boot.rs](../../crates/fortuna-live/src/boot.rs) `PersonasSection`):
+
+```toml
+[personas]
+enabled = true
+
+[[personas.persona]]
+id = "meteorologist"
+dir = "config/personas/meteorologist"
+cadences = [{ daily_at_hour_utc = { hour = 12 } }]   # or { every_hours = { hours = 6 } }
+```
+
+Boot is fail-closed: an enabled persona whose file hash ≠ its active registry row (§2), or a
+never-firing cadence, refuses to boot — a tampered or unregistered method never runs. A
+healthy boot prints `fortuna-live: persona analysis ACTIVE (<n> persona(s); strategy=domain-analysis)`.
+Config changes are restart-gated like every other ([demo-flip.md](demo-flip.md)).
+
+### 3b. The run
 
 Decoupled, declarative ([persona_trigger.rs](../../crates/fortuna-cognition/src/persona_trigger.rs)):
 
@@ -200,7 +231,10 @@ ROTA is read-only and has zero mutating endpoints.
   degrade, determinism), the trigger layer, the artifact→belief fan-out (provenance replay),
   the scoring + promote/retire proposal, the `domain_analyses`/`personas` ledger, and the
   end-to-end + two-domain proofs.
-- **Pending (operator/Track-A/Track-B):** running personas on the live `drive()` loop and
-  folding persona scores into the weekly review (Track A); the `fortuna-invariants` field-surface
-  pin (operator waive); the ROTA panels (Track B); a `fortuna persona` CLI for registration
-  ergonomics; and the macro signal kinds (Track D). All ledgered in [GAPS.md](../../GAPS.md).
+- **Live:** running personas on the daemon's `drive()` loop via the opt-in `[personas]`
+  section (§3a) — the persona step composes, loads fail-closed, and fans out beliefs each
+  segment.
+- **Pending (operator/Track-A/Track-B):** folding persona scores into the weekly review
+  (Track A); the `fortuna-invariants` field-surface pin (operator waive); the ROTA panels
+  (Track B); a `fortuna persona` CLI for registration ergonomics; and the macro signal kinds
+  (Track D). All ledgered in [GAPS.md](../../GAPS.md).

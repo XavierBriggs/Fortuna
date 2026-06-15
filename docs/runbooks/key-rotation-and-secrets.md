@@ -13,7 +13,8 @@ been in a git object is treated as leaked, even if the repo never left the
 machine. The 2026-06-11 incident below is why this is policy and not
 paranoia.
 
-Related: [soak-start.md](soak-start.md) (env contract) ·
+Related: [demo-bringup.md](demo-bringup.md) (umbrella bring-up) ·
+[soak-start.md](soak-start.md) (env contract) ·
 [fixture-recording.md](fixture-recording.md) (demo credential pair) ·
 [kill-switch-drill.md](kill-switch-drill.md) (the kill-switch pair)
 

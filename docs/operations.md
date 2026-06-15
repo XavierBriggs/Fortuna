@@ -5,7 +5,7 @@ starting and stopping it, reading ROTA, executing the I2 halt/re-arm path, and
 keeping the soak-watch rhythm. Read it before your first `fortuna start`, and
 keep it open during the soak.
 
-**As of:** 2026-06-13, branch `main`. The
+**As of:** 2026-06-14, branch `main`. The
 authoritative design documents are
 [docs/design/fortuna-cli.md](design/fortuna-cli.md) (CLI, amendments A1–A10
 binding) and [docs/design/rota-dashboard.md](design/rota-dashboard.md) (ROTA,
@@ -264,9 +264,11 @@ Postgres all dead (main.rs:1000-1031; the structural rule is
 `--flatten` currently maps to the kill switch's `report` action; the journal
 defaults to `/tmp/fortuna-killswitch.jsonl` (main.rs:1003-1007). The
 standalone binary's own surface is
-`fortuna-killswitch <freeze|report|self-test> --journal <path>
-[--venue kalshi]` (crates/fortuna-killswitch/src/main.rs:1-11); `self-test`
-is the monthly-drill path — see the
+`fortuna-killswitch <freeze|report|self-test|flatten-perps> --journal <path>
+[--venue kalshi]` (crates/fortuna-killswitch/src/main.rs) — `flatten-perps`
+is the spec-5.15 perp FLATTEN (cancel-all + reduce-only IOC closes on the
+Kinetics perp venue, through the real perp gate, with the switch's own cred
+pair); `self-test` is the monthly-drill path — see the
 [kill-switch drill runbook](runbooks/kill-switch-drill.md). When the installed
 binary is absent the CLI falls back to `cargo run -p fortuna-killswitch`
 (main.rs:1012-1026). Exit 1 if the switch exits non-zero.
@@ -438,6 +440,17 @@ crates/fortuna-live/src/main.rs:125).
   2026-06-11 gate F1 fix; rota.rs:317-364) — and the shell polls cursorless
   every 2 seconds, rendering the last 12 rows as `at UTC kind · actor`
   (rota.rs:551-561). Limit clamps to [1, 500].
+
+**Perps — §9.2** — `/api/rota/v1/perps`
+- The perps board's DISPLAY half, three sub-sections each degrading to
+  honest-`unavailable` independently (HTTP 200, never a fabricated row):
+  **realized funding** (recent finalized 8h funding rates per market, filled by
+  the funding poller), the **A2d edge gate** (the `funding_forecast` mean CRPS vs
+  its baselines), and **perp basis-v2** (the live regime + model-vs-implied CDF
+  divergence per perp, daemon-shaped into `views["perps_basis"]`). The DB
+  sub-sections ride the dedicated read pool (§9.1 precedent); basis is
+  honest-unavailable until the daemon emits it (`view_perps`,
+  crates/fortuna-ops/src/rota.rs).
 
 ### 2.3 The halt takeover
 

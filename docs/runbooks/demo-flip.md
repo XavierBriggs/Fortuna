@@ -10,7 +10,8 @@ operator preconditions, §1).
 the Kalshi demo runner at `Stage::Paper`. The CODE is no longer refused; the
 LIVE RUN is operator-gated — see §1.
 
-Related: [soak-start.md](soak-start.md) ·
+Related: [demo-bringup.md](demo-bringup.md) ·
+[soak-start.md](soak-start.md) ·
 [fixture-recording.md](fixture-recording.md) ·
 [kill-switch-drill.md](kill-switch-drill.md)
 

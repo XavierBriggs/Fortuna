@@ -29,7 +29,8 @@ secrets); your real file is `.env` (gitignored, `chmod 600`). Load with
 | `FORTUNA_DEADMAN_URL` | External dead-man monitor ping (the system can't report its own death). | **NOW** (optional) — off-box monitor URL. |
 | Slack **app-level token** (`xapp-…`, scope `connections:write`) | Socket Mode **inbound** listener — button clicks / approvals over WebSocket. | **NOT-YET — pending track-A Slack listener.** Not implemented (`slack.rs` is send-only; the listener is later-phase per BUILD_PLAN). No env var exists in code yet. |
 | `AEOLUS_API_TOKEN` | The Aeolus weather-forecast vendor source (`x-api-key` auth header). Wired via the `[sources.<id>] auth_env = "AEOLUS_API_TOKEN"` key; the factory's `secret_resolver` reads it from env. | **NOT-YET** — only when you enable an `aeolus` source. |
-| `KALSHI_API_KEY_ID` + `KALSHI_PRIVATE_KEY_PATH` | Kalshi **runtime/trading** venue credentials. | **NOT-YET** — required before any live/demo Kalshi venue connection. Reserved names; no live path yet. |
+| `KALSHI_API_DEMO_KEY_ID` + `KALSHI_DEMO_PRIVATE_KEY_PATH` | Kalshi **demo runtime** venue credentials (mock funds). Read by `compose_kalshi_runner` / `build_kalshi_demo_transport` when `venue = "kalshi", stage = "paper"`; the demo base URL is a built-in const (`KALSHI_DEMO_BASE_URL`). | **NOT-YET** — required before the Kalshi demo *run* (the boot gate is pure over config and never reads these; an absent key is a Compose error naming the var). |
+| `KALSHI_API_KEY_ID` + `KALSHI_PRIVATE_KEY_PATH` | Kalshi **live/prod** venue credentials. | **NOT-YET** — reserved names (`.env.example`); no live path is wired yet (promotion past Paper is the I7 gate). |
 | `FORTUNA_KILLSWITCH_KALSHI_API_KEY_ID` + `FORTUNA_KILLSWITCH_KALSHI_PRIVATE_KEY_PATH` + `FORTUNA_KILLSWITCH_KALSHI_BASE_URL` | The kill-switch's **own** Kalshi credential set (I4 — must never share keys with the runtime). The standalone `fortuna-killswitch freeze --venue kalshi` is wired (`7f69b81`) and reads all three; `_BASE_URL` has **no default** (prod vs demo must be explicit). | **NOT-YET** — required before the first live/demo `freeze --venue kalshi`; until set, that path fails closed (exit 4) and only `self-test` runs. |
 
 Sources: `crates/fortuna-ops/src/config.rs` (`ENV_SLACK_BOT_TOKEN`, `ENV_DEADMAN_URL`,
@@ -73,7 +74,7 @@ parse), `config/fortuna.example.toml`.
 
 | Approval | What it unblocks | Where |
 |---|---|---|
-| **27-item Kalshi clearance record** | `venue = "kalshi"`. Today the daemon **refuses to boot** with `venue = "kalshi"` (`boot.rs` `validate_bootable`: "cleared for Sim development only"). | Checklist = `docs/research/venue/kalshi-api-2026-06-10/research.md §Uncertainties` (27 items). Fixtures were operator-recorded against the **demo** env 2026-06-11 (`fixtures/kalshi/README.md`); items **#26** (prod-parity re-record) and **#27** (live `GET /exchange/status`) remain **before first live use**. Residue itemized in `GAPS.md` "Operator-blocked: Kalshi fixtures" (T4.2). |
+| **27-item Kalshi clearance record** | The Kalshi **demo** run. The daemon now **boots** at `venue = "kalshi", stage = "paper"` (mock funds — `boot.rs` `validate_bootable`); every live stage (`live_min`/`scaled`) is still REFUSED at the boot gate (promotion needs the I7 gate). The clearance is the sign-off to point the adapter at the real demo venue for the live demo *run* (runbook: `docs/runbooks/demo-bringup.md`). | Checklist = `docs/research/venue/kalshi-api-2026-06-10/research.md §Uncertainties` (27 items). Fixtures were operator-recorded against the **demo** env 2026-06-11 (`fixtures/kalshi/README.md`); items **#26** (prod-parity re-record) and **#27** (live `GET /exchange/status`) remain **before first live use**. Residue itemized in `GAPS.md` "Operator-blocked: Kalshi fixtures" (T4.2). |
 | **Per-track design / build approvals** | A track's next slice. | The operator-decision queue in `docs/reviews/GATE-FINDINGS-LATEST.md` (and `operator-decisions-*.md`). |
 
 Note: fixture *recording* itself is agent work; the **sign-off that the record is
@@ -87,8 +88,11 @@ Each rung is a deliberate human step. None auto-advances (I7).
 
 1. **Start the Sim soak** — operator-run release build + start. Runbook:
    `docs/runbooks/soak-start.md`. (GO verdict: `docs/reviews/soak-go-gate-2026-06-12.md`.)
-2. **Flip to Kalshi demo (mock funds)** — set `[daemon] venue = "kalshi"` *after* the
-   T4.2 clearance (§3). Currently boot-refused. Runbook: `docs/runbooks/demo-flip.md`.
+2. **Flip to Kalshi demo (mock funds)** — set `[daemon] venue = "kalshi", stage =
+   "paper"` (+ a `[kalshi]` section) *after* the T4.2 clearance (§3). The CODE is
+   merged and BOOTS at paper; the live demo *run* is operator-gated on the
+   clearance + demo credentials. Umbrella runbook: `docs/runbooks/demo-bringup.md`
+   (zero-to-watching-it-run); flip mechanics: `docs/runbooks/demo-flip.md`.
 3. **I7 forward validation** — a strategy passes its forward-validation gate before it
    touches live capital. Operator judgement on the gate.
 4. **Scale to live capital** — deliberate operator step after demo + validation.
@@ -100,11 +104,13 @@ Each rung is a deliberate human step. None auto-advances (I7).
    (`crates/fortuna-cli/src/main.rs`.)
 6. **Out-of-band kill switch (I4)** — `fortuna kill [--flatten] [--journal <path>]`, or
    the standalone binary directly:
-   `fortuna-killswitch <freeze|report|self-test> --journal <path> [--venue kalshi]`.
-   No Postgres, no runtime, no Slack dependency by construction. The standalone
-   `freeze --venue kalshi` is wired (`7f69b81`) and needs the
-   `FORTUNA_KILLSWITCH_KALSHI_*` creds (§1); without them it fails closed (exit 4)
-   and only `self-test` runs. Runbook: `docs/runbooks/kill-switch-drill.md`.
+   `fortuna-killswitch <freeze|report|self-test|flatten-perps> --journal <path>
+   [--venue kalshi]`. No Postgres, no runtime, no Slack dependency by construction.
+   `freeze --venue kalshi` (wired `7f69b81`) cancels every open Kalshi order; the
+   `flatten-perps` verb (spec 5.15, T5.B8) cancels-all + closes each Kinetics perp
+   with a reduce-only IOC through the real perp gate. Both need their own
+   `FORTUNA_KILLSWITCH_*` creds (§1); without them they fail closed (exit 4) and
+   only `self-test` runs. Runbook: `docs/runbooks/kill-switch-drill.md`.
 
 ---
 

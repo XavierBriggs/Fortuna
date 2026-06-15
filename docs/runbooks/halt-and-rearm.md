@@ -18,7 +18,8 @@ All commands run from the repo root with `DATABASE_URL` exported (`halt` and
 `rearm` require it; [crates/fortuna-cli/src/main.rs](../../crates/fortuna-cli/src/main.rs)).
 Build the CLI first if needed: `cargo build --release -p fortuna-cli`.
 
-Related: [soak-start.md](soak-start.md) ·
+Related: [demo-bringup.md](demo-bringup.md) ·
+[soak-start.md](soak-start.md) ·
 [kill-switch-drill.md](kill-switch-drill.md) ·
 [troubleshooting.md](troubleshooting.md)
 
@@ -41,6 +42,20 @@ attributed (the CLI refuses without them). Both verbs write a durable
 design: Slack may request a halt, but no re-arm verb exists over Slack — a
 compromised Slack token must not be able to un-halt the system (CLI header
 comment; I2).
+
+### A kill-switch revocation is NOT cleared by `rearm`
+
+A drawdown/runaway/manual halt is cleared by `rearm` (this runbook). A
+**kill-switch revocation** is a SEPARATE, durable halt and is NOT: after a live
+`fortuna kill` / standalone `freeze`/`flatten-perps`, the switch leaves a
+`KILLSWITCH_REVOKED` sentinel file that holds a global halt for as long as it
+exists — across restarts (the daemon's halt poller checks it before every tick).
+`rearm` does NOT remove that sentinel. Clearing it is operator-only, out-of-band,
+and CLI-only: `fortuna-killswitch clear-revocation --journal <path>`, THEN re-arm
+(if any other halt is also standing) and restart. The full flow lives in
+[kill-switch-drill.md](kill-switch-drill.md) §5. So if the daemon stays halted
+after a clean `rearm` + restart and the cause was a kill, the sentinel is still
+present — clear it first.
 
 ## The correct full sequence
 
@@ -145,3 +160,7 @@ means a re-arm is pending a restart. Restart.
 - Venue unreachable while the daemon holds working orders → this runbook
   does not cover it; see [kill-switch-drill.md](kill-switch-drill.md)
   ("when to use the real kill").
+- Daemon still halted after a clean `rearm` + restart, and the prior event was
+  a kill → a `KILLSWITCH_REVOKED` sentinel is still present; `rearm` does not
+  clear it. Run `fortuna-killswitch clear-revocation --journal <path>`, then
+  restart ([kill-switch-drill.md](kill-switch-drill.md) §5).

@@ -7,6 +7,10 @@ or any trading loop. This is the rig track B uses to verify every board.
 For the DAEMON-served ROTA (live Sim/demo data on `:9187`) see
 [operations.md §2](../operations.md). This runbook is the standalone harness.
 
+Related: [demo-bringup.md](demo-bringup.md) — the umbrella demo bring-up
+sequence; for the demo run you watch the daemon-served ROTA (above), not this
+seeded harness.
+
 ## Prerequisites
 - Local Postgres reachable at `localhost:5432` (the dev default).
 - The workspace builds: `cargo build -p fortuna-ops` clean.

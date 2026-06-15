@@ -13,8 +13,8 @@ Spec pins the cadence: "Tested monthly" — and the daemon's monthly review
 routes the drill reminder to Slack #ops as an operator action, I7
 (GAPS.md, T4.1/M2 slice C2 entry).
 
-Related: [halt-and-rearm.md](halt-and-rearm.md) ·
-[soak-start.md](soak-start.md)
+Related: [demo-bringup.md](demo-bringup.md) ·
+[halt-and-rearm.md](halt-and-rearm.md) · [soak-start.md](soak-start.md)
 
 ---
 
@@ -111,10 +111,69 @@ Because the binary defaults the venue to `kalshi`, the wrapper still reaches the
 live `freeze_kalshi` path; with the creds set it freezes Kalshi, and without
 them it fails closed (exit 4), NOT a silent no-op. `fortuna kill --flatten`
 instead execs the `report` action, which has no library path yet and exits 3
-("`report` … is not wired; use `freeze`"). The sim `self-test` path
-(the monthly drill) is unchanged. During the Sim soak none of this is exercised:
-the sim daemon's orders die with the daemon, and `fortuna halt` covers every
-drill scenario.
+("`report` … is not wired; use `freeze`") — the CLI's `--flatten` is wired to
+`report`, NOT to the standalone binary's perp `flatten-perps` verb. The sim
+`self-test` path (the monthly drill) is unchanged. During the Sim soak none of
+this is exercised: the sim daemon's orders die with the daemon, and `fortuna
+halt` covers every drill scenario.
+
+**Perp FLATTEN (spec 5.15; standalone binary only):** the standalone
+`fortuna-killswitch flatten-perps --journal <path>` cancels every open Kinetics
+perp order AND closes each non-flat position with a reduce-only IOC, each close a
+sealed `GatedPerpOrder` through the real perp gate
+([crates/fortuna-killswitch/src/main.rs](../../crates/fortuna-killswitch/src/main.rs),
+`flatten_perps_kinetics`). It is fail-closed: its gate config AND the switch's
+OWN Kinetics cred pair (`FORTUNA_KILLSWITCH_KINETICS_*` + a gate-config path;
+env-only) load and validate before any venue call (exit 4 on a miss). `--venue`
+is ignored — Kinetics is the only perp venue. Like the kalshi `freeze`, a
+successful flatten also REVOKES order-placing capability (see §5). Reach it via
+the standalone binary; the `fortuna kill` CLI wrapper does not expose it.
+
+## 5. I4 revocation: a kill FLATTENS *and* REVOKES (audit C2)
+
+A live kill no longer just cancels/flattens — it also **revokes order-placing
+capability** until an operator clears it out-of-band. This is the second half of
+I4 ("must not depend on … being healthy"): even a clean daemon restart must not
+silently re-arm trading after a kill.
+
+How it works:
+
+1. **Write-on-kill.** On a successful `freeze --venue kalshi` (or
+   `flatten-perps`), the switch writes a durable sentinel file named
+   `KILLSWITCH_REVOKED`, a SIBLING of the `--journal` path
+   ([crates/fortuna-killswitch/src/lib.rs](../../crates/fortuna-killswitch/src/lib.rs),
+   `revocation_path` / `write_revocation`). The success line ends
+   `… order-placing capability REVOKED (<path>)`. A sentinel-write failure is
+   LOUD and exits 6 — the cancels still happened, but capability is NOT revoked;
+   write the file by hand or re-run.
+2. **Daemon refuses every order while it exists.** With `[killswitch]
+   revocation_file` set (and it MUST equal the sentinel path — the
+   `KILLSWITCH_REVOKED` sibling of the journal), the daemon's halt poller checks
+   the sentinel BEFORE each tick and applies a global halt while it is present
+   ([crates/fortuna-live/src/run_loop.rs](../../crates/fortuna-live/src/run_loop.rs),
+   `is_revoked`; wired in
+   [crates/fortuna-live/src/main.rs](../../crates/fortuna-live/src/main.rs)). The
+   poll-before-tick ordering means a RESTART boots halted too — there is no
+   restart-around.
+3. **Clearing is operator-only, CLI-only, out-of-band.** Run
+   `fortuna-killswitch clear-revocation --journal <path>` — it removes the
+   sentinel (idempotent; a missing file is success), touches no venue and reads
+   no creds, and prints "RESTART the daemon to re-arm" (main.rs
+   `clear_revocation_cmd`). A normal halt re-arm does NOT clear revocation; the
+   sentinel must be gone first ([halt-and-rearm.md](halt-and-rearm.md)).
+4. **Then re-arm.** Clearing the sentinel removes the revocation halt only; if a
+   drawdown/runaway/manual halt is also standing, follow the normal re-arm path
+   and restart. Order-placing capability returns only after the operator both
+   clears the sentinel AND restarts the daemon (I2: no automatic resumption).
+
+The end-to-end safety drill (run once before a demo/soak run, monthly
+thereafter, per [demo-bringup.md](demo-bringup.md) §7): **kill → confirm orders
+refused (revocation) → `clear-revocation` → re-arm → confirm flow resumes.**
+
+Note the monthly `self-test` (§1) exercises only the freeze machinery over the
+sim venue; it does NOT write a revocation sentinel. Exercise the revocation
+round-trip against a demo config (the daemon configured with `[killswitch]
+revocation_file`), not via `self-test`.
 
 ## When to stop and escalate
 
@@ -128,3 +187,11 @@ drill scenario.
   back to `fortuna halt` + venue-side manual cancellation. (If you used
   `--flatten`, that execs the unwired `report` verb and exits 3 — drop `--flatten`
   and use the plain `freeze`.)
+- After a kill the daemon keeps refusing orders even though you re-armed and
+  restarted → the `KILLSWITCH_REVOKED` sentinel is still present (or the success
+  line said the sentinel write FAILED, exit 6). Run `fortuna-killswitch
+  clear-revocation --journal <path>`, confirm it is gone, THEN restart (§5).
+- A kill returned exit 6 ("revocation sentinel WRITE FAILED") → orders were
+  cancelled but capability is NOT revoked; write `KILLSWITCH_REVOKED` (sibling of
+  the journal) by hand or re-run the freeze before trusting that trading is
+  stopped durably.
