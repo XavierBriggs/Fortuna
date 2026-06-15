@@ -183,6 +183,55 @@ bracket_sets = [["SIM-BKT-LO", "SIM-BKT-MID", "SIM-BKT-HI"]]
 # kind = "greater"
 # floor_dollars = 70000.0
 
+# --- Opt-in perp basis-v2 (§3.3) — the model-driven trader (default OFF) ----
+# PRESENCE composes the v2 basis strategy AND spawns the funding-rates poller
+# (the poller fills funding_rates_historical, which the per-segment resolve/score
+# loop reads to grade funding_forecast vs the A2d baselines). v2 COEXISTS with
+# rung-0 [perp_event_basis] above (v2 activates only on coherent, fresh inputs;
+# rung-0 is the fallback) and is INERT until a PerpTick feed fires it — set
+# `ticker_feed_jsonl` above for a Sim soak, or wire the live kinetics feed. The
+# DC-1..DC-6 knobs below are the operator-ENDORSED conservative defaults (Sim-stage
+# operating point, 2026-06-14); v2 stays DATA-ONLY/Sim (I7) — a DECLARED edge waits
+# on the soak (funding CRPS must beat all four baselines; the EV gate must be
+# net-positive over real fills). Omit any knob to take its default; uncomment to tune.
+#
+# [perp_event_basis_v2]
+# perp_market = "KXBTCPERP"            # the perp whose PerpTick triggers v2 (BRTI anchor)
+# # DC-1 — vol estimator (σ): how wide the settlement cone is.
+# vol_buf_len     = 64                 # bounded BRTI-anchor ring capacity
+# ewma_lambda     = 0.94               # EWMA decay λ for log-return variance (RiskMetrics)
+# min_vol_obs     = 20                 # min returns folded before σ is "ready" (else inert)
+# sigma_floor     = 0.000001           # σ floor (strictly > 0)
+# sigma_ceiling   = 5.0                # σ ceiling (bounds a pathological vol spike)
+# # DC-5 — ladder no-arb (A9): trust the quoted ladder only if it forms a valid CDF.
+# no_arb_tol      = 0.05               # YES-sum tolerance (|Σ − 1| ≤ tol)
+# # DC-4 — horizon regimes (A5): τ = the bracket's close_at − now.
+# direct_max_ms       = 14400000       # ≤ 4h ⇒ Direct
+# vol_adjusted_max_ms = 172800000      # 4–48h ⇒ VolAdjusted;  > 48h ⇒ Disabled (veto)
+# max_anchor_age_ms   = 5000           # A6 stale-BRTI-anchor veto age (BRTI ~1/sec)
+# # DC-3 — EV gate (A4/A8): how much edge a trade must show after costs.
+# ev_threshold    = 0.02               # strict EV bar (probability-units)
+# slippage        = 0.005              # ½-tick slippage margin
+# reserve         = 0.01               # reserve margin
+# adverse         = 0.01               # baseline maker adverse-selection (A7 raises it)
+# fee_coeff       = 0.0175             # Kalshi quadratic maker fee coeff (the FEE-TRAP rate)
+# # DC-6 — informativeness (A7): measure, don't assume, that the perp leads.
+# info_max_age_ms            = 5000    # a quote older than this is STALE
+# info_adverse_penalty       = 0.02    # adverse down-weight when Unfavorable
+# info_veto_on_bracket_leads = true    # veto a bin the bracket strictly leads (fresher+tighter)
+# # The bracket LADDER (REQUIRED; same shape as rung-0 — the venue Market carries no
+# # strikes, so declare them here). Each KXBTC bracket id -> its strike kind (dollars).
+# [perp_event_basis_v2.ladder."KXBTC-LO"]    # open bottom tail: P(BTC <= cap)
+# kind = "less"
+# cap_dollars = 60000.0
+# [perp_event_basis_v2.ladder."KXBTC-MID"]   # closed range: P(floor <= BTC < cap)
+# kind = "between"
+# floor_dollars = 60000.0
+# cap_dollars = 70000.0
+# [perp_event_basis_v2.ladder."KXBTC-HI"]    # open top tail: P(BTC > floor)
+# kind = "greater"
+# floor_dollars = 70000.0
+
 # --- Opt-in persona analysis (default OFF) ---------------------------------
 # PRESENCE with enabled = true wires the persona-analysis step into the live
 # loop: on a segment it reads the signals each persona reads, runs one

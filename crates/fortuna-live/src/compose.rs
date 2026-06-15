@@ -877,6 +877,52 @@ mod tests {
     }
 
     #[test]
+    fn v2_all_knobs_parse_from_toml() {
+        // TURNKEY GUARD for the shipped `config/fortuna.example.toml`
+        // `[perp_event_basis_v2]` stanza: EVERY documented DC knob field name must
+        // parse + bind. Sets all 17 to NON-default values (a typo'd/renamed field
+        // would either be rejected by `deny_unknown_fields` or fall back to its
+        // default — both caught here), so the operator can uncomment the example
+        // and have every knob take effect.
+        let extra = "vol_buf_len = 32\n\
+                     ewma_lambda = 0.90\n\
+                     min_vol_obs = 10\n\
+                     sigma_floor = 0.00001\n\
+                     sigma_ceiling = 4.0\n\
+                     no_arb_tol = 0.04\n\
+                     direct_max_ms = 10800000\n\
+                     vol_adjusted_max_ms = 100000000\n\
+                     max_anchor_age_ms = 4000\n\
+                     ev_threshold = 0.03\n\
+                     slippage = 0.006\n\
+                     reserve = 0.02\n\
+                     adverse = 0.015\n\
+                     fee_coeff = 0.02\n\
+                     info_max_age_ms = 6000\n\
+                     info_adverse_penalty = 0.03\n\
+                     info_veto_on_bracket_leads = false";
+        let cfg = build_perp_event_basis_v2_config(&v2_section_from_toml(extra))
+            .expect("all-knobs v2 section parses + builds");
+        assert_eq!(cfg.vol_buf_len, 32);
+        assert_eq!(cfg.ewma_lambda, 0.90);
+        assert_eq!(cfg.min_vol_obs, 10);
+        assert_eq!(cfg.sigma_floor, 0.00001);
+        assert_eq!(cfg.sigma_ceiling, 4.0);
+        assert_eq!(cfg.no_arb_tol, 0.04);
+        assert_eq!(cfg.direct_max_ms, 10_800_000);
+        assert_eq!(cfg.vol_adjusted_max_ms, 100_000_000);
+        assert_eq!(cfg.max_anchor_age_ms, 4_000);
+        assert_eq!(cfg.ev_threshold, 0.03);
+        assert_eq!(cfg.slippage, 0.006);
+        assert_eq!(cfg.reserve, 0.02);
+        assert_eq!(cfg.adverse, 0.015);
+        assert_eq!(cfg.fee_coeff, 0.02);
+        assert_eq!(cfg.info_max_age_ms, 6_000);
+        assert_eq!(cfg.info_adverse_penalty, 0.03);
+        assert!(!cfg.info_veto_on_bracket_leads);
+    }
+
+    #[test]
     fn v2_empty_ladder_is_an_error() {
         // Mirrors rung-0: an empty ladder is rejected (nothing to trade). Built by
         // hand (no TOML) since serde would also reject a section missing `ladder`

@@ -18,6 +18,15 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
+- **perp basis-v2 — turnkey example config + a parse guard** (`config/fortuna.example.toml`, `fortuna-live`
+  compose tests; docs/test only, no runtime change): a fully-documented, commented `[perp_event_basis_v2]`
+  stanza so the operator can switch the v2 trader (+ the coupled funding poller) on with a one-line config
+  edit — `perp_market` + the bracket ladder, plus every DC-1..DC-6 knob shown at its operator-ENDORSED
+  conservative default with an inline explanation + the I7 "DATA-ONLY until the soak proves the edge" note.
+  A new `v2_all_knobs_parse_from_toml` test sets all 17 knobs to non-default values and asserts each binds,
+  guaranteeing the shipped stanza is turnkey-correct (a typo'd/renamed field is caught). The DC-1..DC-6
+  defaults are now operator-endorsed as the Sim-stage starting operating point (recorded in GAPS); v2 stays
+  DATA-ONLY/Sim (I7) — a declared edge still waits on the measured soak result.
 - **slice-3b-v2 + A2d follow-on — the daemon WIRE-IN (v2 strategy registration + the funding pipeline live)**
   (`fortuna-live` compose/boot/daemon/main, ADDITIVE + GATED, **0 deletions**): makes the perp basis-v2 strategy
   AND the funding resolve/score + poller pipeline LIVE in the daemon. (1) A `[perp_event_basis_v2]` config
