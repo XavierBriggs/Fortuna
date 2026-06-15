@@ -18,6 +18,13 @@ ledger their responses in GAPS, never edit this file.
 
 ## LATEST OVERNIGHT (2026-06-15) — verifier driving to demo-ready (operator asleep; "wake to code-complete")
 
+**OVERNIGHT COMPLETE.** All merged + each mutation-proven where it has load-bearing logic: S5b @7545ca7,
+fixture-recorder secret redaction + library-boundary-A @ba95430, PerpTick producer KERNEL @3464023. Audit
+FULLY resolved (C1, C2, governance-CI, S5b, library-boundary-A). The honest remainder (3 items: library-
+boundary-B cleanliness, PerpTick live-wiring 1b, recorder e2e fixture — none block the binary-event demo) is
+dispositioned in GAPS "REMAINING". track-a + track-c loops STOPPED; their queues completed by the verifier.
+
+
 - **✅ S5b (config-driven calibration model id, audit Major) MERGED → main @7545ca7 = GATE ACCEPT.** The
   synthesis calibration scope now keys on `[cognition].synthesis_model` (not the hard-coded `claude-fable-5`) at
   all three sites incl. the weekly-review `ScopeKey` (threaded `synth_model` through drive→ActiveRunner→

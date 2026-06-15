@@ -3,6 +3,29 @@
 Open items the implementation defers, lacks, or needs from the operator. Acceptance
 requires this file to contain ONLY operator-blocked items, each with exact unblock steps.
 
+## REMAINING — dispositioned overnight 2026-06-15 (verifier; none block the binary-event demo)
+
+The audit is FULLY resolved (C1, C2, governance-CI, S5b, library-boundary-A all DONE — see CHANGELOG + bus).
+These three are the honest remainder:
+
+1. **library-boundary part B (low-priority cleanliness).** `daemon.rs`'s kalshi-demo transport builder reads
+   `KALSHI_API_DEMO_KEY_ID` / `KALSHI_DEMO_PRIVATE_KEY_PATH` (env + file) inside the LIB. Part A (the ingestion
+   env-read) is FIXED (@ba95430). B deferred: the `_with_transport` injection seam already exists, the change
+   touches the demo-boot path which can't be runtime-verified without demo creds, and it is cleanliness — not a
+   correctness/safety leak. UNBLOCK: move the env + file reads to `main.rs`, pass resolved values into
+   `build_kalshi_demo_transport`, verify the demo boots.
+
+2. **PerpTick live-producer wiring (C-next-1b).** The kernel is MERGED (@3464023). The basis-v2 arm is ALREADY
+   feedable via the fixture `PerpTickFeed` (`drive()` perp_tick_feed; `main.rs` `from_ws_ticker_jsonl`) — the
+   perps board is demonstrable via recorded-ticker REPLAY today. UNBLOCK (live): spawn `poll_perp_ticks_once`
+   like the funding poller + inject via the existing `inject_perp_tick` seam — needs the live-async-vs-
+   deterministic-loop design + a Kinetics market/estimate fixture to verify; NOT shipped untested overnight.
+   Perps are data-collection-only (no trading), so this is a perps-board nicety, not a demo blocker.
+
+3. **Recorder e2e fixture (C-next-2) — OPERATOR-GATED.** Paper-fill realism needs REAL recorded ticker/market
+   streams (Kinetics + Kalshi demo). UNBLOCK: an operator recording session (demo creds) per
+   `docs/runbooks/fixture-recording.md`; then the recorder e2e test pins replay determinism.
+
 ## SYSTEM-LEVEL INVARIANT AUDIT (operator-run 2026-06-14) — two completeness items the verifier owns
 
 The operator's independent audit surfaced two invariant-COMPLETENESS gaps that per-slice gating did not.
