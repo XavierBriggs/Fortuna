@@ -173,14 +173,15 @@ async fn daemon_smoke_boot_ticks_signal_shutdown(pool: PgPool) {
         &mut scrape,
         None,
         &mut daily,
-        None, // S4: no per-segment edge refresh in this smoke
-        None, // slice-4d: no scalar producer in this smoke
-        None, // M2: no reconciliation in this smoke
-        None, // M2: no reviews in this smoke
-        None, // slice-4e: no perp feed in this smoke
-        None, // [personas]: none in this smoke
-        None, // [discovery]: none in this smoke
-        None, // resolution_pool: none in this smoke
+        None,              // S4: no per-segment edge refresh in this smoke
+        None,              // slice-4d: no scalar producer in this smoke
+        None,              // M2: no reconciliation in this smoke
+        None,              // M2: no reviews in this smoke
+        "claude-opus-4-8", // S5b: configured synthesis model id (scope key)
+        None,              // slice-4e: no perp feed in this smoke
+        None,              // [personas]: none in this smoke
+        None,              // [discovery]: none in this smoke
+        None,              // resolution_pool: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -280,14 +281,15 @@ async fn signal_with_working_orders_cancels_them_and_audits(pool: PgPool) {
         &mut scrape,
         None,
         &mut daily,
-        None, // S4: no per-segment edge refresh in this smoke
-        None, // slice-4d: no scalar producer in this smoke
-        None, // M2: no reconciliation in this smoke
-        None, // M2: no reviews in this smoke
-        None, // slice-4e: no perp feed in this smoke
-        None, // [personas]: none in this smoke
-        None, // [discovery]: none in this smoke
-        None, // resolution_pool: none in this smoke
+        None,              // S4: no per-segment edge refresh in this smoke
+        None,              // slice-4d: no scalar producer in this smoke
+        None,              // M2: no reconciliation in this smoke
+        None,              // M2: no reviews in this smoke
+        "claude-opus-4-8", // S5b: configured synthesis model id (scope key)
+        None,              // slice-4e: no perp feed in this smoke
+        None,              // [personas]: none in this smoke
+        None,              // [discovery]: none in this smoke
+        None,              // resolution_pool: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -513,13 +515,14 @@ async fn per_segment_refresh_picks_up_a_newly_confirmed_edge(pool: PgPool) {
         None,
         &mut daily,
         synthesis_refresh,
-        None, // slice-4d: no scalar producer in this smoke
-        None, // M2: no reconciliation in this smoke
-        None, // M2: no reviews in this smoke
-        None, // slice-4e: no perp feed in this smoke
-        None, // [personas]: none in this smoke
-        None, // [discovery]: none in this smoke
-        None, // resolution_pool: none in this smoke
+        None,              // slice-4d: no scalar producer in this smoke
+        None,              // M2: no reconciliation in this smoke
+        None,              // M2: no reviews in this smoke
+        "claude-opus-4-8", // S5b: configured synthesis model id (scope key)
+        None,              // slice-4e: no perp feed in this smoke
+        None,              // [personas]: none in this smoke
+        None,              // [discovery]: none in this smoke
+        None,              // resolution_pool: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -656,13 +659,14 @@ async fn refresh_failure_keeps_last_known_edges_alerts_and_survives(pool: PgPool
         None,
         &mut daily,
         Some((broken, syn)),
-        None, // slice-4d: no scalar producer in this smoke
-        None, // M2: no reconciliation in this smoke
-        None, // M2: no reviews in this smoke
-        None, // slice-4e: no perp feed in this smoke
-        None, // [personas]: none in this smoke
-        None, // [discovery]: none in this smoke
-        None, // resolution_pool: none in this smoke
+        None,              // slice-4d: no scalar producer in this smoke
+        None,              // M2: no reconciliation in this smoke
+        None,              // M2: no reviews in this smoke
+        "claude-opus-4-8", // S5b: configured synthesis model id (scope key)
+        None,              // slice-4e: no perp feed in this smoke
+        None,              // [personas]: none in this smoke
+        None,              // [discovery]: none in this smoke
+        None,              // resolution_pool: none in this smoke
     )
     .await
     .expect("the loop must SURVIVE a failing refresh");
@@ -1052,10 +1056,17 @@ async fn synthesis_arm_trades_with_ledger_calibration_and_an_injected_mind(pool:
         .unwrap();
 
     // [synthesis] venue=sim + category=weather (the calibration scope).
-    let dcfg = DaemonToml::parse(&format!(
+    let mut dcfg = DaemonToml::parse(&format!(
         "{text}\n[synthesis]\nvenue = \"sim\"\ncategory = \"weather\"\n"
     ))
     .unwrap();
+    // S5b (spec 5.10): the calibration scope keys on the CONFIGURED synthesis model
+    // id. Point it at the id the params row above is seeded under — a NON-DEFAULT id
+    // ("claude-fable-5" != default "claude-opus-4-8") — so this test also proves
+    // compose_runner reads the configured model, not a literal. (Pre-S5b this id was
+    // a hard-coded "claude-fable-5", so the test passed by coincidence; now it is
+    // load-bearing config.)
+    dcfg.cognition.synthesis_model = "claude-fable-5".to_string();
     assert_eq!(
         dcfg.synthesis.as_ref().unwrap().category.as_deref(),
         Some("weather"),
@@ -1217,13 +1228,14 @@ async fn drive_drains_and_persists_the_synthesis_arms_beliefs(pool: PgPool) {
         None,
         &mut daily,
         synthesis_refresh,
-        None, // slice-4d: no scalar producer in this smoke
-        None, // M2: no reconciliation in this smoke
-        None, // M2: no reviews in this smoke
-        None, // slice-4e: no perp feed in this smoke
-        None, // [personas]: none in this smoke
-        None, // [discovery]: none in this smoke
-        None, // resolution_pool: none in this smoke
+        None,              // slice-4d: no scalar producer in this smoke
+        None,              // M2: no reconciliation in this smoke
+        None,              // M2: no reviews in this smoke
+        "claude-opus-4-8", // S5b: configured synthesis model id (scope key)
+        None,              // slice-4e: no perp feed in this smoke
+        None,              // [personas]: none in this smoke
+        None,              // [discovery]: none in this smoke
+        None,              // resolution_pool: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -1326,6 +1338,7 @@ async fn drive_drains_and_persists_funding_forecast_scalar_beliefs(pool: PgPool)
         Some(pool.clone()), // slice-4d: the scalar producer IS composed -> persist
         None,               // M2: no reconciliation in this smoke
         None,               // M2: no reviews in this smoke
+        "claude-opus-4-8",  // S5b: configured synthesis model id (scope key)
         Some(feed),         // slice-4e: recorded PerpTicks so the producer fires
         None,               // [personas]: none in this smoke
         None,               // [discovery]: none in this smoke
@@ -1587,6 +1600,7 @@ async fn drive_runs_daily_reconciliation_at_the_utc_day_boundary(pool: PgPool) {
         None, // slice-4d: no scalar producer in this e2e
         Some((pool.clone(), journaling_mind("EOD: flat; tomorrow hold."))), // reconciliation
         None, // M2: no reviews in this e2e
+        "claude-opus-4-8", // S5b: configured synthesis model id (scope key)
         None, // slice-4e: no perp feed in this e2e
         None, // [personas]: none in this e2e
         None, // [discovery]: none in this e2e
@@ -1706,6 +1720,8 @@ async fn weekly_review_audits_the_deterministic_calibration_and_go_nogo(pool: Pg
         sm.as_ref(),
         &review,
         Some("weather"),
+        // S5b: the scope keys on this configured model id; seeded under the same id.
+        "claude-fable-5",
         t0(),
         now,
     )
@@ -1736,6 +1752,141 @@ async fn weekly_review_audits_the_deterministic_calibration_and_go_nogo(pool: Pg
     .await
     .unwrap();
     assert_eq!(audits, 1, "the weekly review cycle is audited once");
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn weekly_review_calibration_scope_keys_on_the_configured_synthesis_model(pool: PgPool) {
+    // S5b (spec 5.10): the synthesis calibration scope MUST key on the CONFIGURED
+    // synthesis model id (`[cognition].synthesis_model`), NOT a hard-coded literal.
+    // Drive the weekly review with a non-default model id, seed the scope's params
+    // row + resolved history UNDER THAT id, and assert the audit's ScopeKey carries
+    // the configured id AND that latest() found the seeded prior under it
+    // (fitted_version_would_be == prior + 1). NON-VACUOUS / RED-BEFORE: while the id
+    // was the literal "claude-fable-5", the ScopeKey.model_id assertion fails and
+    // latest() (keyed on the literal) finds no row -> would-be == 1, not 2. A model
+    // swap thus correctly finds no stale params (the right fail-closed behavior).
+    const CONFIGURED_MODEL: &str = "claude-opus-test-config-99";
+
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let full = FortunaConfig::load_file(example_path).unwrap();
+
+    // Seed the scope's PRIOR params row (version 1) UNDER THE CONFIGURED MODEL ID.
+    // latest() must key on this id to find it; if it keyed on the old literal it
+    // would find nothing and the refit ladder would read prior 0 -> would-be 1.
+    fortuna_ledger::CalibrationParamsRepo::new(pool.clone())
+        .insert(
+            "01PARAM00000000000000S5B01",
+            CONFIGURED_MODEL,
+            "synth_events",
+            "weather",
+            "platt",
+            &serde_json::json!({
+                "version": 1,
+                "method": { "Platt": { "a": 0.0, "b": 1.0 } },
+                "extremization_k": 1.0,
+                "fitted_on_n": 50
+            }),
+            1,
+            "2026-06-11T00:00:00.000Z",
+            "2026-06-11T00:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    // Resolved, scoreable history (>= FULL_AUTONOMY_N = 50) so the audit reports a
+    // populated scope and exercises the refit/version ladder.
+    fortuna_ledger::EventsRepo::new(pool.clone())
+        .create(
+            "evt-s5b",
+            "s",
+            "c",
+            "nws",
+            None,
+            "2026-06-12T00:00:00.000Z",
+            "weather",
+            "2026-06-11T00:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    for i in 0..50 {
+        let outcome: i32 = if (i % 10) < 7 { 1 } else { 0 };
+        let brier = if outcome == 1 {
+            (1.0f64 - 0.7).powi(2)
+        } else {
+            (0.7f64).powi(2)
+        };
+        sqlx::query(
+            "INSERT INTO beliefs (belief_id, event_id, p, p_raw, horizon, status,
+                                  outcome, brier, evidence, provenance, created_at)
+             VALUES ($1, 'evt-s5b', 0.7, 0.7, '2026-06-12T00:00:00.000Z',
+                     'resolved', $2, $3, '[]'::jsonb, '{}'::jsonb, $4)",
+        )
+        .bind(format!("01BELIEFS5B00000000000{i:03}"))
+        .bind(outcome)
+        .bind(brier)
+        .bind(format!("2026-06-11T00:00:{i:02}.000Z"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    let dcfg = DaemonToml::parse(&format!(
+        "{text}\n[synthesis]\nvenue = \"sim\"\ncategory = \"weather\"\n"
+    ))
+    .unwrap();
+    let review = dcfg.review.clone().expect("the example ships [review]");
+    let mut runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        t0(),
+        94,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .unwrap();
+    arb_books(&runner);
+    runner.tick().await.unwrap();
+
+    let now = fortuna_core::clock::UtcTimestamp::parse_iso8601("2026-06-18T00:00:00.000Z").unwrap();
+    let sm = stub_mind();
+    let wr = fortuna_live::daemon::run_weekly_review(
+        &mut runner,
+        &pool,
+        sm.as_ref(),
+        &review,
+        Some("weather"),
+        // The configured synthesis model id — the scope MUST key on this, not a literal.
+        CONFIGURED_MODEL,
+        t0(),
+        now,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        wr.calibration.len(),
+        1,
+        "one calibrated scope (synth_events/weather)"
+    );
+    assert_eq!(
+        wr.calibration[0].key.model_id, CONFIGURED_MODEL,
+        "the calibration scope keys on the CONFIGURED synthesis model id (spec 5.10), \
+         not a hard-coded literal"
+    );
+    assert_eq!(
+        wr.calibration[0].n, 50,
+        "the audit read the resolved history under the configured-model scope"
+    );
+    assert_eq!(
+        wr.calibration[0].fitted_version_would_be, 2,
+        "latest() found the version-1 prior UNDER THE CONFIGURED ID -> next would be 2; \
+         had it keyed on a stale literal it would find no prior and read 1"
+    );
 }
 
 #[sqlx::test(migrations = "../fortuna-ledger/migrations")]
@@ -1815,14 +1966,15 @@ async fn drive_runs_the_weekly_review_at_the_week_boundary(pool: PgPool) {
         &mut scrape,
         None,
         &mut daily,
-        None,    // synthesis_refresh
-        None,    // slice-4d: no scalar producer in this smoke
-        None,    // reconciliation
-        reviews, // M2: weekly review wiring
-        None,    // slice-4e: no perp feed in this smoke
-        None,    // [personas]: none in this smoke
-        None,    // [discovery]: none in this smoke
-        None,    // resolution_pool: none in this smoke
+        None,              // synthesis_refresh
+        None,              // slice-4d: no scalar producer in this smoke
+        None,              // reconciliation
+        reviews,           // M2: weekly review wiring
+        "claude-opus-4-8", // S5b: the configured synthesis model id for the scope
+        None,              // slice-4e: no perp feed in this smoke
+        None,              // [personas]: none in this smoke
+        None,              // [discovery]: none in this smoke
+        None,              // resolution_pool: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -1982,14 +2134,15 @@ async fn drive_runs_the_monthly_review_at_the_month_boundary(pool: PgPool) {
         &mut scrape,
         None,
         &mut daily,
-        None,    // synthesis_refresh
-        None,    // slice-4d: no scalar producer in this smoke
-        None,    // reconciliation
-        reviews, // M2: weekly + monthly review wiring
-        None,    // slice-4e: no perp feed in this smoke
-        None,    // [personas]: none in this smoke
-        None,    // [discovery]: none in this smoke
-        None,    // resolution_pool: none in this smoke
+        None,              // synthesis_refresh
+        None,              // slice-4d: no scalar producer in this smoke
+        None,              // reconciliation
+        reviews,           // M2: weekly + monthly review wiring
+        "claude-opus-4-8", // S5b: configured synthesis model id (scope key)
+        None,              // slice-4e: no perp feed in this smoke
+        None,              // [personas]: none in this smoke
+        None,              // [discovery]: none in this smoke
+        None,              // resolution_pool: none in this smoke
     )
     .await
     .expect("daemon drive");
@@ -2193,11 +2346,12 @@ async fn drive_persists_persona_analysis_and_beliefs_when_wired(pool: PgPool) {
         &mut scrape,
         None,
         &mut daily,
-        None, // synthesis_refresh
-        None, // slice-4d: no scalar producer
-        None, // reconciliation
-        None, // reviews
-        None, // slice-4e: no perp feed
+        None,              // synthesis_refresh
+        None,              // slice-4d: no scalar producer
+        None,              // reconciliation
+        None,              // reviews
+        "claude-opus-4-8", // S5b: configured synthesis model id (scope key)
+        None,              // slice-4e: no perp feed
         // MUTATION PROOF: flip this to `None` and domain_analyses stays 0 => RED.
         Some(wiring), // [personas]: the wiring under test
         None,         // [discovery]: none in this persona e2e
@@ -2444,12 +2598,13 @@ async fn discovery_world_forward_persists_watchlist_events_and_beliefs(pool: PgP
         &mut scrape,
         None,
         &mut daily,
-        None, // synthesis_refresh
-        None, // slice-4d: no scalar producer
-        None, // reconciliation
-        None, // reviews
-        None, // slice-4e: no perp feed
-        None, // [personas]: none in this discovery e2e
+        None,              // synthesis_refresh
+        None,              // slice-4d: no scalar producer
+        None,              // reconciliation
+        None,              // reviews
+        "claude-opus-4-8", // S5b: configured synthesis model id (scope key)
+        None,              // slice-4e: no perp feed
+        None,              // [personas]: none in this discovery e2e
         // MUTATION PROOF: flip this to `None` and watch events + beliefs stay 0 => RED.
         Some(wiring), // [discovery]: the wiring under test
         None,         // resolution_pool: not exercised by the world-forward e2e
@@ -2688,6 +2843,7 @@ async fn discovery_market_back_auto_confirms_and_synthesis_drafts_a_belief(pool:
         None,              // slice-4d: no scalar producer
         None,              // reconciliation
         None,              // reviews
+        "claude-opus-4-8", // S5b: configured synthesis model id (scope key)
         None,              // slice-4e: no perp feed
         None,              // [personas]: none in this discovery e2e
         // MUTATION PROOF: flip this to `None` and the event + edge + synthesis belief
@@ -2885,12 +3041,13 @@ async fn drive_with_discovery(
         &mut scrape,
         None,
         &mut daily,
-        None, // synthesis_refresh
-        None, // scalar persist
-        None, // reconciliation
-        None, // reviews
-        None, // perp feed
-        None, // [personas]
+        None,              // synthesis_refresh
+        None,              // scalar persist
+        None,              // reconciliation
+        None,              // reviews
+        "claude-opus-4-8", // S5b: configured synthesis model id (scope key)
+        None,              // perp feed
+        None,              // [personas]
         Some(wiring),
         None, // resolution_pool: not exercised here
     )
@@ -3316,13 +3473,14 @@ async fn drive_one_boundary_with_resolution(
         &mut scrape,
         None,
         &mut daily,
-        None, // synthesis_refresh
-        None, // scalar persist
-        None, // reconciliation
-        None, // reviews
-        None, // perp feed
-        None, // [personas]
-        None, // [discovery]
+        None,              // synthesis_refresh
+        None,              // scalar persist
+        None,              // reconciliation
+        None,              // reviews
+        "claude-opus-4-8", // S5b: configured synthesis model id (scope key)
+        None,              // perp feed
+        None,              // [personas]
+        None,              // [discovery]
         Some(pool.clone()),
     )
     .await

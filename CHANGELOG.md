@@ -16,6 +16,11 @@ concise bullet per logical change; newest-relevant first.
   `RevocationHaltPoller` as the existing global halt (boots halted after a restart). fortuna-gates source
   untouched; killswitch stays I4-independent. New add-only `i4_killswitch_revocation` invariant test;
   mutation-proven. Merged @4b6d692.
+- **S5b — config-driven calibration model id** (audit Major): the synthesis calibration scope now keys on the
+  configured `[cognition].synthesis_model` (not a hard-coded `claude-fable-5`) at all three sites — both compose
+  paths + the weekly-review `ScopeKey` (threaded `synth_model` through `drive` → `ActiveRunner::run_weekly_review`
+  → `run_weekly_review`). Calibration now keys per the real model (spec 5.10); a model swap correctly finds no
+  stale params (fail-closed). Dead `SYNTH_CALIBRATION_MODEL` const removed; mutation-proven daemon_smoke test.
 - **Kill-switch PERP FLATTEN** (spec 5.15) — cancel-all + reduce-only IOC closes through the real
   `GatedPerpOrder` seal (I1), own Kinetics creds (I4). `perp_i4_flatten_seal` add-only test. Merged @4969f11.
 - **§9.2 perps ROTA board** (read-only: realized funding + A2d edge gate + basis-v2 A10 diagnostics). Merged @788fa8e.

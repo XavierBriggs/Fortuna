@@ -158,12 +158,13 @@ fn kalshi_bracket_stub(ticker: &str, venue: &VenueId) -> Result<Market, DaemonEr
     })
 }
 
-/// The model whose calibration scopes the synthesis arm (S5a). The synthesis
-/// belief source's reliability is fit per (model, strategy, category, kind);
-/// "synth_events" is the canonical synthesis strategy (spec S6 item 4) the
-/// calibration pipeline keys on, independent of the daemon arm's runtime id.
-/// S5b makes this model id config-driven ([cognition].model).
-const SYNTH_CALIBRATION_MODEL: &str = "claude-fable-5";
+/// The synthesis arm's calibration scope is fit per (model, strategy, category,
+/// kind). The MODEL id is config-driven (S5b: `[cognition].synthesis_model`, the
+/// id `model_registry().model(ModelTier::Synthesis)` resolves) so a model swap
+/// finds no stale params (spec 5.10) — threaded to each scope site, not a const.
+/// STRATEGY + KIND are FIXED: "synth_events" is the canonical synthesis strategy
+/// (spec S6 item 4) the calibration pipeline keys on, independent of the daemon
+/// arm's runtime id; "platt" is the calibration method.
 const SYNTH_CALIBRATION_STRATEGY: &str = "synth_events";
 const SYNTH_CALIBRATION_KIND: &str = "platt";
 
@@ -353,7 +354,10 @@ pub async fn compose_runner(
             let (ctx, quality) = calibration_for_scope(
                 &CalibrationParamsRepo::new(pool.clone()),
                 &BeliefsRepo::new(pool.clone()),
-                SYNTH_CALIBRATION_MODEL,
+                // S5b: key on the CONFIGURED synthesis model (spec 5.10) — the
+                // same id model_registry().model(ModelTier::Synthesis) resolves.
+                // A model swap then finds no stale params (=> None => fail closed).
+                &dcfg.cognition.synthesis_model,
                 SYNTH_CALIBRATION_STRATEGY,
                 category,
                 SYNTH_CALIBRATION_KIND,
@@ -709,7 +713,9 @@ pub async fn compose_kalshi_runner_with_transport(
             let (ctx, quality) = calibration_for_scope(
                 &CalibrationParamsRepo::new(pool.clone()),
                 &BeliefsRepo::new(pool.clone()),
-                SYNTH_CALIBRATION_MODEL,
+                // S5b: key on the CONFIGURED synthesis model (spec 5.10) — same as
+                // compose_runner; a model swap finds no stale params (fail closed).
+                &dcfg.cognition.synthesis_model,
                 SYNTH_CALIBRATION_STRATEGY,
                 category,
                 SYNTH_CALIBRATION_KIND,
@@ -1076,15 +1082,37 @@ impl ActiveRunner {
         mind: &dyn Mind,
         review: &crate::compose::ReviewSection,
         synth_category: Option<&str>,
+        // S5b: the CONFIGURED synthesis model id (spec 5.10), threaded to the scope.
+        synth_model: &str,
         start: UtcTimestamp,
         now: UtcTimestamp,
     ) -> Result<WeeklyReview, DaemonError> {
         match self {
             ActiveRunner::Sim(r) => {
-                run_weekly_review(r, pool, mind, review, synth_category, start, now).await
+                run_weekly_review(
+                    r,
+                    pool,
+                    mind,
+                    review,
+                    synth_category,
+                    synth_model,
+                    start,
+                    now,
+                )
+                .await
             }
             ActiveRunner::Kalshi(r) => {
-                run_weekly_review(r, pool, mind, review, synth_category, start, now).await
+                run_weekly_review(
+                    r,
+                    pool,
+                    mind,
+                    review,
+                    synth_category,
+                    synth_model,
+                    start,
+                    now,
+                )
+                .await
             }
         }
     }
@@ -1382,6 +1410,10 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     // runs the calibration audit + GO/NO-GO recs (recs only, I7) and routes them;
     // None => no review fires (the smokes that do not exercise it).
     mut reviews: Option<ReviewWiring>,
+    // S5b (spec 5.10): the CONFIGURED synthesis model id — the weekly review's
+    // calibration scope keys on it (NOT a literal), so a model swap finds no
+    // stale params. main passes &dcfg.cognition.synthesis_model.
+    synth_model: &str,
     // slice-4e (Sim soak): a recorded PerpTick feed. `Some` => one recorded
     // PerpTick is injected (via the slice-4b seam) at the head of EACH segment so
     // the perp producers (funding_forecast, perp_event_basis) FIRE — the Sim loop
@@ -2664,6 +2696,8 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                         rw.mind.as_ref(),
                         &rw.review,
                         rw.synth_category.as_deref(),
+                        // S5b: the configured synthesis model id, threaded from main.
+                        synth_model,
                         rw.start,
                         now,
                     )
@@ -3645,6 +3679,9 @@ pub async fn run_weekly_review<
     mind: &dyn Mind,
     review: &crate::compose::ReviewSection,
     synth_category: Option<&str>,
+    // S5b: the CONFIGURED synthesis model id (spec 5.10) — the calibration scope
+    // keys on it, NOT a literal, so a model swap finds no stale params.
+    synth_model: &str,
     start: UtcTimestamp,
     now: UtcTimestamp,
 ) -> Result<WeeklyReview, DaemonError> {
@@ -3662,7 +3699,7 @@ pub async fn run_weekly_review<
                 reason: format!("weekly review resolved_stats: {e}"),
             })?;
         let key = ScopeKey {
-            model_id: SYNTH_CALIBRATION_MODEL.to_string(),
+            model_id: synth_model.to_string(),
             strategy: SYNTH_CALIBRATION_STRATEGY.to_string(),
             category: category.to_string(),
         };
@@ -3673,7 +3710,7 @@ pub async fn run_weekly_review<
         });
         if let Some(row) = CalibrationParamsRepo::new(pool.clone())
             .latest(
-                SYNTH_CALIBRATION_MODEL,
+                synth_model,
                 SYNTH_CALIBRATION_STRATEGY,
                 category,
                 SYNTH_CALIBRATION_KIND,

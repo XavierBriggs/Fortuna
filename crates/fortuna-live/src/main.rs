@@ -748,6 +748,9 @@ async fn main() -> Result<()> {
         scalar_belief_persist,
         reconciliation,
         reviews,
+        // S5b (spec 5.10): the configured synthesis model id — the weekly review's
+        // calibration scope keys on it, so a model swap finds no stale params.
+        &dcfg.cognition.synthesis_model,
         perp_tick_feed,
         personas_wiring,
         discovery_wiring,
