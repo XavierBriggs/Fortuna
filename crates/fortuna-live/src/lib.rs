@@ -14,5 +14,6 @@ pub mod daemon;
 pub mod funding_poller;
 pub mod ingestion;
 pub mod perp_feed;
+pub mod perp_tick_producer;
 pub mod run_loop;
 pub mod views;

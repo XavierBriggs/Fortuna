@@ -39,6 +39,21 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
+- **C-next-1a — the live PerpTick producer KERNEL** (`fortuna-venues` kinetics + `fortuna-live`, fixtures-first,
+  fail-closed): closes the gap that left the perp basis-v2 arm INERT on the LIVE path (it fires only on
+  `EventPayload::PerpTick`, which nothing produced from live venue data). New `KineticsPerpObservation::from_rest(
+  market, estimate)` assembles a PerpTick from two PUBLIC unauthenticated REST reads — `GET /margin/markets/{ticker}`
+  (settlement mark + the BRTI `reference_price`) and `GET /margin/funding_rates/estimate?ticker=` (funding rate +
+  `next_funding_time`) — field-by-field VERBATIM, mirroring `from_ws_ticker`. Load-bearing guard: an absent BRTI
+  reference (the basis-v2 A6 anchor) FAILS CLOSED rather than emitting an anchorless tick; `obs_at` is the anchor's
+  own `ts_ms` (what the A6 stale-veto measures). New `fortuna-live::perp_tick_producer` kernel mirrors the funding
+  poller: a `PerpTickFetch` seam + a host-pinned UNAUTHENTICATED reqwest GET production impl (`KineticsPublicPerpFetch`
+  — NO creds/signer, URL = pinned base + const path + ticker arg only, the SSRF guard) + `poll_perp_ticks_once`
+  (fetch → map, fail-closed: a fetch failure alerts-and-continues, a malformed payload quarantines, NEVER a panic).
+  11 tests, fixtures-grounded (the committed KXBTCPERP1 markets + estimate captures), MUTATION-PROVEN (weakening the
+  A6 fail-closed guard reds `an_absent_reference_price_fails_closed_invalid`). KERNEL only — the async poll loop +
+  `drive()` drain + `main.rs` spawn (gated on `[perp_event_basis_v2]`) is the next slice (C-next-1b); the basis-v2
+  arm stays inert until 1b wires it. I6/I7 untouched (no order/size; Sim/demo only).
 - **perp basis-v2 — turnkey example config + a parse guard** (`config/fortuna.example.toml`, `fortuna-live`
   compose tests; docs/test only, no runtime change): a fully-documented, commented `[perp_event_basis_v2]`
   stanza so the operator can switch the v2 trader (+ the coupled funding poller) on with a one-line config

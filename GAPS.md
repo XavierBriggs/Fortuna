@@ -26,6 +26,31 @@ are OPERATOR/track-actionable; neither is a current live-capital risk (live REFU
    code/schema change (the DB already enforces it); replayability intact (scoring fields are post-hoc grades,
    never decision inputs). Audit C1 CLOSED.
 
+## TRACK C — C-next-1a DONE (live PerpTick producer KERNEL); C-next-1b = the wiring (next slice) (2026-06-14)
+
+The perp basis-v2 strategy is composed in the daemon but was INERT on the LIVE path: it fires only on
+`EventPayload::PerpTick`, and nothing produced one from live venue data (slice-4e's `PerpTickFeed` replays a
+RECORDED file for the Sim soak — not a live producer). C-next-1a closes the PRODUCER KERNEL half, fixtures-first:
+- `KineticsPerpObservation::from_rest(market, estimate)` (fortuna-venues kinetics — track-C owns `kinetics*`):
+  assembles a PerpTick from two PUBLIC unauthenticated REST reads — `GET /margin/markets/{ticker}` (settlement
+  mark + the BRTI `reference_price`) + `GET /margin/funding_rates/estimate?ticker=` (funding rate +
+  `next_funding_time`). Field-by-field VERBATIM, mirroring `from_ws_ticker`. The BRTI reference is REQUIRED (the
+  basis-v2 A6 anchor) → absent ⇒ fail-closed `Invalid` (the load-bearing guard); `obs_at` ← the anchor's own
+  `ts_ms`. The WS-ticker path stays the atomic alternative; REST is chosen to mirror the funding poller (a real
+  unauthenticated GET, no new WS client) and is grounded in the committed KXBTCPERP1 `markets__single` +
+  `funding__rates_estimate` captures.
+- `fortuna-live::perp_tick_producer` (mirrors `funding_poller`): a `PerpTickFetch` seam + host-pinned UNAUTH
+  reqwest GET production impl (`KineticsPublicPerpFetch`, NO creds/signer, URL = pinned base + const path + ticker
+  arg only — SSRF guard) + `poll_perp_ticks_once` (fetch → map; fail-closed: fetch failure alerts-and-continues,
+  malformed payload quarantines, NEVER a panic). 11 tests, MUTATION-PROVEN (weakening the A6 guard reds
+  `an_absent_reference_price_fails_closed_invalid`). Full battery green (fmt/clippy --workspace/test --workspace/
+  DST 200+corpus). I6/I7 untouched (no order/size; Sim/demo).
+- **C-next-1b — THE NEXT SLICE (deferred, not operator-blocked):** the async `run_perp_tick_producer` loop
+  (Clock-driven, cancellable, gated on `[perp_event_basis_v2]`) + a channel→`drive()` drain seam (mirroring the
+  existing `perp_tick_feed` in-loop drain at daemon.rs) + the `main.rs` spawn, then an e2e proving the basis-v2
+  arm emits an UNSIZED proposal (I6) in Sim/demo (I7) from injected ticks. The basis-v2 arm REMAINS INERT until
+  1b wires the kernel. The live demo round-trip against the real Kinetics public host stays an OPERATOR action.
+
 ## RALPH STOP 2026-06-14T17:34:59Z — Track-E build queue EXHAUSTED (clean stop)
 
 The operator's final handoff — wire the weather scoring bridge ("close the loop") —
