@@ -799,6 +799,24 @@ unit tests could not catch (the live socket round-trip was the one untested seam
   venue=kalshi un-refuse) and live order/exec round-trips. This exercise was demo
   market-data only.
 
+## TRACK A — OBS-2 CLOSED: ingestion funnel populated-path proven + box ticked (operator handoff, 2026-06-14)
+
+OBS-2 (ingestion funnel loop-stages + snapshot publish, contract §2 "one writer, many readers") was
+already BUILT on main — OBS-2a (IngestionCore/IngestionWiring fill normalized/deduped/persisted/
+persist_failures + `telemetry(now)`), OBS-2b (`run_ingestion_loop` publishes behind
+`Arc<RwLock<IngestionTelemetry>>` each pass, @b5be944), OBS-2c (ROTA `merge_ingest_views` read). The
+umbrella `[ ]` OBS-2 box was unticked and the existing tests were DB-free (core counts + publish
+round-trip). This adds the missing POPULATED-PATH proof and ticks the box:
+- `tests/ingestion_populated.rs` (`#[sqlx::test]`): the REAL `run_ingestion_loop` drives 2 scripted
+  signals through normalize→PERSIST against a real `SignalsRepo`, so `persisted`/`normalized` move off
+  0; a CONCURRENT reader sees the published snapshot live while the loop runs; the signals really land
+  in the append-only `signals` store. Proves the integrated write→publish→read path OBS-2a/2b/2c only
+  covered in pieces.
+- Fixed the now-stale `IngestionWiring::telemetry` doc (the publish is no longer "a later slice").
+- READ-ONLY observability — no order/gate/belief touched (off the money path). Honest zeros before the
+  first tick. Full battery green (fmt + clippy --workspace --all-targets -D warnings + test --workspace
+  + run-dst 200). NB: DST run canonically via run-dst.sh (the dst harness rejects libtest --test-threads).
+
 ## TRACK A — DAILY BELIEF RESOLUTION WIRED into drive() — weather+funding loop CLOSED (operator handoff "fire the resolver", 2026-06-14)
 
 The standalone resolvers (`resolve_and_score_weather_beliefs` — Track E; `resolve_and_score_funding_beliefs` —
