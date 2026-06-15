@@ -6,25 +6,27 @@ requires this file to contain ONLY operator-blocked items, each with exact unblo
 ## REMAINING — dispositioned overnight 2026-06-15 (verifier; none block the binary-event demo)
 
 The audit is FULLY resolved (C1, C2, governance-CI, S5b, library-boundary-A all DONE — see CHANGELOG + bus).
-These three are the honest remainder:
+Status of the prior overnight remainder (updated 2026-06-15 as the verifier merged the track-a/c queues):
 
-1. **library-boundary part B (low-priority cleanliness).** `daemon.rs`'s kalshi-demo transport builder reads
-   `KALSHI_API_DEMO_KEY_ID` / `KALSHI_DEMO_PRIVATE_KEY_PATH` (env + file) inside the LIB. Part A (the ingestion
-   env-read) is FIXED (@ba95430). B deferred: the `_with_transport` injection seam already exists, the change
-   touches the demo-boot path which can't be runtime-verified without demo creds, and it is cleanliness — not a
-   correctness/safety leak. UNBLOCK: move the env + file reads to `main.rs`, pass resolved values into
-   `build_kalshi_demo_transport`, verify the demo boots.
+1. **library-boundary part B — RESOLVED 2026-06-15 (track-a A-next-2 part B; merged).** `daemon.rs`'s kalshi-demo
+   transport builder no longer reads `KALSHI_API_DEMO_KEY_ID` / `KALSHI_DEMO_PRIVATE_KEY_PATH` inside the LIB. A
+   new testable `resolve_kalshi_demo_creds(env) -> (key_id, Secret)` ISOLATES the credential IO at the bin edge,
+   `build_kalshi_demo_transport` is IO-FREE, and `main.rs` orchestrates resolve → build → compose. The 3
+   credential-gate tests re-point to the resolver (none weakened); `daemon_smoke` byte-identical; invariants +
+   fortuna-gates UNTOUCHED. (Part A was @ba95430.)
 
-2. **PerpTick live-producer wiring (C-next-1b).** The kernel is MERGED (@3464023). The basis-v2 arm is ALREADY
-   feedable via the fixture `PerpTickFeed` (`drive()` perp_tick_feed; `main.rs` `from_ws_ticker_jsonl`) — the
-   perps board is demonstrable via recorded-ticker REPLAY today. UNBLOCK (live): spawn `poll_perp_ticks_once`
-   like the funding poller + inject via the existing `inject_perp_tick` seam — needs the live-async-vs-
-   deterministic-loop design + a Kinetics market/estimate fixture to verify; NOT shipped untested overnight.
-   Perps are data-collection-only (no trading), so this is a perps-board nicety, not a demo blocker.
+2. **PerpTick live-producer wiring (C-next-1b) — RESOLVED 2026-06-15 (track-c; merged).** `run_perp_tick_producer`
+   (Clock-driven, creds-less PUBLIC Kinetics GETs, SSRF-guarded, untrusted-data quarantine) is spawned from
+   `main.rs` GATED on `[perp_event_basis_v2]` (default-off ⇒ byte-unchanged daemon) and pushes mapped ticks down
+   an mpsc channel that `drive()` drains at each segment head via the existing `inject_perp_tick` seam. Mutation-
+   proven (flipping the wiring test's `Some(rx)`→`None` reds it). I6/I7 hold (no order/size; Sim/demo only).
+   Residual (operator runtime check, not missing code): a LIVE run still needs a real Kinetics market to observe.
 
-3. **Recorder e2e fixture (C-next-2) — OPERATOR-GATED.** Paper-fill realism needs REAL recorded ticker/market
-   streams (Kinetics + Kalshi demo). UNBLOCK: an operator recording session (demo creds) per
-   `docs/runbooks/fixture-recording.md`; then the recorder e2e test pins replay determinism.
+3. **Paper-fill trade-through realism (C-next-2) — RESOLVED 2026-06-15 (track-c; merged).** Proven against a REAL,
+   provenanced 3c print from the PUBLIC, unauthenticated `GET /markets/trades` (credential-free — the prior
+   "needs demo creds" assumption is retired). The test enforces strictly-through / never-at-touch (mutation-proven:
+   flipping the engine's `<`→`<=` reds the TOUCH assertion). Residual (operator-gated, OPTIONAL nicety): a BROADER
+   recorder e2e across full Kinetics+Kalshi-demo session streams per `docs/runbooks/fixture-recording.md`.
 
 4. **`perp_event_basis_dst` fee-trap boundary flake — RESOLVED 2026-06-15 (@dfa1822).** Caught by the overnight
    full-DST sweep (~<1/200k, wall-clock master seed) and root-caused: at `signed_basis == fee_floor + min_basis`

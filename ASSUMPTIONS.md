@@ -3,6 +3,38 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## TRACK A — library-boundary part B: where the kalshi-demo PEM file read lives (2026-06-15)
+
+- **The PEM file read stays in a testable lib fn (`resolve_kalshi_demo_creds`), NOT inlined
+  in `main.rs`.** The library-boundary intent (A-next-2) is "binary-grade IO out of the
+  library." The PURE form would inline the `std::fs::read_to_string` directly in `main.rs`.
+  But the credential gate has a tested unreadable-path failure mode
+  (`resolve_kalshi_demo_creds_refuses_an_unreadable_key_path`), and `main.rs` is not
+  unit-testable — inlining the read would force DROPPING that test, which the loop forbids
+  (never weaken/delete a test). CONSERVATIVE RESOLUTION: isolate ALL credential IO into one
+  dedicated, named, testable resolver fn that `main.rs` calls at the edge, and make the
+  transport builder + the compose path strictly IO-FREE. This removes the real smell (IO
+  buried inside a `compose_*` function) and keeps full coverage; the residual (the read is
+  in the resolver, not literally in `main.rs`) is a deliberate coverage-over-purity trade,
+  not an oversight. Fully inlining would require restructuring the test (e.g., a subprocess
+  boot), not worth it for verifier-dispositioned low-priority cleanliness.
+
+## TRACK A — fixture-recorder secret redaction (2026-06-14; interprets the no-secrets rule, CLAUDE.md / spec 5.x)
+
+- **Redact the verbatim RESPONSE body too, not only the `.meta.json` the assignment named.**
+  The verifier asked to "strip the key id from the fixture metadata"; I scrub the body, meta,
+  WS jsonl, and manifest. CONSERVATIVE: a venue/error response is exactly where a submitted
+  credential could be echoed back, and the no-secrets rule is absolute. SAFE because the
+  scrubber matches a LITERAL secret string with an ≥8-char floor — the demo key id is a 36-char
+  UUID, which cannot occur as a substring of legitimate market data (prices/counts/tickers), so
+  on every current fixture the body scrub is a verified no-op. (If it ever weren't a no-op, that
+  would mean a credential was in the body — exactly what we want removed.)
+- **Left the account `user_id` UNSTRIPPED.** It is present verbatim in 6 order-response bodies
+  and the adapter parses those bodies; it is NOT a credential (not the signing key, not the PEM).
+  Scrubbing adapter-parse data risks corrupting the fixture and is a separate identity-exposure
+  judgement that belongs to the operator — recorded as an operator decision in GAPS rather than
+  taken unilaterally. The redactor accepts N secrets, so adding it later is a one-line change.
+
 ## C1 — I5 belief-scoring reconciliation (RESOLVED 2026-06-14, option a; operator-delegated to verifier)
 
 The audit's C1 flagged that `resolve_and_score` updates beliefs in place (the four scoring columns) against the

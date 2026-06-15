@@ -650,6 +650,40 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-15 — `fortuna-live` library-boundary part B: credential IO out of the compose path
+
+**Changed (`fortuna-live`, A-next-2 part B).** The kalshi-demo transport builder no longer
+does env extraction + PEM filesystem reads inside the library's compose path. New
+`resolve_kalshi_demo_creds(env) -> (key_id, Secret)` ISOLATES the credential IO (env-gate +
+PEM file read) into one named, testable fn the bin calls at the process edge;
+`build_kalshi_demo_transport(key_id, key_pem, clock)` is now IO-FREE; and the IO+compose
+mixer `compose_kalshi_runner` is removed. `main.rs` orchestrates resolve → build →
+`compose_kalshi_runner_with_transport`. (Part A — the ingestion env-read — was fixed
+earlier on main @ba95430; this completes the library-boundary item.)
+- The 3 credential-gate tests re-point to `resolve_kalshi_demo_creds`
+  (missing/placeholder/unreadable — all preserved, none weakened).
+- RESIDUAL (deliberate): the PEM file read stays in the testable resolver rather than
+  literally inlined in `main.rs` — inlining would force dropping the unreadable-path test;
+  coverage wins. `daemon_smoke` byte-identical (sim path untouched). Invariants +
+  `fortuna-gates` untouched.
+
+### 2026-06-14 — Fixture-recorder secret redaction (verifier TRACK-A ASSIGNMENT (1))
+
+**Added (`fortuna-venues`, additive).** `redact::redact_secrets(input, secrets)` — a pure,
+deterministic, literal-match scrubber (≥8-char floor so it can never mangle a price/count;
+`<REDACTED>` placeholder, matching `KalshiSigner`'s `Debug` convention). The
+`record_kalshi_fixtures` example now routes EVERY persisted artifact through a `scrub()`
+keyed on the demo key id — REST body, `.meta.json`, the WS `.jsonl` + meta, and the session
+manifest — so even a venue response that echoed the submitted `KALSHI-ACCESS-KEY` could not
+land a credential in the repo. Defense-in-depth for the operator's post-rotation re-record.
+- 5 lib unit tests (mutation-proven: dropping the `replace` reds the redaction test; dropping
+  the length floor reds the short-secret guard). Recorder is `examples/` IO-edge tooling, not
+  a money path; invariants UNTOUCHED.
+- GROUNDED (GAPS): the current demo key id is in ZERO committed fixtures and auth-error bodies
+  don't echo it — so this hardens the *future* re-record, it does not patch a committed leak.
+  The account `user_id` present in 6 order-response bodies is left verbatim (adapter-parse
+  data; a separate operator identity call — add it to the recorder's `secrets` vec to scrub).
+
 ### 2026-06-14 — Kill-switch PERP FLATTEN (spec 5.15, T5.B8): reduce-only IOC closes through the real seal
 
 **Added (`fortuna-killswitch`, additive; the most invariant-sensitive component).** The kill switch gains

@@ -540,7 +540,7 @@ impl DaemonToml {
                 // It REQUIRES a [kalshi] section with a non-empty series list
                 // (the trading universe KalshiVenue lists markets for; an empty
                 // catalog would be a silently-inert daemon). Credentials are
-                // env-only, gated later in compose_kalshi_runner (not here — the
+                // env-only, gated later in resolve_kalshi_demo_creds (not here — the
                 // boot gate is pure over config, never reads the environment).
                 "paper" => {
                     let series_ok = self

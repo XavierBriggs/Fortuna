@@ -1,12 +1,12 @@
-//! Demo-flip Phase 2 — `compose_kalshi_runner` against a MOCK transport.
+//! Demo-flip Phase 2 — `compose_kalshi_runner_with_transport` against a MOCK transport.
 //!
 //! NEVER hits the live Kalshi API: the composition is exercised through
 //! `compose_kalshi_runner_with_transport`, the transport-injection seam, with a
 //! scripted `MockKalshiTransport` (empty script — construction issues no venue
 //! calls; the catalog is polled lazily in `tick()`, which this test never
-//! drives). The credential gate is exercised through the public
-//! `compose_kalshi_runner`, whose env check fails BEFORE any transport is built,
-//! so that path also touches no network.
+//! drives). The credential gate is exercised through `resolve_kalshi_demo_creds`,
+//! whose env + PEM-file check fails BEFORE any transport is built, so that path
+//! also touches no network.
 //!
 //! The RSA key below is a THROWAWAY test key generated for this test alone — it
 //! is not, and has never been, a credential for any real or demo account.
@@ -15,7 +15,7 @@ use fortuna_cognition::cycle::TriageDecision;
 use fortuna_cognition::mind::{Mind, StubMind};
 use fortuna_core::clock::SimClock;
 use fortuna_live::boot::DaemonToml;
-use fortuna_live::daemon::{compose_kalshi_runner, compose_kalshi_runner_with_transport};
+use fortuna_live::daemon::{compose_kalshi_runner_with_transport, resolve_kalshi_demo_creds};
 use fortuna_ops::FortunaConfig;
 use fortuna_runner::Stage;
 use fortuna_venues::kalshi::MockKalshiTransport;
@@ -142,7 +142,7 @@ async fn compose_kalshi_runner_builds_a_paper_kalshi_runner(pool: PgPool) {
 
     // The synthesis arm composed AT STAGE::PAPER (the one documented difference
     // from compose_runner — compose_runner stages it Sim). MUTATION-PROOF: if
-    // compose_kalshi_runner staged it Sim, this assert reds.
+    // compose_kalshi_runner_with_transport staged it Sim, this assert reds.
     let stages = runner.strategy_stages();
     let synth = stages
         .iter()
@@ -170,32 +170,17 @@ async fn compose_kalshi_runner_builds_a_paper_kalshi_runner(pool: PgPool) {
     );
 }
 
-#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
-async fn compose_kalshi_runner_refuses_a_missing_key_path_credential(pool: PgPool) {
-    // The credential gate fires in the PUBLIC compose_kalshi_runner BEFORE any
-    // transport is built (the env check is first), so this path touches no
-    // network. An absent KALSHI_DEMO_PRIVATE_KEY_PATH is a Compose error naming
+#[test]
+fn resolve_kalshi_demo_creds_refuses_a_missing_key_path_credential() {
+    // A-next-2 part B: the credential gate now lives in resolve_kalshi_demo_creds
+    // (the bin calls it at the boundary, BEFORE any transport is built — no
+    // network). An absent KALSHI_DEMO_PRIVATE_KEY_PATH is a Compose error naming
     // the var, never its value.
-    let text = kalshi_dcfg_text();
-    let dcfg = DaemonToml::parse(&text).expect("parses");
-    let full = FortunaConfig::load_file(EXAMPLE_PATH).expect("full config parses");
-
     let mut env = cred_env();
     env.remove("KALSHI_DEMO_PRIVATE_KEY_PATH");
-    let clock = Arc::new(SimClock::new(t0()));
-    let result = compose_kalshi_runner(
-        pool.clone(),
-        &full,
-        &dcfg,
-        t0(),
-        7,
-        clock,
-        stub_mind(),
-        TriageDecision::AlwaysAccept,
-        &env,
-    )
-    .await;
-    let err = result.err().expect("missing key-path credential refuses");
+    let Err(err) = resolve_kalshi_demo_creds(&env) else {
+        panic!("missing key-path credential refuses");
+    };
     let msg = err.to_string();
     assert!(
         msg.contains("KALSHI_DEMO_PRIVATE_KEY_PATH"),
@@ -203,69 +188,38 @@ async fn compose_kalshi_runner_refuses_a_missing_key_path_credential(pool: PgPoo
     );
 }
 
-#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
-async fn compose_kalshi_runner_refuses_a_placeholder_key_path(pool: PgPool) {
+#[test]
+fn resolve_kalshi_demo_creds_refuses_a_placeholder_key_path() {
     // A half-edited credential (placeholder path) refuses loudly — never trusted.
-    let text = kalshi_dcfg_text();
-    let dcfg = DaemonToml::parse(&text).expect("parses");
-    let full = FortunaConfig::load_file(EXAMPLE_PATH).expect("full config parses");
-
     let mut env = cred_env();
     env.insert(
         "KALSHI_DEMO_PRIVATE_KEY_PATH".into(),
         "/keys/your-demo-private-key.pem".into(),
     );
-    let clock = Arc::new(SimClock::new(t0()));
-    let result = compose_kalshi_runner(
-        pool.clone(),
-        &full,
-        &dcfg,
-        t0(),
-        7,
-        clock,
-        stub_mind(),
-        TriageDecision::AlwaysAccept,
-        &env,
-    )
-    .await;
-    let err = result.err().expect("placeholder key path refuses");
+    let Err(err) = resolve_kalshi_demo_creds(&env) else {
+        panic!("placeholder key path refuses");
+    };
     assert!(
         err.to_string().contains("KALSHI_DEMO_PRIVATE_KEY_PATH"),
         "the refusal names the offending credential var: {err}"
     );
 }
 
-#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
-async fn compose_kalshi_runner_refuses_an_unreadable_key_path(pool: PgPool) {
-    // The NEW failure mode the path indirection introduces: a present,
-    // non-placeholder path that does not resolve to a readable file. The boot
-    // gate (required/check_value) ACCEPTS the path string, then the file read
-    // fails — a Compose error naming the PATH (a filesystem location, never the
-    // key body), still touching no network (the read fails before any transport
-    // is built).
-    let text = kalshi_dcfg_text();
-    let dcfg = DaemonToml::parse(&text).expect("parses");
-    let full = FortunaConfig::load_file(EXAMPLE_PATH).expect("full config parses");
-
+#[test]
+fn resolve_kalshi_demo_creds_refuses_an_unreadable_key_path() {
+    // The failure mode the path indirection introduces: a present, non-placeholder
+    // path that does not resolve to a readable file. The boot gate ACCEPTS the path
+    // string, then the file read fails — a Compose error naming the PATH (a
+    // filesystem location, never the key body). This is why the file read stays in
+    // a TESTABLE lib fn (resolve_kalshi_demo_creds) rather than inline in main.rs.
     let mut env = cred_env();
     env.insert(
         "KALSHI_DEMO_PRIVATE_KEY_PATH".into(),
         "/no/such/fortuna-demo-key.pem".into(),
     );
-    let clock = Arc::new(SimClock::new(t0()));
-    let result = compose_kalshi_runner(
-        pool.clone(),
-        &full,
-        &dcfg,
-        t0(),
-        7,
-        clock,
-        stub_mind(),
-        TriageDecision::AlwaysAccept,
-        &env,
-    )
-    .await;
-    let err = result.err().expect("unreadable key path refuses");
+    let Err(err) = resolve_kalshi_demo_creds(&env) else {
+        panic!("unreadable key path refuses");
+    };
     let msg = err.to_string();
     assert!(
         msg.contains("cannot read") && msg.contains("KALSHI_DEMO_PRIVATE_KEY_PATH"),

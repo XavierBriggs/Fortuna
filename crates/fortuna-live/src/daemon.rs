@@ -512,69 +512,26 @@ pub async fn compose_runner(
 /// hanging the loop.
 pub const KALSHI_DEMO_HTTP_TIMEOUT_SECS: u64 = 20;
 
-/// Assemble the Kalshi DEMO composition at `Stage::Paper` (demo-flip Phase 2):
-/// the SAME deterministic core as [`compose_runner`] but over a real
-/// `KalshiVenue` (mock funds, real venue), reading the demo CREDENTIALS from
-/// `env` (NEVER config) and the trading universe / arb world from `[kalshi]`.
+/// Resolve + read the Kalshi DEMO credentials from `env` — the binary-grade IO
+/// (env extraction + filesystem read) the daemon's BIN (`main.rs`) runs at the
+/// process boundary, then hands the resolved values to the IO-FREE
+/// [`build_kalshi_demo_transport`]. Library-boundary cleanup (re-mission
+/// A-next-2 part B): the credential IO is ISOLATED in this one named fn, never
+/// buried inside a `compose_*` function (which now stays a pure composition over
+/// an injected transport).
 ///
 /// CREDENTIALS (house secrets rule): `KALSHI_API_DEMO_KEY_ID` is the
 /// (non-secret) API-key id; `KALSHI_DEMO_PRIVATE_KEY_PATH` is the filesystem
-/// PATH to the RSA private key PEM (the established demo convention — the
-/// fixture recorders read the same two vars). The path is routing data; the
-/// file CONTENT is the SECRET, read here and wrapped in `Secret` so it can
-/// never leak into a log/audit/Debug. The id and the path go through the boot
-/// gate's `required()`/`check_value()` helpers, so an absent var or a
-/// half-edited placeholder (`changeme`, `your-...`, etc.) refuses with the
-/// offending VAR NAME, never its value; a present-but-unreadable path refuses
-/// naming the path (a filesystem location, never the key body).
-///
-/// `clock` is the SAME `Arc<SimClock>` main drives via `RealCadence` (so the
-/// paper runner tracks wall time); it threads into BOTH the transport (request
-/// timestamps) and the venue/journal/audit. The synthesis arm, if composed,
-/// runs at `Stage::Paper` (the demo's promoted stage) — and the runner's
-/// allowlist is `&[Stage::Sim, Stage::Paper]`, so a higher-staged strategy
-/// still cannot board (I7).
-///
-/// Builds the real `ReqwestKalshiTransport` against `KALSHI_DEMO_BASE_URL` and
-/// delegates to [`compose_kalshi_runner_with_transport`] — the transport seam
-/// the tests inject a `MockKalshiTransport` through, so nothing here is reached
-/// by a test against the live API.
-#[allow(clippy::too_many_arguments)]
-pub async fn compose_kalshi_runner(
-    pool: PgPool,
-    full: &FortunaConfig,
-    dcfg: &DaemonToml,
-    start: UtcTimestamp,
-    audit_seed: u64,
-    clock: Arc<fortuna_core::clock::SimClock>,
-    mind: Arc<dyn Mind>,
-    triage: TriageDecision,
+/// PATH to the RSA private-key PEM (the established demo convention — the fixture
+/// recorders read the same two vars). Both go through the boot gate's
+/// `required()`, so an absent var or a half-edited placeholder (`changeme`,
+/// `your-...`, etc.) refuses with the offending VAR NAME, never its value. The
+/// file CONTENT is the SECRET: read here and IMMEDIATELY wrapped in `Secret` so
+/// the key text can never leak into a log/audit/Debug; a present-but-unreadable
+/// path refuses naming the PATH (a filesystem location, never the key body).
+pub fn resolve_kalshi_demo_creds(
     env: &BTreeMap<String, String>,
-) -> Result<SimRunner<KalshiVenue, PgIntentJournal>, DaemonError> {
-    let transport_clock: Arc<dyn Clock> = clock.clone();
-    let transport = build_kalshi_demo_transport(env, transport_clock)?;
-    compose_kalshi_runner_with_transport(
-        pool, full, dcfg, start, audit_seed, clock, mind, triage, transport,
-    )
-    .await
-}
-
-/// Build the demo Kalshi transport — SHARED by the runner AND the F7 read-only
-/// weather day-set source, so one signed transport is read once (the key never
-/// re-read, never duplicated). Reads the demo credentials from `env`:
-/// `KALSHI_API_DEMO_KEY_ID` is the API-key id (routing data — but it still
-/// passes the boot placeholder check, so "changeme"/"your-…" is refused) and
-/// `KALSHI_DEMO_PRIVATE_KEY_PATH` is the filesystem PATH to the RSA private-key
-/// PEM. The PATH is routing data; the file CONTENT is the SECRET — read it and
-/// IMMEDIATELY wrap in `Secret` so the key text cannot be logged/audited/
-/// Debug-printed (house secrets rule). A read failure names the PATH, never the
-/// key body. The PEM text reaches ONLY `KalshiSigner::new`; nothing else holds
-/// the bare string. Returns `Arc<dyn KalshiTransport>` so callers can share the
-/// one signed transport.
-pub fn build_kalshi_demo_transport(
-    env: &BTreeMap<String, String>,
-    clock: Arc<dyn Clock>,
-) -> Result<Arc<dyn KalshiTransport>, DaemonError> {
+) -> Result<(String, Secret), DaemonError> {
     let key_id =
         crate::boot::required(env, "KALSHI_API_DEMO_KEY_ID").map_err(|e| DaemonError::Compose {
             reason: format!("kalshi demo credential: {e}"),
@@ -590,7 +547,21 @@ pub fn build_kalshi_demo_transport(
                 reason: format!("cannot read KALSHI_DEMO_PRIVATE_KEY_PATH ({key_path}): {e}"),
             })?,
         );
+    Ok((key_id, key_pem))
+}
 
+/// Build the demo Kalshi transport from ALREADY-RESOLVED credentials (see
+/// [`resolve_kalshi_demo_creds`]) — IO-FREE: it never reads `env` or the
+/// filesystem (the library-boundary rule — the bin does the IO). SHARED by the
+/// runner AND the F7 read-only weather day-set source, so one signed transport is
+/// built once. The PEM reaches ONLY `KalshiSigner::new` (which redacts it in its
+/// own Debug); nothing else holds the bare string. Returns
+/// `Arc<dyn KalshiTransport>` so callers share the one signed transport.
+pub fn build_kalshi_demo_transport(
+    key_id: String,
+    key_pem: Secret,
+    clock: Arc<dyn Clock>,
+) -> Result<Arc<dyn KalshiTransport>, DaemonError> {
     // KalshiSigner parses the PEM (PKCS#8 or PKCS#1). The signer redacts the
     // key in its own Debug; this is the one and only point the PEM is exposed.
     let signer = KalshiSigner::new(key_pem.expose(), key_id).map_err(|e| DaemonError::Compose {
@@ -608,8 +579,9 @@ pub fn build_kalshi_demo_transport(
     Ok(Arc::new(transport))
 }
 
-/// The transport-injection seam (demo-flip Phase 2): everything
-/// [`compose_kalshi_runner`] does AFTER building the HTTP transport. The
+/// The transport-injection seam (demo-flip Phase 2): the pure composition over an
+/// ALREADY-BUILT transport. The bin resolves creds via [`resolve_kalshi_demo_creds`]
+/// and builds the transport via [`build_kalshi_demo_transport`], then calls this. The
 /// production path injects the real `ReqwestKalshiTransport`; the tests inject a
 /// scripted `MockKalshiTransport`, so the composition can be exercised end to
 /// end WITHOUT ever touching the live Kalshi API. Construction itself issues no
@@ -906,7 +878,7 @@ fn edge_refresh_transition(failed: bool, refresh_failing: &mut bool, failures: &
 }
 
 /// The active venue runner (demo-flip Phase 2). `compose_runner` returns
-/// `SimRunner<SimVenue, _>` and `compose_kalshi_runner` returns
+/// `SimRunner<SimVenue, _>` and `compose_kalshi_runner_with_transport` returns
 /// `SimRunner<KalshiVenue, _>` — two DISTINCT types — so `drive()` (and main's
 /// between-segments closure) need ONE type to hold either. This enum is that
 /// type; the `impl` below delegates every method `drive()` + the closure call

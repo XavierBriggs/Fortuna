@@ -18,8 +18,8 @@ use fortuna_live::boot::{validate_env, DaemonToml};
 use fortuna_live::compose::DegradeScrape;
 use fortuna_live::daemon::{
     build_kalshi_demo_transport, compose_kalshi_runner_with_transport, compose_runner,
-    default_degrade_thresholds, drive, mind_from_env, triage_from_env, ActiveRunner, PgHaltPoller,
-    SYNTH_MIND_TIMEOUT_SECS,
+    default_degrade_thresholds, drive, mind_from_env, resolve_kalshi_demo_creds, triage_from_env,
+    ActiveRunner, PgHaltPoller, SYNTH_MIND_TIMEOUT_SECS,
 };
 use fortuna_live::run_loop::{HaltPoller, LoopConfig, RealCadence, RevocationHaltPoller};
 use fortuna_ops::dashboard::{serve_dashboard, DashboardSnapshot};
@@ -182,7 +182,12 @@ async fn main() -> Result<()> {
             // through it; the read-only F7 weather day-set source discovers
             // through it. The PEM is read once, never duplicated.
             let transport_clock: Arc<dyn Clock> = clock.clone();
-            let transport = build_kalshi_demo_transport(&env, transport_clock)
+            // Library-boundary (A-next-2 part B): the BIN does the credential IO
+            // (env extraction + PEM file read) at the process edge, then hands the
+            // resolved values to the IO-free transport builder.
+            let (key_id, key_pem) =
+                resolve_kalshi_demo_creds(&env).context("kalshi demo credentials")?;
+            let transport = build_kalshi_demo_transport(key_id, key_pem, transport_clock)
                 .context("kalshi demo transport")?;
             let weather: Option<Arc<dyn fortuna_venues::kalshi::WeatherMarketSource>> =
                 Some(Arc::new(fortuna_venues::kalshi::KalshiWeatherSource::new(
