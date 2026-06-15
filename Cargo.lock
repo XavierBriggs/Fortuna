@@ -684,6 +684,7 @@ dependencies = [
  "fortuna-state",
  "fortuna-venues",
  "futures",
+ "reqwest",
  "serde",
  "serde_json",
  "sqlx",

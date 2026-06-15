@@ -11,6 +11,7 @@ pub mod audit_bridge;
 pub mod boot;
 pub mod compose;
 pub mod daemon;
+pub mod funding_poller;
 pub mod ingestion;
 pub mod perp_feed;
 pub mod run_loop;
