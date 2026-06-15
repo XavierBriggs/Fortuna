@@ -1,6 +1,7 @@
 # GATE FINDINGS — latest (verifier-owned; every track reads this at priority (a))
 
-State as of 2026-06-14, main @ 788fa8e (track-B §9.2 perps board merged GATE ACCEPT — see LATEST;
+State as of 2026-06-14, main @ 8a0f5cf (track-C perp-basis-v2 daemon wire-in + track-A kill-switch perp
+flatten + track-B §9.2 perps board ALL merged GATE ACCEPT — see LATEST;
 prior milestone @0bb6d27: slice-3b-v2 PARTIAL — §2.6 A2b + A2d-slice-1 merged GATE
 ACCEPT, then track-C RALPH-STOPped @f1319ce ("north star met, clean milestone"); ALL FOUR tracks
 are now IDLE/stopped at a clean green milestone — demo-flip in, perp-v2 partly built; the
@@ -72,6 +73,38 @@ deferential to neither the audit nor my prior verdicts.
   Live capital correctly REFUSED at boot (demo-flip). The audit's conservative stance is CORRECT; I endorse it.
 
 ## LATEST (2026-06-14, cont'd — verifier loop pass)
+
+- **✅ TRACK C — perp basis-v2 DAEMON WIRE-IN + A2d funding pipeline (slice-3b-v2) MERGED → main @8a0f5cf
+  = GATE ACCEPT.** Wires the propose-only basis-v2 strategy into compose_runner + compose_kalshi_runner,
+  GATED on `[perp_event_basis_v2]` presence (absent ⇒ byte-identical no-op), ALONGSIDE rung-0; adds the
+  funding-rates poller spawn + per-segment funding belief resolve/score in drive(). **I6 preserved**
+  (UNSIZED legs via the propose-only Strategy trait, not veto-enrolled); **I7 preserved** (opt-in, Sim +
+  Kalshi-demo only, NO live); Clock-injected; funding resolve is alert-and-continue (calibration substrate,
+  not the money path); invariants crate UNTOUCHED. MERGE-CONFLICT resolved by the verifier (NOT blind
+  --ours/--theirs): main.rs UNION — main's drive() resolver arg does `pool.clone()` AFTER the halt-poller
+  line, so track-c's move-into-poller would be a use-after-move; kept track-c's `funding_poll_pool` AND
+  main's `pool.clone()` (proven by the clean compile). Battery: fmt + scoped clippy `--all-targets -D
+  warnings` clean + daemon_smoke **25/0** (incl. the BIDIRECTIONAL opt-in test) + perp_event_basis_v2
+  **48/0** + `cargo test --workspace` **180 bins / 1770 / 0** + DST exit 0. MUTATION-PROVEN: forcing both
+  v2 compose gates to None reds `compose_runner_composes_perp_basis_v2_only_when_configured`
+  ("present ⇒ composed: [mech_structural]"); restore greens. Remaining per GAPS: the soak + recorder e2e fixture.
+
+- **✅ TRACK A — kill-switch PERP FLATTEN (spec 5.15, T5.B8) MERGED → main @4969f11 = GATE ACCEPT.**
+  `freeze_cancel_perp_and_flatten`: cancel every open Kinetics perp order, then close each non-flat position
+  with a REDUCE-ONLY IOC crossing the live book — each close a sealed `GatedPerpOrder` from
+  `gates.evaluate_perp` (**I1: the switch is a CONSUMER of the seal, never a constructor**; gates/core/venues
+  SOURCE untouched). **I4 PRESERVED** — `i4_killswitch_independence` ok (dep-walk: sqlx/postgres/ledger/
+  cognition ABSENT; only fortuna-gates added, which pulls none of it); existing i4 test EMPTY-DIFF; own
+  credential pair; no Postgres/cognition/event-loop. perp_i4_flatten_seal **5/5** (ADD-ONLY): full PERP_ALL
+  pass trail on a valid reduce-only close; same-dir / oversized / no-position all reject at MarginHeadroom +
+  never seal; dep-graph re-walk. flatten.rs **8/8** by name (directional crossing, reduce-only, IOC, skip
+  paths, cancel-all, gate-reject-counted, fail-closed config). MUTATION-PROVEN: `crossed_close_limit` Sell
+  `checked_sub→checked_add` lands the long-close limit ABOVE the bid and reds `long_position_closes_…
+  below_the_bid`; restore greens. Battery: fmt + scoped clippy `-D warnings` clean + FULL invariants crate
+  i1-i7 + perp_i1/2/3/4 0-fail + `cargo test --workspace` **180 bins / 1763 / 0** + DST exit 0. ⚠️ SCOPE: this
+  closes the audit's perp-flatten MAJOR — it does **NOT** close audit Critical 2 (I4 "revokes order-placing
+  capability"); flatten/cancel ≠ revocation of FUTURE placement (still open in GAPS). Minor (ledgered): a
+  position over the per-order cap is gate-rejected/left-open/exit-5 (correct fail-closed, single-clip).
 
 - **✅ TRACK B — §9.2 PERPS BOARD (ROTA display half) MERGED → main @788fa8e = GATE ACCEPT.** The pending
   track-b merge (09b7cb8) — `/api/rota/v1/perps`, three READ-ONLY sections: realized funding
