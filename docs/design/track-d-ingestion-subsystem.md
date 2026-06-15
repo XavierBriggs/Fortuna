@@ -85,9 +85,12 @@ loop, independent of the trading `drive()` cycle — off the money path.
   `IngestionCore` tick — the live path dedups via `normalize_and_dedup`'s
   authoritative `UNIQUE(source, content_hash)` index. Wiring corroboration into
   the tick is a follow-up.
-- **Layer 3 — empirical scoring.** NOT built here — it is cognition-side (the
-  `source_reliability` table + a weekly trust-attribution job, F9). The ROTA V4
-  scorecard shows "insufficient data" until then.
+- **Layer 3 — empirical scoring.** BUILT + LIVE. Cognition-side F9
+  (`aeolus_reliability::score_reliability`) scores each Aeolus belief (Brier +
+  CRPS) against the independent realized NWS temperature that Track-D's grader
+  (`nws_cli_realized`, see Grading below) supplies; the daemon's daily resolver
+  (`resolve_and_score_weather_beliefs`) fires it once per UTC day. The loop is
+  closed — the ROTA V4 scorecard reads the per-`(model, scope)` reliability.
 
 ## Adapter table
 
@@ -95,7 +98,7 @@ loop, independent of the trading `drive()` cycle — off the money path.
 |---|---|---|---|---|
 | `Nws` | `alerts` | NWS active alerts | `nws_claimed_time` | built (D4) |
 | `Nws` | `afd` | Area Forecast Discussions | `nws_claimed_time` | built (D4); firehose — watch `dropped_over_volume` |
-| `Nws` | `climate` | `nws.cli` (raw productText) | `nws_climate_claimed_time` | built (F2); the daily-extreme settlement record, two-hop |
+| `Nws` | `climate` | `nws.cli` (raw productText) | `nws_climate_claimed_time` | built (F2); the settlement record, two-hop; the grader `nws_cli_realized` extracts the realized high/low (see Grading) |
 | `Rss` | — | `rss.item` | `rss_claimed_time` | built (D5); also the GDELT interim (`format=rss`) |
 | `Calendar` | `schedule` | scheduled release (iCal) | `calendar_claimed_time` | built (D6); BLS macro |
 | `Calendar` | `latest` | printed release (RSS) | `calendar_claimed_time` | built (D6); BLS macro |
@@ -106,6 +109,26 @@ loop, independent of the trading `drive()` cycle — off the money path.
 Signal `kind` constants are exported from the crate root (e.g.
 `NWS_CLI_KIND`, `RSS_ITEM_KIND`, `AEOLUS_FORECAST_KIND`,
 `RELEASE_SCHEDULED_KIND` / `RELEASE_PRINTED_KIND`).
+
+## Grading — the resolution half (F2 grader; closes Layer 3)
+
+`nws_cli_realized(product_text, station) -> Option<RealizedExtreme>` (in
+`nws_climate.rs`) extracts the OFFICIAL daily high/low °F from an `nws.cli`
+product — the independent resolution value an Aeolus weather belief is scored
+against. FAIL-LOUD: `None` on any ambiguity (a jammed column `7676`, a missing
+`MM`, an absent line, an inverted high<low, an unparseable date) — never a
+fabricated temperature (spec 5.12). `RealizedExtreme` exposes `high_f`/`low_f`
+(i64 °F); the bridge picks `high_f` for TMAX, `low_f` for TMIN. This is the
+SOURCE-side half of the closed weather loop:
+
+```
+Aeolus forecast → match (F7) → belief (F8) → trade
+                        nws.cli → nws_cli_realized (F2) → F9 score_reliability
+                                  (None ⇒ belief stays OPEN)   → resolve_and_score
+```
+
+The F9 scorer + the resolution bridge are cognition-side (Track E); the daily
+`drive()` trigger is Track A. The grader is the one piece Track D owns here.
 
 ## Telemetry surface (OBS-1)
 
@@ -119,10 +142,10 @@ stages are filled by `IngestionWiring::telemetry` (OBS-2a: `normalized` /
 `deduped` from the core, `persisted` / `persist_failures` from the wiring), and
 `domain_tags` is populated from the registry admission (OBS-3). The loop
 PUBLISHES each tick's snapshot into a shared `IngestionTelemetryHandle`
-(`Arc<RwLock<IngestionTelemetry>>`, OBS-2b — "one writer, many readers"). The
-remaining step is OBS-2c — track B wiring a reader clone into `RotaState` for the
-V1/V2/V3 boards. Contract:
-[ingestion-observability-contract.md](ingestion-observability-contract.md).
+(`Arc<RwLock<IngestionTelemetry>>`, OBS-2b — "one writer, many readers"), and the
+reader is merged into `RotaState` (OBS-2c, DONE) so the V1/V2/V3 ROTA boards
+project the live snapshot. The observability chain is COMPLETE end-to-end.
+Contract: [ingestion-observability-contract.md](ingestion-observability-contract.md).
 
 ## Safety notes
 
@@ -143,20 +166,19 @@ V1/V2/V3 boards. Contract:
 
 - **D7** `GdeltSource` — external IP rate-limit; interim = `rss` against
   `format=rss`.
-- **OBS-2c** — track B wires a reader clone of the published
-  `IngestionTelemetryHandle` into `RotaState` (fortuna-ops) for the V1/V2/V3
-  boards; main.rs passes `ingest_telemetry.clone()` into the dashboard state.
-  (OBS-2a funnel loop-stages, OBS-2b the publish, and OBS-3 registry
-  `domain_tags` are DONE.)
 - **F4b** — release-aware cadence (consume `next_run_at` + the GEFS release
   pattern instead of static event windows).
 - **F10** — Aeolus `source_registry` row + dossier finalization + v1→v2 fixture
   migration.
-- **F5–F9 (cognition, Track C — not Track D):** F5 dedup, F6 the strict v2
-  μ/σ→p parser, F7 world-forward match, F8 belief→calibration→gates→sizing,
-  F9 the Layer-3 `source_reliability` scoring.
 - **Slack routing of ingestion alerts** — quarantines are counted/logged now; a
   router can be passed into `IngestionWiring` later.
+
+DONE since this map was first written (no longer deferred): the **F2 grader**
+(`nws_cli_realized`, Track D); the **F5–F9** Aeolus belief pipeline + the
+resolution **bridge** (Track E); the daily `drive()` **trigger** (Track A).
+The weather scientific-method loop is closed and live — it lights up the moment
+CLI ingestion is enabled (`[sources.nws_climate]` + `[ingestion] enabled`, on the
+seeded `source_registry` row).
 
 ## Pointers
 

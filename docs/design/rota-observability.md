@@ -28,7 +28,7 @@ telemetry on every layer — consuming the C/D/E observability contracts.
 
 ## Board status matrix
 
-| Board | View (endpoint TBD at build) | Data source | Owner of data | Status |
+| Board | View (endpoint) | Data source | Owner of data | Status |
 |---|---|---|---|---|
 | Health | `/health` | snapshot | live (A) | DONE + screenshot-verified (mission 1) |
 | Money | `/money` | snapshot | live (A) | DONE + verified |
@@ -40,7 +40,7 @@ telemetry on every layer — consuming the C/D/E observability contracts.
 | Trades — Recent Fills (item 3) | `/fills` | `fills` ledger | B | **DONE** — executed-trades board (runtime sqlx + `cents` flag) |
 | Trades — Strategy P&L (item 3) | `/strategies` | `runner.digest_snapshot()` | B (views_from) | **DONE** — per-strategy realized PnL/fees/fills/open-exposure (views_from + `cents`); unrealized-PnL gap is a follow-on (mark loop, GAPS) |
 | Trades — Working Orders (item 3) | `/working_orders` | `runner.manager().intents()` | B (views_from) | **DONE** — the intents resting at the venue (submitted/acked/partially-filled) with market/side/action/limit($)/qty/filled/status; views_from fold filtered by `is_working()`, pure panic-free read (daemon_smoke 15/15) |
-| Discovery — Events (item 4) | `/discovery` | `events` ⋈ `market_event_edges` | B | **DONE** — canonical events + status + DISTINCT mapped-market count (runtime sqlx); benchmark detail + per-event drill-in + sources inventory are follow-ons (GAPS) |
+| Discovery — Events (item 4) | `/discovery` | `events` ⋈ `market_event_edges` | B | **DONE** — canonical events + status + DISTINCT mapped-market count (runtime sqlx); the per-event drill-in is SUPERSEDED by the Discovery — Edges board (the markets under each event); benchmark detail + sources inventory remain follow-ons (GAPS) |
 | Discovery — Edges (T4.5 a / item 4) | `/discovery_edges` | `market_event_edges` ⋈ `events` ⋈ `tradability_scores` | B | **DONE** — the live (non-superseded) market↔event mappings JOINed to their event statement: market · venue · mapping · confidence · **Trad** (latest `tradability_scores.score` per market, honest-null when unscored — the T4.5(a) Tradability⋈Edges join) · confirmed/proposed status · proposer/confirmer. "The markets/series UNDER the events." Runtime sqlx, newest-event-first; confirmed=green pill, proposed/unscored→honest-null; untrusted strings esc'd. Screenshot (pre-Trad): `rota-discovery-edges-2026-06-14.png`; the Trad column is curl+test-verified (browser screenshot deferred — MCP disconnected). events→edges drill-in superseded by this board |
 | Database (item 5) | `/db` | all 24 ledger tables | B | **DONE** — exact `COUNT(*)` sweep over every ledger table (incl. the `scalar_beliefs`/`belief_scores` plane), busiest-first, with a `{tables,total_rows}` summary (runtime sqlx, literal names — no injection; honest `0` for empty tables); reltuples-at-scale + per-table drill-in are follow-ons (GAPS) |
 | Telemetry (item 6) | `/telemetry` | `MetricsRegistry` | B (shape) + live (A) | **DONE** — the metric series the daemon exports (the same registry `/metrics` renders), grouped by subsystem (one row per series: subsystem + metric + type + value). R2-clean: the daemon shapes via `MetricsRegistry::telemetry_board` (additive `views["telemetry"]`), ROTA serves via `read_view` — no Prometheus-text parsing. **Completes the single pane of glass across all 6 mission items.** Help-text + metric search are follow-ons (GAPS) |
@@ -50,7 +50,7 @@ telemetry on every layer — consuming the C/D/E observability contracts.
 | Vendor Scorecard (D V4) | `/ingest/scorecard` | `source_reliability` | D (Layer-3 job) | BLOCKED on the Layer-3 trust-attribution job |
 | Forecast→Outcome (D V5) | `/forecast_outcome` | beliefs+events+settlements+signals | mixed | BLOCKED on the data flow |
 | Hypothesis Lifecycle (D V6) | (on Cognition) | beliefs (+ intents/settlements) | mixed | PARTIAL — status + calibration live on Cognition; the full belief→strategy→PnL is DATA-BLOCKED (no belief→trade link / `strategy` column / per-belief PnL on the schema — explorer-confirmed; needs a schema change, ledgered) |
-| Forecasts scorecard (C 9.1) | `/forecasts` | `scalar_beliefs`⋈`belief_scores` | B (query) | **DONE** (calibration half) — per (producer, rule): mean CRPS (lower=better) + the 0.1–0.9 BAND COVERAGE % (~80 ideal) + resolved_n + unit (runtime aggregate; reads only the q-boundary numbers — raw fan/provenance NOT exposed). Degrades honest-unavailable until track-C daemon persist (slice 4) writes the tables. sparkline is a follow-on (GAPS) |
+| Forecasts scorecard (C 9.1) | `/forecasts` | `scalar_beliefs`⋈`belief_scores` | B (query) | **DONE** (calibration half) — per (producer, rule): mean CRPS (lower=better) + the 0.1–0.9 BAND COVERAGE % (~80 ideal) + resolved_n + unit (runtime aggregate; reads only the q-boundary numbers — raw fan/provenance NOT exposed). Honest-unavailable until a producer resolves+scores beliefs (track-C's slice-4 persist landed — funding_forecast scores live; see the /perps A2d edge gate). sparkline is a follow-on (GAPS) |
 | Forecast Feed (C 9.1) | `/forecast_feed` | `scalar_beliefs` (`ScalarBeliefsRepo::recent`) | B (query) | **DONE + RICH + screenshot-verified** — the operator "completely see the belief and everything" want (2026-06-13). Each recent scalar belief is a click-to-expand `<details>` (the /cognition belief-panel precedent): SUMMARY = producer · event · q=0.5 median · unit · resolved/pending pill · → realized (honest null while pending); EXPAND = the WHOLE quantile FAN (q/v pairs) + the producer's EVIDENCE (e.g. estimate/point_forecast/remaining_candles) + provenance. The daemon wraps `{"provenance":…,"evidence":…}` into the one provenance column (persist_scalar_beliefs) — SPLIT back here (both-keys detection; non-wrapped shown whole). Untrusted-data (5.11): `clean_quantiles` reads only numeric q/v, `truncate_evidence` size-caps, JSON esc'd. No ledger change. Screenshot: `docs/reviews/rota-visual/rota-forecast-feed-rich-2026-06-13.png` |
 | Perps regime/basis (C 9.2) | `/perps` | `funding_rates_historical` + `scalar_beliefs`⋈`belief_scores` + basis-v2 metrics | B (view) | **DONE** — composite of three sections: (1) REALIZED FUNDING (recent finalized 8h rates per market, DB read pool); (2) the §2.6 **A2d EDGE GATE** — funding_forecast CRPS vs the four baselines (carry_forward/last_rate/rw_estimate/rw_persistence) side-by-side + `beats_all` (DB); (3) **PERP BASIS-v2 (A10)** — per-perp regime + model-vs-implied CDF divergence, DAEMON-SHAPED from `runner.metrics_export()` via `perps_basis_board`→`views["perps_basis"]` (R2: structured registry read, ROTA serves via `read_view`, never Prometheus-text). Each section honest-unavailable/empty independently. A FUNDING-RATE-regime classifier (vs the basis-v2 regime) is a coordinate-with-track-C item (cognition enum), not fabricated |
 | Personas (E 20.1) | `/personas` | `personas` | B (query) | **DONE** (registry half) — every (persona_id, version) grouped/versioned with status pill, tier, 8-char method hash, flattened `reads_signal_kinds`, effective date (runtime sqlx) |
@@ -78,6 +78,14 @@ board is screenshot-verified with real rows. Runbook:
 `ROTA_LOCAL_DATABASE_URL` (never the operator's `DATABASE_URL`) and refuses any
 DB whose name lacks `rota_local`. The harness — not a static screenshot — is the
 durable, never-stale artifact: it regenerates current truth on demand.
+
+> Verification note (2026-06-14): the chrome-devtools MCP is temporarily
+> disconnected, so the recent additions (Sources operational fields, Discovery —
+> Edges + the tradability join, the Analyses §20.2 expander, and the §9.2 /perps
+> board) were verified via the harness JSON endpoints (curl) through the REAL
+> handlers + populated-path tests, reusing the visually-proven `boardTable` /
+> `<details>` renderers. Browser screenshots are deferred and regenerate on demand
+> from this harness once the MCP is back.
 
 ## Shared-doc maintenance log (this mission)
 

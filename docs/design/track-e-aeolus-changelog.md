@@ -21,8 +21,9 @@ FULL workspace battery as the commit gate.
 The F9 reliability LOOP, closed: every open Aeolus weather belief now resolves + scores against the
 INDEPENDENT realized NWS temperature once its window closes. The standalone resolver
 `resolve_and_score_weather_beliefs(pool, now, score_id_base)` in `crates/fortuna-live/src/daemon.rs`
-mirrors `resolve_and_score_funding_beliefs` (NOT yet wired into `drive()` — that one-line additive call
-is Track A's, coordinated). Per DUE open belief it:
+mirrors `resolve_and_score_funding_beliefs`. Now WIRED LIVE into `drive()`'s daily boundary by Track A
+(`0ad3f3f`/`349881d`, GATE ACCEPT — `daemon.rs:2523`, gated on `weather_source` ⟺ venue=kalshi), so the
+loop runs on each UTC day. Per DUE open belief it:
 1. routes to ITS NWS CLI product by the forecast's grading station (`cli_serves_station` matches the
    AWIPS id `CLI{nws_station_id}` as a whole token — never a substring),
 2. grades the realized daily high/low from the product's raw text via the Track-D grader
@@ -57,8 +58,10 @@ over the recorded Troutdale CLI). Full workspace battery + DST green (see commit
 GAPS: the missing recorded NYC CLI (`CLINYC`) fixture, multi-station CLI, weather-belief CLV,
 negative-threshold hints, the bounded CLI scan.
 
-Shared-doc touches: GAPS.md (bridge handoff → DONE + new sub-seams). The `drive()` wiring handoff to
-Track A is the only remaining open item for this loop.
+Shared-doc touches: GAPS.md (bridge handoff → DONE + new sub-seams). MERGED as `341340e` (GATE ACCEPT);
+the `drive()` wiring was then completed by Track A (`0ad3f3f`/`349881d`), so this loop is CLOSED + LIVE.
+The only remaining weather item is the recorded NYC `CLINYC` CLI fixture (operator capture; non-blocking —
+a missing product leaves the belief OPEN, never fabricated).
 
 ## F7 bucket-matching — Aeolus μ/σ → Kalshi tradeable buckets (Track-E side) (this commit)
 
