@@ -71,12 +71,15 @@ the failure class it catches.
    ([CLAUDE.md](../CLAUDE.md) "Definition of done").
 2. **DST — deterministic simulation testing with seeded chaos.**
    [scripts/run-dst.sh](../scripts/run-dst.sh) replays the regression corpus,
-   then runs N randomized seeds through six harnesses: the core
+   then runs N randomized seeds through ten harnesses: the core
    order/fill/settlement harness, the composed decision loop under cognition +
    venue chaos, the settlement/watchdog plane (eleven per-arm-accounted fault
-   arms), the perp margin/funding/liquidation plane, the persona runner under
-   the cost budget (Track E — firewall/findings-schema/coalesce degrade arms),
-   and the daemon-composition smoke. Faults injected include delayed
+   arms), the perp margin/funding/liquidation plane, the funding-forecast
+   belief-producer and perp-event-basis strategy planes (both propose-only,
+   under PerpTick chaos), the persona runner under the cost budget (Track E —
+   firewall/findings-schema/coalesce degrade arms) and its orchestrator plane,
+   the ingestion-scheduler plane, and the daemon-composition smoke. Faults
+   injected include delayed
    acks, dropped/duplicate fills, mid-cycle crashes, schema-invalid model
    output, budget exhaustion, audit-sink death, voids, disputes, reversals, and
    persona budget-throttle / signal-absence / schema-invalid / coalesced-trigger

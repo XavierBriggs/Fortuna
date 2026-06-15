@@ -1,5 +1,14 @@
 # Kinetics perps module — Phase B plan (CONFIRMED 2026-06-11)
 
+BUILD STATUS (2026-06-15): the B0–B8 plane below is now BUILT and merged to main
+— BUILD_PLAN T5.B0 through T5.B8 are all ticked (perps types, gate extensions,
+Kinetics adapter, paper margin, DST arms, rung-0 strategies under the fee-trap
+rule, and perps ops). The live PerpTick producer that feeds the perp_event_basis
+arm is also wired (crates/fortuna-live/src/perp_tick_producer.rs
+`run_perp_tick_producer`, spawned in main.rs gated on `[perp_event_basis_v2]`,
+creds-less public Kinetics REST). This document is retained as the design
+rationale of record; the per-item plan content below is unchanged.
+
 Status: CONFIRMED by the operator 2026-06-11 — "your B1–B8 order supersedes
 the truncated directive" — with three amendments, all incorporated below:
 

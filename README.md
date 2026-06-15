@@ -104,8 +104,8 @@ where existing tests may never be weakened — additions only.
   ([crates/fortuna-live/src/boot.rs](crates/fortuna-live/src/boot.rs)
   `validate_bootable`). The boot gate REFUSES `live_min`/`scaled` (promotion past
   Paper needs the I7 forward-validation gate, a human action) and refuses a
-  `sim`-stage Kalshi mis-wiring. Runtime credentials are env-only, gated later in
-  `compose_kalshi_runner`, never read by the boot gate. The live demo run is still
+  `sim`-stage Kalshi mis-wiring. Runtime credentials are env-only, resolved later at
+  the bin edge in `resolve_kalshi_demo_creds`, never read by the boot gate. The live demo run is still
   operator-gated behind the T4.2 fixture clearance. Operator umbrella runbook:
   [docs/runbooks/demo-bringup.md](docs/runbooks/demo-bringup.md); flip mechanics:
   [docs/runbooks/demo-flip.md](docs/runbooks/demo-flip.md). This changes nothing

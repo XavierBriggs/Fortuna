@@ -107,9 +107,15 @@ and restart handling during a sustained run, follow [soak-start.md](soak-start.m
   resolution makes it the fastest-feedback validation path.
 - **Kalshi demo market sync** feeds the binary-event arms (synthesis, mech_structural,
   mech_extremes, weather/F7, funding_forecast).
-- **Perps caveat:** the basis-v2 arm is wired but **inert until a `PerpTick` producer
-  feeds it**. Until that producer is wired, leave `[perp_event_basis_v2]` off (or
-  expect the perps board to stay empty) — the binary-event arms run regardless.
+- **Perps caveat:** the basis-v2 arm is opt-in via `[perp_event_basis_v2]` (default
+  OFF). Setting that section now does TWO things: it composes the arm AND spawns the
+  LIVE `PerpTick` producer alongside the trading loop (the public, unauthenticated
+  Kinetics market + funding GETs — NO credential read; Sim/demo only), which feeds the
+  arm live ticks. A healthy boot then prints `fortuna-live: live PerpTick producer
+  ACTIVE` ([crates/fortuna-live/src/main.rs](../../crates/fortuna-live/src/main.rs),
+  `run_perp_tick_producer`; [crates/fortuna-live/src/perp_tick_producer.rs](../../crates/fortuna-live/src/perp_tick_producer.rs)).
+  Leave the section absent if you do not want the perps arm — the binary-event arms run
+  regardless.
 
 ## 7. Verify you can stop it (drill BEFORE trusting the run)
 

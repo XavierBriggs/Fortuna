@@ -26,7 +26,7 @@ that revokes future order placement, not just resting risk) is on main and pinne
 by `i4_killswitch_revocation.rs`; see §2. The
 **demo-flip** (running a Kalshi DEMO at `Stage::Paper`, mock funds, pre-promotion,
 with prod/live still REFUSED at the boot gate) is **MERGED** (Phase 1 venue-generic
-`SimRunner` + Phase 2 `compose_kalshi_runner` + the paper-only boot gate, @`0586bab`).
+`SimRunner` + Phase 2 `compose_kalshi_runner_with_transport` + the paper-only boot gate, @`0586bab`).
 The live demo integration is **e2e-verified against the real Kalshi demo** (2026-06-14:
 signed WS handshake authenticated, a full order-lifecycle fixture recording, and the
 I4 kill-switch freeze — all live). The live trading SOAK remains the operator's session;

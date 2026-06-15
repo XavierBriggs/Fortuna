@@ -113,9 +113,10 @@ name before pressing enter.)
 ## 4. NOT YET BUILT — automated backup
 
 Said plainly: **no automated backup procedure exists in this repository as
-of `334612d`.** `scripts/` contains `killswitch-test.sh`, `replay.sh`, and
-`run-dst.sh` — nothing backs anything up on a schedule, nothing copies
-off-box, nothing rotates dumps, and no restore has ever been drilled.
+of `334612d`.** `scripts/` contains `killswitch-test.sh`, `replay.sh`,
+`run-dst.sh`, and `check-protected-invariants.sh` — nothing backs anything up
+on a schedule, nothing copies off-box, nothing rotates dumps, and no restore
+has ever been drilled.
 
 The spec names the target state — "Nightly backups on ITHACA plus offsite
 copy" (docs/spec.md, Section 7 storage paragraph) — and the monthly restore

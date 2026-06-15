@@ -144,15 +144,15 @@ Boot lines on stderr, in order (exact strings from
 [crates/fortuna-live/src/main.rs](../crates/fortuna-live/src/main.rs)):
 
 ```
-fortuna-live: synthesis mind = StubMind (no ANTHROPIC_API_KEY; inert)
+fortuna-live: cognition minds = StubMind (no ANTHROPIC_API_KEY; inert)
 fortuna-live: composed (venue=sim, markets from [sim], journal+audit in Postgres)
 fortuna-live: metrics at http://127.0.0.1:9187
 fortuna-live: dead-man heartbeat armed (pings the monitor every interval)
 fortuna-live: Slack routing active (alerts -> #fortuna-alerts/#fortuna-ops)
 ```
 
-(With a real key the first line reads
-`synthesis mind = AnthropicMind (live; model from [cognition])`.)
+(With a real key the first line instead reads
+`cognition tiers = synthesis <model> / reconciliation <model> / triage <model> (AnthropicMind, live)`.)
 
 Then:
 
@@ -197,9 +197,12 @@ scripts/run-dst.sh
 ```
 
 `scripts/run-dst.sh [N]` replays the committed regression corpus, then runs N
-randomized seeds (default 2000) through four stages: the core DST world, the
-synthesis decision-loop chaos stage, the settlement/watchdog chaos stage, and
-the daemon-composition smoke. Verification gates run it at 10000
+randomized seeds (default 2000) through every DST stage: the core DST world, the
+synthesis decision-loop chaos stage, the settlement/watchdog chaos stage, the
+perp margin/funding/liquidation stage, the funding-forecast and
+perp-event-basis belief/strategy stages, the persona runner and orchestrator
+stages, the ingestion-scheduler stage, and the daemon-composition smoke.
+Verification gates run it at 10000
 (`scripts/run-dst.sh 10000`). Any invariant violation prints the offending
 seed and fails the run; reproduce one with `scripts/replay.sh --seed <N>`.
 The doctrine behind all of this is [docs/verification.md](verification.md).

@@ -1,6 +1,16 @@
 # Ingestion Observability Contract (telemetry + ROTA views)
 
 Date: 2026-06-13. Status: CONTRACT for track-b to implement.
+
+BUILD STATUS (2026-06-15): the §2 seam is DELIVERED — `IngestionTelemetry`,
+`SourceTelemetry`, `FunnelCounts`, `SignalRecord`, `TickTelemetry` live in
+crates/fortuna-sources/src/scheduler.rs with the field set below. The live ROTA
+views V1–V3 are BUILT: V1 Live Feed = `GET /api/rota/v1/ingest_feed`, V2 Sources
+Health = `/api/rota/v1/ingest_sources`, V3 Funnel = `/api/rota/v1/ingest_funnel`
+(handlers in fortuna-ops/src/rota.rs; the daemon shapes them via
+`fortuna_live::views::merge_ingest_views`). V4 Scorecard / V5 Forecast→Outcome /
+V6 Hypothesis-Lifecycle remain as specced below — V4 still awaits the Layer-3
+`source_reliability` job (§7).
 Scope: full observability of the news-aggregation / weather-signal pipeline —
 the system running, the signals coming in + their data, and the outcomes of
 each source/vendor and of the whole scientific-method process.

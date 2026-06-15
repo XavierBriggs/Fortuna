@@ -109,15 +109,16 @@ These lines, in this order, on stderr (verbatim from
 [crates/fortuna-live/src/main.rs](../../crates/fortuna-live/src/main.rs)):
 
 ```
-fortuna-live: synthesis mind = AnthropicMind (live; model from [cognition])
+fortuna-live: cognition tiers = synthesis <model> / reconciliation <model> / triage <model> (AnthropicMind, live)
 fortuna-live: composed (venue=sim, markets from [sim], journal+audit in Postgres)
 fortuna-live: metrics at http://127.0.0.1:9187
 fortuna-live: dead-man heartbeat armed (pings the monitor every interval)
 fortuna-live: Slack routing active (alerts -> #fortuna-alerts/#fortuna-ops)
 ```
 
+(The first line interpolates the three configured `[cognition]` model ids.)
 With no `ANTHROPIC_API_KEY` the first line is instead
-`fortuna-live: synthesis mind = StubMind (no ANTHROPIC_API_KEY; inert)`.
+`fortuna-live: cognition minds = StubMind (no ANTHROPIC_API_KEY; inert)`.
 
 Failure looks like an immediate exit with one of: `environment rejected …`
 (env contract), `config rejected` / `boot check failed` (config contract), or

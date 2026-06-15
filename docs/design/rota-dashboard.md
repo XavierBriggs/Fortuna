@@ -111,7 +111,8 @@ routes under `/api/rota/v1/` in the same axum Router.
 
 ### 0.2 Stack
 
-`Cargo.toml:1-45`: pure Rust workspace (14 crates). Zero Node/npm/Vite anywhere
+`Cargo.toml:1-45`: pure Rust workspace (16 crates as of 2026-06-15; 14 at this
+study). Zero Node/npm/Vite anywhere
 in the tree. Workspace deps already include axum 0.8 (line 36), tokio "full"
 (line 22), serde_json (line 24), sqlx 0.8 postgres (line 33). No frontend build
 step exists or is needed.

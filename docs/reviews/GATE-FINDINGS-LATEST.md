@@ -1,6 +1,9 @@
 # GATE FINDINGS — latest (verifier-owned; every track reads this at priority (a))
 
-State as of 2026-06-14, main @ ec51a48 (C2 I4-revocation @4b6d692 + full doc de-stale sweep @ec51a48
+State as of 2026-06-15 (PM), main @ 67e88cc (this-session merges: PerpTick live-wiring @b04183b,
+paper-fill realism @967df35, library-boundary-B @2091bb8, track-b/d/e doc freshening @67e88cc — see
+"## LATEST (2026-06-15 PM)" immediately below). Prior @ec51a48 (C2 I4-revocation @4b6d692 + full doc
+de-stale sweep @ec51a48
 merged; track-C perp-basis-v2 daemon wire-in + track-A kill-switch perp flatten + track-B §9.2 perps
 board ALL merged GATE ACCEPT — see LATEST;
 prior milestone @0bb6d27: slice-3b-v2 PARTIAL — §2.6 A2b + A2d-slice-1 merged GATE
@@ -15,6 +18,56 @@ perp_i1/i2/i3 pass (I6 propose-only confirmed for ScalarBeliefDraft).
 A BLOCK naming your track preempts your queue. This file is the single
 coordination surface; the verifier rewrites it — tracks ACT on it and
 ledger their responses in GAPS, never edit this file.
+
+## LATEST (2026-06-15 PM) — verifier gated + merged the track-a/c re-mission output; CODE COMPLETE
+
+The track-a and track-c loops produced their final queues; the verifier gated each on the MERGED tree
+(adversarial mutation-proofs where logic is load-bearing) and merged all four. main @ 67e88cc. The audit
+remainder in GAPS is now closed in CODE (items 1–3 RESOLVED + merged; only operator runtime/recording
+residuals remain). All four merges below; each was fmt + clippy `--workspace --all-targets -D warnings`
+clean and the relevant tests green BEFORE the verdict.
+
+- **✅ PerpTick live-producer wiring (C-next-1b) MERGED → @b04183b = GATE ACCEPT.** `run_perp_tick_producer`
+  (Clock-driven, creds-less PUBLIC Kinetics GETs, SSRF-guarded, untrusted-data quarantine, no-panic) is
+  spawned from `main.rs` GATED on `[perp_event_basis_v2]` (default-off ⇒ byte-unchanged daemon) and pushes
+  mapped ticks down an mpsc channel that `drive()` drains at each segment head via the existing
+  `inject_perp_tick` seam. FULL battery green (incl. DST 14 corpus + 2000 random, 0 violations).
+  MUTATION-PROOF: flipping the wiring test's `Some(rx)`→`None` reds it ("got 0") — the drain is load-bearing.
+  I6/I7 hold (no order/size; opt-in; Sim/demo). Caught + fixed a 15th drive() call site silently missing the
+  S5b arg in the merge (a real arity bug the raw merge would have shipped). Closes GAPS item 2.
+- **✅ Paper-fill trade-through realism (C-next-2) MERGED → @967df35 = GATE ACCEPT.** A new
+  `recorded_public_trades` test proves the spec-11 "strictly THROUGH, never AT touch" rule against a REAL 3c
+  print from the PUBLIC, unauthenticated `GET /markets/trades` (credential-free; provenanced .meta.json).
+  MUTATION-PROOF: flipping the engine's `yes_price < yes_limit`→`<=` reds the TOUCH assertion
+  ("TOUCH-FILL INFLATION"). Test+fixtures+docs only; source identical to @b04183b. Closes GAPS item 3.
+- **✅ library-boundary part B (A-next-2 part B) MERGED → @2091bb8 = GATE ACCEPT** (cherry-pick of track-a
+  172a021; its other commits were merge-noise + already-merged redact). `resolve_kalshi_demo_creds` isolates
+  ALL kalshi-demo credential IO at the bin edge (PEM read → immediately `Secret`-wrapped; errors name the
+  var/path, never the key body), `build_kalshi_demo_transport` is IO-FREE (single expose into
+  `KalshiSigner::new`), the IO+compose mixer removed. SECURITY verified (secrets env-only, no leak). Code
+  auto-merged cleanly with the @b04183b wiring (coexist in daemon.rs); `fortuna-live` suite green incl. the 3
+  credential-gate tests AND the @b04183b wiring test (combined tree). Closes GAPS item 1.
+- **✅ track-b/d/e doc freshening MERGED → @67e88cc.** Ported ONLY the track-owned narrative docs
+  (rota-observability / track-d-ingestion / track-e-aeolus-changelog — accurate vs current main, claims
+  verified against code), DISCARDING their stale pre-merge GAPS/BUILD_PLAN edits (would have regressed the
+  current ledgers). No code, no invariants.
+
+PROTECTED: every merge confirmed `fortuna-invariants/tests` additions-only (guard script + staged-path
+check). The demo-ready capstone — a full-workspace battery on @67e88cc — is **CERTIFIED GREEN**: `cargo fmt
+--all --check` + `clippy --workspace --all-targets -D warnings` + `cargo test --workspace` + `scripts/run-dst.sh`
+all exit 0 (DST: 14 corpus + 2000 random seeds, zero invariant violations). Stale branches track-a/b/c/d/e are
+now fully integrated (content in main); they can be reset to main at the operator's discretion (worktrees, not
+auto-reset).
+
+DOC DE-STALE SWEEP (2026-06-15 PM, verifier + 4 subagents): the demo/operator-facing doc set was swept
+against current code (README, architecture, quickstart, operations, operator, verification, the 12 runbooks,
+and the live-architecture design docs). Every edit was VERIFIED against a named symbol/path before landing
+(e.g. the renamed `compose_kalshi_runner` → `resolve_kalshi_demo_creds`/`compose_kalshi_runner_with_transport`,
+the real boot strings `cognition minds = StubMind …` / `cognition tiers = …`, the now-wired PerpTick producer,
+the 16-crate count, the full DST stage list, and drifted `main.rs`/config line refs). spec.md, the ledger
+files (CHANGELOG/GAPS/ASSUMPTIONS/BUILD_PLAN), `fortuna-invariants/`, and `docs/research/` were left untouched.
+OPEN (operator): `.env.example` carries a `KALSHI_DEMO_BASE_URL` host (`demo-api.kalshi.co`) that differs from
+the code const (`external-api.demo.kalshi.co`, `kalshi/client.rs`); reconcile before a live demo run.
 
 ## LATEST OVERNIGHT (2026-06-15) — verifier driving to demo-ready (operator asleep; "wake to code-complete")
 

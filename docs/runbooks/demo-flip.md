@@ -56,10 +56,12 @@ closed the gaps in [config/fortuna.example.toml](../../config/fortuna.example.to
 - `[gates.per_strategy.synthesis]` — without it a composed synthesis order
   is gate-rejected fail-closed (I1).
 
-Demo credentials are an independent precondition: confirm the configured
-key id is the DEMO-environment key and `KALSHI_PRIVATE_KEY_PATH` points at
-its PEM, chmod 600, outside the repo (GAPS.md "Operator-blocked:
-credentials"; [key-rotation-and-secrets.md](key-rotation-and-secrets.md)).
+Demo credentials are an independent precondition: confirm `KALSHI_API_DEMO_KEY_ID`
+is the DEMO-environment key id and `KALSHI_DEMO_PRIVATE_KEY_PATH` points at
+its PEM, chmod 600, outside the repo (the daemon's `resolve_kalshi_demo_creds`
+reads exactly these two names, [crates/fortuna-live/src/daemon.rs](../../crates/fortuna-live/src/daemon.rs);
+GAPS.md "Operator-blocked: credentials";
+[key-rotation-and-secrets.md](key-rotation-and-secrets.md)).
 
 ## 3. Executing the live demo run (code-ready; needs the §1 operator preconditions)
 

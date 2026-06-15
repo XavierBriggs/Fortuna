@@ -5,6 +5,16 @@ contract for signals coming in… what would the aeolus subscribe to"). No build
 is authorized by this note. Spec 5.11 governs; this note proposes the layer the
 spec leaves open and the changes go through a spec touch-up if adopted.
 
+UPDATE (2026-06-15): the scalar OUTCOME-SHAPE half of §2/§5 was subsequently
+built — `PredictiveDistribution` {Binary, Categorical, Scalar} + a swappable
+`ScoringRule` (`CrpsPinballRule`) live in fortuna-cognition (scoring.rs), with
+`scalar_beliefs`/`belief_scores` storage in fortuna-ledger (migration
+20260613000002), authorized by docs/design/perp-strategies-and-scalar-claims.md
+(funding_forecast as the first scalar consumer). What remains genuinely UNBUILT
+here is the external `prob_claims/v1` ENVELOPE contract + its strict mapper (the
+vendor-N+1 subscription layer of §2/§3); `AeolusEnvelope` is still the only
+per-source typed contract, and the scorecard reverse-feed (§3) is unbuilt.
+
 ## 1. What already exists (and is right)
 
 Three layers are built and tested today:

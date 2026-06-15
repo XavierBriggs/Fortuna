@@ -126,7 +126,10 @@ Self-contained; lands gate-clean; sim path byte-identical. Files + steps:
   `validate_bootable` kalshi arm: `stage="paper"` allowed; `sim`/`live_min`/
   `scaled` refused; require `[kalshi]` non-empty. `venue="sim"` requires
   `stage="sim"`.
-- `daemon.rs`: `compose_kalshi_runner(...)` — reads `KALSHI_API_DEMO_KEY_ID` +
+- `daemon.rs`: `compose_kalshi_runner(...)` — IMPLEMENTED as
+  `compose_kalshi_runner_with_transport(...)` (the transport is injected so
+  `MockKalshiTransport` drives the tests; `compose_kalshi_runner` is referenced
+  conceptually elsewhere in this doc) — reads `KALSHI_API_DEMO_KEY_ID` +
   `KALSHI_DEMO_PRIVATE_KEY_PATH` from env (the established recorder convention:
   the path is routing data, the file CONTENT is the secret, read + Secret-wrapped
   here, never logged); builds

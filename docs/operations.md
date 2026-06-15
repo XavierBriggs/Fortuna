@@ -183,7 +183,7 @@ point:
 - **Process exit alone is not success** (amendment A1). For the daemon, `stop`
   records the log offset *before* signalling and succeeds only when the
   daemon's clean-shutdown marker — `fortuna-live: clean shutdown`
-  (crates/fortuna-live/src/main.rs:284) — appears in the log **after** that
+  (crates/fortuna-live/src/main.rs:925) — appears in the log **after** that
   offset (main.rs:636, 654-667, 756-767). An exit without the marker is
   reported as a crash-style exit and counts as a warning.
 - **Timeout leaves everything for you.** On timeout, the process, its pidfile,
@@ -219,7 +219,7 @@ Writes a durable `halt_events` row plus a `halt` audit row (kind, actor =
 main.rs:1061-1073. Requires `DATABASE_URL`; both `--reason` and `--operator`
 are mandatory (operator actions are attributed). The running daemon observes
 the halt via its halt poll within `[daemon].halt_poll_ms` = 500 ms
-([config/fortuna.example.toml:110](../config/fortuna.example.toml)).
+([config/fortuna.example.toml:131](../config/fortuna.example.toml)).
 
 ```
 $ ./target/release/fortuna halt global --reason "drill" --operator xavier
@@ -308,8 +308,8 @@ ROTA is the read-only gold-on-black instrument console (design
 [rota-dashboard.md](design/rota-dashboard.md), amendments R1–R12 binding). The
 daemon serves it on the same listener as the metrics endpoint —
 `[daemon].metrics_bind = "127.0.0.1:9187"`
-([config/fortuna.example.toml:111](../config/fortuna.example.toml);
-crates/fortuna-live/src/main.rs:113-143):
+([config/fortuna.example.toml:132](../config/fortuna.example.toml);
+crates/fortuna-live/src/main.rs:250-283):
 
 ```
 open http://127.0.0.1:9187/rota
@@ -365,7 +365,7 @@ that verbatim plus their own ledger queries over a **dedicated read-only
 because audit-append failure is a global halt and dashboard load must be
 unable to queue against it (amendment R5;
 `fortuna_ledger::connect_readonly_pool`, wired at
-crates/fortuna-live/src/main.rs:125).
+crates/fortuna-live/src/main.rs:262).
 
 **Health** (poll 2 s) — `/api/rota/v1/health`
 - `halt` pill: `clear` (green) or `HALTED` (red) + reason — from
@@ -498,7 +498,7 @@ entry).
    when the mind is unkeyed or Postgres blips. [soak-watch 6]
 5. **Dead-man freshness** — the daemon pings `FORTUNA_DEADMAN_URL` every 60 s
    (`[deadman].ping_interval_secs`,
-   [config/fortuna.example.toml:104-105](../config/fortuna.example.toml));
+   [config/fortuna.example.toml:120-121](../config/fortuna.example.toml));
    check your external monitor, not ROTA (the Health panel defers to it,
    §2.2). [soak-watch 4]
 6. **Mind budget burn** vs `[cognition]` daily/per-cycle budgets — degrade
@@ -523,7 +523,7 @@ soak log. [soak-watch 1]
   route to `#fortuna-review`; review failures to `#fortuna-ops` (soak-go gate
   §B2). [soak-watch 7] The review emits GO/NO-GO **recommendations only** —
   promotion is yours (I7; `[review]` thresholds,
-  [config/fortuna.example.toml:58-61](../config/fortuna.example.toml)).
+  [config/fortuna.example.toml:69-72](../config/fortuna.example.toml)).
 - Skim the week's Slack send-failure markers (`[SLACK SEND FAILED:` audit
   rows) and the shutdown summary row if you restarted. [soak-watch 9]
 
