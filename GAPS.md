@@ -26,7 +26,26 @@ are OPERATOR/track-actionable; neither is a current live-capital risk (live REFU
    code/schema change (the DB already enforces it); replayability intact (scoring fields are post-hoc grades,
    never decision inputs). Audit C1 CLOSED.
 
-## TRACK C — C-next-1a + 1b DONE (live PerpTick producer + daemon wiring → basis-v2 arm LIVE-fed); C-next-2 next (2026-06-15)
+## RALPH STOP 2026-06-15T15:00:54Z (track C — buildable queue EXHAUSTED: C-next-1a + 1b DONE, C-next-2 operator-blocked)
+
+Track-C's buildable queue is COMPLETE; per implementer-loop §6 (every priority item blocked/exhausted ⇒ stop; do
+NOT invent unrequested work; idle-and-stopped beats bloat), the loop stops clean.
+- ✅ **C-next-1a** — the live PerpTick producer KERNEL (`KineticsPerpObservation::from_rest` + `fortuna-live::
+  perp_tick_producer`). Committed `491bab9`; full battery green (fmt/clippy --workspace/test --workspace/DST);
+  mutation-proven (the A6 BRTI fail-closed guard).
+- ✅ **C-next-1b** — the daemon wiring (the perp basis-v2 arm is now LIVE-fed): `run_perp_tick_producer` + a
+  channel→`drive()` drain seam + the gated `main` spawn. Committed `f55a7f9`; full battery green; mutation-proven
+  (neuter the channel-drain inject ⇒ the e2e reds "got 0").
+- ⛔ **C-next-2** — OPERATOR-BLOCKED, no buildable code slice (details in the track-C entry below): the paper-fill
+  realism LOGIC + the book-driven replay e2e are already built+merged; only a RECORDED busy-market trade-through
+  fixture remains, an operator recorder action I must not simulate or fabricate.
+Both commits sit on local `track-c` (based on main @39019c0; the verifier merges — NEVER pushed). The Ralph loop
+file was already removed (cancel-ralph, a prior iteration), so no stop-hook re-feed is active. Remaining track-C
+work is ALL operator/other-track: the recorder trade-through fixture (operator), the Sim soak to MEASURE the
+basis-v2 / funding_forecast edge (operator — the business north star is the measured CLV, not the code), and the
+live Kinetics demo round-trip (operator).
+
+## TRACK C — C-next-1a + 1b DONE (live PerpTick producer + daemon wiring → basis-v2 arm LIVE-fed); C-next-2 OPERATOR-BLOCKED ⇒ buildable queue EXHAUSTED (2026-06-15)
 
 The perp basis-v2 strategy is composed in the daemon but was INERT on the LIVE path: it fires only on
 `EventPayload::PerpTick`, and nothing produced one from live venue data (slice-4e's `PerpTickFeed` replays a
@@ -53,9 +72,18 @@ RECORDED file for the Sim soak — not a live producer). C-next-1a closes the PR
   a daemon_smoke e2e (channel → drive drain → inject → `funding_forecast` persists, MUTATION-PROVEN: neuter the
   drain inject ⇒ "got 0"). Full battery green. basis-v2's inject→UNSIZED-proposal is separately proven by
   `demo_v2_full_decision_walkthrough`. The live Kinetics round-trip stays an OPERATOR action.
-- **C-next-2 — the NEXT (and LAST) track-C slice:** the recorder end-to-end fixture for paper-fill realism (maker
-  fills count only on trade-through, never touch) per `docs/runbooks/fixture-recording.md` — real, provenanced
-  recordings, never synthetic fills. After C-next-2 the track-C queue is EXHAUSTED ⇒ RALPH STOP.
+- **C-next-2 — OPERATOR-BLOCKED (no buildable code slice; the logic + harness already exist).** The paper-fill
+  realism LOGIC is fully built + unit-proven in `fortuna-paper` — `trade_through_fills_at_our_price_with_haircut`
+  (trade-through ⇒ fill, haircut) + `touch_prints_never_fill_resting_orders` (touch ⇒ NO fill), enforcing spec-11
+  "strictly THROUGH, never at touch" in `apply_public_trade`. The book-driven recorded-replay e2e is DONE + merged
+  (track-A `crates/fortuna-runner/tests/recorded_replay.rs`, e6dd7ec) and proves book-only/quiet-market data yields
+  NO fill. The ONLY remaining deliverable — a RECORDED busy-market trade-through fixture (a public WS `trade` frame
+  crossing a resting maker order) — is an OPERATOR action: per `docs/runbooks/fixture-recording.md` §3 the recorder
+  signs live demo requests + places real orders (operator auth + `.env` creds), and the standing prohibition "NEVER
+  fabricate a trade fixture / never synthetic fills" forbids me from building it. It is already operator-queue item 3
+  (the busy-market trade-frame capture). UNBLOCK: the operator runs `record_kalshi_fixtures` during an ACTIVE market
+  to capture a crossing `trade` frame → commit it under `fixtures/kalshi/` → the trade-through replay assertion flips
+  GREEN. NO track-C code is blocked on me.
 
 ## RALPH STOP 2026-06-14T17:34:59Z — Track-E build queue EXHAUSTED (clean stop)
 
