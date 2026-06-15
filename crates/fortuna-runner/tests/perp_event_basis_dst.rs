@@ -33,6 +33,7 @@ use fortuna_core::money::Cents;
 use fortuna_core::perp::{FundingObservation, PerpMarks, PerpPrice};
 use fortuna_runner::perp_event_basis::{PerpEventBasis, PerpEventBasisConfig};
 use fortuna_runner::{CoreHandle, Proposal, Strategy, Urgency};
+use rust_decimal::prelude::ToPrimitive; // Decimal::to_f64 (mirror the strategy's mark round-trip)
 use fortuna_venues::fees::{FeeSchedule, ScheduleFeeModel};
 use rust_decimal::Decimal;
 use std::collections::{BTreeMap, BTreeSet};
@@ -179,7 +180,14 @@ fn seeded_perp(rng: &mut SplitMix64, arms: &mut ArmCounts) -> (Decimal, f64) {
         arms.hit("mark_in_between");
     }
     let per_contract = Decimal::new(btc, 4); // btc/10000, exact
-    (per_contract, btc as f64)
+    // The oracle MUST feed compute_basis the SAME f64 mark the STRATEGY does, or the
+    // two straddle the strict fee-trap `>` at the boundary (signed_basis == fee+margin)
+    // and disagree. The strategy reads the mark as a PerpPrice and converts
+    // per_contract -> f64 -> ×10000 (a LOSSY round-trip); `btc as f64` (the exact int)
+    // diverges by a sub-ulp ε. Mirror the strategy's path EXACTLY so the independent
+    // verdict uses the strategy's actual mark. (Regression: perp-event-basis-fee-trap-boundary.seed.)
+    let perp_btc = per_contract.to_f64().unwrap_or(btc as f64) * 10_000.0; // = strategy's PERP_CONTRACT_BTC_DIVISOR
+    (per_contract, perp_btc)
 }
 
 /// Run one seeded scenario; return a determinism digest of every emitted

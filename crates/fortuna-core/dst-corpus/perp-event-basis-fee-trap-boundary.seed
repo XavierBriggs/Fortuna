@@ -1,0 +1,22 @@
+# harness: perp-event-basis-dst
+#
+# Regression: the fee-trap BOUNDARY float flake (caught by the overnight full-DST
+# sweep, master 1781529273579; intermittent ~<1/200k via the wall-clock master seed).
+#
+# Root cause: at signed_basis == fee_floor + min_basis (exactly $15 = $10 + $5) the
+# strict fee-trap `>` in compute_basis must say NOT tradeable (15 is not > 15). But
+# the STRATEGY feeds compute_basis a mark via PerpPrice (Decimal per_contract ->
+# f64 -> *10000), a LOSSY round-trip that lands a sub-ulp ABOVE the exact value, so
+# its signed_basis is 15.0000000…1 > 15 => it proposes; the test ORACLE used
+# `btc as f64` (the exact int) => 15.0, not > 15 => not tradeable => Invariant-3
+# "PROPOSAL ON NON-TRADEABLE BASIS". The oracle now mirrors the strategy's exact
+# mark round-trip (seeded_perp), so they never straddle the boundary.
+12074475640596752058
+6383925276400520135
+7493155581363115224
+751790245508088437
+3457967668895820206
+1629406008458349582
+5878933335695324111
+15347524107518895115
+10183484332233856189
