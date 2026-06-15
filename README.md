@@ -152,6 +152,7 @@ and the gate protocol are in [docs/verification.md](docs/verification.md).
 | [AGENTS.md](AGENTS.md) | Agent front door: non-negotiables and where verified truth lives. |
 | [docs/quickstart.md](docs/quickstart.md) | Zero to a running Sim daemon + ROTA, with the test battery. |
 | [docs/architecture.md](docs/architecture.md) | The three planes (cognition/harness/safety), crate map, data flow. |
+| [docs/system-e2e-overview.md](docs/system-e2e-overview.md) | End-to-end narrative walkthrough: a signal → trade → settlement, each layer in depth, and how every invariant is enforced. |
 | [docs/verification.md](docs/verification.md) | The verification doctrine: independent gates, DST, mutation checks. |
 | [docs/operations.md](docs/operations.md) | The operator's console: CLI as built, ROTA tour, daily rhythm. |
 | [docs/runbooks/](docs/runbooks/) | Procedures: demo bring-up (umbrella), soak start, demo flip, halt and re-arm, kill-switch drill, troubleshooting, secrets, fixtures. |

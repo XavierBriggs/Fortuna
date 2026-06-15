@@ -6,6 +6,11 @@ before bending it. Read this before your first edit; read [spec.md](spec.md)
 (v0.9, the normative design) for any detail this doc summarizes. When this doc
 and the spec disagree, the spec wins ([CLAUDE.md](../CLAUDE.md)).
 
+**Companion:** for the end-to-end *narrative* — how a signal becomes a trade and
+settles, walked through each layer in depth — see
+[system-e2e-overview.md](system-e2e-overview.md). This doc is the component
+reference; that one is the journey.
+
 **Status honesty:** accurate as of 2026-06-14 (main). The
 system runs Sim-only — the daemon's boot refuses every venue except `"sim"`
 ([track-c-final-gate, criterion C3](reviews/track-c-final-gate-2026-06-12.md));
