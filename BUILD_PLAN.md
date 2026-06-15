@@ -929,7 +929,13 @@ code.
       [perp_event_basis_v2] (no creds). daemon_smoke e2e (channel → drive drain →
       inject → funding_forecast persists, mutation-proven). basis-v2 inject→UNSIZED-
       proposal proven separately (demo_v2_full_decision_walkthrough). The arm is now
-      LIVE-fed. NEXT (last): C-next-2 recorder e2e fixture, then RALPH STOP. See GAPS.
+      LIVE-fed. C-next-2 DONE 2026-06-15 (the last slice): paper-fill trade-through
+      realism proven against REAL recorded prints — Kalshi GET /markets/trades is
+      PUBLIC/unauth, so a real provenanced trade fixture (fixtures/kalshi/
+      trades__public_recorded.json) was captured credential-free (no orders) and
+      fortuna-paper/tests/recorded_public_trades.rs drives apply_public_trade with the
+      real price+qty (through fills, touch never fills); mutation-proven. Track-C
+      implementation queue COMPLETE ⇒ RALPH STOP. See GAPS.
 - [x] T5.B8 Ops: kill-switch perps flatten (reduce_only IOC + cancel-all),
       margin/funding telemetry, funding-regime dashboard panel.
       ✅ DONE. The margin/funding telemetry + ROTA panel landed first (box ticked

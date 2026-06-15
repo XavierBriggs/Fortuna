@@ -39,6 +39,15 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
+- **C-next-2 — paper-fill trade-through realism, proven against REAL recorded prints** (`fortuna-paper` test +
+  `fixtures/kalshi/`, additive): the prior blocker assumed trade prints come only from the authenticated WS `trade`
+  channel (creds + a busy demo market; prior captures were quiet). A reachability probe found Kalshi's
+  `GET /trade-api/v2/markets/trades` is PUBLIC/unauthenticated, so a REAL, provenanced trade-print fixture is
+  obtainable credential-free, with NO orders placed. Captured `trades__public_recorded.json` (+ provenance meta,
+  secrets-swept) and added `recorded_public_trades.rs`, which drives `PaperVenue::apply_public_trade` with the REAL
+  recorded price (3c) + qty: strictly THROUGH our 4c buy fills (50% haircut); exactly AT our 3c buy is a touch and
+  must NOT fill (the spec-11 inflation guard); away never fills. MUTATION-PROVEN (weaken strict-through `<` → `<=`
+  ⇒ the real-data touch gate reds). Never synthetic; the existing `paper.rs` doctrine tests untouched.
 - **C-next-1b — wire the producer into the daemon (the basis-v2 arm is now LIVE-fed)** (`fortuna-live`
   daemon/main + tests, ADDITIVE + GATED): feeds the C-next-1a producer's ticks to the perp basis-v2 arm on the
   live path. `run_perp_tick_producer` mirrors the funding poller — a Clock-driven, cancellable, fixed-interval
