@@ -3,12 +3,14 @@
 Open items the implementation defers, lacks, or needs from the operator. Acceptance
 requires this file to contain ONLY operator-blocked items, each with exact unblock steps.
 
-## TRACK C — perp basis-v2 (§3.3): fair-prob KERNEL DONE (V0–V2); strategy wiring needs 6 OPERATOR DESIGN-CALLS (2026-06-14)
+## TRACK C — ✅ COMPLETE (2026-06-14): perp basis-v2 §3.3 (V0–V5) built + wired + DC defaults endorsed; A2d slice-3 end-to-end; telemetry. Remaining = the soak (run it) + other tracks (B's ROTA §9.2 panel, A's kill-switch) + the recorder e2e fixture
 
 The v2 fair-probability kernel (`fortuna-cognition::basis_v2`: A3 per-bracket `q_j` lognormal model +
 A9 no-arb guard) is BUILT + battery-green + mutation-proven (the no-circularity A3 invariant re-verified
-by the controller). σ/τ are CALLER-injected; the kernel invents nothing. The v2 STRATEGY (V3–V7 +
-`perp_event_basis.rs` integration) is BLOCKED on 6 never-invent DESIGN-CALLS the operator must make
+by the controller). σ/τ are CALLER-injected; the kernel invents nothing. **UPDATE 2026-06-14: the v2
+STRATEGY (V3–V5) is now COMPLETE, wired into the daemon, with all 6 design-calls ENDORSED (✅ below) —
+DATA-ONLY/Sim (I7) until the soak.** The original framing (the strategy was BLOCKED on 6 never-invent
+DESIGN-CALLS the operator must make — now all implemented + endorsed) is kept below for the record
 (the Plan agent flagged each as under-specified in §3.3; my recommended conservative default in parens;
 all are Sim-stage I7 knobs that gate nothing live but must be operator-endorsed before treated as a real
 edge claim):
