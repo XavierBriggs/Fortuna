@@ -26,6 +26,21 @@ These three are the honest remainder:
    streams (Kinetics + Kalshi demo). UNBLOCK: an operator recording session (demo creds) per
    `docs/runbooks/fixture-recording.md`; then the recorder e2e test pins replay determinism.
 
+4. **`perp_event_basis_dst` intermittent flake — PRE-EXISTING; v1 perp basis; Sim/data-collection (NOT from the
+   overnight work, which never touched fortuna-runner's perp_event_basis).** The final full battery caught
+   `perp_event_basis_survives_seeded_chaos` failing on ONE seed in a 2000-seed sweep; it could NOT be reproduced
+   in 217k further seeds (2k + 15k + 200k). The harness PRINTS the offending seed + reason, but the battery's
+   `tail -3` truncated it — **LESSON: never tail-truncate DST output; log run-dst.sh in full so the printed seed
+   is captured.** RULED OUT during investigation: the `proposed` HashSet (dedup-only, never iterated); a bid
+   clamp (the test sets `bid=0` before building the book, so the strategy never sees a negative bid);
+   `compute_basis` non-determinism (it is f64-only, no HashMap). LIKELY cause: a rare boundary where the test's
+   independent `bins` and the strategy's `build_bins`/`bin_prob` feed `compute_basis` slightly different inputs,
+   so the strategy proposes when the oracle says not-tradeable (Invariant-3). UNBLOCK: run
+   `PERP_EVENT_BASIS_DST_SCENARIOS=<large> cargo test -p fortuna-runner --test perp_event_basis_dst
+   perp_event_basis_survives_seeded_chaos -- --nocapture` with FULL output until it re-hits; capture the printed
+   seed into `crates/fortuna-core/dst-corpus/`; reconcile the oracle's bin construction with the strategy's. No
+   live/capital exposure (propose-only, Sim).
+
 ## SYSTEM-LEVEL INVARIANT AUDIT (operator-run 2026-06-14) — two completeness items the verifier owns
 
 The operator's independent audit surfaced two invariant-COMPLETENESS gaps that per-slice gating did not.
