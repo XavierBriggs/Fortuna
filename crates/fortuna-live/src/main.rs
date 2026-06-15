@@ -614,6 +614,9 @@ async fn main() -> Result<()> {
                 sec,
                 ipool,
                 active_runner.clock().clone(),
+                // Library-boundary: the binary owns env access — resolve auth_env
+                // names (e.g. AEOLUS_API_TOKEN) here, never in the lib.
+                |name| std::env::var(name).ok(),
             )
             .await
             .context("ingestion wiring")?;

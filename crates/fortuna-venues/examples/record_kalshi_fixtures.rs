@@ -12,7 +12,11 @@
 //!   variable names are never referenced. Demo keys do not work on prod and
 //!   vice versa (research §2), so a mixed-up key fails closed.
 //! - No secret material is ever printed or written into fixtures/meta:
-//!   request headers are not recorded at all.
+//!   request headers are not recorded at all, AND every fixture body + meta is
+//!   passed through `redact::redact_secrets` (keyed on the demo key id) before
+//!   it is written — so even a venue response that echoes the submitted key id
+//!   cannot land a credential in the repo. Defense-in-depth for the
+//!   post-rotation re-record (verifier TRACK-A ASSIGNMENT (1), 2026-06-14).
 //! - Every order this tool places is tracked and canceled in the cleanup
 //!   stage (mock funds regardless).
 //!
@@ -26,6 +30,7 @@
 use anyhow::{bail, Context, Result};
 use fortuna_venues::kalshi::auth::{KalshiSigner, HEADER_KEY, HEADER_SIGNATURE, HEADER_TIMESTAMP};
 use fortuna_venues::kalshi::ws::subscribe_orderbook_cmd;
+use fortuna_venues::redact::redact_secrets;
 use futures::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -130,6 +135,9 @@ struct Recorder {
     summary: Vec<(String, String)>,
     /// (order_id, already_terminal) for cleanup.
     placed: Vec<(String, bool)>,
+    /// Known secret values scrubbed from EVERY fixture body + meta before write
+    /// (the demo key id). See the module header's redaction safety rail.
+    secrets: Vec<String>,
 }
 
 impl Recorder {
@@ -138,12 +146,19 @@ impl Recorder {
         self.summary.push((name.to_string(), msg));
     }
 
+    /// Scrub known secret values out of any text before it is persisted.
+    fn scrub(&self, text: &str) -> String {
+        let secrets: Vec<&str> = self.secrets.iter().map(String::as_str).collect();
+        redact_secrets(text, &secrets)
+    }
+
     fn write_fixture(&self, name: &str, body: &str, meta: &Value) -> Result<()> {
         let f = self.out.join(format!("{name}.json"));
-        std::fs::write(&f, body).with_context(|| format!("writing {}", f.display()))?;
+        std::fs::write(&f, self.scrub(body)).with_context(|| format!("writing {}", f.display()))?;
         let m = self.out.join(format!("{name}.meta.json"));
         let pretty = serde_json::to_string_pretty(meta).context("meta to_string")?;
-        std::fs::write(&m, pretty).with_context(|| format!("writing {}", m.display()))?;
+        std::fs::write(&m, self.scrub(&pretty))
+            .with_context(|| format!("writing {}", m.display()))?;
         Ok(())
     }
 
@@ -344,6 +359,8 @@ async fn main() -> Result<()> {
         .context("KALSHI_DEMO_PRIVATE_KEY_PATH not set (demo credentials required; see .env)")?;
     let pem = std::fs::read_to_string(&key_path)
         .with_context(|| format!("reading demo private key at {key_path}"))?;
+    // Keep the key id as a redaction target before it moves into the signer.
+    let secrets = vec![key_id.clone()];
     let signer = KalshiSigner::new(&pem, key_id)?;
     drop(pem);
 
@@ -365,6 +382,7 @@ async fn main() -> Result<()> {
         out,
         summary: Vec::new(),
         placed: Vec::new(),
+        secrets,
     };
     let r = &mut rec;
     let get = reqwest::Method::GET;
@@ -1082,7 +1100,7 @@ async fn main() -> Result<()> {
         "results": r.summary.iter().map(|(n, s)| json!({"stage": n, "result": s})).collect::<Vec<_>>(),
     });
     let pretty = serde_json::to_string_pretty(&manifest).context("manifest")?;
-    std::fs::write(r.out.join("session__manifest.meta.json"), pretty)?;
+    std::fs::write(r.out.join("session__manifest.meta.json"), r.scrub(&pretty))?;
 
     println!("\n==== session summary ({} rows) ====", r.summary.len());
     for (n, s) in &r.summary {
@@ -1180,9 +1198,9 @@ async fn ws_capture(r: &mut Recorder, name: &str, ticker: &str, use_yes_price: b
         "note": "checklist #23-#25: signed handshake, subscribed/snapshot/delta/trade capture",
     });
     let f = r.out.join(format!("{name}.jsonl"));
-    std::fs::write(&f, body).with_context(|| format!("writing {}", f.display()))?;
+    std::fs::write(&f, r.scrub(&body)).with_context(|| format!("writing {}", f.display()))?;
     let m = r.out.join(format!("{name}.meta.json"));
-    std::fs::write(m, serde_json::to_string_pretty(&meta)?)?;
+    std::fs::write(m, r.scrub(&serde_json::to_string_pretty(&meta)?))?;
     r.note(
         name,
         format!("ws 101={http_status} frames={} pings={pings}", lines.len()),

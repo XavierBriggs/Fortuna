@@ -240,6 +240,10 @@ pub async fn build_ingestion_wiring(
     section: &crate::boot::IngestionSection,
     pool: sqlx::PgPool,
     clock: std::sync::Arc<dyn fortuna_core::clock::Clock>,
+    // Library-boundary: the BINARY owns env access — the lib never reads env itself.
+    // The daemon passes a resolver (`|name| std::env::var(name).ok()`); tests pass a
+    // fake map. (audit Major: keep real-world reads at the main.rs edge.)
+    secret_resolver: impl Fn(&str) -> Option<String>,
 ) -> Result<IngestionWiring, IngestionBuildError> {
     use fortuna_cognition::signals::{SourceEntry, TrustTier};
 
@@ -284,9 +288,10 @@ pub async fn build_ingestion_wiring(
         &factory_cfg,
         |id| tiers.get(id).copied(),
         |id| domains.get(id).cloned().unwrap_or_default(),
-        // The binary owns env access (the lib never reads env): resolve a
-        // source's `auth_env` name (e.g. AEOLUS_API_TOKEN) to its secret here.
-        |name| std::env::var(name).ok(),
+        // The binary owns env access (the lib never reads env): the daemon passed
+        // the resolver; the lib only FORWARDS it (a source's `auth_env` name, e.g.
+        // AEOLUS_API_TOKEN, resolves to its secret in the binary, not here).
+        secret_resolver,
         clock,
     )
     .map_err(|e| IngestionBuildError::Factory(e.to_string()))?;
