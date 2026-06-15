@@ -837,6 +837,16 @@ OWNERSHIP NOTE: fortuna-killswitch is track-A's sole-owned crate; this is the se
 handoff-owned files (killswitch lib/main/Cargo/tests, the new invariants test, ASSUMPTIONS.md); no
 gates/venues/core SOURCE modified — the exact discipline that avoids the prior perps-merge cross-tree revert.
 
+VERIFIER: ACCEPT (gate record docs/reviews/2026-06-14-T5.B8-killswitch-perp-flatten.md) — 0 critical, 0
+major, 1 minor (operational). Minor (LEDGERED, not a blocker): a SINGLE-CLIP flatten. A non-flat position
+whose |qty| exceeds the per-order SizeSanity cap (venue/strategy `max_order_contracts`) is GATE-REJECTED
+(reduce-only waives the CAPITAL checks, but SizeSanity still runs) → counted `flatten_orders_rejected_by_gate`,
+the position is LEFT OPEN, exit 5 → operator reconciles. This is correct fail-CLOSED behavior (spec 5.4
+"best-effort emergency flatten, an accepted emergency cost"; a single IOC above the venue max would be
+venue-rejected anyway) and re-running is idempotent — but flatten does NOT chunk a position larger than the
+cap into multiple clips. A multi-clip flatten (split |pos| into ≤cap IOC slices) is the follow-on if ever
+desired; today the operator clips an over-cap position manually (or raises the cap in the flatten gate config).
+
 ## TRACK A — OBS-2 CLOSED: ingestion funnel populated-path proven + box ticked (operator handoff, 2026-06-14)
 
 OBS-2 (ingestion funnel loop-stages + snapshot publish, contract §2 "one writer, many readers") was
