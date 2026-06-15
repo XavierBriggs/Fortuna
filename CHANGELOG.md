@@ -566,6 +566,38 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-14 — Kill-switch PERP FLATTEN (spec 5.15, T5.B8): reduce-only IOC closes through the real seal
+
+**Added (`fortuna-killswitch`, additive; the most invariant-sensitive component).** The kill switch gains
+perps coverage with its OWN credential pair: `flatten = cancel-all open perp orders + reduce_only IOC
+closes` (the venue requires IOC/FOK on reduce-only). Still no Postgres, no cognition runtime.
+- **`freeze_cancel_perp_and_flatten(adapter, gates, venue, slippage_bps, clock, journal)`**: cancels every
+  open Kinetics perp order (retry-once, NotFound==cancelled), then per non-flat position crosses the LIVE
+  book (close a LONG → SELL hits the bid; a SHORT → BUY lifts the ask; IOC limit = touch ∓
+  ceil(touch·slippage_bps/10_000), rounding against us), builds a `PerpCandidateOrder` and runs the REAL
+  perp gate. **Every close is a sealed `GatedPerpOrder` (I1 STRENGTHENED** — the switch sits on the
+  consumer side of the seal; no constructor / visibility / `place`-signature change). `conservative_mark`
+  = the crossed touch, so |limit−mark| = slippage; if slippage > the config price-band the close
+  self-rejects PriceSanity (counted, never a wrong fill). Best-effort + fail-closed: no panic; a
+  per-position no-price / gate-reject / place-error is journaled and the sweep continues; only a
+  journal-write failure aborts. Balance-only margin view (the reduce-only capital checks waive, so the
+  gate never reads `equity` — honest + sufficient; no fabricated marks/positions).
+- **`load_gate_config` + `load_kinetics_creds`** (env-only, fail-closed, mirror `load_kalshi_creds`) +
+  KillReport `flatten_orders_skipped_no_price` / `flatten_orders_rejected_by_gate`. New `flatten-perps`
+  main verb (own creds + gate config; one-shot current-thread runtime; exit 5 if anything is left
+  un-resolved so the operator reconciles — re-running is idempotent).
+- **I4 preserved**: only `fortuna-gates` added (depends solely on fortuna-core + thiserror + serde — NONE
+  of the I4 forbidden set). The existing `i4_killswitch_independence` stays green.
+- **Tests**: `fortuna-invariants/tests/perp_i4_flatten_seal.rs` (ADD-ONLY) — a valid reduce-only close
+  seals with the full PERP_ALL pass trail + `reduce_only()==true`; same-direction / oversized / no-position
+  reduce-onlys reject at MarginHeadroom and NEVER seal; the dep-graph walk re-asserts the I4 forbidden set
+  absent AND fortuna-gates present. `fortuna-killswitch/tests/flatten.rs` (MockKalshiTransport) — long→SELL
+  IOC below the bid, short→BUY above the ask, empty-book/orderbook-error skip, place-error counted+continue,
+  cancel-all sweeps 3 (NotFound + retry), gate-reject (slippage>band) counted-not-fatal, load_gate_config
+  fail-closed. ASSUMPTIONS.md scoped the "never constructs orders" bullet to the event-contract switch +
+  recorded the perp reduce-only exception. Full battery green (fmt + clippy `--workspace --all-targets -D
+  warnings` + `cargo test --workspace` + `run-dst.sh`).
+
 ### 2026-06-14 — OBS-2 closed: ingestion funnel populated-path proven (one writer, many readers)
 
 **Tested + ledgered (`fortuna-live`).** The OBS-2 write side was already on main — OBS-2a fills the funnel

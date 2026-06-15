@@ -1635,11 +1635,26 @@ crates/fortuna-venues/tests/kalshi_doc_samples/ are NOT recordings.
   cognition — and the i4 invariant test asserts that graph mechanically
   from cargo metadata, so a future dependency addition fails CI. Its state
   is a flat fsync'd JSONL journal (spec Principle 9 exception).
-- **The kill switch never constructs orders.** Emergency "flatten" =
-  freeze-and-cancel + journal/report open positions for the operator.
-  Placing requires a GatedOrder (I1); the emergency path's job is stopping
-  the bleeding (resting risk) and surfacing state, not trading. Operator
+- **The kill switch never constructs orders — scoped to the EVENT-CONTRACT
+  switch (`freeze`).** For Kalshi event contracts the `freeze` action is
+  freeze-and-cancel + journal/report open positions; it places nothing
+  (placing an event-contract order requires a `GatedOrder`, and the switch's
+  job there is stopping resting risk + surfacing state). Operator event-contract
   exits happen via venue UI or CLI-confirmed flows.
+- **PERP reduce-only EXCEPTION (spec 5.15, T5.B8) — the switch DOES place perp
+  closes, and that STRENGTHENS I1.** The `flatten-perps` action cancels all open
+  perp orders then closes each non-flat position with a REDUCE-ONLY IOC. Each
+  close is still a sealed `GatedPerpOrder`: the switch builds a candidate and runs
+  the REAL perp gate (`GatePipeline::evaluate_perp`) — it sits on the CONSUMER side
+  of the seal, exactly like the trading path; it adds no constructor, no
+  visibility change, no `place` signature change. The reduce-only profile waives
+  only the capital checks ("an exposure-reducing close can only improve"); Halts /
+  PriceSanity / SizeSanity / RateLimits / Idempotency / InternalNetting still run.
+  I4 is preserved: the only new dep is fortuna-gates (none of the I4 forbidden
+  set), its own credential pair (`FORTUNA_KILLSWITCH_KINETICS_*`) + gate config
+  (`FORTUNA_KILLSWITCH_GATE_CONFIG_PATH`, fail-closed), a one-shot current-thread
+  runtime — no Postgres, no cognition, no event loop. (Pinned by
+  fortuna-invariants `perp_i4_flatten_seal.rs` + fortuna-killswitch `flatten.rs`.)
 - **The operator CLI is its own crate (fortuna-cli, binary `fortuna`)**
   because halt/re-arm persistence needs the ledger while ops/killswitch
   stay lighter. halt/rearm write durable halt_events + an audit row with

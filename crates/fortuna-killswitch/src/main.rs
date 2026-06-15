@@ -21,10 +21,16 @@
 use fortuna_core::clock::{Clock, RealClock, SimClock, UtcTimestamp};
 use fortuna_core::market::{Action, ClientOrderId, Contracts, MarketId, Side, VenueId};
 use fortuna_core::money::Cents;
-use fortuna_killswitch::{freeze_cancel_and_report_positions, load_kalshi_creds};
+use fortuna_gates::GatePipeline;
+use fortuna_killswitch::{
+    freeze_cancel_and_report_positions, freeze_cancel_perp_and_flatten, load_gate_config,
+    load_kalshi_creds, load_kinetics_creds,
+};
 use fortuna_venues::fees::{FeeSchedule, ScheduleFeeModel};
 use fortuna_venues::kalshi::client::{KalshiTransport, ReqwestKalshiTransport};
 use fortuna_venues::kalshi::{KalshiSigner, KalshiVenue};
+use fortuna_venues::kinetics::adapter::KineticsAdapter;
+use fortuna_venues::kinetics::client::KineticsClient;
 use fortuna_venues::sim::{FaultConfig, PlaceOrder, SimVenue};
 use fortuna_venues::{Market, MarketStatus, PriceLevel, SettlementMeta};
 use std::path::{Path, PathBuf};
@@ -68,6 +74,11 @@ fn main() -> ExitCode {
 
     match command.as_str() {
         "self-test" => self_test(&journal),
+        // PERP FLATTEN (spec 5.15): cancel-all + reduce-only IOC closes on the
+        // Kinetics perp venue, through the real perp gate (its OWN cred pair +
+        // gate config, env-only, fail-closed). `--venue` is ignored: kinetics is
+        // the only perp venue.
+        "flatten-perps" => flatten_perps_kinetics(&journal),
         "freeze" => match venue_name.as_str() {
             "kalshi" => freeze_kalshi(&journal),
             other => {
@@ -206,6 +217,136 @@ fn freeze_kalshi(journal: &Path) -> ExitCode {
     }
 }
 
+/// LIVE `flatten-perps` (spec 5.15, T5.B8, I4): cancel every open Kinetics perp
+/// order + close each non-flat position with a REDUCE-ONLY IOC that crosses the
+/// live book — every close a SEALED `GatedPerpOrder` through the real perp gate.
+/// FAIL-CLOSED: the gate config AND the switch's OWN kinetics credential pair
+/// load + validate BEFORE any venue call; a miss refuses (exit 4). One-shot
+/// current-thread runtime: NO daemon event loop / Postgres / cognition (I4).
+fn flatten_perps_kinetics(journal: &Path) -> ExitCode {
+    // 1. Gate config (env-only, fail-closed) -> the SEAL (GatePipeline).
+    let gate_config = match load_gate_config(env_nonempty("FORTUNA_KILLSWITCH_GATE_CONFIG_PATH")) {
+        Ok(c) => c,
+        Err(reason) => {
+            eprintln!("kill-switch flatten-perps REFUSED (fail-closed): {reason}");
+            return ExitCode::from(4);
+        }
+    };
+    let mut gates = match GatePipeline::new(gate_config) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("kill-switch gate pipeline construction failed: {e}");
+            return ExitCode::from(4);
+        }
+    };
+
+    // 2. The switch's OWN Kinetics cred pair (env-only, SEPARATE from the runtime).
+    let creds = match load_kinetics_creds(
+        env_nonempty("FORTUNA_KILLSWITCH_KINETICS_API_KEY_ID"),
+        env_nonempty("FORTUNA_KILLSWITCH_KINETICS_PRIVATE_KEY_PATH"),
+        env_nonempty("FORTUNA_KILLSWITCH_KINETICS_BASE_URL"),
+    ) {
+        Ok(c) => c,
+        Err(reason) => {
+            eprintln!("kill-switch flatten-perps REFUSED (fail-closed): {reason}");
+            return ExitCode::from(4);
+        }
+    };
+    // Slippage to cross the book (bps), default 50. A bad value falls back to the
+    // default rather than failing — but if it exceeds the gate price-band, each
+    // close self-rejects PriceSanity (counted, never a wrong fill).
+    let slippage_bps = env_nonempty("FORTUNA_KILLSWITCH_KINETICS_SLIPPAGE_BPS")
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(50);
+
+    let signer = match KalshiSigner::new(&creds.private_key_pem, creds.api_key_id) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("kinetics signer construction failed: {e}");
+            return ExitCode::from(4);
+        }
+    };
+    // Live signing needs real wall time (RealClock is the legal source out here).
+    let clock: Arc<dyn Clock> = Arc::new(RealClock);
+    let transport = match ReqwestKalshiTransport::new(
+        &creds.base_url,
+        signer,
+        Arc::clone(&clock),
+        Duration::from_secs(10),
+    ) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("kinetics transport construction failed: {e}");
+            return ExitCode::from(4);
+        }
+    };
+    let venue_id = match VenueId::new("kinetics") {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("venue id construction failed: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    let adapter = KineticsAdapter::new(KineticsClient::new(
+        Arc::new(transport) as Arc<dyn KalshiTransport>
+    ));
+
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("kill-switch runtime build failed: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    let result = runtime.block_on(freeze_cancel_perp_and_flatten(
+        &adapter,
+        &mut gates,
+        &venue_id,
+        slippage_bps,
+        clock.as_ref(),
+        journal,
+    ));
+    match result {
+        Ok(report) => {
+            println!(
+                "flatten-perps OK (kinetics): cancelled {}/{} orders ({} failed); {} positions seen, \
+                 {} closes placed, {} failed, {} skipped (no price), {} gate-rejected; journal at {}",
+                report.orders_cancelled,
+                report.orders_seen,
+                report.orders_cancel_failed,
+                report.positions_seen,
+                report.flatten_orders_placed,
+                report.flatten_orders_failed,
+                report.flatten_orders_skipped_no_price,
+                report.flatten_orders_rejected_by_gate,
+                journal.display()
+            );
+            // Exit 5 if ANYTHING was left un-resolved — a failed cancel OR a
+            // position not confirmed flat (skipped / place-failed / gate-rejected)
+            // — so the operator reconciles. Re-running is always safe (idempotent).
+            if report.orders_cancel_failed > 0
+                || report.flatten_orders_skipped_no_price > 0
+                || report.flatten_orders_failed > 0
+                || report.flatten_orders_rejected_by_gate > 0
+            {
+                eprintln!(
+                    "WARNING: not every order/position was confirmed resolved — reconcile \
+                     manually (re-running the switch is always safe)"
+                );
+                return ExitCode::from(5);
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("FLATTEN-PERPS FAILED (kinetics): {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
 /// An env var, treated as ABSENT when unset or blank — empty env never counts as
 /// a present credential (`load_kalshi_creds` is the durable fail-closed guard).
 fn env_nonempty(name: &str) -> Option<String> {
@@ -214,7 +355,14 @@ fn env_nonempty(name: &str) -> Option<String> {
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: fortuna-killswitch <freeze|report|self-test> --journal <path> [--venue kalshi]"
+        "usage: fortuna-killswitch <freeze|flatten-perps|report|self-test> --journal <path> [--venue kalshi]\n\
+         \n\
+         flatten-perps (spec 5.15): cancel-all + reduce-only IOC closes on Kinetics. Requires (env-only, fail-closed):\n\
+           FORTUNA_KILLSWITCH_GATE_CONFIG_PATH        (gate config TOML; validated before any venue call)\n\
+           FORTUNA_KILLSWITCH_KINETICS_API_KEY_ID\n\
+           FORTUNA_KILLSWITCH_KINETICS_PRIVATE_KEY_PATH\n\
+           FORTUNA_KILLSWITCH_KINETICS_BASE_URL\n\
+           FORTUNA_KILLSWITCH_KINETICS_SLIPPAGE_BPS   (optional; default 50)"
     );
     ExitCode::from(2)
 }

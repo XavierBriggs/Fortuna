@@ -11,6 +11,13 @@ edition = "2021"
 [dependencies]
 fortuna-core = { path = "../fortuna-core" }
 fortuna-venues = { path = "../fortuna-venues" }
+# I4-SAFE: fortuna-gates depends only on fortuna-core + thiserror + serde — NONE
+# of the i4 forbidden set (sqlx/tokio-postgres/postgres/fortuna-ledger/
+# fortuna-cognition). It is the SEAL: a perp flatten close becomes a
+# GatedPerpOrder only because the gate built it (I1). Adding it keeps
+# i4_killswitch_independence green (re-asserted by perp_i4_flatten_seal's
+# structural dep-walk).
+fortuna-gates = { path = "../fortuna-gates" }
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
