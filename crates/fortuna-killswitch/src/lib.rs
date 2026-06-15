@@ -1,16 +1,25 @@
 //! The standalone kill switch (I4). Spec 5.4 exemption, Section 8, I4.
 //!
-//! INDEPENDENCE IS STRUCTURAL: this crate depends only on fortuna-core and
-//! fortuna-venues. No Postgres, no fortuna-ledger, no cognition runtime, no
-//! event loop, no Slack. It must function when everything else is dead —
-//! including the database (spec Principle 9 exception: its own state is a
-//! flat journal file).
+//! INDEPENDENCE IS STRUCTURAL: this crate depends only on fortuna-core,
+//! fortuna-venues, and fortuna-gates (the perp-flatten SEAL — itself I4-clean:
+//! fortuna-core + thiserror + serde, NONE of the forbidden set). No Postgres,
+//! no fortuna-ledger, no cognition runtime, no event loop, no Slack. It must
+//! function when everything else is dead — including the database (spec
+//! Principle 9 exception: its own state is a flat journal file).
 //!
-//! Default action: FREEZE-AND-CANCEL (cancel every open order; touch no
-//! positions). Emergency flatten is best-effort taker exits WITHOUT the
-//! flatten planner (spec 5.4: "the standalone kill-switch process cannot
-//! depend on the planner; emergency flatten through it is best-effort
-//! without cost estimation, an accepted emergency cost").
+//! Actions:
+//! - FREEZE-AND-CANCEL (the default, EVENT contracts): cancel every open order;
+//!   touch no positions. The switch constructs NO event-contract orders —
+//!   position exits are operator venue-UI/CLI flows ([`freeze_and_cancel`],
+//!   [`freeze_cancel_and_report_positions`]).
+//! - PERP FLATTEN (spec 5.15, [`freeze_cancel_perp_and_flatten`]): cancel every
+//!   open perp order, then close each non-flat position with a REDUCE-ONLY IOC
+//!   that crosses the live book — best-effort taker exits WITHOUT the flatten
+//!   planner (spec 5.4: "the standalone kill-switch process cannot depend on the
+//!   planner; emergency flatten through it is best-effort without cost
+//!   estimation, an accepted emergency cost"). Each close is still a SEALED
+//!   `GatedPerpOrder` from the real perp gate (I1) — the switch is a CONSUMER of
+//!   the seal, never a constructor.
 //!
 //! Every action appends one JSON line to a local journal file (flat-file
 //! state, fsync'd) so the operator can reconstruct what the switch did even

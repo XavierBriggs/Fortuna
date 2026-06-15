@@ -1124,14 +1124,14 @@ secret-clean). The recorded forecast (knyc_tmax) + recorded markets → 6 belief
 sum to 1.0, mutation-proven. Never a fabricated ticker.
 
 DEFERRED / FOLLOW-ON (ledgered, not blockers):
-- DRIVE() LIVE PLUG-IN: not yet wired — the world-forward step does not yet, for an `aeolus.forecast`
-  signal, discover the live Kalshi day-set → build `WeatherBucket[]` → `aeolus_bucket_edges` → persist
-  beliefs + edges. It's INERT in prod until `venue=kalshi` (operator-gated, no live Kalshi catalog in
-  Sim) and reuses the market-back edge-persist machinery. The matcher is ready; the plug-in is the next
-  Track-A slice.
-- STATION→SERIES MAP: only `KNYC+tmax→KXHIGHNY` is grounded (the recorded forecast's station). The other
-  discovered cities (KXHIGHCHI/DEN/LAX/MIA/PHIL/AUS + KXHIGHT{ATL,BOS,DAL}) need each NWS-station↔
-  Kalshi-city confirmed before mapping — `station_series` returns `None` for the unconfirmed (conservative).
+- DRIVE() LIVE PLUG-IN — WIRED (see "F7 LIVE PLUG-IN SLICE 3 DONE" above): the world-forward step, for an
+  `aeolus.forecast` signal, discovers the day-set → builds `WeatherBucket[]` → runs `aeolus_bucket_edges`
+  → persists the propose-only beliefs + 1:1 `Direct` edges (`crates/fortuna-live/src/daemon.rs` world-
+  forward block; `fortuna_cognition::aeolus_buckets`). Remains INERT in prod until `venue=kalshi`
+  (operator-gated — no live Kalshi catalog in Sim), reusing the market-back edge-persist machinery.
+- STATION→SERIES MAP — EXTENDED (F7 slice 3, see "SLICE 3 DONE" above): grounded for every Kalshi temp
+  city, not only `KNYC+tmax→KXHIGHNY`; `station_series` still returns `None` for any genuinely-unconfirmed
+  NWS-station↔Kalshi-city pair (conservative — never a fabricated mapping).
 - DTO FINDING (recorded-data forced): `KalshiMarket.floor_strike`/`cap_strike` are `Option<serde_json::
   Number>` NOT `Option<i64>` — the recorded `markets__status_closed.json` WTI market has a fractional
   `floor_strike: 91.89`; `i64` would have regressed venues parsing. Integer-degree consumers use the
