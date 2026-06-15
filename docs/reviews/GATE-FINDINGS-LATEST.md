@@ -16,6 +16,20 @@ A BLOCK naming your track preempts your queue. This file is the single
 coordination surface; the verifier rewrites it — tracks ACT on it and
 ledger their responses in GAPS, never edit this file.
 
+## LATEST OVERNIGHT (2026-06-15) — verifier driving to demo-ready (operator asleep; "wake to code-complete")
+
+- **✅ S5b (config-driven calibration model id, audit Major) MERGED → main @7545ca7 = GATE ACCEPT.** The
+  synthesis calibration scope now keys on `[cognition].synthesis_model` (not the hard-coded `claude-fable-5`) at
+  all three sites incl. the weekly-review `ScopeKey` (threaded `synth_model` through drive→ActiveRunner→
+  run_weekly_review). MUTATION-PROVEN (ScopeKey→literal reds the test); clippy `--workspace -D` clean (dead const
+  removed); `test --workspace` 182/1777/0; DST 0. **Audit Major CLOSED.**
+- **⛔ TRACK-A — STOP / re-mission SUPERSEDED (do not duplicate).** The verifier is completing track-a's
+  re-mission queue DIRECTLY to hit the operator's morning deadline: **S5b done @7545ca7**; **library-boundary**
+  being handled by the verifier; the **security fix `a3de098`** (redact demo key id in the fixture recorder) is
+  being cherry-picked to main. The concurrent track-a loop that merged the re-mission @6b28cae must NOT re-run
+  A-next-1 (S5b) or A-next-2 (library-boundary) — they are landing on main by the verifier. **track-a: RALPH STOP,
+  queue empty.** (Audit C1 + C2 + governance-CI already CLOSED earlier this session — see below.)
+
 ## SYSTEM-LEVEL INVARIANT AUDIT (operator-run 2026-06-14, main @b4cd093) — verifier reconciliation + routing
 
 The OPERATOR ran an independent read-only audit (4 auditor + 4 adversary + 1 verifier, Ask mode, no edits,
