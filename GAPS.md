@@ -102,7 +102,7 @@ kernel-first plan ledgered below. The live Kalshi DEMO run also remains an OPERA
 .env + `[kalshi]` series tickers + the T4.2 fixture checklist — the code/gate need none; runbook in the
 demo-flip GAPS entry below).
 
-## TRACK C — §2.6 A2b DONE + A2d SLICE 1+2 DONE + SLICE 3 Part 1+3 DONE (resolve→score loop); Part 2 poller (track-D) remains (2026-06-14)
+## TRACK C — §2.6 A2b DONE + A2d SLICE 1+2 DONE + SLICE 3 COMPLETE END-TO-END (store + poller + resolve→score) (2026-06-14)
 
 A2d SLICE 2 — ✅ DONE: `compare_against_baselines` + `BaselineComparison` scores funding_forecast vs
 FOUR baselines (carry-forward, last-rate, estimate-RW, last_realized-anchored PERSISTENCE-RW) via
@@ -170,11 +170,21 @@ its strategy/wiring):
   + idempotent (set-once resolve + UNIQUE(belief_id,rule_id) catch). 4 #[sqlx::test] fixture-grounded
   (KXBCHPERP public capture), .sqlx regen, MUTATION-PROVEN (neutralizing resolve reds resolved + idempotency).
   `drive()` UNTOUCHED — the one additive wire-line (mirror persist_scalar_beliefs) is a deliberate follow-on.
-  REMAINING: (2) a public-GET
-  POLLER (NO creds, pinned Kalshi host, payload = untrusted data spec 5.11 → validate shape +
-  refuse/quarantine; backfill no-start_ts then poll past each 8h boundary 04/12/20 UTC; mirror the Aeolus
-  poll-and-persist cron) — belongs in track-D's `fortuna-sources` (FetchClient host-pinned public GET);
-  operator decision pending (build cross-crate or reassign).
+  (2) ✅ DONE 2026-06-14 (operator REASSIGNED Part 2 to track-C, AMENDMENT 2026-06-14): the public-GET
+  POLLER `fortuna-live::funding_poller` — `poll_funding_rates_once`(fetch→validate-shape→idempotent-insert),
+  `next_funding_poll_at`(pure 8h-boundary 04/12/20 UTC scheduler), `run_funding_poller`(Clock-driven cancellable
+  loop, backfill-once then poll-past-boundary). NO creds: a host-PINNED UNAUTHENTICATED reqwest GET
+  (`KineticsPublicFetch`, base const `external-api.kalshi.com/trade-api/v2`) — the signed Kalshi transport
+  mandates a key, the endpoint is public (openapi: no 401/403); URL from the pinned base + const path + config
+  params, NEVER a payload (SSRF). UNTRUSTED (5.11): non-finite rate / empty ticker / bad funding_time ⇒
+  quarantine+alert+skip; fetch failure ⇒ alert-and-continue; no panic. funding_rate f64; mark_price VERBATIM
+  (no Cents). 11 fixture-grounded tests, mutation-proven. Built in `fortuna-live` (where Part 3 lives), NOT
+  track-D's `fortuna-sources` — the operator's "reuse the Kinetics client path" reassigned it to track-C, so
+  NO cross-crate track-D dependency. The PARAM NOTE: the recorded fixture used `ticker`+`limit`; the openapi's
+  `start_ts`/`end_ts` (perps_openapi.yaml:887) are an UNUSED efficiency refinement (idempotent insert + a
+  sufficient limit make backfill+incremental correct without them; not invented). The `drive()` spawn of the
+  loop is the additive follow-on (Part 3 precedent). **A2d slice-3 is now END-TO-END complete** (store +
+  poller + resolve/score). Depth caveat: shallow backfill (~11d, ~64% zeros) — the edge accrues over the soak.
   WIRE + correctness-validate on the fixtures NOW; the STATISTICAL beats-baselines edge accrues over the
   soak (an I7 forward-validation gate is time-gated — building the loop is unblocked, DECLARING an edge is
   not). Sim stays funding-free (score against REAL captured rates, never a synthetic sim model). ROTA §9.1

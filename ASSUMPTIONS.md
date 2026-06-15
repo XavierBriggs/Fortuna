@@ -3,6 +3,33 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## TRACK C — A2d slice-3 Part 2 funding-rates poller (2026-06-14; interprets the AMENDMENT + spec 5.11/5.15)
+
+- **NO-creds HTTP = option (b): a host-PINNED UNAUTHENTICATED `reqwest` GET in the poller's own module**
+  (`KineticsPublicFetch`), NOT a reuse of `KineticsClient::funding_rates_historical`. The signed
+  `ReqwestKalshiTransport::request` calls `signer.sign(...)` on EVERY request and `KalshiSigner::new` needs a
+  real key — reusing it would force a trading credential, which the public poller must not load. The endpoint
+  is public (perps_openapi.yaml:887 lists only 200/400/500, no 401/403). The base host is a const
+  (`external-api.kalshi.com/trade-api/v2`, the openapi prod perps server), `::new(base_url, limit)` lets a test
+  inject a recorded host; the request URL = pinned-base + const path + config query, NEVER a payload (SSRF).
+  Reuses the EXISTING `fortuna_venues::kinetics::dto::FundingRatesHistoricalResponse` (not redefined).
+- **Cancellation uses `tokio::sync::watch::Receiver<()>`, not `tokio_util::CancellationToken`** (absent from
+  the workspace) — same awaitable/select-friendly cancellable semantics with ZERO new external deps (the
+  "smallest footprint" rule). `reqwest` + `async-trait` were added as regular deps of `fortuna-live` to host
+  the option-(b) GET + its async trait (both already compiled in the workspace; the HTTP impl could later move
+  to the venue layer behind the injected `FundingHistFetch` trait without touching the poller logic).
+- **The loop's timing authority is the injected `&dyn Clock`, not wall time.** `run_funding_poller` backfills
+  once, then re-reads `clock.now()` every `POLL_TICK_MS` (racing `cancel.changed()`) until `now ≥
+  next_funding_poll_at(...)`; the wall tick only bounds re-check granularity, so a SimClock test steps
+  deterministically. `captured_at = clock.now()` (the poll time, NOT the venue funding_time); `funding_time`
+  is canonicalized to `.000Z` so the cursor + Part 3's belief lookup key align. Interprets the Clock money-rule.
+- **Request shape = `ticker=None` (all markets) + `limit=500`, per the RECORDED fixture** (which used
+  `ticker`+`limit`, the all-markets capture = 100 rows/11 markets). The openapi `start_ts`/`end_ts` are an
+  UNUSED efficiency refinement — idempotent insert + a sufficient limit make backfill + incremental polling
+  correct without them; not invented (build-against-fixtures). A ledger error on an otherwise-valid insert
+  bubbles as `DaemonError` and is folded into a fetch-failure-shaped report so the loop never crashes on a
+  transient DB fault. Interprets spec 5.11 (untrusted) + the never-invent-venue-behavior rule.
+
 ## TRACK C — T5.B8 telemetry (perp basis-v2 A10 → MetricSamples) (2026-06-14; interprets design §8 + §9 data-vs-view)
 
 - **`MetricSample.value` is i64, so f64 diagnostics are emitted at a FIXED documented scale the dashboard

@@ -18,6 +18,29 @@ mutation-proven) and MERGED to main @f949554, 2026-06-13.
 
 #### Added
 
+- **A2d slice-3 Part 2 — the funding-rates POLLER** (`fortuna-live::funding_poller`, additive): the missing
+  piece that FILLS the `funding_rates_historical` store (Part 1 store + Part 3 resolve→score loop are merged;
+  production was EMPTY until this — nothing wrote the store outside tests). A PUBLIC-GET, NO-creds, host-pinned
+  poller. `poll_funding_rates_once` fetches the venue funding history (all markets), validates each entry's
+  shape (UNTRUSTED, spec 5.11 — non-finite rate / empty ticker / unparseable funding_time ⇒ quarantine + count
+  + alert + skip), and idempotently inserts each well-formed `{market_ticker, funding_time, funding_rate,
+  mark_price}` via `FundingRatesHistoricalRepo` (ON CONFLICT DO NOTHING; `Ok(false)`→skipped_dup), with
+  `captured_at` = the injected clock's now. `next_funding_poll_at` is a PURE 8h-boundary scheduler (04/12/20
+  UTC, strictly-after, day-rollover; total — degrades to `now` at the i64 extremes, never panics).
+  `run_funding_poller` is the Clock-driven loop (backfill once, then poll past each boundary; cancellable via a
+  `watch` signal; the injected Clock is the timing authority — a SimClock test is deterministic). HTTP path:
+  option (b) — a minimal host-PINNED UNAUTHENTICATED `reqwest` GET (`KineticsPublicFetch`, base const
+  `external-api.kalshi.com/trade-api/v2`, reusing the fortuna-venues DTO) — chosen because the signed Kalshi
+  transport mandates a key and the endpoint is public (openapi: no 401/403); the URL is built from the pinned
+  base + a const path + config params, NEVER from a payload (the track-D SSRF lesson). `funding_rate` stays
+  forecast-domain f64; `mark_price` stored VERBATIM (no f64→`Cents`). No `panic`/`unwrap`; a fetch failure is
+  alert-and-continue. The `drive()` wire-in is the additive follow-on (Part 3 precedent). 11 tests
+  fixture-grounded (backfill 100 rows; idempotent re-poll 0 inserted/100 dup; quarantine a malformed entry
+  keeping siblings; fetch-failure alert; mark_price verbatim; captured_at=poll-time; the boundary set),
+  MUTATION-PROVEN (captured_at→funding_time reds the captured_at test). This completes **A2d slice-3
+  END-TO-END** (store + poller + resolve/score → forecasts scored against accruing ground truth). Depth caveat:
+  the venue launched 2026-06-03, so backfill is SHALLOW (~11 days, ~64% zeros) — the poller makes the store
+  GROW; the beats-baselines verdict accrues over the soak (an I7 forward-validation gate is time-gated).
 - **T5.B8 telemetry — perp basis-v2 A10 diagnostics → `MetricSample`s** (`fortuna-runner`, additive): the
   V5-deferred "richer named-MetricSample emission." A new additive `Strategy::metric_samples()` default
   (`Vec::new()`, mirroring the `drain_*` idiom — so the other 5 strategies are unchanged) is overridden by

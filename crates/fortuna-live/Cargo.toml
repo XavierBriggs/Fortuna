@@ -15,6 +15,8 @@ fortuna-runner = { path = "../fortuna-runner" }
 fortuna-sources = { path = "../fortuna-sources" }
 fortuna-state = { path = "../fortuna-state" }
 fortuna-venues = { path = "../fortuna-venues" }
+async-trait = { workspace = true }
+reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
