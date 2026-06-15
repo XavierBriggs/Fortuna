@@ -1,0 +1,11 @@
+{
+  "method": "GET",
+  "host": "https://demo-api.kalshi.co",
+  "path": "/trade-api/v2/markets/trades?ticker=KXPGATOUR-USO26-JDAY&limit=12",
+  "status": 200,
+  "auth": "NONE — public market-data endpoint (verified: HTTP 200 with no signature and no credential)",
+  "environment": "demo",
+  "captured_at": "2026-06-15T15:52:33Z",
+  "tool": "read-only public GET (manual curl); NO orders placed, NO credentials used",
+  "note": "C-next-2: real, provenanced trade prints for paper-fill TRADE-THROUGH realism (spec 11). The prior blocker assumed the only trade source was the authenticated WS `trade` channel (which needs creds AND a busy demo market — prior captures were quiet). This endpoint, GET /trade-api/v2/markets/trades, is PUBLIC/unauthenticated, so a real recorded trade-print stream is obtainable credential-free. Consumed by crates/fortuna-paper/tests/recorded_public_trades.rs, which drives PaperVenue::apply_public_trade with the REAL recorded price (yes_price_dollars 0.0300 = 3 cents) and quantity (count_fp, fractional) — never a synthetic fill. The single real price (3c) proves the strict-through rule by varying OUR resting order's limit: a 3c print is strictly THROUGH a buy at 4c (fills, haircut applied), exactly AT a buy at 3c (a touch — must NOT fill), and away from a buy at 2c (must NOT fill)."
+}

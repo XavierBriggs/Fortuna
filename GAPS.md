@@ -26,26 +26,30 @@ are OPERATOR/track-actionable; neither is a current live-capital risk (live REFU
    code/schema change (the DB already enforces it); replayability intact (scoring fields are post-hoc grades,
    never decision inputs). Audit C1 CLOSED.
 
-## RALPH STOP 2026-06-15T15:00:54Z (track C — buildable queue EXHAUSTED: C-next-1a + 1b DONE, C-next-2 operator-blocked)
+## RALPH STOP 2026-06-15T15:55Z (track C — queue COMPLETE: C-next-1a + 1b + 2 ALL DONE)
 
-Track-C's buildable queue is COMPLETE; per implementer-loop §6 (every priority item blocked/exhausted ⇒ stop; do
-NOT invent unrequested work; idle-and-stopped beats bloat), the loop stops clean.
+Track-C's implementation queue is FULLY COMPLETE; per implementer-loop §6 (queue exhausted ⇒ stop), the loop stops
+clean. (Supersedes the 15:00:54Z stop: C-next-2 was then operator-blocked; the operator cleared it + a probe found
+a credential-free path, so it is now DONE.)
 - ✅ **C-next-1a** — the live PerpTick producer KERNEL (`KineticsPerpObservation::from_rest` + `fortuna-live::
   perp_tick_producer`). Committed `491bab9`; full battery green (fmt/clippy --workspace/test --workspace/DST);
   mutation-proven (the A6 BRTI fail-closed guard).
 - ✅ **C-next-1b** — the daemon wiring (the perp basis-v2 arm is now LIVE-fed): `run_perp_tick_producer` + a
   channel→`drive()` drain seam + the gated `main` spawn. Committed `f55a7f9`; full battery green; mutation-proven
   (neuter the channel-drain inject ⇒ the e2e reds "got 0").
-- ⛔ **C-next-2** — OPERATOR-BLOCKED, no buildable code slice (details in the track-C entry below): the paper-fill
-  realism LOGIC + the book-driven replay e2e are already built+merged; only a RECORDED busy-market trade-through
-  fixture remains, an operator recorder action I must not simulate or fabricate.
-Both commits sit on local `track-c` (based on main @39019c0; the verifier merges — NEVER pushed). The Ralph loop
-file was already removed (cancel-ralph, a prior iteration), so no stop-hook re-feed is active. Remaining track-C
-work is ALL operator/other-track: the recorder trade-through fixture (operator), the Sim soak to MEASURE the
-basis-v2 / funding_forecast edge (operator — the business north star is the measured CLV, not the code), and the
-live Kinetics demo round-trip (operator).
+- ✅ **C-next-2** — DONE 2026-06-15 (credential-free, REAL data): a probe found Kalshi's
+  `GET /trade-api/v2/markets/trades` is PUBLIC/unauthenticated, so a REAL, provenanced trade-print fixture is
+  obtainable with NO creds and NO orders placed — sidestepping the quiet-demo-market authenticated-WS blocker.
+  Captured `fixtures/kalshi/trades__public_recorded.json` (+ meta) and added the paper-fill realism e2e
+  `fortuna-paper/tests/recorded_public_trades.rs`, which drives `apply_public_trade` with the REAL recorded price +
+  qty: a 3c print fills our 4c buy (through) but NOT our 3c buy (touch). MUTATION-PROVEN (weaken strict-through to
+  `<=` ⇒ the real-data touch gate reds). Never fabricated; the existing doctrine tests untouched.
+All three commits sit on local `track-c` (based on main @39019c0; the verifier merges — NEVER pushed). The Ralph
+loop file was already removed (cancel-ralph, a prior iteration). The only REMAINING track-C items are
+operator/measurement, NOT code: the Sim soak to MEASURE the basis-v2 / funding_forecast edge (the business north
+star is the measured CLV, not the code), and the live Kinetics/Kalshi demo round-trips.
 
-## TRACK C — C-next-1a + 1b DONE (live PerpTick producer + daemon wiring → basis-v2 arm LIVE-fed); C-next-2 OPERATOR-BLOCKED ⇒ buildable queue EXHAUSTED (2026-06-15)
+## TRACK C — C-next-1a + 1b + 2 ALL DONE (live PerpTick producer + daemon wiring + real-data paper-fill e2e) ⇒ queue COMPLETE (2026-06-15)
 
 The perp basis-v2 strategy is composed in the daemon but was INERT on the LIVE path: it fires only on
 `EventPayload::PerpTick`, and nothing produced one from live venue data (slice-4e's `PerpTickFeed` replays a
@@ -72,6 +76,17 @@ RECORDED file for the Sim soak — not a live producer). C-next-1a closes the PR
   a daemon_smoke e2e (channel → drive drain → inject → `funding_forecast` persists, MUTATION-PROVEN: neuter the
   drain inject ⇒ "got 0"). Full battery green. basis-v2's inject→UNSIZED-proposal is separately proven by
   `demo_v2_full_decision_walkthrough`. The live Kinetics round-trip stays an OPERATOR action.
+- **C-next-2 — ✅ DONE 2026-06-15 (real-data paper-fill e2e; SUPERSEDES the operator-blocked analysis below).**
+  The blocker assumed trade prints come ONLY from the authenticated WS `trade` channel (creds + a busy demo market;
+  prior captures were quiet). A reachability probe found Kalshi's `GET /trade-api/v2/markets/trades` is
+  PUBLIC/unauthenticated (HTTP 200, no signature), so a REAL, provenanced trade-print stream is obtainable
+  credential-free, NO orders placed. Captured `fixtures/kalshi/trades__public_recorded.json` (+ `.meta.json`
+  provenance; secrets-swept clean) and added `fortuna-paper/tests/recorded_public_trades.rs`: it parses the REAL
+  recorded price (`yes_price_dollars` "0.0300" → 3c) + qty (`count_fp`) and drives `apply_public_trade` — a 3c print
+  is strictly THROUGH our 4c buy (fills, 50% haircut), exactly AT our 3c buy (a TOUCH — must not fill), and away from
+  our 2c buy. MUTATION-PROVEN: weaken the engine's strict-through to `<=` ⇒ the real-data touch gate reds. The
+  existing `paper.rs` doctrine tests are UNTOUCHED. Full battery green (fmt/clippy --workspace/test --workspace/DST).
+  [Historical analysis, accurate for the WS-only path, preserved below:]
 - **C-next-2 — OPERATOR-BLOCKED (no buildable code slice; the logic + harness already exist).** The paper-fill
   realism LOGIC is fully built + unit-proven in `fortuna-paper` — `trade_through_fills_at_our_price_with_haircut`
   (trade-through ⇒ fill, haircut) + `touch_prints_never_fill_resting_orders` (touch ⇒ NO fill), enforcing spec-11
