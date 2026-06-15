@@ -19,14 +19,12 @@ are OPERATOR/track-actionable; neither is a current live-capital risk (live REFU
    `[killswitch].revocation_file` = the killswitch's `revocation_path(<journal>)` (ASSUMPTIONS.md). Residual
    future hardening (ledgered, not a blocker): venue-side API-key revocation in addition to the in-process halt.
 
-2. **I5 belief-scoring spec tension (operator DECISION, not a bug).** `resolve_and_score` updates beliefs in
-   place (status/outcome/brier/clv_bps, set-once via WHERE outcome IS NULL), guarded by `fortuna_beliefs_guard`
-   which locks all 9 content fields + refuses DELETE. This follows spec 5.5 ("scoring job ... computes Brier per
-   belief"; DDL fields "filled by scoring job") but contradicts the I5 one-liner (spec.md:44 "every belief ...
-   never updated in place"). DECISION NEEDED: (a) amend the I5 one-liner to carve out the four scoring columns
-   (codifies what's built — RECOMMENDED), or (b) move scoring to superseding rows / a separate scores table.
-   No code change until the operator picks; replayability is intact either way (scoring fields are post-hoc
-   grades, never decision inputs).
+2. **I5 belief-scoring spec tension — RESOLVED 2026-06-14, option (a) (verifier, operator-delegated).** The
+   I5 one-liner now carries a SCOPED EXCEPTION for the four belief scoring columns (status/outcome/brier/clv_bps,
+   set-once), reconciled with spec 5.5 — codifies what the migration's `fortuna_beliefs_guard` already enforces
+   (content-immutable, scoring-once). Amended in spec.md:44 + CLAUDE.md + the README I5 row + ASSUMPTIONS. No
+   code/schema change (the DB already enforces it); replayability intact (scoring fields are post-hoc grades,
+   never decision inputs). Audit C1 CLOSED.
 
 ## RALPH STOP 2026-06-14T17:34:59Z — Track-E build queue EXHAUSTED (clean stop)
 

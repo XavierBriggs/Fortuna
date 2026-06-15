@@ -104,11 +104,14 @@ Each rung is a deliberate human step. None auto-advances (I7).
    (`crates/fortuna-cli/src/main.rs`.)
 6. **Out-of-band kill switch (I4)** — `fortuna kill [--flatten] [--journal <path>]`, or
    the standalone binary directly:
-   `fortuna-killswitch <freeze|report|self-test|flatten-perps> --journal <path>
+   `fortuna-killswitch <freeze|report|self-test|flatten-perps|clear-revocation> --journal <path>
    [--venue kalshi]`. No Postgres, no runtime, no Slack dependency by construction.
    `freeze --venue kalshi` (wired `7f69b81`) cancels every open Kalshi order; the
    `flatten-perps` verb (spec 5.15, T5.B8) cancels-all + closes each Kinetics perp
-   with a reduce-only IOC through the real perp gate. Both need their own
+   with a reduce-only IOC through the real perp gate. **I4 revocation (C2):** every kill
+   action also writes a durable `KILLSWITCH_REVOKED` sentinel the daemon reads as a global
+   halt (refuses ALL orders, even after a restart) until the operator runs
+   `clear-revocation` (out-of-band, CLI-only) and re-arms. Both freeze/flatten need their own
    `FORTUNA_KILLSWITCH_*` creds (§1); without them they fail closed (exit 4) and
    only `self-test` runs. Runbook: `docs/runbooks/kill-switch-drill.md`.
 

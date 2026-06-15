@@ -18,7 +18,10 @@ option. The master build instructions live in `PROMPT.md`; the phased task list 
 - **I4. Out-of-band kill switch.** Must not depend on the cognition runtime, the event
   loop, Postgres, or any LLM provider being healthy.
 - **I5. Append-only audit log.** Never deleted, never updated in place. Sufficient to
-  replay any decision after the fact.
+  replay any decision after the fact. (Scoped exception, C1 2026-06-14 / spec 5.5: a
+  belief's four scoring columns — status, outcome, brier, clv_bps — are set once
+  post-resolution by the scoring job; decision content and every audit row stay
+  immutable, DB-enforced by fortuna_beliefs_guard + fortuna_refuse_mutation.)
 - **I6. Propose-only model interface.** The model has zero tools that mutate external
   state. Sizing, timing, order type, and execution belong to the harness.
 - **I7. Promotion gates.** No strategy touches live capital without passing its forward

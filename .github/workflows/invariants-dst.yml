@@ -1,0 +1,66 @@
+name: invariants + DST + protected guard
+
+# Verification-governance CI (audit Major: automate the protected-invariants-diff
+# guard + DST so the discipline is not a human-only step). Encodes the CLAUDE.md
+# "Definition of done" gates that can run unattended. (Authored 2026-06-14; runs
+# once a GitHub remote exists — the repo is local-only by policy until then.)
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: fortuna
+          POSTGRES_PASSWORD: fortuna
+          POSTGRES_DB: fortuna
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      SQLX_OFFLINE: "true"
+      DATABASE_URL: postgres://fortuna:fortuna@localhost:5432/fortuna
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # full history so the protected-diff guard can diff vs base
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+
+      # The load-bearing governance gate: the invariants crate is additions-only.
+      - name: Protected-invariant guard (additions-only)
+        env:
+          BASE_REF: ${{ github.base_ref || 'main' }}   # branch name only; quoted via env, never inlined into the shell
+        run: bash scripts/check-protected-invariants.sh "origin/${BASE_REF}"
+
+      - name: fmt
+        run: cargo fmt --check
+
+      - name: clippy (-D warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # Pre-build the killswitch so the i4 independence test's nested `cargo run`
+      # does not build under the test (which wedges) — see fortuna battery ops.
+      - name: pre-build killswitch
+        run: cargo build -p fortuna-killswitch
+
+      - name: invariants (I1-I7 + perp_i1-4 + i4 revocation/independence)
+        run: cargo test -p fortuna-invariants
+
+      - name: DST corpus
+        run: bash scripts/run-dst.sh

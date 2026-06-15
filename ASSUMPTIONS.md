@@ -3,6 +3,17 @@
 Every decision made where docs/spec.md is silent: what was assumed, why it is the
 conservative option, and the spec section it interprets.
 
+## C1 — I5 belief-scoring reconciliation (RESOLVED 2026-06-14, option a; operator-delegated to verifier)
+
+The audit's C1 flagged that `resolve_and_score` updates beliefs in place (the four scoring columns) against the
+I5 one-liner "never updated in place". Resolution (option a): amend I5 to carry a SCOPED EXCEPTION for the four
+scoring columns, reconciling it with spec 5.5 ("a scoring job resolves outcomes and computes Brier per belief";
+the DDL marks those columns "filled by scoring job"). This CODIFIES the as-built design — `fortuna_beliefs_guard`
+already locks the 9 content fields + refuses DELETE and permits only the 4 scoring columns set-once. Why
+conservative: no code/schema change, no migration, no risk; replayability is preserved because the scoring
+columns are post-hoc GRADES (the answer key), never decision INPUTS — every decision input (p, evidence,
+provenance) stays immutable and the audit log itself remains strictly append-only. Interprets spec I5 + 5.5.
+
 ## TRACK C — daemon wire-in (v2 + funding pipeline live) (2026-06-14; operator-directed, additive+gated)
 
 - **ADDITIVE + GATED, 0 deletions — the track-A safety contract.** Every wire-in (the `[perp_event_basis_v2]`

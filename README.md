@@ -28,8 +28,8 @@ where existing tests may never be weakened — additions only.
 | I1 | Universal gate: every order, regardless of origin, passes the same deterministic pre-trade gate pipeline; the model cannot bypass, modify, disable, or be consulted by it. |
 | I2 | Drawdown halts with human re-arm: a breach sets a halt flag only a human can clear, out-of-band. No automatic resumption. |
 | I3 | Runaway detection: dual token-bucket rate limits per venue and per market. Breach is a halt, not a throttle. |
-| I4 | Out-of-band kill switch: must not depend on the cognition runtime, the event loop, Postgres, or any LLM provider being healthy. |
-| I5 | Append-only audit log: never deleted, never updated in place; sufficient to replay any decision after the fact. |
+| I4 | Out-of-band kill switch: flattens/freezes positions **and revokes order-placing capability**; must not depend on the cognition runtime, the event loop, Postgres, or any LLM provider being healthy. |
+| I5 | Append-only audit log: never deleted, never updated in place; sufficient to replay any decision after the fact. (Scoped exception per spec 5.5: a belief's four scoring columns are set once post-resolution; decision content + all audit rows stay immutable.) |
 | I6 | Propose-only model interface: the model has zero tools that mutate external state; sizing, timing, order type, and execution belong to the harness. |
 | I7 | Promotion gates: no strategy touches live capital without passing forward validation; no model swap without shadow comparison. |
 
