@@ -335,15 +335,13 @@ fn registry() -> SourceRegistry {
     reg
 }
 
+// World-forward now rides the structured-output channel (decide_structured):
+// candidates AND their beliefs share ONE payload. StubMind's default
+// decide_structured parses journal.body as that payload, so the scripted body
+// carries BOTH arrays; top-level output.beliefs is empty (no longer the vehicle).
 fn watchlist_body() -> MindOutput {
     serde_json::from_value(json!({
-        "beliefs": [{
-            "event_id": "watch:heat-dome-2026-06",
-            "p": 0.3,
-            "p_raw": 0.3,
-            "horizon": "2026-06-25T00:00:00.000Z",
-            "evidence": [{"source": "nws", "ref": "sig-9"}]
-        }],
+        "beliefs": [],
         "proposals": [],
         "journal": {"body": json!({
             "candidates": [
@@ -363,7 +361,14 @@ fn watchlist_body() -> MindOutput {
                     "horizon": "2026-12-31T00:00:00.000Z",
                     "category": "politics"
                 }
-            ]
+            ],
+            "beliefs": [{
+                "event_id": "watch:heat-dome-2026-06",
+                "p": 0.3,
+                "p_raw": 0.3,
+                "horizon": "2026-06-25T00:00:00.000Z",
+                "evidence": [{"source": "nws", "ref": "sig-9"}]
+            }]
         }).to_string()}
     }))
     .unwrap()
@@ -398,6 +403,13 @@ async fn world_forward_enforces_the_unscoreable_rule_and_cost_cap() {
     // can grade is refused.
     assert_eq!(outcome.beliefs.len(), 1);
     assert_eq!(outcome.beliefs[0].event_id, "watch:heat-dome-2026-06");
+    // Provenance is HARNESS-stamped (spec 5.5) even via the structured channel —
+    // the belief carries the model id + context manifest hash, not model-written.
+    let prov = &outcome.beliefs[0].provenance;
+    assert!(
+        prov.get("model_id").is_some() && prov.get("context_manifest_hash").is_some(),
+        "world-forward belief carries harness provenance (model_id + manifest hash)"
+    );
 
     // Watchlist counts exclude unscoreable events.
     let views: Vec<WatchlistEventView> = outcome
@@ -431,20 +443,7 @@ async fn world_forward_refuses_beliefs_on_unscoreable_or_unknown_events() {
     // The mind attaches a belief to the UNSCOREABLE candidate and one to
     // an event it never declared: both refused with defects.
     let mind = StubMind::scripted(vec![serde_json::from_value(json!({
-        "beliefs": [
-            {
-                "event_id": "watch:alien-disclosure",
-                "p": 0.9, "p_raw": 0.9,
-                "horizon": "2026-12-31T00:00:00.000Z",
-                "evidence": [{"source": "my-cool-blog", "ref": "x"}]
-            },
-            {
-                "event_id": "watch:never-declared",
-                "p": 0.5, "p_raw": 0.5,
-                "horizon": "2026-12-31T00:00:00.000Z",
-                "evidence": [{"source": "nws", "ref": "y"}]
-            }
-        ],
+        "beliefs": [],
         "proposals": [],
         "journal": {"body": json!({
             "candidates": [{
@@ -454,7 +453,21 @@ async fn world_forward_refuses_beliefs_on_unscoreable_or_unknown_events() {
                 "resolution_source": "my-cool-blog",
                 "horizon": "2026-12-31T00:00:00.000Z",
                 "category": "politics"
-            }]
+            }],
+            "beliefs": [
+                {
+                    "event_id": "watch:alien-disclosure",
+                    "p": 0.9, "p_raw": 0.9,
+                    "horizon": "2026-12-31T00:00:00.000Z",
+                    "evidence": [{"source": "my-cool-blog", "ref": "x"}]
+                },
+                {
+                    "event_id": "watch:never-declared",
+                    "p": 0.5, "p_raw": 0.5,
+                    "horizon": "2026-12-31T00:00:00.000Z",
+                    "evidence": [{"source": "nws", "ref": "y"}]
+                }
+            ]
         }).to_string()}
     }))
     .unwrap()]);

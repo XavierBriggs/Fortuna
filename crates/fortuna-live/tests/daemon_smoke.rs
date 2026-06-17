@@ -2700,16 +2700,13 @@ async fn discovery_world_forward_persists_watchlist_events_and_beliefs(pool: PgP
 
     // ---- 3. Script the StubMind: a WatchlistBatch with TWO candidates (one
     //         scoreable via "nws", one unscoreable via a source outside the registry)
-    //         and a belief on the SCOREABLE candidate only. JSON shape copied from
+    //         and a belief on the SCOREABLE candidate only. World-forward rides the
+    //         structured-output channel now, so candidates AND beliefs share ONE
+    //         payload (journal.body, which StubMind's decide_structured parses);
+    //         top-level output.beliefs is empty. JSON shape copied from
     //         crates/fortuna-cognition/tests/discovery.rs::watchlist_body().
     let scripted: MindOutput = serde_json::from_value(json!({
-        "beliefs": [{
-            "event_id": "watch:heat-dome-2026-06",
-            "p": 0.3,
-            "p_raw": 0.3,
-            "horizon": "2026-06-25T00:00:00.000Z",
-            "evidence": [{"source": "nws", "ref": "sig-disc-1"}]
-        }],
+        "beliefs": [],
         "proposals": [],
         "journal": {"body": json!({
             "candidates": [
@@ -2729,7 +2726,14 @@ async fn discovery_world_forward_persists_watchlist_events_and_beliefs(pool: PgP
                     "horizon": "2026-12-31T00:00:00.000Z",
                     "category": "politics"
                 }
-            ]
+            ],
+            "beliefs": [{
+                "event_id": "watch:heat-dome-2026-06",
+                "p": 0.3,
+                "p_raw": 0.3,
+                "horizon": "2026-06-25T00:00:00.000Z",
+                "evidence": [{"source": "nws", "ref": "sig-disc-1"}]
+            }]
         }).to_string()},
         "cost_cents": 1
     }))

@@ -650,6 +650,24 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-17 — World-forward discovery rides structured output (real Opus can now produce watchlist beliefs)
+
+**Changed (`fortuna-cognition`).** `world_forward_discovery` now uses the
+`decide_structured` channel (like market-back) against a COMBINED
+`watchlist_schema()` carrying BOTH candidate events AND their zero-capital
+beliefs in one typed payload — the model's beliefs no longer ride
+`output.beliefs`, which was the last reason world-forward needed `decide()` +
+free-text journal prose. With the real Opus mind this is the difference between
+producing watchlist events/beliefs and returning prose that fails the strict-JSON
+parse (observed `watch:` events = 0 in the live soak before this).
+- The unscoreable rule is byte-unchanged (code is authority; the schema guides).
+- Belief provenance `{model_id, context_manifest_hash, cost_cents}` is still
+  harness-stamped — now in the discovery layer, since the structured channel
+  returns a raw `Value` (the synthesis `decide()` path stamps its own). New test
+  assertion locks it in. StubMind tests move beliefs into the structured payload.
+- `fortuna-invariants` untouched; full battery green (fmt, clippy, workspace
+  tests, run-dst.sh 300 = 15 corpus + 300 random zero violations, protected-invariants).
+
 ### 2026-06-17 — Discovery catalog sourced live from the runner + market-back no-survivor guard (paper-on-live Phase 2)
 
 **Changed (`fortuna-cognition`, `fortuna-live`).** Market-back discovery now sees the LIVE

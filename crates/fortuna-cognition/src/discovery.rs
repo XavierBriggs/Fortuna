@@ -481,6 +481,71 @@ struct WatchlistEntry {
 #[serde(deny_unknown_fields)]
 struct WatchlistBatch {
     candidates: Vec<WatchlistEntry>,
+    /// Zero-capital beliefs the model attaches to its OWN candidates, riding the
+    /// SAME structured payload as the candidates (spec 5.12). They were the one
+    /// reason world-forward still needed `decide()` + `output.beliefs`; folding
+    /// them into the structured batch lets the real model emit a typed payload
+    /// (no free-text journal prose) exactly like market-back. The harness still
+    /// enforces the unscoreable rule below — the schema guides, the code decides.
+    beliefs: Vec<BeliefDraft>,
+}
+
+/// Strict JSON schema for the world-forward batch (spec 5.12): candidate events
+/// PLUS the zero-capital beliefs on them, in ONE structured payload so a real
+/// model emits conforming JSON, not prose (the root cause of "watchlist body
+/// violated the contract"). The belief sub-schema mirrors the synthesis output
+/// schema (`mind.rs::output_schema`). Every property is `required` (the
+/// structured-output layer); `horizon` on a candidate is nullable. The code is
+/// the authority — it re-validates on deserialize + enforces the unscoreable rule.
+fn watchlist_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["candidates", "beliefs"],
+        "properties": {
+            "candidates": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["event_hint", "statement", "resolution_criteria",
+                        "resolution_source", "horizon", "category"],
+                    "properties": {
+                        "event_hint": {"type": "string"},
+                        "statement": {"type": "string"},
+                        "resolution_criteria": {"type": "string"},
+                        "resolution_source": {"type": "string"},
+                        "horizon": {"type": ["string", "null"]},
+                        "category": {"type": "string"}
+                    }
+                }
+            },
+            "beliefs": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["event_id", "p", "p_raw", "horizon", "evidence"],
+                    "properties": {
+                        "event_id": {"type": "string"},
+                        "p": {"type": "number"},
+                        "p_raw": {"type": "number"},
+                        "horizon": {"type": "string"},
+                        "evidence": {"type": "array", "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["source"],
+                            "properties": {
+                                "source": {"type": "string"},
+                                "ref": {"type": "string"},
+                                "weight_note": {"type": "string"}
+                            }
+                        }}
+                    }
+                }
+            }
+        }
+    })
 }
 
 /// A synthesized watchlist event (no market edges yet).
@@ -546,12 +611,13 @@ pub async fn world_forward_discovery(
     let ctx = assemble_context(context_items, now, "world_forward_discovery", &assembler)?;
     outcome.manifest_hash = ctx.manifest_hash.clone();
 
-    // NOTE: world-forward still rides the free-text journal contract (the same
-    // real-Opus prose bug market_back fixed via decide_structured). It ALSO needs
-    // the model's `output.beliefs`, so its structured fix requires a combined
-    // candidates+beliefs schema (+ harness provenance) — tracked as a follow-up.
-    let output = match mind.decide(&ctx).await {
-        Ok(output) => output,
+    // Structured output (spec 5.12): the provider's schema constraint makes the
+    // model emit a WatchlistBatch (candidates + their zero-capital beliefs)
+    // directly, never free-text prose. StubMind falls back to its scripted
+    // journal JSON via the trait default. We still deserialize + validate in
+    // code — the schema guides, the code is authority (the unscoreable rule below).
+    let decision = match mind.decide_structured(&ctx, watchlist_schema()).await {
+        Ok(decision) => decision,
         Err(e) => {
             outcome
                 .defects
@@ -559,16 +625,10 @@ pub async fn world_forward_discovery(
             return Ok(outcome);
         }
     };
-    budget.record_spend(output.cost_cents, now);
-    outcome.cost_cents = output.cost_cents;
+    budget.record_spend(decision.cost_cents, now);
+    outcome.cost_cents = decision.cost_cents;
 
-    let Some(journal) = output.journal else {
-        outcome
-            .defects
-            .push("mind produced no journal (the watchlist vehicle)".to_string());
-        return Ok(outcome);
-    };
-    let batch: WatchlistBatch = match serde_json::from_str(&journal.body) {
+    let batch: WatchlistBatch = match serde_json::from_value(decision.value) {
         Ok(batch) => batch,
         Err(e) => {
             outcome.defects.push(format!(
@@ -609,8 +669,19 @@ pub async fn world_forward_discovery(
         .map(|c| (c.event_id.as_str(), ()))
         .collect();
 
-    for belief in output.beliefs {
+    // Provenance is HARNESS knowledge (spec 5.5), stamped post-call — the model
+    // never writes its own. `decide()` stamps it for the synthesis path; the
+    // structured channel hands back a raw Value, so we stamp it here so a
+    // world-forward belief carries the same {model_id, context_manifest_hash,
+    // cost_cents} audit trail it did before the structured-output cutover.
+    let provenance = json!({
+        "model_id": mind.id(),
+        "context_manifest_hash": ctx.manifest_hash,
+        "cost_cents": decision.cost_cents,
+    });
+    for mut belief in batch.beliefs {
         if scoreable.contains_key(belief.event_id.as_str()) {
+            belief.provenance = provenance.clone();
             outcome.beliefs.push(belief);
         } else if unscoreable_ids.contains_key(belief.event_id.as_str()) {
             outcome.defects.push(format!(
