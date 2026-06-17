@@ -53,7 +53,7 @@ pub mod weather;
 pub mod ws;
 pub mod ws_transport;
 
-pub use adapter::{FeeReconciliation, KalshiVenue};
+pub use adapter::{FeeReconciliation, KalshiVenue, PublicTrade};
 pub use auth::{KalshiSigner, SignedHeaders};
 pub use client::{
     KalshiTransport, MockKalshiTransport, ReqwestKalshiTransport, KALSHI_DEMO_BASE_URL,

@@ -389,3 +389,149 @@ fn recorded_series_fee_changes_is_an_empty_array_at_capture() {
         "empty fee-change array at capture time"
     );
 }
+
+// ===========================================================================
+// Public trades reader (P1.1): GET /markets/trades, YES-space cents + NO->YES
+// mirror, parsed against the operator-recorded trades__public_recorded.json
+// (PUBLIC/unauthed capture — see its .meta.json provenance).
+// ===========================================================================
+
+/// The recorded market's real ticker (trades__public_recorded.json prints).
+const TRADES_TICKER: &str = "KXPGATOUR-USO26-JDAY";
+
+fn trades_venue(
+    mock: &std::sync::Arc<fortuna_venues::kalshi::client::MockKalshiTransport>,
+) -> fortuna_venues::kalshi::KalshiVenue {
+    use fortuna_core::clock::{SimClock, UtcTimestamp};
+    use fortuna_core::market::VenueId;
+    fortuna_venues::kalshi::KalshiVenue::new(
+        VenueId::new("kalshi").unwrap(),
+        std::sync::Arc::clone(mock)
+            as std::sync::Arc<dyn fortuna_venues::kalshi::client::KalshiTransport>,
+        std::sync::Arc::new(SimClock::new(
+            UtcTimestamp::parse_iso8601("2026-06-15T16:00:00.000Z").unwrap(),
+        )),
+        vec!["KXPGATOUR".to_string()],
+    )
+    .unwrap()
+}
+
+#[test]
+fn recent_trades_parses_recorded_prints_to_yes_space_cents_and_mirrors_no() {
+    use fortuna_core::market::MarketId;
+    use fortuna_core::money::Cents;
+    use fortuna_venues::kalshi::client::MockKalshiTransport;
+    use futures::executor::block_on;
+
+    let mock = std::sync::Arc::new(MockKalshiTransport::new());
+    mock.push_ok(200, recorded("trades__public_recorded.json"));
+    let venue = trades_venue(&mock);
+    let market = MarketId::new(TRADES_TICKER).unwrap();
+
+    let trades = block_on(venue.recent_trades(&market, None)).expect("recent_trades parses");
+
+    // The fixture has 12 prints, all the same market, all YES-taker at 3c.
+    assert_eq!(trades.len(), 12, "all recorded prints parse");
+    let first = &trades[0];
+    assert_eq!(first.market(), &market);
+    // yes_price_dollars "0.0300" -> 3c, YES-space integer cents (NOT 300,
+    // NOT 0.03 the dollar). This is the cents-vs-dollars mutation target.
+    assert_eq!(
+        first.yes_price(),
+        Cents::new(3),
+        "YES-space integer cents from the dollar string"
+    );
+    // The print's NO leg is "0.9700"; mirrored to YES that is 100-97=3c — the
+    // YES and NO legs of one print are complementary, so the YES-space price is
+    // identical whichever leg we mirror from. (NO->YES mirror sanity.)
+    assert_eq!(
+        Cents::new(100).raw() - 97,
+        first.yes_price().raw(),
+        "NO leg 97c mirrors to the same YES-space 3c"
+    );
+    // count_fp "7.77" floors to a whole 7-lot (never over-stated: a partial-lot
+    // print must not inflate the quantity that trades through).
+    assert_eq!(
+        first.qty(),
+        7,
+        "fractional count_fp floors, never over-counts"
+    );
+    // created_time round-trips to the recorded millisecond.
+    assert_eq!(
+        first.ts().to_iso8601(),
+        "2026-06-15T15:48:42.609Z",
+        "trade timestamp from created_time (truncated to ms)"
+    );
+
+    // The reader issued the documented public GET with ticker + limit=100.
+    let calls = mock.calls();
+    assert_eq!(calls[0].method, "GET");
+    assert_eq!(calls[0].path, "/markets/trades");
+    let q = calls[0].query.as_deref().unwrap_or("");
+    assert!(
+        q.contains(&format!("ticker={TRADES_TICKER}")),
+        "ticker query: {q}"
+    );
+    assert!(q.contains("limit=100"), "default page limit: {q}");
+    assert!(
+        !q.contains("min_ts"),
+        "no min_ts when since_ts is None: {q}"
+    );
+}
+
+#[test]
+fn recent_trades_adds_min_ts_unix_seconds_when_since_is_some() {
+    use fortuna_core::clock::UtcTimestamp;
+    use fortuna_core::market::MarketId;
+    use fortuna_venues::kalshi::client::MockKalshiTransport;
+    use futures::executor::block_on;
+
+    let mock = std::sync::Arc::new(MockKalshiTransport::new());
+    mock.push_ok(200, recorded("trades__public_recorded.json"));
+    let venue = trades_venue(&mock);
+    let market = MarketId::new(TRADES_TICKER).unwrap();
+    // 2026-06-15T15:48:42Z -> Unix seconds 1781________; assert against the API
+    // contract (min_ts is integer UNIX SECONDS, not millis, not a string).
+    let since = UtcTimestamp::parse_iso8601("2026-06-15T15:48:42.000Z").unwrap();
+    let expected_secs = since.epoch_millis() / 1000;
+
+    let _ = block_on(venue.recent_trades(&market, Some(since))).expect("parses");
+    let calls = mock.calls();
+    let q = calls[0].query.as_deref().unwrap_or("");
+    assert!(
+        q.contains(&format!("min_ts={expected_secs}")),
+        "min_ts as unix seconds: {q}"
+    );
+}
+
+#[test]
+fn recent_trades_no_taker_print_mirrors_no_leg_to_yes_space() {
+    // The recorded fixture is all YES-taker. To exercise the NO->YES mirror
+    // branch WITHOUT fabricating a price, relabel the FIRST real recorded print
+    // as a NO-taker of the SAME trade: its real complementary legs are
+    // yes=0.0300 / no=0.9700, so the maker counterparty IS a NO position at 97c.
+    // Mirroring 97c -> 100-97 = 3c must reproduce the same YES-space price as the
+    // YES-taker reading. Every NUMBER here is the real recorded pair; only the
+    // direction label (the venue's own complementary view) is swapped.
+    use fortuna_core::market::MarketId;
+    use fortuna_core::money::Cents;
+    use fortuna_venues::kalshi::client::MockKalshiTransport;
+    use futures::executor::block_on;
+
+    let mut body = recorded("trades__public_recorded.json");
+    let first = &mut body["trades"][0];
+    first["taker_outcome_side"] = serde_json::json!("no");
+    first["taker_book_side"] = serde_json::json!("ask");
+
+    let mock = std::sync::Arc::new(MockKalshiTransport::new());
+    mock.push_ok(200, body);
+    let venue = trades_venue(&mock);
+    let market = MarketId::new(TRADES_TICKER).unwrap();
+
+    let trades = block_on(venue.recent_trades(&market, None)).expect("parses");
+    assert_eq!(
+        trades[0].yes_price(),
+        Cents::new(3),
+        "NO-taker print: no_leg 97c mirrors to YES-space 3c (same print, same price)"
+    );
+}

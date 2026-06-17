@@ -92,6 +92,25 @@ pub fn parse_count_ceil(raw: &str) -> Result<i64, VenueError> {
     })
 }
 
+/// Parse a `FixedPointCount` PRINT quantity into whole contracts, rounding
+/// DOWN. Public trade prints can be fractional (0.01-contract granularity);
+/// for a print used to drive trade-through fills, floor is the conservative
+/// direction — a partial-lot print must never OVER-state the quantity that
+/// traded through (over-counting would inflate paper maker fills, the exact
+/// thing spec 11 guards against). Mirrors `parse_count_ceil`'s shape; the
+/// rounding direction is opposite for the opposite reason.
+pub fn parse_count_floor(raw: &str) -> Result<i64, VenueError> {
+    let d = parse_decimal(raw, "trade count")?;
+    if d.is_sign_negative() {
+        return Err(VenueError::Invalid {
+            reason: format!("kalshi trade count {raw:?} is negative"),
+        });
+    }
+    d.floor().to_i64().ok_or_else(|| VenueError::Invalid {
+        reason: format!("kalshi trade count {raw:?} out of i64 range"),
+    })
+}
+
 /// Format cents as the 4-decimal dollar string the doc examples use
 /// (`56c -> "0.5600"`).
 pub fn format_price_dollars(price: Cents) -> Result<String, VenueError> {
@@ -398,6 +417,40 @@ pub struct KalshiOrderbook {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GetOrderbookResponse {
     pub orderbook_fp: KalshiOrderbook,
+}
+
+// ---------------------------------------------------------------------------
+// Public trades (GET /markets/trades — PUBLIC/unauthed market data)
+// ---------------------------------------------------------------------------
+
+/// Subset of the OpenAPI `Trade` schema (the public trade-print stream). Like
+/// fills, a print carries BOTH `yes_price_dollars` and `no_price_dollars`
+/// (complementary on a binary: they sum to the $1 notional) plus the
+/// `taker_outcome_side`/`taker_book_side` direction pair; the adapter mirrors
+/// to YES-space exactly like `book()`/`fills_since`. Direction is read from
+/// `taker_outcome_side`/`taker_book_side` ONLY — the legacy `taker_side` is
+/// past its announced removal window and is not deserialized. Extra fields
+/// (`is_block_trade`, ...) are ignored by serde.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KalshiTrade {
+    pub trade_id: String,
+    pub ticker: String,
+    pub count_fp: String,
+    pub yes_price_dollars: String,
+    pub no_price_dollars: String,
+    pub taker_outcome_side: KalshiOutcomeSide,
+    pub taker_book_side: KalshiBookSide,
+    /// RFC3339; required in the schema. Optional here so a malformed/absent
+    /// value degrades to the injected clock (mirrors `KalshiFill::created_time`)
+    /// rather than dropping the whole print.
+    #[serde(default)]
+    pub created_time: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GetTradesResponse {
+    pub trades: Vec<KalshiTrade>,
+    pub cursor: String,
 }
 
 // ---------------------------------------------------------------------------

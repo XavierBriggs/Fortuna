@@ -32,8 +32,8 @@ use crate::kalshi::dto::{
     self, error_reason, from_direction, to_book_side, CreateOrderV2Request, CreateOrderV2Response,
     GetBalanceResponse, GetEventResponse, GetFillsResponse, GetMarketResponse, GetMarketsResponse,
     GetOrderResponse, GetOrderbookResponse, GetOrdersResponse, GetPositionsResponse,
-    GetSettlementsResponse, KalshiFeeType, KalshiMarket, KalshiMarketStatus, KalshiOrderStatus,
-    KalshiSeries, KalshiStp, KalshiTimeInForce,
+    GetSettlementsResponse, GetTradesResponse, KalshiFeeType, KalshiMarket, KalshiMarketStatus,
+    KalshiOrderStatus, KalshiSeries, KalshiStp, KalshiTimeInForce,
 };
 use crate::{
     Cursor, Fill, FillPage, Market, MarketFilter, MarketStatus, OpenOrder, SettlementMeta,
@@ -61,6 +61,10 @@ const KALSHI_FEE_EFFECTIVE: &str = "2026-02-05";
 
 /// Page size for catalog/portfolio listings (documented max 1000).
 const PAGE_LIMIT: &str = "1000";
+/// Page size for the public trades reader. The spec default is 100; we ask
+/// for it explicitly. `recent_trades` is a single-page recency reader (latest
+/// prints for trade-through), NOT a paginated history sweep.
+const TRADES_PAGE_LIMIT: &str = "100";
 /// Hard guard against a venue cursor that never terminates.
 const MAX_PAGES: usize = 1_000;
 /// Page cap per status bucket when resolving a duplicate client_order_id.
@@ -75,6 +79,41 @@ pub struct FeeReconciliation {
     pub modeled: Cents,
     pub charged: Cents,
     pub matches: bool,
+}
+
+/// One public trade print, normalized to the integer-cent YES space. Produced
+/// by [`KalshiVenue::recent_trades`] for paper-on-live trade-through fills:
+/// `yes_price` is the YES-leg price (NO-side prints mirrored to `100 - p`,
+/// exactly as `book()` mirrors NO bids), `qty` is the print size floored to
+/// whole contracts (never over-stated), `ts` is the print time.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublicTrade {
+    market: MarketId,
+    yes_price: Cents,
+    qty: i64,
+    ts: UtcTimestamp,
+}
+
+impl PublicTrade {
+    /// The market this print is on.
+    pub fn market(&self) -> &MarketId {
+        &self.market
+    }
+
+    /// The trade price in YES-space integer cents.
+    pub fn yes_price(&self) -> Cents {
+        self.yes_price
+    }
+
+    /// The print size in whole contracts (fractional prints floored).
+    pub fn qty(&self) -> i64 {
+        self.qty
+    }
+
+    /// When the trade executed.
+    pub fn ts(&self) -> UtcTimestamp {
+        self.ts
+    }
 }
 
 /// Cached per-series fee + metadata (research §3: fees live on the Series).
@@ -335,6 +374,68 @@ impl KalshiVenue {
         self.lock()
             .coid_by_order
             .insert(order_id.to_string(), coid.clone());
+    }
+
+    /// Public trade-print reader (P1.1): `GET /markets/trades` for one market,
+    /// most-recent page only. INHERENT, not a `Venue` method — the trait stays
+    /// stable; only the paper-on-live composite consumes this.
+    ///
+    /// The endpoint is PUBLIC / unauthed (verified: HTTP 200 with no signature,
+    /// per `fixtures/kalshi/trades__public_recorded.meta.json`), unlike
+    /// `/orderbook`. We still route through the signed transport — signing an
+    /// unauthed GET is harmless and keeps one code path.
+    ///
+    /// Each print is normalized to YES-space integer cents EXACTLY like `book()`
+    /// and `fills_since`: a YES-taker print uses `yes_price_dollars`; a NO-taker
+    /// print mirrors `no_price_dollars` to `100 - p`. (On a binary the two legs
+    /// are complementary, so this is the canonical YES price either way.) `since_ts`
+    /// becomes the `min_ts` filter, which the spec types as UNIX SECONDS (not
+    /// millis, not a string). 429 -> `RateLimited`, any other non-2xx and any
+    /// malformed body -> a `VenueError`; the price path never panics/unwraps.
+    pub async fn recent_trades(
+        &self,
+        market: &MarketId,
+        since_ts: Option<UtcTimestamp>,
+    ) -> Result<Vec<PublicTrade>, VenueError> {
+        let ticker = market.as_str();
+        let mut query = format!("ticker={ticker}&limit={TRADES_PAGE_LIMIT}");
+        if let Some(ts) = since_ts {
+            // min_ts is UNIX SECONDS per the OpenAPI MinTsQuery (int64).
+            let secs = ts.epoch_millis().div_euclid(1000);
+            query.push_str(&format!("&min_ts={secs}"));
+        }
+        let resp: GetTradesResponse = self
+            .get_json("/markets/trades", Some(&query), "GET /markets/trades")
+            .await?;
+        let mut out = Vec::with_capacity(resp.trades.len());
+        for t in &resp.trades {
+            // Mirror `book()`: YES-taker -> yes_price_dollars; NO-taker ->
+            // 100 - no_price_dollars. Direction comes from the canonical pair
+            // ONLY (legacy taker_side is not deserialized); a self-inconsistent
+            // pair is a hard error, never a silent misread.
+            let (side, _action) = from_direction(t.taker_outcome_side, t.taker_book_side)?;
+            let yes_price = match side {
+                fortuna_core::market::Side::Yes => {
+                    dto::parse_dollars_to_cents_exact(&t.yes_price_dollars)?
+                }
+                fortuna_core::market::Side::No => {
+                    let no_price = dto::parse_dollars_to_cents_exact(&t.no_price_dollars)?;
+                    Cents::new(100)
+                        .checked_sub(no_price)
+                        .map_err(VenueError::Money)?
+                }
+            };
+            out.push(PublicTrade {
+                market: MarketId::new(t.ticker.clone()).map_err(|e| VenueError::Invalid {
+                    reason: format!("venue returned an empty trade ticker: {e}"),
+                })?,
+                yes_price,
+                // Floor: a partial-lot print must not over-state traded quantity.
+                qty: dto::parse_count_floor(&t.count_fp)?,
+                ts: fill_time(t.created_time.as_deref(), None, self.clock.now())?,
+            });
+        }
+        Ok(out)
     }
 }
 
