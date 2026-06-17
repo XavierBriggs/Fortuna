@@ -88,6 +88,7 @@ use fortuna_state::MarkPolicy;
 use fortuna_venues::fees::{FeeSchedule, ScheduleFeeModel};
 use fortuna_venues::kalshi::{
     KalshiSigner, KalshiTransport, KalshiVenue, ReqwestKalshiTransport, KALSHI_DEMO_BASE_URL,
+    KALSHI_PROD_BASE_URL,
 };
 use fortuna_venues::sim::{FaultConfig, SimVenue};
 use fortuna_venues::{Market, MarketStatus, SettlementMeta, Venue};
@@ -550,6 +551,43 @@ pub fn resolve_kalshi_demo_creds(
     Ok((key_id, key_pem))
 }
 
+/// Resolve + read the Kalshi PRODUCTION credentials from `env` — the exact
+/// mirror of [`resolve_kalshi_demo_creds`] over the prod var names (paper-on-
+/// live-data, P1.2). The bin runs this binary-grade IO (env extraction + PEM
+/// file read) at the process edge, then hands the resolved values to the
+/// IO-FREE [`build_kalshi_prod_transport`]. This resolves creds ONLY; it does
+/// NOT wire the prod transport into the boot path (that is P1.7).
+///
+/// CREDENTIALS (house secrets rule): `KALSHI_API_KEY_ID` is the (non-secret)
+/// API-key id — VALIDATED as a key id, never a path; `KALSHI_PRIVATE_KEY_PATH`
+/// is the filesystem PATH to the RSA private-key PEM. Both go through the boot
+/// gate's `required()`, so an absent var or a half-edited placeholder
+/// (`changeme`, `your-...`, etc.) refuses with the offending VAR NAME, never
+/// its value. The file CONTENT is the SECRET: read here and IMMEDIATELY wrapped
+/// in `Secret` so the key text can never leak into a log/audit/Debug; a
+/// present-but-unreadable path refuses naming the PATH (a filesystem location,
+/// never the key body).
+pub fn resolve_kalshi_prod_creds(
+    env: &BTreeMap<String, String>,
+) -> Result<(String, Secret), DaemonError> {
+    let key_id =
+        crate::boot::required(env, "KALSHI_API_KEY_ID").map_err(|e| DaemonError::Compose {
+            reason: format!("kalshi prod credential: {e}"),
+        })?;
+    let key_path = crate::boot::required(env, "KALSHI_PRIVATE_KEY_PATH").map_err(|e| {
+        DaemonError::Compose {
+            reason: format!("kalshi prod credential: {e}"),
+        }
+    })?;
+    let key_pem =
+        Secret::new(
+            std::fs::read_to_string(&key_path).map_err(|e| DaemonError::Compose {
+                reason: format!("cannot read KALSHI_PRIVATE_KEY_PATH ({key_path}): {e}"),
+            })?,
+        );
+    Ok((key_id, key_pem))
+}
+
 /// Build the demo Kalshi transport from ALREADY-RESOLVED credentials (see
 /// [`resolve_kalshi_demo_creds`]) — IO-FREE: it never reads `env` or the
 /// filesystem (the library-boundary rule — the bin does the IO). SHARED by the
@@ -569,6 +607,37 @@ pub fn build_kalshi_demo_transport(
     })?;
     let transport = ReqwestKalshiTransport::new(
         KALSHI_DEMO_BASE_URL,
+        signer,
+        clock,
+        Duration::from_secs(KALSHI_DEMO_HTTP_TIMEOUT_SECS),
+    )
+    .map_err(|e| DaemonError::Compose {
+        reason: format!("kalshi transport construction: {e}"),
+    })?;
+    Ok(Arc::new(transport))
+}
+
+/// Build the PRODUCTION Kalshi transport from ALREADY-RESOLVED credentials (see
+/// [`resolve_kalshi_prod_creds`]) — the EXACT mirror of
+/// [`build_kalshi_demo_transport`] over `KALSHI_PROD_BASE_URL` instead of the
+/// demo root (paper-on-live-data, P1.2). IO-FREE: it never reads `env` or the
+/// filesystem (the library-boundary rule — the bin does the IO). The PEM reaches
+/// ONLY `KalshiSigner::new` (which redacts it in its own Debug); nothing else
+/// holds the bare string. Returns `Arc<dyn KalshiTransport>` so a later task
+/// (P1.7) can construct a read-only client over the one signed prod transport.
+/// This builds the transport ONLY; it is NOT wired into the boot path here.
+pub fn build_kalshi_prod_transport(
+    key_id: String,
+    key_pem: Secret,
+    clock: Arc<dyn Clock>,
+) -> Result<Arc<dyn KalshiTransport>, DaemonError> {
+    // KalshiSigner parses the PEM (PKCS#8 or PKCS#1). The signer redacts the
+    // key in its own Debug; this is the one and only point the PEM is exposed.
+    let signer = KalshiSigner::new(key_pem.expose(), key_id).map_err(|e| DaemonError::Compose {
+        reason: format!("kalshi signer construction: {e}"),
+    })?;
+    let transport = ReqwestKalshiTransport::new(
+        KALSHI_PROD_BASE_URL,
         signer,
         clock,
         Duration::from_secs(KALSHI_DEMO_HTTP_TIMEOUT_SECS),

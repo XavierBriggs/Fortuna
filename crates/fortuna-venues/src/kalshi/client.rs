@@ -43,6 +43,15 @@ pub trait KalshiTransport: Send + Sync {
         query: Option<&str>,
         body: Option<serde_json::Value>,
     ) -> Result<(u16, serde_json::Value), VenueError>;
+
+    /// The configured REST root (`KALSHI_PROD_BASE_URL` / `KALSHI_DEMO_BASE_URL`),
+    /// observable through the trait object so a caller can confirm WHICH venue
+    /// host a built transport targets (prod vs demo) without issuing a request.
+    /// Defaults to `None` for transports that have no meaningful base URL (the
+    /// scripted `MockKalshiTransport`); `ReqwestKalshiTransport` overrides it.
+    fn base_url(&self) -> Option<&str> {
+        None
+    }
 }
 
 /// The real transport. Signing path = base-URL path + request path with the
@@ -84,6 +93,13 @@ impl ReqwestKalshiTransport {
             clock,
             http,
         })
+    }
+
+    /// The normalized REST root this transport signs and sends against (trailing
+    /// slash trimmed). Mirrored onto the `KalshiTransport` trait so it is
+    /// reachable through an `Arc<dyn KalshiTransport>`.
+    pub fn base_url(&self) -> &str {
+        &self.base_url
     }
 }
 
@@ -143,6 +159,10 @@ impl KalshiTransport for ReqwestKalshiTransport {
             serde_json::from_str(&text).unwrap_or(serde_json::Value::String(text))
         };
         Ok((status, json))
+    }
+
+    fn base_url(&self) -> Option<&str> {
+        Some(ReqwestKalshiTransport::base_url(self))
     }
 }
 

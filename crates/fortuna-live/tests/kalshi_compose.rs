@@ -15,7 +15,10 @@ use fortuna_cognition::cycle::TriageDecision;
 use fortuna_cognition::mind::{Mind, StubMind};
 use fortuna_core::clock::SimClock;
 use fortuna_live::boot::DaemonToml;
-use fortuna_live::daemon::{compose_kalshi_runner_with_transport, resolve_kalshi_demo_creds};
+use fortuna_live::daemon::{
+    build_kalshi_prod_transport, compose_kalshi_runner_with_transport, resolve_kalshi_demo_creds,
+    resolve_kalshi_prod_creds,
+};
 use fortuna_ops::FortunaConfig;
 use fortuna_runner::Stage;
 use fortuna_venues::kalshi::MockKalshiTransport;
@@ -223,6 +226,121 @@ fn resolve_kalshi_demo_creds_refuses_an_unreadable_key_path() {
     let msg = err.to_string();
     assert!(
         msg.contains("cannot read") && msg.contains("KALSHI_DEMO_PRIVATE_KEY_PATH"),
+        "the refusal names the unreadable path var and reports it cannot read it: {msg}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// P1.2 — read-only Kalshi PRODUCTION transport builder + prod cred resolution.
+// The exact mirror of the demo path, but over KALSHI_PROD_BASE_URL and the prod
+// env var names. NOTHING here hits the live API: resolve_* does only env + a
+// local-file read, and build_* constructs an HTTP client without issuing a
+// request. (This task does NOT wire prod into the boot path — that is P1.7.)
+// ---------------------------------------------------------------------------
+
+/// A non-placeholder PROD-credential env, mirroring `cred_env` but with the prod
+/// var names: a valid key id plus `KALSHI_PRIVATE_KEY_PATH` pointing at a
+/// freshly-written file holding the throwaway test PEM.
+fn prod_cred_env() -> BTreeMap<String, String> {
+    let key_path = std::env::temp_dir().join("fortuna-kalshi-prod-test-key.pem");
+    std::fs::write(&key_path, TEST_KEY_PEM).expect("write throwaway test key to temp file");
+    let mut env = BTreeMap::new();
+    env.insert("KALSHI_API_KEY_ID".into(), "prod-key-id-abc123".into());
+    env.insert(
+        "KALSHI_PRIVATE_KEY_PATH".into(),
+        key_path.to_string_lossy().into_owned(),
+    );
+    env
+}
+
+#[test]
+fn build_kalshi_prod_transport_targets_the_prod_base_url() {
+    // The defining property of the prod builder: it must target the PROD REST
+    // root, not the demo one. The transport exposes its base URL through the
+    // KalshiTransport trait seam so this is observable on the Arc<dyn _>.
+    let env = prod_cred_env();
+    let (key_id, key_pem) = resolve_kalshi_prod_creds(&env).expect("prod creds resolve");
+    let clock: Arc<dyn fortuna_core::clock::Clock> = Arc::new(fortuna_core::clock::RealClock);
+    let transport = build_kalshi_prod_transport(key_id, key_pem, clock)
+        .expect("prod transport builds from resolved creds");
+    assert_eq!(
+        transport.base_url(),
+        Some(fortuna_venues::kalshi::KALSHI_PROD_BASE_URL),
+        "the prod builder configures the transport with KALSHI_PROD_BASE_URL"
+    );
+    // MUTATION-PROOF: it must NOT be the demo root.
+    assert_ne!(
+        transport.base_url(),
+        Some(fortuna_venues::kalshi::KALSHI_DEMO_BASE_URL),
+        "the prod builder must not target the demo base url"
+    );
+}
+
+#[test]
+fn resolve_kalshi_prod_creds_refuses_a_missing_key_path_credential() {
+    // An absent KALSHI_PRIVATE_KEY_PATH is a Compose error naming the var,
+    // never its value.
+    let mut env = prod_cred_env();
+    env.remove("KALSHI_PRIVATE_KEY_PATH");
+    let Err(err) = resolve_kalshi_prod_creds(&env) else {
+        panic!("missing key-path credential refuses");
+    };
+    let msg = err.to_string();
+    assert!(
+        msg.contains("KALSHI_PRIVATE_KEY_PATH"),
+        "the refusal names the missing credential var: {msg}"
+    );
+}
+
+#[test]
+fn resolve_kalshi_prod_creds_refuses_a_missing_key_id_credential() {
+    // KALSHI_API_KEY_ID is the (non-secret) key id, validated NOT a path; an
+    // absent one refuses naming the var.
+    let mut env = prod_cred_env();
+    env.remove("KALSHI_API_KEY_ID");
+    let Err(err) = resolve_kalshi_prod_creds(&env) else {
+        panic!("missing key-id credential refuses");
+    };
+    let msg = err.to_string();
+    assert!(
+        msg.contains("KALSHI_API_KEY_ID"),
+        "the refusal names the missing credential var: {msg}"
+    );
+}
+
+#[test]
+fn resolve_kalshi_prod_creds_refuses_a_placeholder_key_path() {
+    // A half-edited credential (placeholder path) refuses loudly — never trusted.
+    let mut env = prod_cred_env();
+    env.insert(
+        "KALSHI_PRIVATE_KEY_PATH".into(),
+        "/keys/your-prod-private-key.pem".into(),
+    );
+    let Err(err) = resolve_kalshi_prod_creds(&env) else {
+        panic!("placeholder key path refuses");
+    };
+    assert!(
+        err.to_string().contains("KALSHI_PRIVATE_KEY_PATH"),
+        "the refusal names the offending credential var: {err}"
+    );
+}
+
+#[test]
+fn resolve_kalshi_prod_creds_refuses_an_unreadable_key_path() {
+    // A present, non-placeholder path that does not resolve to a readable file:
+    // the boot gate ACCEPTS the path string, then the file read fails — a Compose
+    // error naming the PATH (a filesystem location, never the key body).
+    let mut env = prod_cred_env();
+    env.insert(
+        "KALSHI_PRIVATE_KEY_PATH".into(),
+        "/no/such/fortuna-prod-key.pem".into(),
+    );
+    let Err(err) = resolve_kalshi_prod_creds(&env) else {
+        panic!("unreadable key path refuses");
+    };
+    let msg = err.to_string();
+    assert!(
+        msg.contains("cannot read") && msg.contains("KALSHI_PRIVATE_KEY_PATH"),
         "the refusal names the unreadable path var and reports it cannot read it: {msg}"
     );
 }
