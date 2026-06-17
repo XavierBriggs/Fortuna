@@ -1094,6 +1094,16 @@ impl ActiveRunner {
         }
     }
 
+    /// The live catalog as discovery `MarketView`s (T4.2): feeds the market-back
+    /// discovery prefilter from the runner's last venue catalog poll.
+    pub fn market_views(&self) -> Vec<fortuna_cognition::discovery::MarketView> {
+        match self {
+            ActiveRunner::Sim(r) => r.market_views(),
+            ActiveRunner::Kalshi(r) => r.market_views(),
+            ActiveRunner::PaperLive(r) => r.market_views(),
+        }
+    }
+
     /// Inject one external `PerpTick` for the next `tick()` (slice-4e feed).
     pub fn inject_perp_tick(
         &mut self,
@@ -1525,10 +1535,6 @@ pub struct DiscoveryWiring {
     /// MARKET-BACK: the deterministic prefilter config (category allowlist, volume
     /// floor, category-calibration floor + per-category quality map; spec 5.12).
     pub prefilter: fortuna_cognition::discovery::PrefilterConfig,
-    /// MARKET-BACK: the venue catalog the prefilter consumes. EMPTY in prod until
-    /// the live Kalshi catalog is wired (T4.2) — an empty catalog makes the step a
-    /// no-op (inert), so the section can be enabled before the catalog exists.
-    pub catalog: Vec<fortuna_cognition::discovery::MarketView>,
     /// MARKET-BACK: monotonic base for minted canonical-event ids (`01EVT…`),
     /// seeded from the drive-start epoch (unique across runs), advanced per event
     /// persisted within a run. A full ULID is the ledgered refinement (as for the
@@ -1745,7 +1751,16 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
         // CLAUDE.md). DEFAULT-OFF: `None` ⇒ skipped; and even when `Some`, an EMPTY
         // `catalog` (prod until T4.2 wires the live Kalshi catalog) ⇒ inert, no alert.
         if let Some(dw) = discovery.as_mut() {
-            if !dw.catalog.is_empty() {
+            // T4.2: the market-back catalog is the runner's live, all-status
+            // catalog this segment (market_meta -> MarketView), sourced fresh —
+            // never carried as wiring state. Empty until the venue's first
+            // successful poll; the deterministic prefilter (category allowlist /
+            // volume / calibration floor) + the discovery budget bound what reaches
+            // the mind. This is what makes market-back discovery LIVE instead of the
+            // historical Vec::new() inert stub. Owned (`market_views()` collects), so
+            // the immutable borrow ends before the later `runner` mutations.
+            let catalog = runner.market_views();
+            if !catalog.is_empty() {
                 let now = Clock::now(runner.clock().as_ref());
                 let now_iso = now.to_iso8601();
                 let after_ms = now.epoch_millis() - (dw.window_hours as i64) * 3_600_000;
@@ -1802,8 +1817,7 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                             })
                             .collect();
                         // Deterministic prefilter (spec 5.12) — pure, no IO.
-                        let pre =
-                            fortuna_cognition::discovery::prefilter(&dw.catalog, &dw.prefilter);
+                        let pre = fortuna_cognition::discovery::prefilter(&catalog, &dw.prefilter);
                         // Dedup already-edged listings (spec 5.12: a listing with a
                         // current edge is not re-normalized). A query failure ALERTS +
                         // SKIPS that listing (never crash, never re-edge blindly).
@@ -1957,11 +1971,11 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                         continue;
                                     };
                                     // The catalog row carries the venue; resolve it from
-                                    // the catalog by market_id (the card omits venue). An
-                                    // absent row is impossible (the card came from a
-                                    // survivor), but handle it as alert+skip, not panic.
-                                    let Some(venue) = dw
-                                        .catalog
+                                    // the (live, this-segment) catalog by market_id (the
+                                    // card omits venue). An absent row is impossible (the
+                                    // card came from a survivor), but handle it as
+                                    // alert+skip, not panic.
+                                    let Some(venue) = catalog
                                         .iter()
                                         .find(|m| m.market_id == card.market_id)
                                         .map(|m| m.venue.clone())

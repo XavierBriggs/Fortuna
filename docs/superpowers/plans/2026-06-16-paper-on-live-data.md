@@ -99,6 +99,10 @@ Both `world_forward_discovery` (`discovery.rs:522`) and `market_back_discovery` 
 2. Or a per-cycle `output_config` schema applied to `journal.body` when the cycle kind is discovery.
 Then an **integration test against the real AnthropicMind** (not StubMind) gates both discovery paths. Until this lands, `market_back` auto-discovery stays inert — which is why Phase 1 deliberately does not depend on it.
 
+**LANDED (Phase 2 — market-back, 2026-06-17):**
+- **P2.1 (contract fix, option 1):** added `Mind::decide_structured(ctx, schema) -> StructuredDecision` — `AnthropicMind` forces a typed payload via the provider `json_schema` output channel; `StubMind` falls back to its scripted journal JSON via the trait default. `market_back_discovery` now calls `decide_structured(ctx, normalization_schema())` instead of parsing free-text journal prose, so the real Opus path no longer fails. `world_forward_discovery` still rides the free-text journal contract — its structured fix needs a *combined* candidates+beliefs schema (it also consumes `output.beliefs`), tracked as a follow-up (commented at `discovery.rs` world-forward).
+- **P2.2 (live catalog wiring):** the daemon sources the market-back catalog from `runner.market_views()` (the venue catalog the per-tick poll refreshes into `market_meta`) **each segment** — never carried as `DiscoveryWiring` state (the `catalog` field was removed). With real Kalshi markets the prefilter (category allowlist / volume floor / calibration quality) runs over the live listings, so markets auto-discover instead of being hand-declared. Also fixed a prod-relevant waste found here: market-back now early-returns (no mind call, no budget spend) when the prefilter leaves **zero survivors** (`market_back_is_inert_with_no_survivors`).
+
 ---
 
 ## Phase 1 — Tasks

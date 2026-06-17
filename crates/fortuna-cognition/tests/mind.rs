@@ -165,6 +165,59 @@ async fn stub_mind_is_deterministic_and_propose_only() {
 // ----------------------------------------------------- anthropic request
 
 #[tokio::test]
+async fn anthropic_decide_structured_sends_schema_and_returns_parsed_json() {
+    // The discovery contract fix (spec 5.12): decide_structured drives the
+    // provider's structured output with the CALLER's schema and returns the
+    // parsed JSON directly — never a free-text journal the caller re-parses
+    // (the root cause of "normalization/watchlist body violated the contract").
+    let schema = json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["normalizations"],
+        "properties": { "normalizations": { "type": "array", "items": { "type": "object" } } }
+    });
+    let batch = json!({
+        "normalizations": [{
+            "market_id": "KXM-1", "matches_event_id": null, "statement": null,
+            "resolution_criteria": null, "resolution_source": "nws", "horizon": null,
+            "category": "weather", "mapping": "direct", "confidence": 0.7
+        }]
+    });
+    let transport = MockTransport::new(vec![(200, api_response(&batch, 1000, 500))]);
+    let mind = AnthropicMind::new(
+        config(),
+        transport,
+        CostBudget::new(100_000, 100_000),
+        std::sync::Arc::new(fortuna_core::clock::SimClock::new(t(
+            "2026-06-11T12:00:00.000Z",
+        ))),
+    );
+
+    let decision = mind
+        .decide_structured(&ctx(), schema.clone())
+        .await
+        .unwrap();
+
+    // Parsed schema-constrained JSON returned directly; tokens were billed.
+    assert_eq!(decision.value, batch);
+    assert!(
+        decision.cost_cents > 0,
+        "a real structured call consumes tokens"
+    );
+
+    // The provider received the caller's discovery schema, NOT the default
+    // beliefs/proposals schema.
+    let reqs = mind.transport().requests();
+    assert_eq!(reqs.len(), 1);
+    assert_eq!(reqs[0]["output_config"]["format"]["type"], "json_schema");
+    assert_eq!(reqs[0]["output_config"]["format"]["schema"], schema);
+    assert!(
+        reqs[0]["output_config"]["format"]["schema"]["properties"]["beliefs"].is_null(),
+        "discovery schema must replace the default beliefs/proposals schema"
+    );
+}
+
+#[tokio::test]
 async fn anthropic_request_shape_follows_the_documented_wire_format() {
     let transport = MockTransport::new(vec![(200, api_response(&valid_output_json(), 1000, 200))]);
     let mut bud = budget();

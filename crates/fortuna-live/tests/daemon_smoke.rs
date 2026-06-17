@@ -2761,16 +2761,16 @@ async fn discovery_world_forward_persists_watchlist_events_and_beliefs(pool: PgP
         signal_kinds: vec!["aeolus.forecast".to_string()],
         window_hours: 48,
         max_signals: 200,
-        // COMMIT 2 market-back fields: an EMPTY catalog makes the market-back step
-        // inert (this test exercises ONLY the world-forward arm), so the prefilter
-        // and id bases are unused here.
+        // COMMIT 2 market-back fields: this test exercises ONLY the world-forward
+        // arm. The market-back catalog is sourced live from the runner (T4.2); this
+        // Sim runner's markets fail the empty allowlist below, so the step is inert
+        // and the prefilter + id bases are unused here.
         prefilter: fortuna_cognition::discovery::PrefilterConfig {
             category_allowlist: vec![],
             min_volume_contracts: 0,
             min_category_quality: 0.0,
             category_quality: std::collections::BTreeMap::new(),
         },
-        catalog: vec![],
         event_id_base: 0,
         edge_id_base: 0,
         weather_source: None, // F7 weather plug-in not exercised by this world-forward e2e
@@ -2900,7 +2900,7 @@ async fn discovery_world_forward_persists_watchlist_events_and_beliefs(pool: PgP
 /// all three assertions, and restoring it to Some.)
 #[sqlx::test(migrations = "../fortuna-ledger/migrations")]
 async fn discovery_market_back_auto_confirms_and_synthesis_drafts_a_belief(pool: PgPool) {
-    use fortuna_cognition::discovery::{DiscoveryBudget, MarketView, PrefilterConfig};
+    use fortuna_cognition::discovery::{DiscoveryBudget, PrefilterConfig};
     use fortuna_cognition::signals::SourceRegistry;
     use fortuna_core::clock::UtcTimestamp;
     use fortuna_core::market::StrategyId;
@@ -2944,19 +2944,31 @@ async fn discovery_market_back_auto_confirms_and_synthesis_drafts_a_belief(pool:
     // the edge is confirmed; the other sim markets get books too (arb harness).
     arb_books(&runner);
 
-    // ---- 1. The catalog: ONE "weather" MarketView for SIM-BKT-LO (a real sim
-    //         market with a book), volume above the floor, resolution_source "nws"
-    //         and close_at == the normalization horizon so the deterministic edge
-    //         check scores 1.0 => high_stakes == false => AUTO-CONFIRM. ----
-    let catalog = vec![MarketView {
-        market_id: "SIM-BKT-LO".to_string(),
-        venue: "sim".to_string(),
+    // ---- 1. The catalog (T4.2): the market-back step sources its catalog from
+    //         the runner's live `market_views()` each segment — the venue catalog
+    //         that `tick()` refreshes into `market_meta`, NOT a pre-set wiring
+    //         field. So we OVERWRITE the venue's SIM-BKT-LO market (it boots with
+    //         the bare sim metadata) with the richer card the prefilter needs:
+    //         category "weather", volume above the floor, resolution_source "nws"
+    //         and close_at == the normalization horizon, so the deterministic edge
+    //         check scores 1.0 => high_stakes == false => AUTO-CONFIRM. The other
+    //         sim brackets stay volume-None and are excluded by the volume floor.
+    //         add_market is an insert-overwrite that preserves the existing book.
+    runner.venue().add_market(fortuna_venues::Market {
+        id: MarketId::new("SIM-BKT-LO").unwrap(),
+        venue: fortuna_core::market::VenueId::new("sim").unwrap(),
         title: "SIM weather bracket LO".to_string(),
         category: "weather".to_string(),
-        volume_contracts: Some(5_000),
-        resolution_source: "nws".to_string(),
+        status: fortuna_venues::MarketStatus::Trading,
         close_at: Some(UtcTimestamp::parse_iso8601(horizon).unwrap()),
-    }];
+        settlement: fortuna_venues::SettlementMeta {
+            oracle_type: "sim".to_string(),
+            resolution_source: "nws".to_string(),
+            expected_lag_hours: 2,
+        },
+        payout_per_contract: Cents::new(100),
+        volume_contracts: Some(5_000),
+    });
 
     // ---- 2. Prefilter allowing "weather" with a calibration record that clears the
     //         floor (the per-category quality map must list "weather" — an absent
@@ -2997,9 +3009,10 @@ async fn discovery_market_back_auto_confirms_and_synthesis_drafts_a_belief(pool:
     let discovery_mind: Arc<dyn Mind> = Arc::new(StubMind::scripted(vec![scripted]));
 
     // ---- 4. The DiscoveryWiring. signal_kinds = [] is fine (market-back's driver is
-    //         the catalog, not signals). event_id_base/edge_id_base seeded from the
-    //         drive-start epoch (== t0() under SimClock), so the first minted event
-    //         is MINTED_EVENT_ID. registry empty (market-back does not use it). ----
+    //         the live catalog, not signals). event_id_base/edge_id_base seeded from
+    //         the drive-start epoch (== t0() under SimClock), so the first minted
+    //         event is MINTED_EVENT_ID. registry empty (market-back does not use it).
+    //         No `catalog` field — T4.2 sources it from runner.market_views(). ----
     let wiring = fortuna_live::daemon::DiscoveryWiring {
         pool: pool.clone(),
         mind: discovery_mind,
@@ -3010,7 +3023,6 @@ async fn discovery_market_back_auto_confirms_and_synthesis_drafts_a_belief(pool:
         window_hours: 48,
         max_signals: 200,
         prefilter,
-        catalog,
         event_id_base: t0_epoch_ms,
         edge_id_base: t0_epoch_ms,
         weather_source: None, // F7 weather plug-in not exercised by this market-back e2e
@@ -3214,9 +3226,11 @@ impl fortuna_venues::kalshi::WeatherMarketSource for CountingWeatherSource {
 }
 
 /// Build a DiscoveryWiring whose ONLY active sub-step is the F7 weather plug-in:
-/// `signal_kinds` empty (world-forward inert) + `catalog` empty (market-back
-/// inert) + `weather_source = Some(stub)`. Beliefs/edges attribute to the
-/// discovery strategy (the I7 boundary), exactly like main.rs.
+/// `signal_kinds` empty (world-forward inert) + an empty `category_allowlist`
+/// (market-back inert: the live catalog is sourced from the runner each segment,
+/// T4.2, and the empty allowlist excludes every market) + `weather_source =
+/// Some(stub)`. Beliefs/edges attribute to the discovery strategy (the I7
+/// boundary), exactly like main.rs.
 fn weather_wiring_with_source(
     pool: PgPool,
     weather_source: Arc<dyn fortuna_venues::kalshi::WeatherMarketSource>,
@@ -3234,12 +3248,11 @@ fn weather_wiring_with_source(
         window_hours: 48,
         max_signals: 200,
         prefilter: PrefilterConfig {
-            category_allowlist: vec![],
+            category_allowlist: vec![], // market-back inert (excludes every market)
             min_volume_contracts: 0,
             min_category_quality: 0.0,
             category_quality: std::collections::BTreeMap::new(),
         },
-        catalog: vec![], // market-back inert
         event_id_base: 0,
         edge_id_base: 0,
         weather_source: Some(weather_source),

@@ -254,6 +254,74 @@ async fn market_back_degrades_on_prose_and_throttles_on_budget() {
     assert!(outcome.defects.is_empty(), "throttling is not a defect");
 }
 
+#[tokio::test]
+async fn market_back_is_inert_with_no_survivors() {
+    // The prefilter excluding every listing is the common steady state. With NO
+    // survivors there is nothing to normalize, so the step must make NO mind call
+    // and spend NO budget — the shared discovery budget is reserved for the
+    // world-forward arm and the segments that DO surface a survivor.
+    //
+    // PROOF it makes no mind call: script EXACTLY ONE output. If the
+    // empty-survivors call consulted the mind it would consume that output, and
+    // the SECOND call (with a real survivor) would find nothing scripted and mint
+    // no event. The second call minting KX-OK proves the first made no mind call.
+    let mind = StubMind::scripted(vec![normalization_body(json!([
+        {
+            "market_id": "KX-OK",
+            "matches_event_id": null,
+            "statement": "NYC high temp >= 90F on 2026-06-20",
+            "resolution_criteria": "NWS Central Park daily climate report",
+            "resolution_source": "nws",
+            "horizon": "2026-06-20T18:00:00.000Z",
+            "category": "weather",
+            "mapping": "direct",
+            "confidence": 0.85
+        }
+    ]))]);
+    let mut budget = DiscoveryBudget::new(1_000);
+
+    // Call 1: NO survivors => a clean no-op (no mind call, no spend, no throttle).
+    let empty = market_back_discovery(
+        &mind,
+        &[],
+        &[],
+        &[],
+        &mut budget,
+        t("2026-06-11T06:00:00.000Z"),
+    )
+    .await
+    .unwrap();
+    assert!(empty.edge_cards.is_empty() && empty.new_events.is_empty() && empty.matched.is_empty());
+    assert!(empty.defects.is_empty(), "no survivors is not a defect");
+    assert!(!empty.throttled, "no survivors is not a throttle");
+    assert_eq!(empty.cost_cents, 0, "no survivors => no mind cost");
+    assert_eq!(
+        budget.spent_today_cents(),
+        0,
+        "no survivors => no budget spent"
+    );
+
+    // Call 2: the scripted output is STILL there (call 1 never consulted the mind).
+    let survivors = vec![market("KX-OK", "weather", 5_000, "nws")];
+    let outcome = market_back_discovery(
+        &mind,
+        &[],
+        &survivors,
+        &[],
+        &mut budget,
+        t("2026-06-11T06:00:00.000Z"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        outcome.new_events.len(),
+        1,
+        "the scripted normalization survived the no-survivor call"
+    );
+    assert_eq!(outcome.edge_cards.len(), 1);
+    assert_eq!(outcome.edge_cards[0].market_id, "KX-OK");
+}
+
 // -------------------------------------------------- world-forward watchlist
 
 fn registry() -> SourceRegistry {

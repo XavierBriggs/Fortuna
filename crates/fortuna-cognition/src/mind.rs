@@ -148,11 +148,44 @@ impl MindOutput {
     }
 }
 
+/// A schema-constrained structured decision (spec 5.12 discovery): the parsed
+/// JSON value the caller deserializes into its typed batch, plus the call cost
+/// so a discovery budget can account it exactly like a `decide()` cost.
+#[derive(Debug, Clone)]
+pub struct StructuredDecision {
+    pub value: serde_json::Value,
+    pub cost_cents: i64,
+}
+
 /// The model interface (spec 5.9).
 #[async_trait]
 pub trait Mind: Send + Sync {
     fn id(&self) -> &str;
     async fn decide(&self, ctx: &AssembledContext) -> Result<MindOutput, MindError>;
+    /// Structured-output decision for discovery cycles (spec 5.12): returns JSON
+    /// conforming to `schema` plus the call cost. The DEFAULT runs `decide()` and
+    /// parses the journal body as JSON — back-compat with `StubMind` scripted
+    /// payloads (the discovery tests) and any mind with no structured channel.
+    /// `AnthropicMind` OVERRIDES this to use the provider's schema-constrained
+    /// output, so a real model emits conforming JSON instead of free-text prose
+    /// (the root cause of "normalization/watchlist body violated the contract").
+    async fn decide_structured(
+        &self,
+        ctx: &AssembledContext,
+        schema: serde_json::Value,
+    ) -> Result<StructuredDecision, MindError> {
+        // The default mind has no schema channel; StubMind scripts conforming JSON.
+        let _ = &schema;
+        let out = self.decide(ctx).await?;
+        let cost_cents = out.cost_cents;
+        let journal = out.journal.ok_or_else(|| MindError::SchemaInvalid {
+            reason: "mind produced no journal (the structured-discovery vehicle)".to_string(),
+        })?;
+        let value = serde_json::from_str(&journal.body).map_err(|e| MindError::SchemaInvalid {
+            reason: format!("journal body is not valid JSON: {e}"),
+        })?;
+        Ok(StructuredDecision { value, cost_cents })
+    }
     /// Cycle boundary, called by the CYCLE OWNER (decision cycle, veto
     /// loop) before its first call: resets any per-cycle budget so the
     /// cap spans all calls of one cycle (a retry shares the allowance).
@@ -622,6 +655,90 @@ impl<T: MindTransport> AnthropicMind<T> {
         }
         (Ok(output), cost_cents)
     }
+
+    /// Structured-output call for discovery cycles (spec 5.12): the SAME
+    /// budget-accounted POST as `call_priced` but with the CALLER's JSON schema
+    /// and a raw-`Value` result — the provider's schema-constrained output makes
+    /// the model emit the typed batch directly, never free-text prose. Cost is
+    /// returned separately so the budget records it even when the output is
+    /// rejected (tokens were spent either way; transport failures cost zero).
+    async fn call_priced_structured(
+        &self,
+        ctx: &AssembledContext,
+        schema: serde_json::Value,
+    ) -> (Result<serde_json::Value, MindError>, i64) {
+        let body = json!({
+            "model": self.config.model,
+            "max_tokens": self.config.max_tokens,
+            "thinking": {"type": "adaptive"},
+            "system": self.config.system_charter,
+            "output_config": {"format": {"type": "json_schema", "schema": schema}},
+            "messages": [{"role": "user", "content": ctx.rendered}],
+        });
+
+        let (status, resp) = match self.transport.post_messages(body).await {
+            Ok(pair) => pair,
+            Err(e) => return (Err(e), 0),
+        };
+        if !(200..300).contains(&status) {
+            let reason = resp["error"]["message"]
+                .as_str()
+                .unwrap_or("unknown error")
+                .to_string();
+            return (
+                Err(MindError::Provider {
+                    reason: format!("HTTP {status}: {reason}"),
+                }),
+                0,
+            );
+        }
+
+        let input_tokens = resp["usage"]["input_tokens"].as_i64().unwrap_or(0);
+        let output_tokens = resp["usage"]["output_tokens"].as_i64().unwrap_or(0);
+        let cost_cents = ceil_div(
+            input_tokens * self.config.input_price_cents_per_mtok,
+            1_000_000,
+        ) + ceil_div(
+            output_tokens * self.config.output_price_cents_per_mtok,
+            1_000_000,
+        );
+
+        if resp["stop_reason"] == "refusal" {
+            return (
+                Err(MindError::Refused {
+                    explanation: resp["stop_details"]["explanation"]
+                        .as_str()
+                        .unwrap_or("no explanation")
+                        .to_string(),
+                }),
+                cost_cents,
+            );
+        }
+
+        let Some(text) = resp["content"].as_array().and_then(|blocks| {
+            blocks
+                .iter()
+                .find(|b| b["type"] == "text")
+                .and_then(|b| b["text"].as_str())
+        }) else {
+            return (
+                Err(MindError::SchemaInvalid {
+                    reason: "response carries no text block".to_string(),
+                }),
+                cost_cents,
+            );
+        };
+
+        match serde_json::from_str::<serde_json::Value>(text) {
+            Ok(value) => (Ok(value), cost_cents),
+            Err(e) => (
+                Err(MindError::SchemaInvalid {
+                    reason: format!("structured output is not valid JSON: {e}"),
+                }),
+                cost_cents,
+            ),
+        }
+    }
 }
 
 #[async_trait]
@@ -659,6 +776,27 @@ impl<T: MindTransport> Mind for AnthropicMind<T> {
             budget.record_spend(cost_cents, now);
         }
         result
+    }
+
+    /// Discovery structured output (spec 5.12): budget checked BEFORE the call,
+    /// spend recorded after — against the mind's OWNED budget — then the
+    /// schema-constrained JSON + its cost handed back for the discovery budget.
+    async fn decide_structured(
+        &self,
+        ctx: &AssembledContext,
+        schema: serde_json::Value,
+    ) -> Result<StructuredDecision, MindError> {
+        let now = self.clock.now();
+        {
+            let mut budget = self.budget.lock().unwrap_or_else(|e| e.into_inner());
+            budget.check(now)?;
+        }
+        let (result, cost_cents) = self.call_priced_structured(ctx, schema).await;
+        {
+            let mut budget = self.budget.lock().unwrap_or_else(|e| e.into_inner());
+            budget.record_spend(cost_cents, now);
+        }
+        result.map(|value| StructuredDecision { value, cost_cents })
     }
 }
 

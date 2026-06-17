@@ -2805,6 +2805,24 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
         count
     }
 
+    /// The live catalog as discovery `MarketView`s (T4.2): the all-status catalog
+    /// the venue last returned (`market_meta`), projected for the market-back
+    /// discovery prefilter. Empty until the first successful catalog poll.
+    pub fn market_views(&self) -> Vec<fortuna_cognition::discovery::MarketView> {
+        self.market_meta
+            .values()
+            .map(|m| fortuna_cognition::discovery::MarketView {
+                market_id: m.id.to_string(),
+                venue: m.venue.to_string(),
+                title: m.title.clone(),
+                category: m.category.clone(),
+                volume_contracts: m.volume_contracts,
+                resolution_source: m.settlement.resolution_source.clone(),
+                close_at: m.close_at,
+            })
+            .collect()
+    }
+
     /// The composed synthesis arm's live edge count, or `None` for a
     /// mechanically-only daemon — the read seam `drive()`'s smoke asserts a
     /// per-segment refresh took (it reflects ONLY an edge-trading arm, never
@@ -3228,6 +3246,43 @@ mod a3_type_level {
             &[MarketFilter::default()],
             "catalog refresh must request all statuses (default filter) for the watchdog"
         );
+    }
+
+    #[test]
+    fn market_views_projects_the_live_catalog_for_discovery() {
+        // T4.2: market_views() is what the daemon feeds market-back discovery —
+        // the runner's last venue catalog (market_meta, ALL statuses) projected
+        // to MarketView. The empty case (pre-first-poll) yields no views.
+        let start = UtcTimestamp::parse_iso8601("2026-06-10T12:00:00.000Z").unwrap();
+        let venue = RecordingVenue::new(Arc::new(Mutex::new(Vec::new())));
+        let clock = Arc::new(SimClock::new(start));
+        let mut runner = futures::executor::block_on(SimRunner::new_with_venue(
+            minimal_config(),
+            Vec::new(),
+            Box::new(MemoryAuditSink::default()),
+            start,
+            MemoryJournal::default(),
+            venue,
+            clock,
+            &[Stage::Sim, Stage::Paper],
+        ))
+        .expect("runner constructs");
+        assert!(
+            runner.market_views().is_empty(),
+            "no views before the first catalog poll"
+        );
+
+        let m = paper_live_market();
+        runner.market_meta.insert(m.id.clone(), m);
+
+        let views = runner.market_views();
+        assert_eq!(views.len(), 1);
+        let v = &views[0];
+        assert_eq!(v.market_id, "KXTEST-26JUN16-T50");
+        assert_eq!(v.venue, "paper-live");
+        assert_eq!(v.category, "weather");
+        assert_eq!(v.resolution_source, "test");
+        assert_eq!(v.volume_contracts, Some(10));
     }
 
     fn paper_live_market() -> Market {

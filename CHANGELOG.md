@@ -650,6 +650,30 @@ Prior to this log (gated, on main): M3 rearm notices; T4.2 (i) Kalshi WS dial
 slices 1-2 + 4-5 + concrete transport (see `docs/reviews/t42-wsdial-gate-2026-06-13.md`,
 `t42-redial-gate-2026-06-13.md`, `m3-rearm-gate-2026-06-13.md`).
 
+### 2026-06-17 — Discovery catalog sourced live from the runner + market-back no-survivor guard (paper-on-live Phase 2)
+
+**Changed (`fortuna-cognition`, `fortuna-live`).** Market-back discovery now sees the LIVE
+venue catalog instead of an inert hand-set stub:
+- **Live catalog wiring (paper-on-live plan Phase 2 / the discovery-catalog slice of T4.2).**
+  The daemon sources the market-back catalog from `runner.market_views()` — the all-status
+  venue catalog the per-tick poll refreshes into `market_meta` — **each segment**, never
+  carried as wiring state. The `DiscoveryWiring.catalog` field was REMOVED (it was a
+  placeholder the daemon clobbered before reading; with real Kalshi markets the deterministic
+  prefilter now runs over the live listings, so markets auto-discover instead of being declared).
+  `main.rs` boot banner updated ("market-back catalog LIVE from the runner each segment").
+- **Market-back is inert with zero survivors (prod-relevant fix).** `market_back_discovery`
+  early-returns before any mind call when the prefilter leaves no survivors — no API
+  round-trip, no shared-discovery-budget spend, no throttle. The common steady state
+  (no NEW un-edged listing this segment) is now free, and the budget is reserved for the
+  world-forward arm and segments that do have survivors. New add-only unit test
+  `market_back_is_inert_with_no_survivors` (proves no mind consumption + no spend).
+- The two `daemon_smoke` discovery e2e tests now exercise the real T4.2 path: the
+  market-back test seeds the rich SIM-BKT-LO metadata into the venue catalog (so
+  `market_views()` surfaces it), rather than pre-injecting a `MarketView`.
+- world-forward still rides the free-text journal contract (its structured fix needs a
+  combined candidates+beliefs schema; tracked follow-up). `fortuna-invariants` untouched
+  (additions-only verified); full battery green.
+
 ### 2026-06-15 — `fortuna-live` library-boundary part B: credential IO out of the compose path
 
 **Changed (`fortuna-live`, A-next-2 part B).** The kalshi-demo transport builder no longer

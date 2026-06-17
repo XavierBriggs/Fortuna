@@ -524,7 +524,7 @@ async fn main() -> Result<()> {
                 "off (sim — no live book)"
             };
             eprintln!(
-                "fortuna-live: discovery ACTIVE ({source_count} registry source(s); strategy=world-forward; market-back catalog INERT until T4.2; F7 weather {f7_weather})"
+                "fortuna-live: discovery ACTIVE ({source_count} registry source(s); strategy=world-forward; market-back catalog LIVE from the runner each segment (T4.2); F7 weather {f7_weather})"
             );
             Some(fortuna_live::daemon::DiscoveryWiring {
                 pool: pool.clone(),
@@ -541,17 +541,17 @@ async fn main() -> Result<()> {
                 // per-category calibration-quality map is the T2.8 resolved record —
                 // not yet wired here, so it starts EMPTY (a category absent from the
                 // map scores 0.0, i.e. fails any positive min_category_quality). The
-                // catalog is EMPTY (the live Kalshi catalog is not wired until T4.2;
-                // GAPS), so the market-back step is INERT in prod even when enabled.
-                // The id bases seed from the drive-start epoch (collision-free across
-                // runs), exactly like the belief id base.
+                // catalog is sourced LIVE from the runner each segment (T4.2:
+                // market_views()), so the step is inert ONLY until the venue's first
+                // catalog poll — never carried as wiring state. The id bases seed from
+                // the drive-start epoch (collision-free across runs), exactly like the
+                // belief id base.
                 prefilter: fortuna_cognition::discovery::PrefilterConfig {
                     category_allowlist: sec.category_allowlist.clone(),
                     min_volume_contracts: sec.min_volume_contracts,
                     min_category_quality: sec.min_category_quality,
                     category_quality: BTreeMap::new(),
                 },
-                catalog: Vec::new(),
                 event_id_base: start_ms.max(0) as u64,
                 edge_id_base: start_ms.max(0) as u64,
                 // F7 live weather day-set source: Some on kalshi, None on sim

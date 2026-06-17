@@ -28,6 +28,7 @@ use crate::mind::Mind;
 use crate::signals::SourceRegistry;
 use fortuna_core::clock::UtcTimestamp;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::BTreeMap;
 use thiserror::Error;
 
@@ -218,6 +219,43 @@ struct NormalizationBatch {
     normalizations: Vec<NormalizationEntry>,
 }
 
+/// Strict JSON schema for the market-back normalization batch (spec 5.12). Drives
+/// the provider's structured output so a real model emits a conforming batch, not
+/// prose. Every property is `required` (the structured-output layer); optionals
+/// are nullable. The code is the authority — it re-validates on deserialize
+/// (`deny_unknown_fields` + confidence/match-before-create checks).
+fn normalization_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["normalizations"],
+        "properties": {
+            "normalizations": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["market_id", "matches_event_id", "statement",
+                        "resolution_criteria", "resolution_source", "horizon",
+                        "category", "mapping", "confidence"],
+                    "properties": {
+                        "market_id": {"type": "string"},
+                        "matches_event_id": {"type": ["string", "null"]},
+                        "statement": {"type": ["string", "null"]},
+                        "resolution_criteria": {"type": ["string", "null"]},
+                        "resolution_source": {"type": "string"},
+                        "horizon": {"type": ["string", "null"]},
+                        "category": {"type": "string"},
+                        "mapping": {"type": "string",
+                            "enum": ["direct", "negation", "bracket_component", "conditional_on"]},
+                        "confidence": {"type": "number"}
+                    }
+                }
+            }
+        }
+    })
+}
+
 /// A market matched to an existing canonical event.
 #[derive(Debug, Clone)]
 pub struct MatchedMarket {
@@ -279,6 +317,15 @@ pub async fn market_back_discovery(
     now: UtcTimestamp,
 ) -> Result<MarketBackOutcome, DiscoveryError> {
     let mut outcome = MarketBackOutcome::default();
+    // No survivors => nothing to normalize. Skip the mind call entirely (no
+    // spend, no API round-trip, no throttle): the deterministic prefilter
+    // already excluded every listing this segment, so there is no work for the
+    // cheap tier to do. This is the common steady-state (most segments surface
+    // no NEW un-edged listing), and it keeps the shared discovery budget for the
+    // world-forward arm and the segments that DO have survivors.
+    if survivors.is_empty() {
+        return Ok(outcome);
+    }
     if !budget.allows(now) {
         outcome.throttled = true;
         return Ok(outcome);
@@ -291,8 +338,12 @@ pub async fn market_back_discovery(
     let ctx = assemble_context(context_items, now, "market_back_discovery", &assembler)?;
     outcome.manifest_hash = ctx.manifest_hash.clone();
 
-    let output = match mind.decide(&ctx).await {
-        Ok(output) => output,
+    // Structured output (spec 5.12): the provider's schema constraint makes the
+    // model emit a NormalizationBatch directly, never free-text prose. StubMind
+    // falls back to its scripted journal JSON via the trait default. We still
+    // deserialize + validate in code — the schema guides, the code is authority.
+    let decision = match mind.decide_structured(&ctx, normalization_schema()).await {
+        Ok(decision) => decision,
         Err(e) => {
             outcome
                 .defects
@@ -300,16 +351,10 @@ pub async fn market_back_discovery(
             return Ok(outcome);
         }
     };
-    budget.record_spend(output.cost_cents, now);
-    outcome.cost_cents = output.cost_cents;
+    budget.record_spend(decision.cost_cents, now);
+    outcome.cost_cents = decision.cost_cents;
 
-    let Some(journal) = output.journal else {
-        outcome
-            .defects
-            .push("mind produced no journal (the normalization vehicle)".to_string());
-        return Ok(outcome);
-    };
-    let batch: NormalizationBatch = match serde_json::from_str(&journal.body) {
+    let batch: NormalizationBatch = match serde_json::from_value(decision.value) {
         Ok(batch) => batch,
         Err(e) => {
             outcome.defects.push(format!(
@@ -501,6 +546,10 @@ pub async fn world_forward_discovery(
     let ctx = assemble_context(context_items, now, "world_forward_discovery", &assembler)?;
     outcome.manifest_hash = ctx.manifest_hash.clone();
 
+    // NOTE: world-forward still rides the free-text journal contract (the same
+    // real-Opus prose bug market_back fixed via decide_structured). It ALSO needs
+    // the model's `output.beliefs`, so its structured fix requires a combined
+    // candidates+beliefs schema (+ harness provenance) — tracked as a follow-up.
     let output = match mind.decide(&ctx).await {
         Ok(output) => output,
         Err(e) => {
