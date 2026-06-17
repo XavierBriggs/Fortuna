@@ -181,7 +181,11 @@ async fn main() -> Result<()> {
             // Build ONE signed demo transport and SHARE it: the runner trades
             // through it; the read-only F7 weather day-set source discovers
             // through it. The PEM is read once, never duplicated.
-            let transport_clock: Arc<dyn Clock> = clock.clone();
+            // Signed venue requests need a fresh wall timestamp even while a slow
+            // external tick is still in flight. The runner clock remains the
+            // cadence-driven SimClock for deterministic trading logic; auth
+            // headers are an edge concern and use RealClock directly.
+            let transport_clock: Arc<dyn Clock> = Arc::new(RealClock);
             // Library-boundary (A-next-2 part B): the BIN does the credential IO
             // (env extraction + PEM file read) at the process edge, then hands the
             // resolved values to the IO-free transport builder.
@@ -796,12 +800,20 @@ async fn main() -> Result<()> {
     // data. Inert/degraded when ingestion is off (merge_ingest_views gates on an
     // empty telemetry — the daemon snapshot is byte-unchanged in that case).
     let ingest_telemetry_for_segments = ingest_telemetry.clone();
+    let halt_poll_ms = dcfg.daemon.halt_poll_ms.max(1);
+    let tick_wakes = dcfg
+        .daemon
+        .tick_interval_ms
+        .saturating_add(halt_poll_ms - 1)
+        / halt_poll_ms
+        + 1;
+    let wakes_per_segment = 60.max(tick_wakes);
     let (stats, shutdown) = drive(
         &mut active_runner,
         &mut cadence,
         &mut poller,
         &loop_cfg,
-        60, // segment = 60 wakes (~30s at the 500ms poll): metrics refresh cadence
+        wakes_per_segment, // refresh after at least one configured tick
         &mut stop_rx,
         move |r: &ActiveRunner, _seg| {
             // Build everything BEFORE taking the write lock (R8: minimise

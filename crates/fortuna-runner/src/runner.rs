@@ -190,6 +190,14 @@ pub struct SimRunner<V: Venue = SimVenue, J: IntentJournal + Send = MemoryJourna
     /// view is not wired and the orphan watchdog stays silent.
     position_coverage: Option<std::collections::BTreeSet<MarketId>>,
     orphan_flagged: std::collections::BTreeSet<MarketId>,
+    /// Historical venue fills can appear on a non-advancing cursor page across
+    /// ticks. Record the orphan once; repeated pages are a known fact, not a new
+    /// discrepancy.
+    seen_orphan_fills: std::collections::BTreeSet<String>,
+    /// Venue positions outside this runner's configured/local universe belong
+    /// to the account, but not to this runner's book. Surface them once without
+    /// turning them into a self-mismatch halt.
+    seen_external_positions: std::collections::BTreeSet<MarketId>,
     counters: RunCounters,
 }
 
@@ -545,6 +553,8 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
             gate_rejections_by_check: BTreeMap::new(),
             position_coverage: None,
             orphan_flagged: std::collections::BTreeSet::new(),
+            seen_orphan_fills: std::collections::BTreeSet::new(),
+            seen_external_positions: std::collections::BTreeSet::new(),
             counters: RunCounters::default(),
         })
     }
@@ -768,10 +778,25 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
         // 0. Catalog refresh: venue lifecycle statuses are watchdog inputs
         // (dispute freezes, overdue clocks) and gate book fetches below.
         // An outage here keeps the last-known catalog (point-in-time data).
-        if let Ok(markets) = self.venue.markets(MarketFilter::default()).await {
+        if let Ok(markets) = self
+            .venue
+            .markets(MarketFilter {
+                category: None,
+                status: Some(MarketStatus::Trading),
+            })
+            .await
+        {
             for m in markets {
                 self.market_meta.insert(m.id.clone(), m);
             }
+        }
+
+        // Account visibility is the drawdown gate's prerequisite. Do it before
+        // the book/fill burst so a venue read-limit miss fails closed before any
+        // proposal can reach order placement.
+        if self.check_drawdown().await? {
+            report.halted = true;
+            return Ok(report);
         }
 
         // 1. Venue data enters the bus (point-in-time record). Terminal
@@ -889,17 +914,14 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
         self.process_settlements().await?;
         self.run_watchdogs().await?;
 
-        // 5. Drawdown (conservative marks) -> halt on breach (I2).
-        self.check_drawdown().await?;
-
-        // 6. Group policy evaluation -> complete-or-unwind decisions.
+        // 5. Group policy evaluation -> complete-or-unwind decisions.
         let decisions = self.groups.evaluate(&self.manager, self.clock.now());
         report.group_decisions = decisions.len();
         for decision in decisions {
             self.handle_group_decision(decision, &mut report).await?;
         }
 
-        // 7. TTL sweep (re-quotes come from strategies re-proposing).
+        // 6. TTL sweep (re-quotes come from strategies re-proposing).
         let swept = self.manager.sweep_ttl(&self.venue).await?;
         for intent in swept {
             self.release_if_terminal(intent)?;
@@ -1399,7 +1421,11 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
         for _ in 0..1_000 {
             let page = match self.venue.fills_since(self.cursor.clone()).await {
                 Ok(p) => p,
-                Err(fortuna_venues::VenueError::Outage { .. }) => {
+                Err(
+                    fortuna_venues::VenueError::Outage { .. }
+                    | fortuna_venues::VenueError::RateLimited
+                    | fortuna_venues::VenueError::Timeout { .. },
+                ) => {
                     self.counters.venue_api_errors += 1;
                     break; // next tick
                 }
@@ -1407,7 +1433,27 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
             };
             let advanced = page.next_cursor != self.cursor;
             for fill in &page.fills {
-                let app = self.manager.ingest_fill(fill).await?;
+                let app = match self.manager.ingest_fill(fill).await {
+                    Ok(app) => app,
+                    Err(ExecError::OrphanFill {
+                        fill_id,
+                        client_order_id,
+                    }) => {
+                        if self.seen_orphan_fills.insert(fill_id.clone()) {
+                            self.record_discrepancy(
+                                "orphan_fill",
+                                serde_json::json!({
+                                    "fill_id": fill_id,
+                                    "client_order_id": client_order_id,
+                                    "market": fill.market.to_string(),
+                                    "venue_order_id": fill.venue_order_id.to_string(),
+                                }),
+                            );
+                        }
+                        continue;
+                    }
+                    Err(e) => return Err(e.into()),
+                };
                 if app.applied {
                     if let Some(submitted_ms) = self.submit_times.get(fill.client_order_id.as_str())
                     {
@@ -1431,7 +1477,7 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
                 }
             }
             self.cursor = page.next_cursor;
-            if !advanced && page.fills.is_empty() {
+            if !advanced {
                 break;
             }
         }
@@ -1462,9 +1508,36 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
         Ok(())
     }
 
-    async fn check_drawdown(&mut self) -> Result<(), RunnerError> {
+    async fn check_drawdown(&mut self) -> Result<bool, RunnerError> {
         // Equity = venue cash (total incl. reserved) + conservative marks.
-        let (cash, _reserved) = self.venue.account().await?;
+        let (cash, _reserved) = match self.venue.account().await {
+            Ok(account) => account,
+            Err(
+                e @ (fortuna_venues::VenueError::Outage { .. }
+                | fortuna_venues::VenueError::RateLimited
+                | fortuna_venues::VenueError::Timeout { .. }),
+            ) => {
+                self.counters.venue_api_errors += 1;
+                if self.gates.halts().global_halted().is_none() {
+                    let reason = format!("venue account unavailable during drawdown check: {e}");
+                    self.gates.set_halt(HaltScope::Global, reason.clone());
+                    self.audit(
+                        "halt",
+                        None,
+                        serde_json::json!({
+                            "scope": "global",
+                            "reason": reason,
+                        }),
+                    );
+                    self.bus.publish_external(EventPayload::Raw {
+                        kind: "halt".into(),
+                        data: serde_json::json!({ "reason": "venue_account_unavailable" }),
+                    });
+                }
+                return Ok(true);
+            }
+            Err(e) => return Err(e.into()),
+        };
         let mut marks = Cents::ZERO;
         for p in self.positions.positions() {
             let mark = mark_lots(
@@ -1499,7 +1572,7 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
                 });
             }
         }
-        Ok(())
+        Ok(false)
     }
 
     async fn handle_group_decision(
@@ -1711,7 +1784,11 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
                 .await
             {
                 Ok(p) => p,
-                Err(fortuna_venues::VenueError::Outage { .. }) => {
+                Err(
+                    fortuna_venues::VenueError::Outage { .. }
+                    | fortuna_venues::VenueError::RateLimited
+                    | fortuna_venues::VenueError::Timeout { .. },
+                ) => {
                     self.counters.venue_api_errors += 1;
                     break; // next tick
                 }
@@ -1726,7 +1803,7 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
                 self.apply_notice(notice).await?;
             }
             self.settle_cursor = page.next_cursor;
-            if !advanced && page.notices.is_empty() {
+            if !advanced {
                 break;
             }
         }
@@ -2160,12 +2237,26 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
         // neither advances nor clears — drift detection resumes on the
         // next successful poll.
         if let Some(venue_by_market) = &venue_by_market {
-            let mut all_markets: std::collections::BTreeSet<MarketId> =
-                venue_by_market.keys().cloned().collect();
+            let mut runner_markets: std::collections::BTreeSet<MarketId> =
+                self.markets.iter().cloned().collect();
             for p in self.positions.positions() {
-                all_markets.insert(p.market.clone());
+                runner_markets.insert(p.market.clone());
             }
-            for market in all_markets {
+            for (market, (vy, vn)) in venue_by_market {
+                if !runner_markets.contains(market)
+                    && (*vy != 0 || *vn != 0)
+                    && self.seen_external_positions.insert(market.clone())
+                {
+                    self.record_discrepancy(
+                        "external_venue_position",
+                        serde_json::json!({
+                            "market": market.to_string(),
+                            "venue": { "yes": vy, "no": vn },
+                        }),
+                    );
+                }
+            }
+            for market in runner_markets {
                 let (vy, vn) = venue_by_market.get(&market).copied().unwrap_or((0, 0));
                 let (by, bn) = self
                     .positions
@@ -2689,6 +2780,22 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
                 count = Some(n);
             }
         }
+        // The book-poll universe (self.markets, iterated in tick()) must include
+        // every edge market, or the SynthesisStrategy — which fires only on a
+        // BookSnapshot for one of its edge markets — never sees a quote. Edges
+        // discovered at runtime (F7 weather day-set, world-forward) reference
+        // markets OUTSIDE the static configured set; fold them in (deduped both
+        // against the existing set and within the batch). tick() skips terminal
+        // markets via market_meta, so stale-dated discoveries cost no real poll.
+        let mut known: std::collections::BTreeSet<MarketId> =
+            self.markets.iter().cloned().collect();
+        for e in edges {
+            if let Ok(mid) = MarketId::new(&e.market) {
+                if known.insert(mid.clone()) {
+                    self.markets.push(mid);
+                }
+            }
+        }
         count
     }
 
@@ -2819,6 +2926,14 @@ mod a3_type_level {
     //! these stop compiling (the binding type-check) or fail (the cash assert).
     use super::*;
     use crate::MemoryAuditSink;
+    use async_trait::async_trait;
+    use fortuna_core::book::{Fill, FillPage, OrderBook};
+    use fortuna_core::market::{Action, ClientOrderId, VenueOrderId};
+    use fortuna_gates::GatedOrder;
+    use fortuna_venues::{
+        OpenOrder, SettlementNotice, SettlementOutcome, SettlementPage, VenueError, VenuePosition,
+    };
+    use std::sync::Mutex;
 
     fn minimal_config() -> RunnerConfig {
         let gate_config = toml::from_str(
@@ -2902,5 +3017,526 @@ mod a3_type_level {
         assert_eq!(a.final_cash, Cents::new(1_000_000));
         assert_eq!(a.final_cash, b.final_cash);
         assert_eq!(a.realized_pnl, Cents::ZERO);
+    }
+
+    struct RecordingVenue {
+        id: VenueId,
+        filters: Arc<Mutex<Vec<MarketFilter>>>,
+        fees: ScheduleFeeModel,
+        fills: Vec<Fill>,
+        fill_next: Cursor,
+        fill_calls: Arc<Mutex<u64>>,
+        settlement_notices: Vec<SettlementNotice>,
+        settle_next: Cursor,
+        settlement_calls: Arc<Mutex<u64>>,
+        positions: Vec<VenuePosition>,
+        rate_limit_fills: bool,
+        rate_limit_balance: bool,
+    }
+
+    impl RecordingVenue {
+        fn new(filters: Arc<Mutex<Vec<MarketFilter>>>) -> Self {
+            Self::with_fills(filters, Vec::new(), Cursor::start())
+        }
+
+        fn with_fills(
+            filters: Arc<Mutex<Vec<MarketFilter>>>,
+            fills: Vec<Fill>,
+            fill_next: Cursor,
+        ) -> Self {
+            let fees: fortuna_venues::fees::FeeSchedule = toml::from_str(
+                r#"
+                formula = "quadratic"
+                effective_date = "2026-01-01"
+                taker_coeff = "0.07"
+                maker_coeff = "0.0175"
+            "#,
+            )
+            .expect("fee schedule parses");
+            Self {
+                id: VenueId::new("recording").expect("venue id parses"),
+                filters,
+                fees: ScheduleFeeModel::new(vec![fees]).expect("fee model"),
+                fills,
+                fill_next,
+                fill_calls: Arc::new(Mutex::new(0)),
+                settlement_notices: Vec::new(),
+                settle_next: Cursor::start(),
+                settlement_calls: Arc::new(Mutex::new(0)),
+                positions: Vec::new(),
+                rate_limit_fills: false,
+                rate_limit_balance: false,
+            }
+        }
+
+        fn with_settlements(
+            filters: Arc<Mutex<Vec<MarketFilter>>>,
+            notices: Vec<SettlementNotice>,
+            settle_next: Cursor,
+        ) -> Self {
+            let mut venue = Self::new(filters);
+            venue.settlement_notices = notices;
+            venue.settle_next = settle_next;
+            venue
+        }
+
+        fn with_positions(
+            filters: Arc<Mutex<Vec<MarketFilter>>>,
+            positions: Vec<VenuePosition>,
+        ) -> Self {
+            let mut venue = Self::new(filters);
+            venue.positions = positions;
+            venue
+        }
+
+        fn rate_limited_fills(filters: Arc<Mutex<Vec<MarketFilter>>>) -> Self {
+            let mut venue = Self::new(filters);
+            venue.rate_limit_fills = true;
+            venue
+        }
+
+        fn rate_limited_balance(filters: Arc<Mutex<Vec<MarketFilter>>>) -> Self {
+            let mut venue = Self::new(filters);
+            venue.rate_limit_balance = true;
+            venue
+        }
+    }
+
+    #[async_trait]
+    impl Venue for RecordingVenue {
+        fn id(&self) -> VenueId {
+            self.id.clone()
+        }
+
+        async fn markets(&self, filter: MarketFilter) -> Result<Vec<Market>, VenueError> {
+            self.filters
+                .lock()
+                .expect("recorded market filters lock")
+                .push(filter);
+            Ok(Vec::new())
+        }
+
+        async fn book(&self, market: &MarketId) -> Result<OrderBook, VenueError> {
+            Err(VenueError::NotFound {
+                what: format!("book {market}"),
+            })
+        }
+
+        async fn place(&self, _order: GatedOrder) -> Result<VenueOrderId, VenueError> {
+            Err(VenueError::Invalid {
+                reason: "recording venue does not place orders".into(),
+            })
+        }
+
+        async fn cancel(&self, _id: &VenueOrderId) -> Result<(), VenueError> {
+            Ok(())
+        }
+
+        async fn positions(&self) -> Result<Vec<VenuePosition>, VenueError> {
+            Ok(self.positions.clone())
+        }
+
+        async fn open_orders(&self) -> Result<Vec<OpenOrder>, VenueError> {
+            Ok(Vec::new())
+        }
+
+        async fn balance(&self) -> Result<Cents, VenueError> {
+            if self.rate_limit_balance {
+                return Err(VenueError::RateLimited);
+            }
+            Ok(Cents::new(1_000_000))
+        }
+
+        async fn fills_since(&self, cursor: Cursor) -> Result<FillPage, VenueError> {
+            *self.fill_calls.lock().expect("fill call counter lock") += 1;
+            if self.rate_limit_fills {
+                return Err(VenueError::RateLimited);
+            }
+            if cursor == Cursor::start() {
+                Ok(FillPage {
+                    fills: self.fills.clone(),
+                    next_cursor: self.fill_next.clone(),
+                })
+            } else {
+                Ok(FillPage {
+                    fills: Vec::new(),
+                    next_cursor: cursor,
+                })
+            }
+        }
+
+        async fn settlements_since(&self, cursor: Cursor) -> Result<SettlementPage, VenueError> {
+            *self
+                .settlement_calls
+                .lock()
+                .expect("settlement call counter lock") += 1;
+            if cursor == Cursor::start() {
+                Ok(SettlementPage {
+                    notices: self.settlement_notices.clone(),
+                    next_cursor: self.settle_next.clone(),
+                })
+            } else {
+                Ok(SettlementPage {
+                    notices: Vec::new(),
+                    next_cursor: cursor,
+                })
+            }
+        }
+
+        fn fee_model(&self) -> &dyn FeeModel {
+            &self.fees
+        }
+    }
+
+    #[test]
+    fn catalog_refresh_requests_trading_markets_only() {
+        let start = UtcTimestamp::parse_iso8601("2026-06-10T12:00:00.000Z").unwrap();
+        let filters = Arc::new(Mutex::new(Vec::new()));
+        let venue = RecordingVenue::new(filters.clone());
+        let clock = Arc::new(SimClock::new(start));
+        let mut runner = futures::executor::block_on(SimRunner::new_with_venue(
+            minimal_config(),
+            Vec::new(),
+            Box::new(MemoryAuditSink::default()),
+            start,
+            MemoryJournal::default(),
+            venue,
+            clock,
+            &[Stage::Sim, Stage::Paper],
+        ))
+        .expect("runner constructs with recording venue");
+
+        futures::executor::block_on(runner.tick()).expect("empty tick succeeds");
+
+        assert_eq!(
+            filters
+                .lock()
+                .expect("recorded market filters lock")
+                .as_slice(),
+            &[MarketFilter {
+                category: None,
+                status: Some(MarketStatus::Trading),
+            }]
+        );
+    }
+
+    #[test]
+    fn refresh_synthesis_edges_folds_edge_markets_into_the_book_poll_universe() {
+        // The SynthesisStrategy fires ONLY on a BookSnapshot for one of its edge
+        // markets, and tick() polls books for self.markets. Edges discovered at
+        // runtime (the F7 weather day-set, world-forward) reference markets
+        // OUTSIDE the static configured set — refresh must fold them into the
+        // poll universe, or the comparator never sees a quote and never trades.
+        let start = UtcTimestamp::parse_iso8601("2026-06-10T12:00:00.000Z").unwrap();
+        let filters = Arc::new(Mutex::new(Vec::new()));
+        let venue = RecordingVenue::new(filters.clone());
+        let clock = Arc::new(SimClock::new(start));
+        let mut runner = futures::executor::block_on(SimRunner::new_with_venue(
+            minimal_config(),
+            Vec::new(),
+            Box::new(MemoryAuditSink::default()),
+            start,
+            MemoryJournal::default(),
+            venue,
+            clock,
+            &[Stage::Sim, Stage::Paper],
+        ))
+        .expect("runner constructs with recording venue");
+
+        let discovered = "KXHIGHPHIL-26JUN17-B85.5";
+        assert!(
+            !runner.markets.iter().any(|m| m.to_string() == discovered),
+            "precondition: the discovered market is NOT in the configured set"
+        );
+
+        let edge = |m: &str| fortuna_cognition::cycle::EdgeView {
+            market: m.to_string(),
+            event_id: format!("aeolus:{m}"),
+            mapping: fortuna_cognition::events::MappingType::Direct,
+            tier: fortuna_cognition::events::EdgeTier::Confirmed,
+        };
+
+        runner.refresh_synthesis_edges(&[edge(discovered)]);
+        assert!(
+            runner.markets.iter().any(|m| m.to_string() == discovered),
+            "edge market must enter the book-poll universe after refresh"
+        );
+
+        // Idempotent: a later refresh with the same edge does not duplicate it.
+        runner.refresh_synthesis_edges(&[edge(discovered), edge(discovered)]);
+        let occurrences = runner
+            .markets
+            .iter()
+            .filter(|m| m.to_string() == discovered)
+            .count();
+        assert_eq!(occurrences, 1, "edge market must not be duplicated");
+    }
+
+    #[test]
+    fn external_venue_position_is_reported_once_without_halting() {
+        let start = UtcTimestamp::parse_iso8601("2026-06-10T12:00:00.000Z").unwrap();
+        let external_market = MarketId::new("KXEXTERNAL-1").expect("market id");
+        let filters = Arc::new(Mutex::new(Vec::new()));
+        let venue = RecordingVenue::with_positions(
+            filters,
+            vec![VenuePosition {
+                market: external_market,
+                yes: 1,
+                no: 0,
+                cost: Cents::new(47),
+            }],
+        );
+        let clock = Arc::new(SimClock::new(start));
+        let mut runner = futures::executor::block_on(SimRunner::new_with_venue(
+            minimal_config(),
+            Vec::new(),
+            Box::new(MemoryAuditSink::default()),
+            start,
+            MemoryJournal::default(),
+            venue,
+            clock,
+            &[Stage::Sim, Stage::Paper],
+        ))
+        .expect("runner constructs with recording venue");
+
+        let first =
+            futures::executor::block_on(runner.tick()).expect("first tick reports external");
+        let second = futures::executor::block_on(runner.tick()).expect("second tick keeps running");
+        let third = futures::executor::block_on(runner.tick()).expect("third tick keeps running");
+
+        assert!(!first.halted);
+        assert!(!second.halted);
+        assert!(!third.halted);
+        assert!(
+            runner.active_halt().is_none(),
+            "external account positions are quarantined, not treated as runner book drift"
+        );
+        assert_eq!(
+            runner.counters.discrepancies, 1,
+            "the same external venue position should not spam discrepancy records"
+        );
+    }
+
+    #[test]
+    fn orphan_historical_fill_records_discrepancy_without_crashing_tick() {
+        let start = UtcTimestamp::parse_iso8601("2026-06-10T12:00:00.000Z").unwrap();
+        let fill = Fill {
+            fill_id: "historical-fill".into(),
+            venue_order_id: VenueOrderId::new("venue-order").expect("venue order id"),
+            client_order_id: ClientOrderId::new("unknown-client-order").expect("client order id"),
+            market: MarketId::new("KXHIST-1").expect("market id"),
+            side: Side::Yes,
+            action: Action::Buy,
+            price: Cents::new(47),
+            qty: Contracts::new(1),
+            fee: Cents::ZERO,
+            is_maker: false,
+            at: start,
+        };
+        let next = Cursor("after-historical-fill".into());
+        let filters = Arc::new(Mutex::new(Vec::new()));
+        let venue = RecordingVenue::with_fills(filters, vec![fill], next.clone());
+        let clock = Arc::new(SimClock::new(start));
+        let mut runner = futures::executor::block_on(SimRunner::new_with_venue(
+            minimal_config(),
+            Vec::new(),
+            Box::new(MemoryAuditSink::default()),
+            start,
+            MemoryJournal::default(),
+            venue,
+            clock,
+            &[Stage::Sim, Stage::Paper],
+        ))
+        .expect("runner constructs with recording venue");
+
+        let report = futures::executor::block_on(runner.tick()).expect("orphan fill is recorded");
+
+        assert_eq!(report.fills_applied, 0);
+        assert_eq!(runner.cursor, next);
+    }
+
+    #[test]
+    fn non_advancing_orphan_fill_page_is_polled_once() {
+        let start = UtcTimestamp::parse_iso8601("2026-06-10T12:00:00.000Z").unwrap();
+        let fill = Fill {
+            fill_id: "historical-fill".into(),
+            venue_order_id: VenueOrderId::new("venue-order").expect("venue order id"),
+            client_order_id: ClientOrderId::new("unknown-client-order").expect("client order id"),
+            market: MarketId::new("KXHIST-1").expect("market id"),
+            side: Side::Yes,
+            action: Action::Buy,
+            price: Cents::new(47),
+            qty: Contracts::new(1),
+            fee: Cents::ZERO,
+            is_maker: false,
+            at: start,
+        };
+        let filters = Arc::new(Mutex::new(Vec::new()));
+        let venue = RecordingVenue::with_fills(filters, vec![fill], Cursor::start());
+        let fill_calls = venue.fill_calls.clone();
+        let clock = Arc::new(SimClock::new(start));
+        let mut runner = futures::executor::block_on(SimRunner::new_with_venue(
+            minimal_config(),
+            Vec::new(),
+            Box::new(MemoryAuditSink::default()),
+            start,
+            MemoryJournal::default(),
+            venue,
+            clock,
+            &[Stage::Sim, Stage::Paper],
+        ))
+        .expect("runner constructs with recording venue");
+
+        let report = futures::executor::block_on(runner.tick())
+            .expect("non-advancing orphan fill is bounded");
+
+        assert_eq!(report.fills_applied, 0);
+        assert_eq!(
+            *fill_calls.lock().expect("fill call counter lock"),
+            1,
+            "a non-advancing fill page must not be re-polled within the same tick"
+        );
+    }
+
+    #[test]
+    fn repeated_non_advancing_orphan_fill_is_reported_once() {
+        let start = UtcTimestamp::parse_iso8601("2026-06-10T12:00:00.000Z").unwrap();
+        let fill = Fill {
+            fill_id: "historical-fill".into(),
+            venue_order_id: VenueOrderId::new("venue-order").expect("venue order id"),
+            client_order_id: ClientOrderId::new("unknown-client-order").expect("client order id"),
+            market: MarketId::new("KXHIST-1").expect("market id"),
+            side: Side::Yes,
+            action: Action::Buy,
+            price: Cents::new(47),
+            qty: Contracts::new(1),
+            fee: Cents::ZERO,
+            is_maker: false,
+            at: start,
+        };
+        let filters = Arc::new(Mutex::new(Vec::new()));
+        let venue = RecordingVenue::with_fills(filters, vec![fill], Cursor::start());
+        let fill_calls = venue.fill_calls.clone();
+        let clock = Arc::new(SimClock::new(start));
+        let mut runner = futures::executor::block_on(SimRunner::new_with_venue(
+            minimal_config(),
+            Vec::new(),
+            Box::new(MemoryAuditSink::default()),
+            start,
+            MemoryJournal::default(),
+            venue,
+            clock,
+            &[Stage::Sim, Stage::Paper],
+        ))
+        .expect("runner constructs with recording venue");
+
+        let first = futures::executor::block_on(runner.tick()).expect("first tick reports orphan");
+        let second =
+            futures::executor::block_on(runner.tick()).expect("second tick dedupes orphan");
+
+        assert_eq!(first.fills_applied, 0);
+        assert_eq!(second.fills_applied, 0);
+        assert_eq!(
+            *fill_calls.lock().expect("fill call counter lock"),
+            2,
+            "the venue may repeat the page on later ticks, but the discrepancy is already known"
+        );
+        assert_eq!(
+            runner.counters.discrepancies, 1,
+            "a historical fill with a non-advancing cursor must not spam audit every tick"
+        );
+    }
+
+    #[test]
+    fn non_advancing_settlement_page_is_polled_once() {
+        let start = UtcTimestamp::parse_iso8601("2026-06-10T12:00:00.000Z").unwrap();
+        let notice = SettlementNotice {
+            notice_id: "historical-settlement".into(),
+            market: MarketId::new("KXSETTLE-1").expect("market id"),
+            outcome: SettlementOutcome::Voided,
+            at: start,
+            detail: serde_json::json!({ "source": "test" }),
+        };
+        let filters = Arc::new(Mutex::new(Vec::new()));
+        let venue = RecordingVenue::with_settlements(filters, vec![notice], Cursor::start());
+        let settlement_calls = venue.settlement_calls.clone();
+        let clock = Arc::new(SimClock::new(start));
+        let mut runner = futures::executor::block_on(SimRunner::new_with_venue(
+            minimal_config(),
+            Vec::new(),
+            Box::new(MemoryAuditSink::default()),
+            start,
+            MemoryJournal::default(),
+            venue,
+            clock,
+            &[Stage::Sim, Stage::Paper],
+        ))
+        .expect("runner constructs with recording venue");
+
+        futures::executor::block_on(runner.tick())
+            .expect("non-advancing settlement page is bounded");
+
+        assert_eq!(
+            *settlement_calls
+                .lock()
+                .expect("settlement call counter lock"),
+            1,
+            "a non-advancing settlement page must not be re-polled within the same tick"
+        );
+        assert_eq!(runner.counters.settlement_notices, 1);
+        assert_eq!(
+            runner.counters.venue_api_errors, 0,
+            "bounded settlement polling should not hit the rate-limit error path"
+        );
+    }
+
+    #[test]
+    fn rate_limited_fill_poll_does_not_crash_tick() {
+        let start = UtcTimestamp::parse_iso8601("2026-06-10T12:00:00.000Z").unwrap();
+        let filters = Arc::new(Mutex::new(Vec::new()));
+        let venue = RecordingVenue::rate_limited_fills(filters);
+        let clock = Arc::new(SimClock::new(start));
+        let mut runner = futures::executor::block_on(SimRunner::new_with_venue(
+            minimal_config(),
+            Vec::new(),
+            Box::new(MemoryAuditSink::default()),
+            start,
+            MemoryJournal::default(),
+            venue,
+            clock,
+            &[Stage::Sim, Stage::Paper],
+        ))
+        .expect("runner constructs with recording venue");
+
+        let report = futures::executor::block_on(runner.tick())
+            .expect("rate limit is a transient poll miss");
+
+        assert_eq!(report.fills_applied, 0);
+        assert_eq!(runner.counters.venue_api_errors, 1);
+    }
+
+    #[test]
+    fn rate_limited_account_read_halts_without_crashing_tick() {
+        let start = UtcTimestamp::parse_iso8601("2026-06-10T12:00:00.000Z").unwrap();
+        let filters = Arc::new(Mutex::new(Vec::new()));
+        let venue = RecordingVenue::rate_limited_balance(filters);
+        let clock = Arc::new(SimClock::new(start));
+        let mut runner = futures::executor::block_on(SimRunner::new_with_venue(
+            minimal_config(),
+            Vec::new(),
+            Box::new(MemoryAuditSink::default()),
+            start,
+            MemoryJournal::default(),
+            venue,
+            clock,
+            &[Stage::Sim, Stage::Paper],
+        ))
+        .expect("runner constructs with recording venue");
+
+        let report = futures::executor::block_on(runner.tick())
+            .expect("account rate limit becomes a halt, not a crash");
+
+        assert!(report.halted);
+        assert_eq!(runner.counters.venue_api_errors, 1);
     }
 }

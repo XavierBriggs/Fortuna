@@ -107,9 +107,16 @@ pub struct SourcesConfig {
     pub sources: BTreeMap<String, SourceConfig>,
 }
 
+/// The daemon hands this the WHOLE `fortuna.toml` (the runbook documents inline
+/// `[sources.*]`), so the document carries unrelated top-level sections
+/// (`[gates]`, `[daemon]`, …). Pluck `[sources]` and ignore the rest — NO
+/// `deny_unknown_fields` here. Typo protection stays at the per-source level
+/// (`RawSource`/`RawWindow` keep `deny_unknown_fields`). `default` lets a doc
+/// with no `[sources]` parse to an empty map (an enabled-but-sourceless
+/// ingestion is inert, not a parse abort).
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct RawDoc {
+    #[serde(default)]
     sources: BTreeMap<String, RawSource>,
 }
 
@@ -371,6 +378,50 @@ enabled = false
         assert!(!rt.enabled);
         assert_eq!(rt.extraction, ExtractionMode::Model);
         assert_eq!(rt.extraction_trust_cap, Some(4));
+    }
+
+    /// Regression (demo bring-up): the daemon hands `build_ingestion_wiring`
+    /// the WHOLE `fortuna.toml` (gates / daemon / cognition / … plus the inline
+    /// `[sources.*]` the runbook documents). The sources parser must extract
+    /// `[sources]` and IGNORE the other top-level sections — not reject the
+    /// document. Without this, enabling ingestion in the main config aborts boot
+    /// ("unknown field `gates`, expected `sources`") and no signal ever flows.
+    #[test]
+    fn from_toml_str_ignores_non_source_sections() {
+        const FULL: &str = r#"
+[gates.global]
+max_total_exposure_cents = 800000
+
+[daemon]
+venue = "kalshi"
+stage = "paper"
+
+[sources.nws_afd]
+kind = "nws"
+feed = "afd"
+url = "https://api.weather.gov/products?type=AFD"
+base_interval = "30m"
+rate_budget_per_min = 6
+"#;
+        let cfg = SourcesConfig::from_toml_str(FULL).unwrap();
+        assert_eq!(cfg.sources.len(), 1);
+        assert_eq!(cfg.sources["nws_afd"].kind, SourceKind::Nws);
+        assert!(cfg.sources["nws_afd"].enabled);
+    }
+
+    /// A typo INSIDE a `[sources.<id>]` block is still a hard refusal — only the
+    /// document's *other top-level sections* are ignored, never source fields.
+    #[test]
+    fn unknown_field_within_a_source_block_is_still_refused() {
+        let doc = r#"
+[sources.x]
+kind = "rss"
+url = "https://example.com/feed.xml"
+base_interval = "30m"
+rate_budget_per_min = 2
+typo_field = "boom"
+"#;
+        assert!(SourcesConfig::from_toml_str(doc).is_err());
     }
 
     #[test]

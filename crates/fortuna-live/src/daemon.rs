@@ -92,7 +92,7 @@ use fortuna_venues::kalshi::{
 use fortuna_venues::sim::{FaultConfig, SimVenue};
 use fortuna_venues::{Market, MarketStatus, SettlementMeta, Venue};
 use sqlx::PgPool;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
@@ -631,14 +631,30 @@ pub async fn compose_kalshi_runner_with_transport(
     // identity + a conservative Trading status until the first successful poll.
     let mut sets: Vec<Vec<MarketId>> = Vec::new();
     let mut markets: Vec<Market> = Vec::new();
+    let mut seeded_markets: BTreeSet<MarketId> = BTreeSet::new();
     for set in &kalshi.bracket_sets {
         let mut ids = Vec::new();
         for name in set {
             let m = kalshi_bracket_stub(name, &venue.id())?;
             ids.push(m.id.clone());
-            markets.push(m);
+            if seeded_markets.insert(m.id.clone()) {
+                markets.push(m);
+            }
         }
         sets.push(ids);
+    }
+    // Perp basis-v2 consumes bracket books but those ladder rungs are not
+    // necessarily a partitioned event set for mech_structural. Seed them into
+    // the runner's book universe without handing them to the structural arb
+    // strategy, so a demo can include a small BTC/perp ladder without fetching
+    // the full KXBTC partition every tick.
+    if let Some(pebv2) = &dcfg.perp_event_basis_v2 {
+        for name in pebv2.ladder.keys() {
+            let m = kalshi_bracket_stub(name, &venue.id())?;
+            if seeded_markets.insert(m.id.clone()) {
+                markets.push(m);
+            }
+        }
     }
 
     let fees: FeeSchedule = full

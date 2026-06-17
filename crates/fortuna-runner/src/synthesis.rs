@@ -140,6 +140,14 @@ impl Strategy for SynthesisStrategy {
         self.metrics.events_seen += 1;
 
         let quotes = self.quotes(core);
+        // No two-sided book among the edge markets yet (thin/empty venue book) =>
+        // nothing to price. Running the cycle would assemble an EMPTY context and
+        // the provider rejects an empty user message (HTTP 400 "non-empty
+        // content"), burning budget on a doomed call. Skip; the arm re-fires when
+        // a real two-sided book arrives on the next BookSnapshot.
+        if quotes.is_empty() {
+            return Ok(Vec::new());
+        }
         // Context: the point-in-time market snapshot the mind reasons
         // over (assembled, budgeted, and manifest-hashed by the cycle).
         let items: Vec<ContextItem> = quotes
