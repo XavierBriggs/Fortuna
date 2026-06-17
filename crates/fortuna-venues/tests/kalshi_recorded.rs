@@ -480,6 +480,26 @@ fn recent_trades_parses_recorded_prints_to_yes_space_cents_and_mirrors_no() {
 }
 
 #[test]
+fn recent_trades_skips_sub_one_prints_after_flooring() {
+    use fortuna_core::market::MarketId;
+    use fortuna_venues::kalshi::client::MockKalshiTransport;
+    use futures::executor::block_on;
+
+    let mut body = recorded("trades__public_recorded.json");
+    body["trades"][0]["count_fp"] = serde_json::json!("0.20");
+    body["trades"][1]["count_fp"] = serde_json::json!("1.20");
+    let mock = std::sync::Arc::new(MockKalshiTransport::new());
+    mock.push_ok(200, body);
+    let venue = trades_venue(&mock);
+    let market = MarketId::new(TRADES_TICKER).unwrap();
+
+    let trades = block_on(venue.recent_trades(&market, None)).expect("recent_trades parses");
+
+    assert_eq!(trades.len(), 11, "sub-one print is ignored");
+    assert_eq!(trades[0].qty(), 1, "next print still floors conservatively");
+}
+
+#[test]
 fn recent_trades_adds_min_ts_unix_seconds_when_since_is_some() {
     use fortuna_core::clock::UtcTimestamp;
     use fortuna_core::market::MarketId;

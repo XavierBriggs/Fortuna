@@ -212,6 +212,55 @@ fn synthesis_belief_trades_through_the_full_loop() {
 }
 
 #[test]
+fn synthesis_context_includes_the_triggering_quote_snapshot() {
+    struct CapturingMind {
+        rendered: Arc<std::sync::Mutex<Vec<String>>>,
+    }
+    #[async_trait::async_trait]
+    impl Mind for CapturingMind {
+        fn id(&self) -> &str {
+            "capturing"
+        }
+
+        async fn decide(
+            &self,
+            ctx: &fortuna_cognition::context::AssembledContext,
+        ) -> Result<MindOutput, MindError> {
+            self.rendered
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(ctx.rendered.clone());
+            Ok(belief_output("evt-1", 0.70))
+        }
+    }
+
+    let rendered = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let mind: Arc<dyn Mind> = Arc::new(CapturingMind {
+        rendered: rendered.clone(),
+    });
+    let strategy = SynthesisStrategy::new(synthesis_config(), mind);
+    let mut r = SimRunner::new(
+        runner_config(14),
+        vec![Box::new(strategy)],
+        Box::new(MemoryAuditSink::default()),
+        t0(),
+    )
+    .unwrap();
+    r.set_calibration_quality("synth_sim", 1.0);
+    set_book(&r, 58, 60);
+
+    let report = futures::executor::block_on(r.tick()).unwrap();
+    assert!(report.proposals >= 1, "the cycle should still trade");
+    let rows = rendered.lock().unwrap_or_else(|e| e.into_inner());
+    assert_eq!(rows.len(), 1, "one synthesis mind call");
+    assert!(
+        rows[0].contains("KX-A: yes bid 58c / yes ask 60c"),
+        "quote context must not be excluded as current/future data: {}",
+        rows[0]
+    );
+}
+
+#[test]
 fn digest_snapshot_attributes_a_filled_trade_to_its_strategy() {
     // S6b: digest_snapshot composes the RICH daily digest's raw inputs. A
     // filled synthesis trade attributes a per-strategy row (PnL/fees over

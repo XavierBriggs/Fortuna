@@ -17,8 +17,9 @@ use fortuna_core::clock::{Clock, RealClock, SimClock};
 use fortuna_live::boot::{validate_env, DaemonToml};
 use fortuna_live::compose::DegradeScrape;
 use fortuna_live::daemon::{
-    build_kalshi_demo_transport, compose_kalshi_runner_with_transport, compose_runner,
-    default_degrade_thresholds, drive, mind_from_env, resolve_kalshi_demo_creds, triage_from_env,
+    build_kalshi_demo_transport, build_kalshi_prod_transport, compose_kalshi_runner_with_transport,
+    compose_paper_live_runner_with_transport, compose_runner, default_degrade_thresholds, drive,
+    mind_from_env, resolve_kalshi_demo_creds, resolve_kalshi_prod_creds, triage_from_env,
     ActiveRunner, PgHaltPoller, SYNTH_MIND_TIMEOUT_SECS,
 };
 use fortuna_live::run_loop::{HaltPoller, LoopConfig, RealCadence, RevocationHaltPoller};
@@ -172,6 +173,40 @@ async fn main() -> Result<()> {
         ActiveRunner,
         Option<Arc<dyn fortuna_venues::kalshi::WeatherMarketSource>>,
     ) = match dcfg.daemon.venue.as_str() {
+        "kalshi" if dcfg.daemon.data_source.as_deref() == Some("kalshi_prod") => {
+            // Paper-on-live-data: signed PROD reads only, local paper execution.
+            // The boot gate has already required execution="paper"; this branch
+            // never constructs a KalshiVenue that exposes place/cancel.
+            let clock = Arc::new(SimClock::new(start));
+            let transport_clock: Arc<dyn Clock> = Arc::new(RealClock);
+            let (key_id, key_pem) =
+                resolve_kalshi_prod_creds(&env).context("kalshi prod credentials")?;
+            let transport = build_kalshi_prod_transport(key_id, key_pem, transport_clock)
+                .context("kalshi prod transport")?;
+            let weather: Option<Arc<dyn fortuna_venues::kalshi::WeatherMarketSource>> =
+                Some(Arc::new(fortuna_venues::kalshi::KalshiWeatherSource::new(
+                    transport.clone(),
+                )));
+            let runner = compose_paper_live_runner_with_transport(
+                pool.clone(),
+                &full,
+                &dcfg,
+                start,
+                start_ms as u64,
+                clock,
+                synthesis_mind.clone(),
+                triage,
+                transport,
+            )
+            .await
+            .context("paper-live composition")?;
+            eprintln!(
+                "fortuna-live: composed (data_source=kalshi_prod, execution=paper, \
+                 venue=paper-live, series from [kalshi], prod read creds from env, \
+                 paper journal+audit in Postgres; F7 weather day-set source ON)"
+            );
+            (ActiveRunner::PaperLive(runner), weather)
+        }
         "kalshi" => {
             // The paper runner's clock: the SAME Arc<SimClock> RealCadence
             // advances by wall-elapsed ms (so the demo tracks real time). The

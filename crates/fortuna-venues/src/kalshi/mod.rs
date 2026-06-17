@@ -49,6 +49,7 @@ pub mod auth;
 pub mod client;
 pub mod dial;
 pub mod dto;
+pub mod read_client;
 pub mod weather;
 pub mod ws;
 pub mod ws_transport;
@@ -59,4 +60,5 @@ pub use client::{
     KalshiTransport, MockKalshiTransport, ReqwestKalshiTransport, KALSHI_DEMO_BASE_URL,
     KALSHI_PROD_BASE_URL,
 };
+pub use read_client::KalshiReadClient;
 pub use weather::{event_grades_on, KalshiWeatherSource, WeatherMarketSource};

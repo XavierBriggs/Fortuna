@@ -77,6 +77,7 @@ use fortuna_core::money::Cents;
 use fortuna_ledger::{BeliefsRepo, CalibrationParamsRepo, HaltsRepo, PgIntentJournal};
 use fortuna_ops::alerts::DegradeThresholds;
 use fortuna_ops::FortunaConfig;
+use fortuna_paper::{PaperConfig, PaperLiveVenue};
 use fortuna_runner::funding_forecast::FundingForecast;
 use fortuna_runner::mech_extremes::{MechExtremes, MechExtremesConfig};
 use fortuna_runner::mech_structural::{MechStructural, MechStructuralConfig};
@@ -87,8 +88,8 @@ use fortuna_runner::{RunnerConfig, RunnerError, SimRunner, Stage, Strategy};
 use fortuna_state::MarkPolicy;
 use fortuna_venues::fees::{FeeSchedule, ScheduleFeeModel};
 use fortuna_venues::kalshi::{
-    KalshiSigner, KalshiTransport, KalshiVenue, ReqwestKalshiTransport, KALSHI_DEMO_BASE_URL,
-    KALSHI_PROD_BASE_URL,
+    KalshiReadClient, KalshiSigner, KalshiTransport, KalshiVenue, ReqwestKalshiTransport,
+    KALSHI_DEMO_BASE_URL, KALSHI_PROD_BASE_URL,
 };
 use fortuna_venues::sim::{FaultConfig, SimVenue};
 use fortuna_venues::{Market, MarketStatus, SettlementMeta, Venue};
@@ -690,6 +691,102 @@ pub async fn compose_kalshi_runner_with_transport(
         reason: format!("kalshi venue construction: {e}"),
     })?;
 
+    compose_kalshi_family_runner_with_venue(
+        pool, full, dcfg, start, audit_seed, clock, mind, triage, venue, "kalshi",
+    )
+    .await
+}
+
+/// Paper-on-live composition: read Kalshi production market data through the
+/// read-only client, but execute only in the embedded local `PaperVenue`.
+#[allow(clippy::too_many_arguments)]
+pub async fn compose_paper_live_runner_with_transport(
+    pool: PgPool,
+    full: &FortunaConfig,
+    dcfg: &DaemonToml,
+    start: UtcTimestamp,
+    audit_seed: u64,
+    clock: Arc<fortuna_core::clock::SimClock>,
+    mind: Arc<dyn Mind>,
+    triage: TriageDecision,
+    transport: Arc<dyn KalshiTransport>,
+) -> Result<SimRunner<PaperLiveVenue, PgIntentJournal>, DaemonError> {
+    let kalshi = dcfg.kalshi.as_ref().ok_or_else(|| DaemonError::Compose {
+        reason: "paper-on-live without [kalshi] section (validate_bootable should have refused)"
+            .to_string(),
+    })?;
+    let read_clock: Arc<dyn Clock> = clock.clone();
+    let read =
+        KalshiReadClient::new(transport, read_clock, kalshi.series.clone()).map_err(|e| {
+            DaemonError::Compose {
+                reason: format!("kalshi read client construction: {e}"),
+            }
+        })?;
+    let paper_clock: Arc<dyn Clock> = clock.clone();
+    let venue = PaperLiveVenue::new(
+        read,
+        paper_clock,
+        kalshi_fee_model(full)?,
+        PaperConfig {
+            maker_haircut_pct: 50,
+        },
+        Cents::new(1_000_000),
+    )
+    .map_err(|e| DaemonError::Compose {
+        reason: format!("paper-live venue construction: {e}"),
+    })?;
+
+    compose_kalshi_family_runner_with_venue(
+        pool,
+        full,
+        dcfg,
+        start,
+        audit_seed,
+        clock,
+        mind,
+        triage,
+        venue,
+        "paper-live",
+    )
+    .await
+}
+
+fn kalshi_fee_model(full: &FortunaConfig) -> Result<ScheduleFeeModel, DaemonError> {
+    let fees: FeeSchedule = full
+        .fees
+        .get("kalshi")
+        .cloned()
+        .ok_or_else(|| DaemonError::Compose {
+            reason: "[fees.kalshi] missing (the Kalshi paper paths price with it)".to_string(),
+        })
+        .and_then(|v| {
+            v.try_into().map_err(|e| DaemonError::Compose {
+                reason: format!("[fees.kalshi] does not parse as a schedule: {e}"),
+            })
+        })?;
+    ScheduleFeeModel::new(vec![fees]).map_err(|e| DaemonError::Compose {
+        reason: format!("fee schedule rejected: {e}"),
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn compose_kalshi_family_runner_with_venue<V: Venue + 'static>(
+    pool: PgPool,
+    full: &FortunaConfig,
+    dcfg: &DaemonToml,
+    start: UtcTimestamp,
+    audit_seed: u64,
+    clock: Arc<fortuna_core::clock::SimClock>,
+    mind: Arc<dyn Mind>,
+    triage: TriageDecision,
+    venue: V,
+    journal_venue: &str,
+) -> Result<SimRunner<V, PgIntentJournal>, DaemonError> {
+    let kalshi = dcfg.kalshi.as_ref().ok_or_else(|| DaemonError::Compose {
+        reason: "kalshi-family composition without [kalshi] section".to_string(),
+    })?;
+    let venue_id = venue.id();
+
     // mech_structural's arb world comes from [kalshi].bracket_sets (the demo's
     // real tickers), NOT [sim]. The strategy needs the id partition; the runner
     // needs each bracket ticker in `config.markets` so `tick()` FETCHES ITS BOOK
@@ -704,7 +801,7 @@ pub async fn compose_kalshi_runner_with_transport(
     for set in &kalshi.bracket_sets {
         let mut ids = Vec::new();
         for name in set {
-            let m = kalshi_bracket_stub(name, &venue.id())?;
+            let m = kalshi_bracket_stub(name, &venue_id)?;
             ids.push(m.id.clone());
             if seeded_markets.insert(m.id.clone()) {
                 markets.push(m);
@@ -719,28 +816,14 @@ pub async fn compose_kalshi_runner_with_transport(
     // the full KXBTC partition every tick.
     if let Some(pebv2) = &dcfg.perp_event_basis_v2 {
         for name in pebv2.ladder.keys() {
-            let m = kalshi_bracket_stub(name, &venue.id())?;
+            let m = kalshi_bracket_stub(name, &venue_id)?;
             if seeded_markets.insert(m.id.clone()) {
                 markets.push(m);
             }
         }
     }
 
-    let fees: FeeSchedule = full
-        .fees
-        .get("kalshi")
-        .cloned()
-        .ok_or_else(|| DaemonError::Compose {
-            reason: "[fees.kalshi] missing (the demo prices with it)".to_string(),
-        })
-        .and_then(|v| {
-            v.try_into().map_err(|e| DaemonError::Compose {
-                reason: format!("[fees.kalshi] does not parse as a schedule: {e}"),
-            })
-        })?;
-    let fee_model = ScheduleFeeModel::new(vec![fees]).map_err(|e| DaemonError::Compose {
-        reason: format!("fee schedule rejected: {e}"),
-    })?;
+    let fee_model = kalshi_fee_model(full)?;
 
     let mut strategies: Vec<Box<dyn Strategy>> = vec![Box::new(
         MechStructural::new(MechStructuralConfig {
@@ -897,7 +980,7 @@ pub async fn compose_kalshi_runner_with_transport(
     };
 
     let journal_clock: Arc<dyn Clock> = clock.clone();
-    let journal = PgIntentJournal::new(pool.clone(), "kalshi", journal_clock.clone());
+    let journal = PgIntentJournal::new(pool.clone(), journal_venue, journal_clock.clone());
     let sink = PgAuditSink::spawn(pool, journal_clock, audit_seed);
     let mut runner = SimRunner::new_with_venue(
         config,
@@ -976,6 +1059,7 @@ fn edge_refresh_transition(failed: bool, refresh_failing: &mut bool, failures: &
 pub enum ActiveRunner {
     Sim(SimRunner<SimVenue, PgIntentJournal>),
     Kalshi(SimRunner<KalshiVenue, PgIntentJournal>),
+    PaperLive(SimRunner<PaperLiveVenue, PgIntentJournal>),
 }
 
 impl ActiveRunner {
@@ -986,6 +1070,7 @@ impl ActiveRunner {
         match self {
             ActiveRunner::Sim(r) => &r.clock,
             ActiveRunner::Kalshi(r) => &r.clock,
+            ActiveRunner::PaperLive(r) => &r.clock,
         }
     }
 
@@ -994,6 +1079,7 @@ impl ActiveRunner {
         match self {
             ActiveRunner::Sim(r) => r.counters(),
             ActiveRunner::Kalshi(r) => r.counters(),
+            ActiveRunner::PaperLive(r) => r.counters(),
         }
     }
 
@@ -1004,6 +1090,7 @@ impl ActiveRunner {
         match self {
             ActiveRunner::Sim(r) => r.synthesis_edge_count(),
             ActiveRunner::Kalshi(r) => r.synthesis_edge_count(),
+            ActiveRunner::PaperLive(r) => r.synthesis_edge_count(),
         }
     }
 
@@ -1018,6 +1105,7 @@ impl ActiveRunner {
         match self {
             ActiveRunner::Sim(r) => r.inject_perp_tick(venue, market, marks, funding),
             ActiveRunner::Kalshi(r) => r.inject_perp_tick(venue, market, marks, funding),
+            ActiveRunner::PaperLive(r) => r.inject_perp_tick(venue, market, marks, funding),
         }
     }
 
@@ -1029,6 +1117,7 @@ impl ActiveRunner {
         match self {
             ActiveRunner::Sim(r) => r.refresh_synthesis_edges(edges),
             ActiveRunner::Kalshi(r) => r.refresh_synthesis_edges(edges),
+            ActiveRunner::PaperLive(r) => r.refresh_synthesis_edges(edges),
         }
     }
 
@@ -1039,6 +1128,7 @@ impl ActiveRunner {
         match self {
             ActiveRunner::Sim(r) => r.drain_pending_beliefs(),
             ActiveRunner::Kalshi(r) => r.drain_pending_beliefs(),
+            ActiveRunner::PaperLive(r) => r.drain_pending_beliefs(),
         }
     }
 
@@ -1052,6 +1142,7 @@ impl ActiveRunner {
         match self {
             ActiveRunner::Sim(r) => r.drain_pending_scalar_beliefs(),
             ActiveRunner::Kalshi(r) => r.drain_pending_scalar_beliefs(),
+            ActiveRunner::PaperLive(r) => r.drain_pending_scalar_beliefs(),
         }
     }
 
@@ -1060,6 +1151,7 @@ impl ActiveRunner {
         match self {
             ActiveRunner::Sim(r) => r.apply_external_alert(kind, message),
             ActiveRunner::Kalshi(r) => r.apply_external_alert(kind, message),
+            ActiveRunner::PaperLive(r) => r.apply_external_alert(kind, message),
         }
     }
 
@@ -1068,6 +1160,7 @@ impl ActiveRunner {
         match self {
             ActiveRunner::Sim(r) => r.shutdown().await,
             ActiveRunner::Kalshi(r) => r.shutdown().await,
+            ActiveRunner::PaperLive(r) => r.shutdown().await,
         }
     }
 
@@ -1092,6 +1185,9 @@ impl ActiveRunner {
             ActiveRunner::Kalshi(r) => {
                 run_loop(r, cadence, poller, cfg, max_wakes, stop, last_halt).await
             }
+            ActiveRunner::PaperLive(r) => {
+                run_loop(r, cadence, poller, cfg, max_wakes, stop, last_halt).await
+            }
         }
     }
 
@@ -1106,6 +1202,7 @@ impl ActiveRunner {
         match self {
             ActiveRunner::Sim(r) => route_alerts(router, r, alerts).await,
             ActiveRunner::Kalshi(r) => route_alerts(router, r, alerts).await,
+            ActiveRunner::PaperLive(r) => route_alerts(router, r, alerts).await,
         }
     }
 
@@ -1114,6 +1211,7 @@ impl ActiveRunner {
         match self {
             ActiveRunner::Sim(r) => rich_daily_digest(r, now),
             ActiveRunner::Kalshi(r) => rich_daily_digest(r, now),
+            ActiveRunner::PaperLive(r) => rich_daily_digest(r, now),
         }
     }
 
@@ -1128,6 +1226,9 @@ impl ActiveRunner {
         match self {
             ActiveRunner::Sim(r) => run_daily_reconciliation(r, pool, mind, now, id_base).await,
             ActiveRunner::Kalshi(r) => run_daily_reconciliation(r, pool, mind, now, id_base).await,
+            ActiveRunner::PaperLive(r) => {
+                run_daily_reconciliation(r, pool, mind, now, id_base).await
+            }
         }
     }
 
@@ -1171,6 +1272,19 @@ impl ActiveRunner {
                 )
                 .await
             }
+            ActiveRunner::PaperLive(r) => {
+                run_weekly_review(
+                    r,
+                    pool,
+                    mind,
+                    review,
+                    synth_category,
+                    synth_model,
+                    start,
+                    now,
+                )
+                .await
+            }
         }
     }
 
@@ -1184,6 +1298,7 @@ impl ActiveRunner {
         match self {
             ActiveRunner::Sim(r) => run_monthly_review(r, pool, envelopes, now).await,
             ActiveRunner::Kalshi(r) => run_monthly_review(r, pool, envelopes, now).await,
+            ActiveRunner::PaperLive(r) => run_monthly_review(r, pool, envelopes, now).await,
         }
     }
 
@@ -1194,6 +1309,7 @@ impl ActiveRunner {
         match self {
             ActiveRunner::Sim(r) => registry_from(r),
             ActiveRunner::Kalshi(r) => registry_from(r),
+            ActiveRunner::PaperLive(r) => registry_from(r),
         }
     }
 
@@ -1208,6 +1324,7 @@ impl ActiveRunner {
         match self {
             ActiveRunner::Sim(r) => r.boards_json(),
             ActiveRunner::Kalshi(_) => serde_json::json!({}),
+            ActiveRunner::PaperLive(_) => serde_json::json!({}),
         }
     }
 
@@ -1228,7 +1345,12 @@ impl ActiveRunner {
     pub fn rota_views(&self, generated_at: &str) -> serde_json::Value {
         match self {
             ActiveRunner::Sim(r) => crate::views::views_from(r, generated_at),
-            ActiveRunner::Kalshi(r) => kalshi_rota_views(r, generated_at),
+            ActiveRunner::Kalshi(r) => {
+                paper_data_rota_views(r, generated_at, "kalshi", "kalshi-paper")
+            }
+            ActiveRunner::PaperLive(r) => {
+                paper_data_rota_views(r, generated_at, "paper-live", "kalshi-prod-paper")
+            }
         }
     }
 }
@@ -1242,9 +1364,11 @@ impl ActiveRunner {
 /// `positions()` read — a Phase-2 follow-on), never a fabricated value. Pure +
 /// clock-free (the caller passes `generated_at`), so the between-segments
 /// `try_write` stays panic-free, mirroring `views_from`.
-fn kalshi_rota_views<J: fortuna_exec::IntentJournal + Send>(
-    runner: &SimRunner<KalshiVenue, J>,
+fn paper_data_rota_views<V: Venue + 'static, J: fortuna_exec::IntentJournal + Send>(
+    runner: &SimRunner<V, J>,
     generated_at: &str,
+    venue_id: &str,
+    basis: &str,
 ) -> serde_json::Value {
     let c = runner.counters();
     let quant = |p: f64| match c.fill_latency.quantile_ms(p) {
@@ -1264,7 +1388,7 @@ fn kalshi_rota_views<J: fortuna_exec::IntentJournal + Send>(
         "health": {
             "generated_at": generated_at,
             "stage": "paper",
-            "venue": "kalshi",
+            "venue": venue_id,
             "halt_active": halt_active,
             "halt_reason": halt_reason,
             "rearm_requires_restart": halt_active,
@@ -1275,7 +1399,7 @@ fn kalshi_rota_views<J: fortuna_exec::IntentJournal + Send>(
             "fill_latency_p99_ms": quant(0.99),
             "dead_man_last_ping_age_secs": serde_json::Value::Null,
             "venues": [ {
-                "id": "kalshi",
+                "id": venue_id,
                 "healthy": c.venue_api_errors == 0,
                 "api_error_count": c.venue_api_errors,
             } ],
@@ -1288,7 +1412,7 @@ fn kalshi_rota_views<J: fortuna_exec::IntentJournal + Send>(
         "streams": {
             "generated_at": generated_at,
             "venue_api_errors_total": c.venue_api_errors,
-            "venues": [ { "id": "kalshi" } ],
+            "venues": [ { "id": venue_id } ],
         },
         // HONEST-UNAVAILABLE (never fabricated): the live-venue account, money,
         // settlement and positions panels need the async Venue reads
@@ -1297,7 +1421,7 @@ fn kalshi_rota_views<J: fortuna_exec::IntentJournal + Send>(
         "money": {
             "generated_at": generated_at,
             "available": false,
-            "basis": "kalshi-paper",
+            "basis": basis,
             "reason": "live-venue account view (async Venue::account) is a Phase-2 follow-on",
         },
         "settlement": {
@@ -1971,6 +2095,10 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                 Vec::new()
                             }
                         };
+                        let mut day_sets: BTreeMap<
+                            (String, String),
+                            Result<Vec<fortuna_venues::kalshi::dto::KalshiMarket>, String>,
+                        > = BTreeMap::new();
                         for r in rows {
                             // Untrusted payload: try the `{forecasts:[...]}` wrapper
                             // (the recorded envelope shape), then a single envelope. A
@@ -2011,14 +2139,36 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                 // Discover the live day-set for the target date. An Err
                                 // alerts + skips this forecast; an empty day-set (no
                                 // live market) is simply nothing to trade.
-                                let day = match ws.day_set(series, fc.target_date()).await {
-                                    Ok(d) => d,
-                                    Err(e) => {
+                                let target_date = fc.target_date().to_string();
+                                let day_key = (series.to_string(), target_date.clone());
+                                let fetched = if day_sets.contains_key(&day_key) {
+                                    false
+                                } else {
+                                    let day = ws
+                                        .day_set(series, &target_date)
+                                        .await
+                                        .map_err(|e| e.to_string());
+                                    day_sets.insert(day_key.clone(), day);
+                                    true
+                                };
+                                let day = match day_sets.get(&day_key) {
+                                    Some(Ok(d)) => d.clone(),
+                                    Some(Err(e)) => {
+                                        if fetched {
+                                            alerts.push((
+                                                fortuna_ops::MessageKind::Ops,
+                                                format!(
+                                                "weather day_set FAILED (series {series}, {target_date}): {e}"
+                                            ),
+                                            ));
+                                        }
+                                        continue;
+                                    }
+                                    None => {
                                         alerts.push((
                                             fortuna_ops::MessageKind::Ops,
                                             format!(
-                                                "weather day_set FAILED (series {series}, {}): {e}",
-                                                fc.target_date()
+                                                "weather day_set cache missed (series {series}, {target_date}) — forecast skipped"
                                             ),
                                         ));
                                         continue;
@@ -3720,12 +3870,13 @@ fn reconciliation_context<
         c.gate_rejections,
         open_positions,
     );
+    let at = now.checked_add_millis(-1).unwrap_or(now);
     vec![ContextItem {
         item_id: "recon-account".to_string(),
         section: SectionKind::AccountState,
         content_hash: content_hash_of(&body),
         body,
-        at: now,
+        at,
     }]
 }
 
@@ -3883,17 +4034,21 @@ fn weekly_review_context<
 ) -> Vec<ContextItem> {
     let c = runner.counters();
     let body = format!(
-        "Weekly review as of {} (counters since boot): {} fills applied, {} orders submitted.",
+        "Weekly review as of {} (counters since boot): {} fills applied, {} orders submitted.\n\
+         Return a MindOutput with empty beliefs and empty proposals. Set journal.body to a \
+         JSON string matching exactly this object shape: {{\"commentary\":\"operator-facing \
+         weekly review summary\",\"lesson_candidates\":[]}}. Do not set journal to null.",
         now.to_iso8601(),
         c.fills_applied,
         c.orders_submitted,
     );
+    let at = now.checked_add_millis(-1).unwrap_or(now);
     vec![ContextItem {
         item_id: "weekly-review".to_string(),
         section: SectionKind::AccountState,
         content_hash: content_hash_of(&body),
         body,
-        at: now,
+        at,
     }]
 }
 

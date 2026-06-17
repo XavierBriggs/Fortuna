@@ -30,6 +30,18 @@ fn cfg_with(venue: &str, stage: &str, kalshi_block: Option<&str>) -> String {
     }
 }
 
+fn cfg_with_data_execution(data_source: &str, execution: &str) -> String {
+    cfg_with("kalshi", "paper", Some(KALSHI_OK)).replacen(
+        "stage = \"paper\"              # I7 validation stage: sim | paper | live_min | scaled.",
+        &format!(
+            "stage = \"paper\"              # I7 validation stage: sim | paper | live_min | scaled.\n\
+             data_source = \"{data_source}\"\n\
+             execution = \"{execution}\""
+        ),
+        1,
+    )
+}
+
 /// A valid `[kalshi]` block (non-empty series + bracket_sets).
 const KALSHI_OK: &str = "[kalshi]\n\
      series = [\"KXHIGHNY\"]\n\
@@ -79,6 +91,30 @@ fn kalshi_at_paper_with_kalshi_section_boots() {
     assert_eq!(k.bracket_sets.len(), 1);
     cfg.validate_bootable()
         .expect("kalshi @ paper with a non-empty [kalshi] boots");
+}
+
+#[test]
+fn kalshi_prod_data_with_paper_execution_boots() {
+    let cfg = DaemonToml::parse(&cfg_with_data_execution("kalshi_prod", "paper")).expect("parses");
+    assert_eq!(cfg.daemon.data_source.as_deref(), Some("kalshi_prod"));
+    assert_eq!(cfg.daemon.execution.as_deref(), Some("paper"));
+    cfg.validate_bootable()
+        .expect("kalshi production data with paper execution boots");
+}
+
+#[test]
+fn kalshi_prod_data_with_real_execution_is_refused() {
+    let cfg = DaemonToml::parse(&cfg_with_data_execution("kalshi_prod", "kalshi")).expect("parses");
+    match cfg.validate_bootable() {
+        Err(BootError::VenueNotBootable { venue, reason }) => {
+            assert_eq!(venue, "kalshi");
+            assert!(
+                reason.contains("execution") && reason.contains("I7"),
+                "reason must cite execution refusal and I7: {reason}"
+            );
+        }
+        other => panic!("kalshi_prod data with real execution must refuse, got {other:?}"),
+    }
 }
 
 #[test]

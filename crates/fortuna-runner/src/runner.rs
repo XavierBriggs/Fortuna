@@ -775,17 +775,23 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
         let mut report = TickReport::default();
         self.counters.ticks += 1;
 
+        // 0. External market-data refresh hook. Most venues are already
+        // authoritative on `book()` and keep the default no-op. Paper-on-live
+        // composites use this to pull live books/trades into local paper state
+        // before the tick publishes BookSnapshot events.
+        self.venue
+            .refresh_market_data_for_markets(&self.markets)
+            .await?;
+
         // 0. Catalog refresh: venue lifecycle statuses are watchdog inputs
-        // (dispute freezes, overdue clocks) and gate book fetches below.
+        // (dispute freezes, overdue clocks) and gate book fetches below. We
+        // request ALL statuses (default filter), NOT Trading-only: a Disputed /
+        // Settled / Voided market must still enter `market_meta` or the watchdog
+        // can never see it (a Trading-only filter silently starves the
+        // dispute-freeze + overdue + terminal-skip paths). The KalshiVenue scopes
+        // `markets()` to the configured series, so this stays bounded.
         // An outage here keeps the last-known catalog (point-in-time data).
-        if let Ok(markets) = self
-            .venue
-            .markets(MarketFilter {
-                category: None,
-                status: Some(MarketStatus::Trading),
-            })
-            .await
-        {
+        if let Ok(markets) = self.venue.markets(MarketFilter::default()).await {
             for m in markets {
                 self.market_meta.insert(m.id.clone(), m);
             }
@@ -2926,6 +2932,7 @@ mod a3_type_level {
     //! these stop compiling (the binding type-check) or fail (the cash assert).
     use super::*;
     use crate::MemoryAuditSink;
+    use crate::{StrategyKind, StrategyMetrics};
     use async_trait::async_trait;
     use fortuna_core::book::{Fill, FillPage, OrderBook};
     use fortuna_core::market::{Action, ClientOrderId, VenueOrderId};
@@ -3189,7 +3196,12 @@ mod a3_type_level {
     }
 
     #[test]
-    fn catalog_refresh_requests_trading_markets_only() {
+    fn catalog_refresh_requests_all_statuses_so_the_watchdog_sees_lifecycle() {
+        // The catalog refresh feeds the lifecycle watchdogs (dispute freeze,
+        // overdue, terminal-skip), so it MUST request every status — a
+        // Trading-only filter silently hides Disputed/Settled/Voided markets and
+        // the watchdog can never act on them (regression: settlement_dst dispute
+        // arm). The venue scopes the catalog to its configured series.
         let start = UtcTimestamp::parse_iso8601("2026-06-10T12:00:00.000Z").unwrap();
         let filters = Arc::new(Mutex::new(Vec::new()));
         let venue = RecordingVenue::new(filters.clone());
@@ -3213,10 +3225,189 @@ mod a3_type_level {
                 .lock()
                 .expect("recorded market filters lock")
                 .as_slice(),
-            &[MarketFilter {
-                category: None,
-                status: Some(MarketStatus::Trading),
-            }]
+            &[MarketFilter::default()],
+            "catalog refresh must request all statuses (default filter) for the watchdog"
+        );
+    }
+
+    fn paper_live_market() -> Market {
+        Market {
+            id: MarketId::new("KXTEST-26JUN16-T50").expect("market id parses"),
+            venue: VenueId::new("paper-live").expect("venue id parses"),
+            title: "Will the test settle yes?".into(),
+            category: "weather".into(),
+            status: MarketStatus::Trading,
+            close_at: None,
+            settlement: fortuna_venues::SettlementMeta {
+                oracle_type: "weather".into(),
+                resolution_source: "test".into(),
+                expected_lag_hours: 1,
+            },
+            volume_contracts: Some(10),
+            payout_per_contract: Cents::new(100),
+        }
+    }
+
+    fn kalshi_series_body() -> serde_json::Value {
+        serde_json::json!({
+            "series": {
+                "ticker": "KXTEST",
+                "title": "Test series",
+                "category": "weather",
+                "fee_type": "quadratic",
+                "fee_multiplier": 1.0,
+                "settlement_sources": [{"name": "test", "url": "https://example.test/rules"}]
+            }
+        })
+    }
+
+    fn kalshi_markets_body() -> serde_json::Value {
+        serde_json::json!({
+            "markets": [{
+                "ticker": "KXTEST-26JUN16-T50",
+                "event_ticker": "KXTEST-26JUN16",
+                "market_type": "binary",
+                "title": "Will the test settle yes?",
+                "yes_sub_title": "Yes",
+                "no_sub_title": "No",
+                "status": "active",
+                "strike_type": "greater",
+                "floor_strike": 50,
+                "close_time": "2026-06-16T17:00:00Z",
+                "settlement_timer_seconds": 3600,
+                "notional_value_dollars": "1.0000",
+                "price_level_structure": "linear_cent",
+                "volume_fp": "10.00"
+            }],
+            "cursor": ""
+        })
+    }
+
+    fn kalshi_book_body() -> serde_json::Value {
+        serde_json::json!({
+            "orderbook_fp": {
+                "yes_dollars": [["0.3000", "4.00"]],
+                "no_dollars": [["0.4000", "5.00"]]
+            }
+        })
+    }
+
+    #[derive(Clone)]
+    struct BookQuoteRecorder {
+        seen: Arc<Mutex<Vec<(Cents, Cents)>>>,
+    }
+
+    #[async_trait]
+    impl Strategy for BookQuoteRecorder {
+        fn id(&self) -> StrategyId {
+            StrategyId::new("paper_live_quote_recorder").expect("strategy id parses")
+        }
+
+        fn kind(&self) -> StrategyKind {
+            StrategyKind::Mechanical
+        }
+
+        fn stage(&self) -> Stage {
+            Stage::Paper
+        }
+
+        async fn on_event(
+            &mut self,
+            ev: &fortuna_core::bus::BusEvent,
+            core: &CoreHandle<'_>,
+        ) -> Result<Vec<Proposal>, RunnerError> {
+            if let fortuna_core::bus::EventPayload::BookSnapshot { book, .. } = &ev.payload {
+                let snapshot = core
+                    .books
+                    .get(&book.market)
+                    .ok_or_else(|| RunnerError::Config {
+                        reason: format!("missing core book for {}", book.market),
+                    })?;
+                self.seen
+                    .lock()
+                    .expect("quote recorder lock")
+                    .push((snapshot.yes_bids[0].price, snapshot.yes_asks[0].price));
+            }
+            Ok(Vec::new())
+        }
+
+        fn metrics(&self) -> StrategyMetrics {
+            StrategyMetrics::default()
+        }
+    }
+
+    #[test]
+    fn tick_refreshes_paper_live_before_book_snapshot_dispatch() {
+        use fortuna_paper::{PaperConfig, PaperLiveVenue};
+        use fortuna_venues::kalshi::client::{KalshiTransport, MockKalshiTransport};
+        use fortuna_venues::kalshi::KalshiReadClient;
+
+        let start = UtcTimestamp::parse_iso8601("2026-06-16T12:00:00.000Z").unwrap();
+        let mock = Arc::new(MockKalshiTransport::new());
+        mock.push_ok(200, kalshi_series_body());
+        mock.push_ok(200, kalshi_markets_body());
+        mock.push_ok(200, kalshi_book_body());
+        mock.push_ok(
+            200,
+            serde_json::json!({
+                "trades": [],
+                "cursor": ""
+            }),
+        );
+        mock.push_ok(200, kalshi_markets_body());
+        mock.push_ok(200, kalshi_book_body());
+
+        let clock = Arc::new(SimClock::new(start));
+        let mut config = minimal_config();
+        config.markets = vec![paper_live_market()];
+        let fees = config.fee_model.clone();
+        let read = KalshiReadClient::new(
+            mock.clone() as Arc<dyn KalshiTransport>,
+            clock.clone(),
+            vec!["KXTEST".to_string()],
+        )
+        .expect("read client constructs");
+        let venue = PaperLiveVenue::new(
+            read,
+            clock.clone(),
+            fees,
+            PaperConfig {
+                maker_haircut_pct: 100,
+            },
+            Cents::new(1_000_000),
+        )
+        .expect("paper-live venue constructs");
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let strategy: Box<dyn Strategy> = Box::new(BookQuoteRecorder { seen: seen.clone() });
+
+        let mut runner = futures::executor::block_on(SimRunner::new_with_venue(
+            config,
+            vec![strategy],
+            Box::new(MemoryAuditSink::default()),
+            start,
+            MemoryJournal::default(),
+            venue,
+            clock,
+            &[Stage::Sim, Stage::Paper],
+        ))
+        .expect("runner constructs with paper-live venue");
+
+        futures::executor::block_on(runner.tick()).expect("paper-live tick succeeds");
+
+        assert_eq!(
+            seen.lock().expect("quote recorder lock").as_slice(),
+            &[(Cents::new(30), Cents::new(60))]
+        );
+        let calls = mock.calls();
+        assert_eq!(calls[0].path, "/series/KXTEST");
+        assert_eq!(calls[1].path, "/markets");
+        assert_eq!(calls[2].path, "/markets/KXTEST-26JUN16-T50/orderbook");
+        assert_eq!(calls[3].path, "/markets/trades");
+        assert_eq!(calls[4].path, "/markets");
+        assert_eq!(calls[5].path, "/markets/KXTEST-26JUN16-T50/orderbook");
+        assert!(
+            calls.iter().all(|call| call.method == "GET"),
+            "paper-live tick must only issue live data reads: {calls:?}"
         );
     }
 

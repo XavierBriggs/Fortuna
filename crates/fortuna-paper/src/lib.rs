@@ -46,6 +46,9 @@ use fortuna_venues::{
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+pub mod paper_live;
+pub use paper_live::PaperLiveVenue;
+
 /// Paper-engine configuration.
 #[derive(Debug, Clone)]
 pub struct PaperConfig {
@@ -98,6 +101,7 @@ pub struct PaperVenue {
     clock: Arc<dyn Clock>,
     fees: ScheduleFeeModel,
     config: PaperConfig,
+    id_prefix: String,
     state: Mutex<State>,
 }
 
@@ -108,6 +112,17 @@ impl PaperVenue {
         fees: ScheduleFeeModel,
         config: PaperConfig,
         starting_cash: Cents,
+    ) -> Result<PaperVenue, VenueError> {
+        Self::new_with_id_prefix(venue_id, clock, fees, config, starting_cash, String::new())
+    }
+
+    pub(crate) fn new_with_id_prefix(
+        venue_id: VenueId,
+        clock: Arc<dyn Clock>,
+        fees: ScheduleFeeModel,
+        config: PaperConfig,
+        starting_cash: Cents,
+        id_prefix: String,
     ) -> Result<PaperVenue, VenueError> {
         if config.maker_haircut_pct == 0 || config.maker_haircut_pct > 100 {
             return Err(VenueError::Invalid {
@@ -122,6 +137,7 @@ impl PaperVenue {
             clock,
             fees,
             config,
+            id_prefix,
             state: Mutex::new(State {
                 markets: BTreeMap::new(),
                 settlement_notices: Vec::new(),
@@ -139,6 +155,22 @@ impl PaperVenue {
 
     fn lock(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn paper_order_id(&self, seq: u64) -> String {
+        if self.id_prefix.is_empty() {
+            format!("paper-{seq}")
+        } else {
+            format!("paper-{}-{seq}", self.id_prefix)
+        }
+    }
+
+    fn paper_fill_id(&self, seq: u64) -> String {
+        if self.id_prefix.is_empty() {
+            format!("p-{seq}")
+        } else {
+            format!("p-{}-{seq}", self.id_prefix)
+        }
     }
 
     pub fn add_market(&self, market: Market) {
@@ -461,7 +493,7 @@ impl PaperVenue {
         }
         let seq = st.fills.len() as u64;
         let fill = Fill {
-            fill_id: format!("p-{seq}"),
+            fill_id: self.paper_fill_id(seq),
             venue_order_id: id.clone(),
             client_order_id: req.client_order_id.clone(),
             market: req.market.clone(),
@@ -664,7 +696,7 @@ impl Venue for PaperVenue {
         }
         let seq = st.next_seq;
         st.next_seq += 1;
-        let id = VenueOrderId::new(format!("paper-{seq}")).map_err(|e| VenueError::Invalid {
+        let id = VenueOrderId::new(self.paper_order_id(seq)).map_err(|e| VenueError::Invalid {
             reason: e.to_string(),
         })?;
         st.by_coid

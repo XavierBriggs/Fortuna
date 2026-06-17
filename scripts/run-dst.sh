@@ -41,6 +41,9 @@ FUNDING_FORECAST_DST_SCENARIOS="$N" cargo test -p fortuna-runner --test funding_
 # TRACK C slice 3b: the perp_event_basis propose-only basis strategy under
 # PerpTick mark chaos + book perturbations (proposals-only-when-tradeable).
 PERP_EVENT_BASIS_DST_SCENARIOS="$N" cargo test -p fortuna-runner --test perp_event_basis_dst -- --nocapture
+# Paper-on-live read/proxy replay: live-data mock, local paper execution,
+# through-not-touch fills, deterministic replay, GET-only Kalshi calls.
+cargo test -p fortuna-runner --test paper_live_dst -- --nocapture
 # Track E E.3c: the persona runner under the cost budget + chaos mind (budget
 # throttle, signal absence, schema-invalid findings, coalesced re-triggers).
 PERSONA_DST_SCENARIOS="$N" cargo test -p fortuna-cognition --test persona_dst -- --nocapture

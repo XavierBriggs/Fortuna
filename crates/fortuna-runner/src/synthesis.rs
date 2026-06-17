@@ -148,6 +148,10 @@ impl Strategy for SynthesisStrategy {
         if quotes.is_empty() {
             return Ok(Vec::new());
         }
+        if !quotes.iter().any(|q| q.market == edge.market) {
+            return Ok(Vec::new());
+        }
+        let trigger_at = ev.at.checked_add_millis(1)?;
         // Context: the point-in-time market snapshot the mind reasons
         // over (assembled, budgeted, and manifest-hashed by the cycle).
         let items: Vec<ContextItem> = quotes
@@ -162,7 +166,7 @@ impl Strategy for SynthesisStrategy {
                     section: SectionKind::MarketSnapshot,
                     content_hash: content_hash_of(&body),
                     body,
-                    at: core.now,
+                    at: ev.at,
                 }
             })
             .collect();
@@ -175,7 +179,7 @@ impl Strategy for SynthesisStrategy {
                 &items,
                 &self.edges,
                 &quotes,
-                core.now,
+                trigger_at,
             )
             .await
         {

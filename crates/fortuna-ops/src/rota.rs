@@ -1681,9 +1681,10 @@ async fn belief_lifecycle(pool: &PgPool) -> Result<Value, sqlx::Error> {
 /// snapshot's `generated_at` (the daemon's last clock read): its date prefix
 /// selects today's dir and its instant is "now" for the age, so this stays
 /// clock-free and deterministic under test. `rows_today` / `key_count` (which
-/// need a content read) are deferred — see GAPS. `healthy = age < 120s` (two
-/// missed 30s recorder cycles). Absent/unreadable dir => empty array, never a
-/// panic (the panel degrades, never 500s).
+/// need a content read) are deferred — see GAPS. `healthy` uses the stream's
+/// capture cadence: most streams are 30s (`age < 120s` = two missed cycles),
+/// while `risk_parameters` is captured hourly (`age < 7200s`). Absent/unreadable
+/// dir => empty array, never a panic (the panel degrades, never 500s).
 pub fn scan_recorder(perishable_dir: &Path, generated_at: &str) -> Value {
     // A malformed timestamp leaves "now" UNKNOWN — never default it to 0 (that
     // clamps every age to 0 => a fabricated healthy:true, audit-tail-fix gate
@@ -1724,7 +1725,9 @@ pub fn scan_recorder(perishable_dir: &Path, generated_at: &str) -> Value {
                     "stream": stream,
                     "last_capture_age_secs": age,
                     "size_bytes": md.len(),
-                    "healthy": age.map(|a| a < 120).unwrap_or(false),
+                    "healthy": age
+                        .map(|a| a < recorder_freshness_limit_secs(&stream))
+                        .unwrap_or(false),
                 })
             }
             Err(_) => json!({
@@ -1737,6 +1740,13 @@ pub fn scan_recorder(perishable_dir: &Path, generated_at: &str) -> Value {
         out.push(entry);
     }
     Value::Array(out)
+}
+
+fn recorder_freshness_limit_secs(stream: &str) -> i64 {
+    match stream {
+        "risk_parameters" => 7_200,
+        _ => 120,
+    }
 }
 
 async fn view_streams(State(s): State<RotaState>) -> impl IntoResponse {

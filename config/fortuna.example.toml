@@ -47,6 +47,15 @@ sustained_per_min = 20
 market_burst = 3
 market_sustained_per_min = 10
 
+# Paper-on-live uses Kalshi production market data but submits only to the local
+# paper ledger. It has its own venue id so gates cannot confuse paper execution
+# with a real Kalshi order path.
+[gates.rate."paper-live"]
+burst = 5
+sustained_per_min = 20
+market_burst = 3
+market_sustained_per_min = 10
+
 [gates.rate.sim]
 burst = 100
 sustained_per_min = 600
@@ -127,6 +136,12 @@ stage = "sim"              # I7 validation stage: sim | paper | live_min | scale
                            # stage="paper" (mock funds, real venue); live_min/scaled are
                            # REFUSED at boot — promotion is a human action through the
                            # forward-validation gate (I7), never a config flip.
+# Optional composite mode: live Kalshi PROD market data, local paper execution.
+# When set, both fields are required exactly as shown; any real execution target
+# is refused at boot. Requires PROD read credentials in env:
+# KALSHI_API_KEY_ID + KALSHI_PRIVATE_KEY_PATH.
+# data_source = "kalshi_prod"
+# execution = "paper"
 tick_interval_ms = 1000    # for venue="kalshi" raise to >= 5000 (each tick does real HTTP)
 halt_poll_ms = 500         # ASSUMPTIONS pin: halt-state poll <= 500ms
 metrics_bind = "127.0.0.1:9187"   # GET-only Prometheus; wider exposure is operator config

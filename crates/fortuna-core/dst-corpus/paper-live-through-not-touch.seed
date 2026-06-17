@@ -1,0 +1,6 @@
+# harness: paper-live-dst
+# Paper-on-live replay anchor: live Kalshi read mock feeds a local PaperLiveVenue.
+# A public print AT the resting limit must produce zero fills; a later print
+# strictly THROUGH the limit produces paper-only maker fills. Replaying the same
+# seed must return byte-identical fills and no order/cancel transport calls.
+1721110420616000001

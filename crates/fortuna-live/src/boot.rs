@@ -142,6 +142,17 @@ pub struct DaemonSection {
     /// action through the forward-validation gate, I7).
     #[serde(default = "default_stage")]
     pub stage: String,
+    /// Optional explicit data source for composite modes. Absent preserves the
+    /// legacy matrix (`venue=sim` or `venue=kalshi` demo). `kalshi_prod` is
+    /// read-only live Kalshi production data and must be paired with
+    /// `execution = "paper"`.
+    #[serde(default)]
+    pub data_source: Option<String>,
+    /// Optional explicit execution target for composite modes. Absent preserves
+    /// legacy execution semantics. For `data_source = "kalshi_prod"`, only
+    /// `paper` is bootable; real Kalshi execution remains refused by I7.
+    #[serde(default)]
+    pub execution: Option<String>,
     pub tick_interval_ms: u64,
     pub halt_poll_ms: u64,
     pub metrics_bind: String,
@@ -507,6 +518,56 @@ impl DaemonToml {
 
     /// Boot checks beyond parsing: venue gating and operational pins.
     pub fn validate_bootable(&self) -> Result<(), BootError> {
+        if let Some(data_source) = self.daemon.data_source.as_deref() {
+            match data_source {
+                "kalshi_prod" => {
+                    if self.daemon.venue != "kalshi" || self.daemon.stage != "paper" {
+                        return Err(BootError::BadConfig {
+                            reason: format!(
+                                "data_source = \"kalshi_prod\" requires venue = \"kalshi\" and \
+                                 stage = \"paper\" (got venue = {:?}, stage = {:?})",
+                                self.daemon.venue, self.daemon.stage
+                            ),
+                        });
+                    }
+                    match self.daemon.execution.as_deref() {
+                        Some("paper") => {}
+                        Some(other) => {
+                            return Err(BootError::VenueNotBootable {
+                                venue: "kalshi".to_string(),
+                                reason: format!(
+                                    "data_source=kalshi_prod with execution={other:?} is refused: \
+                                     production Kalshi data is bootable only with local paper \
+                                     execution until an operator promotion record exists (I7)"
+                                ),
+                            });
+                        }
+                        None => {
+                            return Err(BootError::BadConfig {
+                                reason: "data_source = \"kalshi_prod\" requires explicit \
+                                         execution = \"paper\""
+                                    .to_string(),
+                            });
+                        }
+                    }
+                }
+                other => {
+                    return Err(BootError::BadConfig {
+                        reason: format!(
+                            "unknown daemon data_source {other:?} (expected kalshi_prod)"
+                        ),
+                    });
+                }
+            }
+        } else if let Some(execution) = self.daemon.execution.as_deref() {
+            return Err(BootError::BadConfig {
+                reason: format!(
+                    "execution = {execution:?} requires an explicit data_source; omit both for \
+                     legacy venue execution"
+                ),
+            });
+        }
+
         match self.daemon.venue.as_str() {
             "sim" => {
                 // The Sim venue runs ONLY at Stage::Sim — a "sim"+non-sim-stage

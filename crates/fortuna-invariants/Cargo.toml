@@ -20,6 +20,7 @@ fortuna-killswitch = { path = "../fortuna-killswitch" }
 fortuna-cognition = { path = "../fortuna-cognition" }
 fortuna-runner = { path = "../fortuna-runner" }
 fortuna-exec = { path = "../fortuna-exec" }
+fortuna-paper = { path = "../fortuna-paper" }
 # I4 revocation invariant (C2): exercises the RevocationHaltPoller wrapper that
 # CONSUMES the killswitch sentinel. DEV-only — it does not enter the killswitch's
 # own dependency graph (i4_killswitch_independence walks fortuna-killswitch's

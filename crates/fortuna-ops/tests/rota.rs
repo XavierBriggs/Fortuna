@@ -372,7 +372,7 @@ async fn shell_is_gold_on_black_html() {
 
 #[test]
 fn scan_recorder_stats_todays_streams_cheaply_and_flags_staleness() {
-    let (base, now_ms, _today) = temp_perishable("scan");
+    let (base, now_ms, today) = temp_perishable("scan");
 
     // FRESH: generated_at = now + 5s => ages ~5s, both streams healthy.
     let gen_fresh = UtcTimestamp::from_epoch_millis(now_ms + 5_000)
@@ -405,6 +405,22 @@ fn scan_recorder_stats_todays_streams_cheaply_and_flags_staleness() {
             .as_i64()
             .unwrap()
             >= 120
+    );
+    std::fs::write(
+        base.join(&today).join("risk_parameters.jsonl"),
+        b"{\"risk\":\"hourly\"}\n",
+    )
+    .unwrap();
+    let rec3 = scan_recorder(&base, &gen_old);
+    let risk = rec3
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["stream"] == "risk_parameters")
+        .expect("risk parameters stream appears");
+    assert_eq!(
+        risk["healthy"], true,
+        "risk_parameters is captured hourly, so 200s is still fresh: {rec3}"
     );
 
     // MISSING today-dir => empty array, never a panic, never a 500.

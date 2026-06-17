@@ -42,7 +42,7 @@ use crate::{
 use async_trait::async_trait;
 use fortuna_core::book::{FeeModel, FillRole, OrderBook, PriceLevel};
 use fortuna_core::clock::{Clock, UtcTimestamp};
-use fortuna_core::market::{ClientOrderId, MarketId, VenueId, VenueOrderId};
+use fortuna_core::market::{ClientOrderId, Contracts, MarketId, VenueId, VenueOrderId};
 use fortuna_core::money::Cents;
 use fortuna_gates::GatedOrder;
 use rust_decimal::Decimal;
@@ -425,13 +425,17 @@ impl KalshiVenue {
                         .map_err(VenueError::Money)?
                 }
             };
+            let qty = dto::parse_count_floor(&t.count_fp)?;
+            if qty <= 0 {
+                continue;
+            }
             out.push(PublicTrade {
                 market: MarketId::new(t.ticker.clone()).map_err(|e| VenueError::Invalid {
                     reason: format!("venue returned an empty trade ticker: {e}"),
                 })?,
                 yes_price,
                 // Floor: a partial-lot print must not over-state traded quantity.
-                qty: dto::parse_count_floor(&t.count_fp)?,
+                qty,
                 ts: fill_time(t.created_time.as_deref(), None, self.clock.now())?,
             });
         }
@@ -514,27 +518,44 @@ impl Venue for KalshiVenue {
             .await?;
         // Research §4 (doc-verbatim): the book returns YES bids and NO bids
         // only; "a bid for yes at price X is equivalent to an ask for no at
-        // price (100-X)", levels best-to-worst. Canonical form: NO bid at q
-        // becomes a YES ask at 100-q, order preserved (best NO bid = highest
-        // q = lowest mirrored ask). NO-leg pricing of `no_dollars` is
-        // fixture checklist #20.
-        let mut yes_bids = Vec::with_capacity(resp.orderbook_fp.yes_dollars.len());
+        // price (100-X)". Live REST payloads are not consistently sorted, and
+        // fractional depth is possible. Canonical form therefore floors
+        // quantities, drops sub-one lots, aggregates same-price levels, and
+        // sorts YES bids descending / YES asks ascending.
+        let mut bid_levels: BTreeMap<i64, i64> = BTreeMap::new();
         for level in &resp.orderbook_fp.yes_dollars {
-            yes_bids.push(PriceLevel {
-                price: dto::parse_dollars_to_cents_exact(&level[0])?,
-                qty: dto::parse_count_integral(&level[1])?,
-            });
+            let qty = dto::parse_count_floor(&level[1])?;
+            if qty > 0 {
+                let price = dto::parse_dollars_to_cents_exact(&level[0])?;
+                add_book_level(&mut bid_levels, price, qty)?;
+            }
         }
-        let mut yes_asks = Vec::with_capacity(resp.orderbook_fp.no_dollars.len());
+        let mut ask_levels: BTreeMap<i64, i64> = BTreeMap::new();
         for level in &resp.orderbook_fp.no_dollars {
             let no_price = dto::parse_dollars_to_cents_exact(&level[0])?;
-            yes_asks.push(PriceLevel {
-                price: Cents::new(100)
+            let qty = dto::parse_count_floor(&level[1])?;
+            if qty > 0 {
+                let yes_price = Cents::new(100)
                     .checked_sub(no_price)
-                    .map_err(VenueError::Money)?,
-                qty: dto::parse_count_integral(&level[1])?,
-            });
+                    .map_err(VenueError::Money)?;
+                add_book_level(&mut ask_levels, yes_price, qty)?;
+            }
         }
+        let yes_bids = bid_levels
+            .iter()
+            .rev()
+            .map(|(price, qty)| PriceLevel {
+                price: Cents::new(*price),
+                qty: Contracts::new(*qty),
+            })
+            .collect();
+        let yes_asks = ask_levels
+            .iter()
+            .map(|(price, qty)| PriceLevel {
+                price: Cents::new(*price),
+                qty: Contracts::new(*qty),
+            })
+            .collect();
         let book = OrderBook {
             market: market.clone(),
             as_of: self.clock.now(),
@@ -953,6 +974,18 @@ impl Venue for KalshiVenue {
     fn fee_model(&self) -> &dyn FeeModel {
         &self.fees
     }
+}
+
+fn add_book_level(
+    levels: &mut BTreeMap<i64, i64>,
+    price: Cents,
+    qty: i64,
+) -> Result<(), VenueError> {
+    let slot = levels.entry(price.raw()).or_insert(0);
+    *slot = slot.checked_add(qty).ok_or_else(|| VenueError::Invalid {
+        reason: format!("kalshi book quantity overflow at price {price}"),
+    })?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

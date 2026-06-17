@@ -600,8 +600,17 @@ fn settlement_and_watchdog_paths_survive_seeded_chaos() {
     let mut total_watchdog_rows = 0usize;
     let mut total_halts = 0u64;
 
-    for _ in 0..scenarios {
-        let seed = master_rng.next_u64();
+    // Pinned regression seeds (DST hygiene: a red seed is pinned forever). These
+    // scenario seeds are Dispute arms that exposed the Trading-only-catalog
+    // dispute-freeze regression (master 1781687958164); they MUST stay green
+    // regardless of the random master, alongside the broad random coverage.
+    const PINNED_SEEDS: &[u64] = &[16476906924013345185, 17409615662400427481];
+    let scenario_seeds: Vec<u64> = PINNED_SEEDS
+        .iter()
+        .copied()
+        .chain((0..scenarios).map(|_| master_rng.next_u64()))
+        .collect();
+    for seed in scenario_seeds {
         match run_scenario(seed) {
             Ok(first) => match run_scenario(seed) {
                 Ok(second) if second.recording == first.recording => {

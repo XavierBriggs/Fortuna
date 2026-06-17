@@ -303,6 +303,69 @@ fn book_maps_no_bids_to_yes_asks_at_mirrored_prices() {
 }
 
 #[test]
+fn book_floors_fractional_depth_and_drops_sub_one_levels() {
+    let mut body = sample("orderbook_response.json");
+    body["orderbook_fp"]["yes_dollars"][0][1] = serde_json::json!("1128.60");
+    body["orderbook_fp"]["yes_dollars"][1][1] = serde_json::json!("0.60");
+    body["orderbook_fp"]["no_dollars"][0][1] = serde_json::json!("75.90");
+    body["orderbook_fp"]["no_dollars"][1][1] = serde_json::json!("0.20");
+    let mock = Arc::new(MockKalshiTransport::new());
+    mock.push_ok(200, body);
+    let venue = venue_with(&mock, &["KXHIGHNY"]);
+
+    let market = MarketId::new("HIGHNY-24JAN01-T60").unwrap();
+    let book = block_on(venue.book(&market)).unwrap();
+
+    assert_eq!(book.yes_bids.len(), 1);
+    assert_eq!(
+        (book.yes_bids[0].price, book.yes_bids[0].qty.raw()),
+        (Cents::new(55), 1128),
+        "fractional book depth floors so paper never overstates liquidity"
+    );
+    assert_eq!(book.yes_asks.len(), 1);
+    assert_eq!(
+        (book.yes_asks[0].price, book.yes_asks[0].qty.raw()),
+        (Cents::new(56), 75),
+        "NO bids still mirror to YES asks after flooring depth"
+    );
+    book.validate().unwrap();
+}
+
+#[test]
+fn book_sorts_live_no_dollar_order_after_mirroring() {
+    let mut body = sample("orderbook_response.json");
+    body["orderbook_fp"]["yes_dollars"] = serde_json::json!([["0.0100", "1128.60"]]);
+    body["orderbook_fp"]["no_dollars"] = serde_json::json!([
+        ["0.0100", "902.00"],
+        ["0.0200", "1.00"],
+        ["0.9700", "322.51"],
+        ["0.9800", "106.00"]
+    ]);
+    let mock = Arc::new(MockKalshiTransport::new());
+    mock.push_ok(200, body);
+    let venue = venue_with(&mock, &["KXHIGHNY"]);
+
+    let market = MarketId::new("HIGHNY-24JAN01-T60").unwrap();
+    let book = block_on(venue.book(&market)).unwrap();
+
+    assert_eq!(
+        book.yes_bids
+            .iter()
+            .map(|l| (l.price.raw(), l.qty.raw()))
+            .collect::<Vec<_>>(),
+        vec![(1, 1128)]
+    );
+    assert_eq!(
+        book.yes_asks
+            .iter()
+            .map(|l| (l.price.raw(), l.qty.raw()))
+            .collect::<Vec<_>>(),
+        vec![(2, 106), (3, 322), (98, 1), (99, 902)]
+    );
+    book.validate().unwrap();
+}
+
+#[test]
 fn book_with_sub_cent_level_is_a_hard_error() {
     let mut body = sample("orderbook_response.json");
     body["orderbook_fp"]["yes_dollars"][0][0] = serde_json::json!("0.5550");

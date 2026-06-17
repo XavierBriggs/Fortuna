@@ -17,6 +17,7 @@ fortuna-gates = { path = "../fortuna-gates" }
 fortuna-killswitch = { path = "../fortuna-killswitch" }
 fortuna-ledger = { path = "../fortuna-ledger" }
 fortuna-ops = { path = "../fortuna-ops" }
+fortuna-paper = { path = "../fortuna-paper" }
 fortuna-runner = { path = "../fortuna-runner" }
 fortuna-sources = { path = "../fortuna-sources" }
 fortuna-state = { path = "../fortuna-state" }

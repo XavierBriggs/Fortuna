@@ -90,6 +90,23 @@ pub enum VenueError {
 #[async_trait]
 pub trait Venue: Send + Sync {
     fn id(&self) -> VenueId;
+    /// Optional pre-tick market-data refresh hook. Venues that are already
+    /// authoritative on `book()` can keep the default no-op; composite paper
+    /// venues can use it to ingest live reads into local execution state before
+    /// strategies see the tick's quotes.
+    async fn refresh_market_data(&self) -> Result<(), VenueError> {
+        Ok(())
+    }
+    /// Scoped variant of the pre-tick refresh hook. Runners pass the exact
+    /// market universe they will poll this tick; venues that can refresh only
+    /// those markets should override this. The default preserves existing
+    /// venue behavior.
+    async fn refresh_market_data_for_markets(
+        &self,
+        _markets: &[MarketId],
+    ) -> Result<(), VenueError> {
+        self.refresh_market_data().await
+    }
     async fn markets(&self, filter: MarketFilter) -> Result<Vec<Market>, VenueError>;
     async fn book(&self, market: &MarketId) -> Result<OrderBook, VenueError>;
     async fn place(&self, order: GatedOrder) -> Result<VenueOrderId, VenueError>;

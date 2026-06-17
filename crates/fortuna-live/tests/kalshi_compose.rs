@@ -16,8 +16,8 @@ use fortuna_cognition::mind::{Mind, StubMind};
 use fortuna_core::clock::SimClock;
 use fortuna_live::boot::DaemonToml;
 use fortuna_live::daemon::{
-    build_kalshi_prod_transport, compose_kalshi_runner_with_transport, resolve_kalshi_demo_creds,
-    resolve_kalshi_prod_creds,
+    build_kalshi_prod_transport, compose_kalshi_runner_with_transport,
+    compose_paper_live_runner_with_transport, resolve_kalshi_demo_creds, resolve_kalshi_prod_creds,
 };
 use fortuna_ops::FortunaConfig;
 use fortuna_runner::Stage;
@@ -92,6 +92,16 @@ fn kalshi_dcfg_text() -> String {
     )
 }
 
+fn paper_live_dcfg_text() -> String {
+    kalshi_dcfg_text().replacen(
+        "stage = \"paper\"              # I7 validation stage: sim | paper | live_min | scaled.",
+        "stage = \"paper\"              # I7 validation stage: sim | paper | live_min | scaled.\n\
+             data_source = \"kalshi_prod\"\n\
+             execution = \"paper\"",
+        1,
+    )
+}
+
 /// A non-placeholder demo-credential env, matching the established convention
 /// the fixture recorders use: a valid key id plus `KALSHI_DEMO_PRIVATE_KEY_PATH`
 /// pointing at a freshly-written file holding the throwaway test PEM (so the
@@ -114,7 +124,7 @@ async fn compose_kalshi_runner_builds_a_paper_kalshi_runner(pool: PgPool) {
     let text = kalshi_dcfg_text();
     let dcfg = DaemonToml::parse(&text).expect("kalshi demo config parses");
     dcfg.validate_bootable().expect("kalshi @ paper boots");
-    let full = FortunaConfig::load_file(EXAMPLE_PATH).expect("full config parses");
+    let full = FortunaConfig::load_str(&text).expect("full paper-live config parses");
 
     // The transport-injection seam with a scripted mock — construction issues no
     // venue calls (the catalog is polled lazily in tick(), never driven here), so
@@ -169,6 +179,55 @@ async fn compose_kalshi_runner_builds_a_paper_kalshi_runner(pool: PgPool) {
     assert!(
         transport.calls().is_empty(),
         "compose issues no venue HTTP at construction: {:?}",
+        transport.calls()
+    );
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn compose_paper_live_runner_builds_read_prod_data_paper_execution(pool: PgPool) {
+    let text = paper_live_dcfg_text();
+    let dcfg = DaemonToml::parse(&text).expect("paper-live config parses");
+    dcfg.validate_bootable()
+        .expect("kalshi_prod data + paper execution boots");
+    let full = FortunaConfig::load_file(EXAMPLE_PATH).expect("full config parses");
+
+    let transport = Arc::new(MockKalshiTransport::new());
+    let clock = Arc::new(SimClock::new(t0()));
+
+    let runner = compose_paper_live_runner_with_transport(
+        pool.clone(),
+        &full,
+        &dcfg,
+        t0(),
+        7,
+        clock,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+        transport.clone(),
+    )
+    .await
+    .expect("compose_paper_live_runner_with_transport succeeds against the mock transport");
+
+    assert_eq!(
+        runner.venue().id().as_str(),
+        "paper-live",
+        "the composed venue is the paper-live composite, not KalshiVenue"
+    );
+    let stages = runner.strategy_stages();
+    let synth = stages
+        .iter()
+        .find(|(id, _)| id.as_str() == "synthesis")
+        .expect("the [synthesis] arm composed");
+    assert_eq!(synth.1, Stage::Paper);
+    assert!(
+        stages
+            .iter()
+            .any(|(id, _)| id.as_str() == "mech_structural"),
+        "mech_structural is composed from [kalshi].bracket_sets: {stages:?}"
+    );
+    assert!(
+        transport.calls().is_empty(),
+        "paper-live compose issues no venue HTTP at construction: {:?}",
         transport.calls()
     );
 }

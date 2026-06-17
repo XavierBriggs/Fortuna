@@ -7,7 +7,7 @@
 //! SIGTERM -> cancel working orders + final audit row).
 
 use fortuna_cognition::cycle::TriageDecision;
-use fortuna_cognition::mind::{Mind, MindOutput, StubMind};
+use fortuna_cognition::mind::{Mind, MindError, MindOutput, StubMind};
 use fortuna_core::clock::SimClock;
 use fortuna_core::market::{Contracts, MarketId};
 use fortuna_core::money::Cents;
@@ -21,7 +21,10 @@ use fortuna_runner::SimRunner;
 use fortuna_venues::sim::SimVenue;
 use fortuna_venues::PriceLevel;
 use sqlx::PgPool;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc, Mutex,
+};
 
 fn t0() -> fortuna_core::clock::UtcTimestamp {
     fortuna_core::clock::UtcTimestamp::parse_iso8601("2026-06-11T12:00:00.000Z").unwrap()
@@ -62,6 +65,44 @@ fn journaling_mind(body: &str) -> Arc<dyn Mind> {
     }))
     .unwrap();
     Arc::new(StubMind::scripted(vec![out]))
+}
+
+struct CapturingJournalMind {
+    body: String,
+    seen_context: Arc<Mutex<Option<String>>>,
+}
+
+#[async_trait::async_trait]
+impl Mind for CapturingJournalMind {
+    fn id(&self) -> &str {
+        "capturing-journal"
+    }
+
+    async fn decide(
+        &self,
+        ctx: &fortuna_cognition::context::AssembledContext,
+    ) -> Result<MindOutput, MindError> {
+        *self.seen_context.lock().unwrap() = Some(ctx.rendered.clone());
+        serde_json::from_value(serde_json::json!({
+            "beliefs": [],
+            "proposals": [],
+            "journal": {"body": self.body},
+            "cost_cents": 5
+        }))
+        .map_err(|e| MindError::SchemaInvalid {
+            reason: e.to_string(),
+        })
+    }
+}
+
+fn capturing_journaling_mind(
+    body: &str,
+    seen_context: Arc<Mutex<Option<String>>>,
+) -> Arc<dyn Mind> {
+    Arc::new(CapturingJournalMind {
+        body: body.to_string(),
+        seen_context,
+    })
 }
 
 /// Sim cadence that FIRES THE STOP CHANNEL at a chosen wake — the
@@ -1566,7 +1607,11 @@ async fn daily_reconciliation_writes_a_journal_and_places_no_orders(pool: PgPool
     );
     let orders_before = runner.counters().orders_submitted;
 
-    let mind = journaling_mind("Day flat; no surprises. Tomorrow: hold.");
+    let seen_context = Arc::new(Mutex::new(None));
+    let mind = capturing_journaling_mind(
+        "Day flat; no surprises. Tomorrow: hold.",
+        seen_context.clone(),
+    );
     let wrote = fortuna_live::daemon::run_daily_reconciliation(
         &mut runner,
         &pool,
@@ -1577,6 +1622,17 @@ async fn daily_reconciliation_writes_a_journal_and_places_no_orders(pool: PgPool
     .await
     .expect("reconciliation runs");
     assert!(wrote, "a journal-producing mind writes the journal");
+    let rendered = seen_context
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("mind saw reconciliation context");
+    assert!(
+        rendered.contains("Daily reconciliation as of")
+            && rendered.contains("orders submitted")
+            && rendered.contains("open position"),
+        "reconciliation context must be non-empty and include account state, got: {rendered:?}"
+    );
 
     let row = fortuna_ledger::JournalRepo::new(pool.clone())
         .get_day(day)
@@ -1764,7 +1820,8 @@ async fn drive_runs_daily_reconciliation_at_the_utc_day_boundary(pool: PgPool) {
 async fn weekly_review_audits_the_deterministic_calibration_and_go_nogo(pool: PgPool) {
     // T4.1/M2 slice B1 (spec 5.8 weekly review): the DETERMINISTIC core — a
     // calibration audit (per scope from resolved_stats) + GO/NO-GO recommendations
-    // (RECOMMENDATIONS ONLY, I7) — runs even with a StubMind (no commentary).
+    // (RECOMMENDATIONS ONLY, I7) — runs, and the commentary mind receives a
+    // non-empty account-state context.
     // Seed a synth_events/weather scope (50 resolved beliefs), trade once so the
     // digest carries a strategy row, run the review, and assert it READ the data
     // (the calibration scope carries all 50 samples), produced a GO/NO-GO rec,
@@ -1851,10 +1908,15 @@ async fn weekly_review_audits_the_deterministic_calibration_and_go_nogo(pool: Pg
     arb_books(&runner);
     runner.tick().await.unwrap();
 
-    // A week after boot (paper_days > 0). StubMind => no commentary; the
-    // deterministic core still produces the calibration audit + recommendations.
+    // A week after boot (paper_days > 0). A valid commentary mind proves the
+    // context item is included in the assembled prompt, not filtered out at the
+    // trigger timestamp.
     let now = fortuna_core::clock::UtcTimestamp::parse_iso8601("2026-06-18T00:00:00.000Z").unwrap();
-    let sm = stub_mind();
+    let seen_context = Arc::new(Mutex::new(None));
+    let sm = capturing_journaling_mind(
+        r#"{"commentary":"Weekly review clean.","lesson_candidates":[]}"#,
+        seen_context.clone(),
+    );
     let wr = fortuna_live::daemon::run_weekly_review(
         &mut runner,
         &pool,
@@ -1882,10 +1944,19 @@ async fn weekly_review_audits_the_deterministic_calibration_and_go_nogo(pool: Pg
         !wr.recommendations.is_empty(),
         "GO/NO-GO recommendations for the composed strategies (I7: recs only)"
     );
+    let rendered = seen_context
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("mind saw weekly review context");
     assert!(
-        wr.commentary.is_none(),
-        "StubMind => no commentary; the deterministic core stands"
+        rendered.contains("Weekly review as of")
+            && rendered.contains("orders submitted")
+            && rendered.contains("Set journal.body"),
+        "weekly review context must be non-empty and include the journal contract, got: {rendered:?}"
     );
+    assert_eq!(wr.commentary.as_deref(), Some("Weekly review clean."));
+    assert!(wr.commentary_defect.is_none());
     let audits: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM audit WHERE kind = 'alert' AND payload->>'kind' = 'weekly_review'",
     )
@@ -3123,13 +3194,32 @@ impl fortuna_venues::kalshi::WeatherMarketSource for StubWeatherSource {
     }
 }
 
+/// A counting source used by the cache regression: repeated signals carrying
+/// the same forecast should share one day-set lookup inside a segment.
+struct CountingWeatherSource {
+    day: Vec<fortuna_venues::kalshi::dto::KalshiMarket>,
+    calls: Arc<AtomicUsize>,
+}
+
+#[async_trait::async_trait]
+impl fortuna_venues::kalshi::WeatherMarketSource for CountingWeatherSource {
+    async fn day_set(
+        &self,
+        _series: &str,
+        _target_date: &str,
+    ) -> Result<Vec<fortuna_venues::kalshi::dto::KalshiMarket>, fortuna_venues::VenueError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Ok(self.day.clone())
+    }
+}
+
 /// Build a DiscoveryWiring whose ONLY active sub-step is the F7 weather plug-in:
 /// `signal_kinds` empty (world-forward inert) + `catalog` empty (market-back
 /// inert) + `weather_source = Some(stub)`. Beliefs/edges attribute to the
 /// discovery strategy (the I7 boundary), exactly like main.rs.
-fn weather_wiring(
+fn weather_wiring_with_source(
     pool: PgPool,
-    day: Vec<fortuna_venues::kalshi::dto::KalshiMarket>,
+    weather_source: Arc<dyn fortuna_venues::kalshi::WeatherMarketSource>,
 ) -> fortuna_live::daemon::DiscoveryWiring {
     use fortuna_cognition::discovery::{DiscoveryBudget, PrefilterConfig};
     use fortuna_cognition::signals::SourceRegistry;
@@ -3152,8 +3242,15 @@ fn weather_wiring(
         catalog: vec![], // market-back inert
         event_id_base: 0,
         edge_id_base: 0,
-        weather_source: Some(Arc::new(StubWeatherSource { day })),
+        weather_source: Some(weather_source),
     }
+}
+
+fn weather_wiring(
+    pool: PgPool,
+    day: Vec<fortuna_venues::kalshi::dto::KalshiMarket>,
+) -> fortuna_live::daemon::DiscoveryWiring {
+    weather_wiring_with_source(pool, Arc::new(StubWeatherSource { day }))
 }
 
 /// Run ONE drive() with the given discovery wiring over a Sim runner (the
@@ -3204,20 +3301,24 @@ async fn drive_with_discovery(
 
 /// Seed the recorded KNYC tmax forecast as one `aeolus.forecast` signal within
 /// the discovery window.
-async fn seed_forecast_signal(pool: &PgPool) {
+async fn seed_forecast_signal_at(pool: &PgPool, signal_id: &str, received_at: &str) {
     use fortuna_cognition::context::content_hash_of;
-    let now_iso = t0().to_iso8601();
     fortuna_ledger::SignalsRepo::new(pool.clone())
         .insert(
-            "sig-aeolus-1",
+            signal_id,
             "aeolus",
             "aeolus.forecast",
-            &now_iso,
+            received_at,
             &content_hash_of("aeolus-knyc-tmax-2026-06-13"),
             &knyc_forecast_payload(),
         )
         .await
         .unwrap();
+}
+
+async fn seed_forecast_signal(pool: &PgPool) {
+    let now_iso = t0().to_iso8601();
+    seed_forecast_signal_at(pool, "sig-aeolus-1", &now_iso).await;
 }
 
 /// HAPPY PATH + IDEMPOTENCY: a recorded forecast + a Some(weather_source) of 6
@@ -3335,6 +3436,66 @@ async fn drive_persists_aeolus_weather_beliefs_and_edges_when_wired(pool: PgPool
     assert_eq!(
         edges_after, 6,
         "re-drive does NOT duplicate edges (got {edges_after})"
+    );
+}
+
+/// CACHE REGRESSION: the live daemon may read several fresh Aeolus rows that
+/// carry the same `(station, target_date)` forecast. The F7 weather plug-in must
+/// ask the venue once per segment for that repeated day-set, then reuse it;
+/// otherwise a normal duplicate signal batch turns into repeated signed
+/// `/markets` scans and stalls the paper-live ROTA snapshot.
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn drive_weather_plugin_caches_repeated_day_set_lookups_per_segment(pool: PgPool) {
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let dcfg = DaemonToml::parse(&text).expect("example parses");
+    let full = FortunaConfig::load_file(example_path).expect("example full-config parses");
+    let runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        t0(),
+        88,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .expect("composition");
+    arb_books(&runner);
+
+    let at1 = t0().to_iso8601();
+    let at2 = t0()
+        .checked_add_millis(1)
+        .expect("test timestamp advances")
+        .to_iso8601();
+    let at3 = t0()
+        .checked_add_millis(2)
+        .expect("test timestamp advances")
+        .to_iso8601();
+    seed_forecast_signal_at(&pool, "sig-aeolus-1", &at1).await;
+    seed_forecast_signal_at(&pool, "sig-aeolus-2", &at2).await;
+    seed_forecast_signal_at(&pool, "sig-aeolus-3", &at3).await;
+
+    let active_june15 = recorded_markets_for("26JUN15");
+    let calls = Arc::new(AtomicUsize::new(0));
+    let source = Arc::new(CountingWeatherSource {
+        day: active_june15,
+        calls: calls.clone(),
+    });
+
+    let mut runner = fortuna_live::daemon::ActiveRunner::Sim(runner);
+    drive_with_discovery(
+        &mut runner,
+        weather_wiring_with_source(pool.clone(), source),
+    )
+    .await;
+
+    assert!(
+        calls.load(Ordering::SeqCst) < 3,
+        "three duplicate KNYC/tmax/2026-06-13 signals must not issue one day-set lookup per signal"
     );
 }
 
