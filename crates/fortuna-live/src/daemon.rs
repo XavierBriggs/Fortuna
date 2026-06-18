@@ -1192,6 +1192,20 @@ impl ActiveRunner {
         }
     }
 
+    /// Drain applied settlements buffered since the last drain (A3 / F1). The
+    /// daemon persists each via `SettlementsRepo::insert_entry` with
+    /// `amount_cents = realized_pnl_cents` (NET delta) and `intent_id =
+    /// notice_id` (set-once idempotency), so `SUM(amount_cents)` reconstructs
+    /// realized PnL from the DB. Draining empties the buffer so a settlement is
+    /// persisted once per segment.
+    pub fn drain_applied_settlements(&mut self) -> Vec<fortuna_runner::SettlementApplied> {
+        match self {
+            ActiveRunner::Sim(r) => r.drain_applied_settlements(),
+            ActiveRunner::Kalshi(r) => r.drain_applied_settlements(),
+            ActiveRunner::PaperLive(r) => r.drain_applied_settlements(),
+        }
+    }
+
     /// Record an externally-raised alert on the audit trail.
     pub fn apply_external_alert(&mut self, kind: &str, message: &str) {
         match self {
@@ -1863,6 +1877,14 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     // independently of the belief id spaces. Like the others, this is a sortable
     // TEXT PK from a caller-monotonic base, NOT a full ULID (ledgered).
     let mut persona_analysis_id_base = belief_id_base;
+    // A3/F1: the settlement-entry id monotonic base, seeded identically
+    // (drive-start epoch — unique across runs; the per-insert increment keeps
+    // them unique within a run). Its OWN counter ("01STL" prefix) so the
+    // settlement-id space advances independently of the others. Sortable TEXT PK
+    // from a caller-monotonic base, NOT a full ULID (ledgered, like the rest).
+    // The (market_id, notice_id) partial-unique index — NOT this PK — is the
+    // set-once idempotency key.
+    let mut settlement_id_base = belief_id_base;
     loop {
         // slice-4e: feed one recorded PerpTick at the head of the segment so the
         // perp producers fire during this segment's ticks (EventOrigin::External,
@@ -2593,6 +2615,57 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                             format!(
                                 "fill persist FAILED for fill_id={} — fill lost this segment: {e}",
                                 fill.fill_id
+                            ),
+                        )),
+                    }
+                }
+            }
+        }
+
+        // A3 (F1): drain + persist applied settlements per segment, REUSING the
+        // A2 ledger pool (`fills_pool`). Runs OUTSIDE `synthesis_refresh` for the
+        // same reason as fills — mechanical strategies settle positions too, so
+        // gating on a [synthesis] section would silently drop their realized PnL.
+        // `amount_cents = realized_pnl_cents` (the NET delta), so
+        // `SUM(amount_cents)` over settlement_entries reconstructs realized PnL
+        // (the plan's "DB-as-truth"). `intent_id = notice_id` makes
+        // (market_id, notice_id) the set-once dedup key (A1 partial-unique);
+        // a returned Ok(false) is a NORMAL idempotent skip (restart / cursor
+        // replay), not an error. Failure posture mirrors fills: a real persist
+        // FAILURE alerts + continues (settlements are the PnL substrate, not the
+        // money path); the drained set is lost on failure. `None` => no persist.
+        if let Some(spool) = &fills_pool {
+            let applied_settlements = runner.drain_applied_settlements();
+            if !applied_settlements.is_empty() {
+                let repo = fortuna_ledger::SettlementsRepo::new(spool.clone());
+                for s in &applied_settlements {
+                    let settlement_id = format!("01STL{settlement_id_base:021}");
+                    settlement_id_base += 1;
+                    let detail = serde_json::json!({
+                        "outcome": s.outcome,
+                        "kind": "settlement",
+                    });
+                    match repo
+                        .insert_entry(
+                            &settlement_id,
+                            s.market.as_str(),
+                            s.venue.as_str(),
+                            s.realized_pnl_cents,
+                            "confirmed",
+                            None,
+                            Some(&s.notice_id),
+                            &detail,
+                            &s.at.to_iso8601(),
+                        )
+                        .await
+                    {
+                        // Ok(true) = inserted; Ok(false) = idempotent skip (NORMAL).
+                        Ok(_) => {}
+                        Err(e) => alerts.push((
+                            fortuna_ops::MessageKind::Ops,
+                            format!(
+                                "settlement persist FAILED for market={} notice_id={} — settlement lost this segment: {e}",
+                                s.market, s.notice_id
                             ),
                         )),
                     }

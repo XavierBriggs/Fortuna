@@ -36,8 +36,8 @@ pub mod synth_events;
 pub mod synthesis;
 
 pub use runner::{
-    LatencyStat, MetricSample, RunCounters, RunnerConfig, RunnerReport, ShutdownReport, SimRunner,
-    TickReport, LATENCY_BUCKETS_MS,
+    LatencyStat, MetricSample, RunCounters, RunnerConfig, RunnerReport, SettlementApplied,
+    ShutdownReport, SimRunner, TickReport, LATENCY_BUCKETS_MS,
 };
 
 use async_trait::async_trait;

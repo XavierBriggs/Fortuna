@@ -103,6 +103,27 @@ pub struct RunnerReport {
     pub fees_paid: Cents,
 }
 
+/// One settlement the processor applied to a HELD market, buffered for
+/// composition-side persistence to `settlement_entries` (A3/F1). The runner is
+/// Postgres-free (deterministic core); the daemon drains via
+/// `drain_applied_settlements` and persists each row with
+/// `amount_cents = realized_pnl_cents` (the NET delta — so
+/// `SUM(amount_cents)` reconstructs realized PnL from the DB) and
+/// `intent_id = notice_id` (set-once idempotency via the A1 partial-unique
+/// index on `(market_id, intent_id)`). Captured uniformly across fresh
+/// settlement, correction, and void.
+#[derive(Debug, Clone)]
+pub struct SettlementApplied {
+    pub market: MarketId,
+    pub venue: VenueId,
+    pub notice_id: String,
+    /// e.g. "Winner(Yes)" / "Voided" — the venue outcome, for the `detail` blob.
+    pub outcome: String,
+    /// NET realized-PnL delta this settlement produced on our position.
+    pub realized_pnl_cents: i64,
+    pub at: UtcTimestamp,
+}
+
 /// The Phase 0 composition over a venue. Journal-generic since T4.1: the
 /// daemon composes the SAME runner over `PgIntentJournal` (durable intents in
 /// Postgres). Venue-generic since the demo-flip (Phase 1): `V` defaults to
@@ -154,6 +175,12 @@ pub struct SimRunner<V: Venue = SimVenue, J: IntentJournal + Send = MemoryJourna
     /// is still live at capture time. `None` for orphan fills (no owning
     /// intent — these are already tracked as discrepancies).
     pending_fills: Vec<(fortuna_core::book::Fill, Option<StrategyId>)>,
+    /// Applied settlements awaiting composition-side persistence to
+    /// `settlement_entries` (A3 / F1). The runner never writes Postgres; the
+    /// daemon drains via `drain_applied_settlements` and persists each with
+    /// `amount_cents = realized_pnl_cents` (NET delta) and `intent_id =
+    /// notice_id`. Buffered only when we HELD the market or the PnL changed.
+    pending_settlements: Vec<SettlementApplied>,
     veto_mind: Option<Arc<dyn VetoMind>>,
     veto_strategies: std::collections::BTreeSet<StrategyId>,
     /// Vetoed-away quantity awaiting its market's settlement for
@@ -549,6 +576,7 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
             pending_beliefs: Vec::new(),
             pending_scalar_beliefs: Vec::new(),
             pending_fills: Vec::new(),
+            pending_settlements: Vec::new(),
             veto_mind: config.veto_mind,
             veto_strategies: config.veto_strategies.into_iter().collect(),
             open_vetoes: Vec::new(),
@@ -691,6 +719,16 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
     /// persisted once. `producer` is deferred to D4 — passed as `None`.
     pub fn drain_applied_fills(&mut self) -> Vec<(fortuna_core::book::Fill, Option<StrategyId>)> {
         std::mem::take(&mut self.pending_fills)
+    }
+
+    /// Take the applied settlements buffered since the last drain (A3 / F1).
+    /// Each entry carries the NET realized-PnL delta and the venue notice id;
+    /// the daemon persists them via `SettlementsRepo::insert_entry` with
+    /// `amount_cents = realized_pnl_cents` and `intent_id = notice_id` (set-once
+    /// idempotency). Draining empties the buffer so a settlement is persisted
+    /// once per segment.
+    pub fn drain_applied_settlements(&mut self) -> Vec<SettlementApplied> {
+        std::mem::take(&mut self.pending_settlements)
     }
 
     /// Inject an external `PerpTick` onto the bus for the NEXT `tick()` to
@@ -1879,7 +1917,40 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
                     continue; // at-least-once dedup
                 }
                 self.counters.settlement_notices += 1;
+                // A3/F1: capture the NET realized-PnL delta this notice produces
+                // on our position. This is uniform across fresh settlement,
+                // correction, and void (a void leaves realized_pnl untouched =>
+                // delta 0, but we still record it when we HELD the market so the
+                // settlement_entries chain reflects the resolution). The daemon
+                // drains + persists these; the runner stays Postgres-free.
+                let m = &notice.market;
+                let before = self
+                    .positions
+                    .position(m)
+                    .map(|p| p.realized_pnl)
+                    .unwrap_or(Cents::ZERO);
+                let held_before = self
+                    .positions
+                    .position(m)
+                    .map(|p| p.yes.qty != 0 || p.no.qty != 0)
+                    .unwrap_or(false);
                 self.apply_notice(notice).await?;
+                let after = self
+                    .positions
+                    .position(m)
+                    .map(|p| p.realized_pnl)
+                    .unwrap_or(Cents::ZERO);
+                let delta = after.raw() - before.raw();
+                if held_before || delta != 0 {
+                    self.pending_settlements.push(SettlementApplied {
+                        market: m.clone(),
+                        venue: self.venue.id(),
+                        notice_id: notice.notice_id.clone(),
+                        outcome: format!("{:?}", notice.outcome),
+                        realized_pnl_cents: delta,
+                        at: self.clock.now(),
+                    });
+                }
             }
             self.settle_cursor = page.next_cursor;
             if !advanced {
@@ -3624,6 +3695,16 @@ mod a3_type_level {
         );
         mock.push_ok(200, kalshi_markets_body());
         mock.push_ok(200, kalshi_book_body());
+        // A3/F1: a paper-live tick now polls REAL Kalshi settlements
+        // (PaperLiveVenue::settlements_since -> self.read). Script one empty
+        // settlement page so process_settlements has a response to read.
+        mock.push_ok(
+            200,
+            serde_json::json!({
+                "settlements": [],
+                "cursor": ""
+            }),
+        );
 
         let clock = Arc::new(SimClock::new(start));
         let mut config = minimal_config();
@@ -3673,6 +3754,8 @@ mod a3_type_level {
         assert_eq!(calls[3].path, "/markets/trades");
         assert_eq!(calls[4].path, "/markets");
         assert_eq!(calls[5].path, "/markets/KXTEST-26JUN16-T50/orderbook");
+        // A3/F1: process_settlements polls real Kalshi settlements at tick end.
+        assert_eq!(calls[6].path, "/portfolio/settlements");
         assert!(
             calls.iter().all(|call| call.method == "GET"),
             "paper-live tick must only issue live data reads: {calls:?}"
