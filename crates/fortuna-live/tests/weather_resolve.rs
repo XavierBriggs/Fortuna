@@ -28,7 +28,7 @@ use fortuna_cognition::aeolus_forecast::parse_response;
 use fortuna_cognition::scoring::PredictiveDistribution;
 use fortuna_core::clock::UtcTimestamp;
 use fortuna_ledger::{BeliefScoresRepo, BeliefsRepo, EventsRepo, ScalarBeliefsRepo, SignalsRepo};
-use fortuna_live::daemon::resolve_and_score_weather_beliefs;
+use fortuna_live::daemon::{nws_cli_is_stale, resolve_and_score_weather_beliefs};
 use serde_json::json;
 use sqlx::PgPool;
 
@@ -292,4 +292,97 @@ async fn a_jammed_cli_does_not_grade(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(row.status, "open");
+}
+
+// ── B2 (F3): resolution → resolved_stats feeds the B1 calibration chain ──────
+//
+// Proves: weather beliefs that resolve via resolve_and_score_weather_beliefs are
+// immediately visible to BeliefsRepo::resolved_stats("weather"), which is
+// exactly the query persist_daily_calibration (B1) reads. Without this pin a
+// silent grading failure starves the model arm with no visible signal.
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn resolved_weather_beliefs_appear_in_resolved_stats(pool: PgPool) {
+    // Seed open beliefs + a fresh CLI and resolve them.
+    let drafts = seed_open_beliefs(&pool, "TTD").await;
+    insert_cli_signal(&pool, "cli-ttd", &product_text(TROUTDALE_CLI)).await;
+
+    let resolved = resolve_and_score_weather_beliefs(&pool, now(), 0)
+        .await
+        .expect("resolver must succeed");
+    assert_eq!(resolved, drafts.len() + 1, "all brackets + scalar resolved");
+
+    // resolved_stats("weather") must now see those resolved rows — this is the
+    // exact query that B1's persist_daily_calibration reads to count the warm
+    // record. If resolution doesn't write `status='resolved'` + `brier` in the
+    // right category the model arm starves invisibly.
+    let stats = BeliefsRepo::new(pool.clone())
+        .resolved_stats("weather")
+        .await
+        .expect("resolved_stats must not error");
+    assert_eq!(
+        stats.len(),
+        drafts.len(),
+        "resolved_stats sees every resolved bracket (scalar is in scalar_beliefs, not here)"
+    );
+    for stat in &stats {
+        assert!(stat.brier.is_finite() && stat.brier >= 0.0, "brier ≥ 0");
+        assert!(stat.brier <= 1.0, "Brier bounded [0,1]");
+    }
+}
+
+// ── B2 (F3): nws_cli_is_stale unit tests (mutation-proof) ────────────────────
+//
+// The pure helper `nws_cli_is_stale(freshest, now, max_secs)` is the
+// detection kernel for the daily-boundary ops alert. These tests pin its
+// contract so that flipping the comparison or dropping the check turns at
+// least one red.
+
+#[test]
+fn stale_when_cli_absent() {
+    // No signal at all → always stale regardless of threshold.
+    assert!(
+        nws_cli_is_stale(None, now(), 36 * 3600),
+        "absent CLI must be flagged stale"
+    );
+}
+
+#[test]
+fn stale_when_cli_too_old() {
+    // CLI received 48h before `now` (well past the 36h threshold).
+    let fresh_ts = "2026-06-13T00:00:00.000Z"; // now() = 2026-06-15T00:00:00Z → 48h gap
+    assert!(
+        nws_cli_is_stale(Some(fresh_ts), now(), 36 * 3600),
+        "48h-old CLI must be flagged stale (threshold is 36h)"
+    );
+}
+
+#[test]
+fn not_stale_when_cli_fresh() {
+    // CLI received 12h before `now` — within the 36h window.
+    let fresh_ts = "2026-06-14T12:00:00.000Z"; // now() = 2026-06-15T00:00:00Z → 12h gap
+    assert!(
+        !nws_cli_is_stale(Some(fresh_ts), now(), 36 * 3600),
+        "12h-old CLI must NOT be flagged stale (threshold is 36h)"
+    );
+}
+
+#[test]
+fn stale_exactly_at_threshold_boundary() {
+    // CLI received exactly NWS_CLI_STALE_SECS ago → is stale (boundary is exclusive: > not >=).
+    // now() = 2026-06-15T00:00:00.000Z, threshold 36h = 129600s.
+    // Exactly 36h before now = 2026-06-13T12:00:00.000Z.
+    let exactly_at_boundary = "2026-06-13T12:00:00.000Z";
+    // age == threshold → stale (age > max_secs uses strictly-greater; at the boundary it IS stale).
+    // Contracts: if age > max_secs → stale. At exactly max_secs, age == max_secs → NOT stale.
+    // We want age strictly > max_secs to trigger. Test this boundary precisely:
+    assert!(
+        !nws_cli_is_stale(Some(exactly_at_boundary), now(), 36 * 3600),
+        "CLI exactly at the 36h boundary is NOT yet stale (age == threshold, not exceeding it)"
+    );
+    let one_second_over = "2026-06-13T11:59:59.000Z"; // 36h+1s old
+    assert!(
+        nws_cli_is_stale(Some(one_second_over), now(), 36 * 3600),
+        "CLI 1s past the 36h boundary IS stale"
+    );
 }

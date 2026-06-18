@@ -3464,6 +3464,64 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                             .await;
                     }
                 }
+                // F3 / B2: nws.cli freshness check. If the newest CLI signal is
+                // absent or older than NWS_CLI_STALE_SECS (>36 h = ≥1 missed
+                // daily issue), the resolver will have returned Ok(0) — wholly
+                // INDISTINGUISHABLE from "nothing due". Route an Ops alert so
+                // the operator sees it and can triage. A7 will add the named
+                // metric; B2 owns the detection + alert. No new query: reuses
+                // recent_by_kind with cap=1.
+                {
+                    use fortuna_ledger::SignalsRepo as CliSignalsRepo;
+                    use fortuna_sources::nws_climate::NWS_CLI_KIND;
+                    match CliSignalsRepo::new(rpool.clone())
+                        .recent_by_kind(&[NWS_CLI_KIND.to_string()], "", 1)
+                        .await
+                    {
+                        Ok(rows) => {
+                            let freshest = rows.first().map(|s| s.received_at.as_str());
+                            if nws_cli_is_stale(freshest, now, NWS_CLI_STALE_SECS) {
+                                let age_msg = match freshest {
+                                    None => "absent (no nws.cli signal ever ingested)".to_string(),
+                                    Some(ts) => {
+                                        let age_h = (now.epoch_millis()
+                                            - fortuna_core::clock::UtcTimestamp::parse_iso8601(ts)
+                                                .map(|t| t.epoch_millis())
+                                                .unwrap_or(now.epoch_millis()))
+                                            / 3_600_000;
+                                        format!("freshest={ts}, age={age_h}h")
+                                    }
+                                };
+                                total_send_failures += runner
+                                    .route_alerts(
+                                        slack,
+                                        &[(
+                                            fortuna_ops::MessageKind::Ops,
+                                            format!(
+                                                "nws.cli stale/absent ({age_msg}) \
+                                                 — weather grading will starve; \
+                                                 model arm cannot warm"
+                                            ),
+                                        )],
+                                    )
+                                    .await;
+                            }
+                        }
+                        Err(e) => {
+                            // Best-effort: the freshness check failed. Log via
+                            // the alert channel but do not abort the boundary.
+                            total_send_failures += runner
+                                .route_alerts(
+                                    slack,
+                                    &[(
+                                        fortuna_ops::MessageKind::Ops,
+                                        format!("nws.cli freshness check FAILED: {e}"),
+                                    )],
+                                )
+                                .await;
+                        }
+                    }
+                }
                 // Funding: settled funding_forecast beliefs vs realized funding.
                 match resolve_and_score_funding_beliefs(
                     rpool,
@@ -4206,6 +4264,41 @@ pub const AEOLUS_PRODUCER: &str = "aeolus";
 /// belief stays OPEN for a later run. Ledgered in GAPS (the single-station +
 /// bounded-scan assumptions).
 const CLI_SCAN_CAP: i64 = 512;
+
+/// Maximum age (seconds) for the freshest `nws.cli` signal before it is
+/// considered STALE. NWS CLI products are issued daily; >36 h means ≥1 missed
+/// day. When the freshest signal exceeds this age the daily-boundary block
+/// routes an `Ops` alert so the operator sees it — the resolver will have
+/// returned `Ok(0)` (indistinguishable from "nothing due") without this check.
+/// A7 will later add a named metric over this same detection; B2 owns the
+/// detection + alert. (F3)
+pub const NWS_CLI_STALE_SECS: i64 = 36 * 3600;
+
+/// Return `true` when the `nws.cli` signal stream appears stale or absent.
+///
+/// `freshest` is the ISO8601 `received_at` of the most-recent `nws.cli` row
+/// (the caller passes `recent_by_kind(&[NWS_CLI_KIND], "", 1).first().map(|s|
+/// s.received_at.as_str())`). `now` comes from the injected `Clock` (the
+/// daemon's `now` value at the daily boundary). `max_secs` is the staleness
+/// threshold in seconds (callers pass [`NWS_CLI_STALE_SECS`]).
+///
+/// Returns `true` when:
+/// - `freshest` is `None` (no `nws.cli` signal has ever been ingested), OR
+/// - the gap `(now − freshest) > max_secs` (at least one daily issue was missed).
+///
+/// The function is pure and unit-testable without a database or daemon loop.
+/// Staleness detection lives here; the caller routes the alert and counts it in
+/// `total_send_failures` (same pattern as the surrounding daily-boundary alerts).
+pub fn nws_cli_is_stale(freshest: Option<&str>, now: UtcTimestamp, max_secs: i64) -> bool {
+    let Some(ts_str) = freshest else {
+        return true; // absent → stale
+    };
+    let Ok(received) = fortuna_core::clock::UtcTimestamp::parse_iso8601(ts_str) else {
+        return true; // unparseable timestamp → treat as stale (defensive)
+    };
+    let age_secs = (now.epoch_millis() - received.epoch_millis()) / 1000;
+    age_secs > max_secs
+}
 
 /// Resolve + score every DUE, gradeable Aeolus WEATHER belief (source contract
 /// `docs/design/aeolus-fortuna-source-contract.md` §5 Layer 3 — "the loop"). The
