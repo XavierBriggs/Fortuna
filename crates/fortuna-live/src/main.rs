@@ -842,6 +842,12 @@ async fn main() -> Result<()> {
     // data. Inert/degraded when ingestion is off (merge_ingest_views gates on an
     // empty telemetry — the daemon snapshot is byte-unchanged in that case).
     let ingest_telemetry_for_segments = ingest_telemetry.clone();
+    // A7: pool handle for Phase-C DB metric families (fills/settlements/PnL/
+    // trade_scores/belief_scores). Cloned here, captured by the move closure,
+    // queried each segment via block_on so the sync closure can call the async
+    // phase_c_db_metrics. A DB error degrades telemetry for that segment only —
+    // never a halt, never a panic.
+    let pool_for_telemetry = pool.clone();
     let halt_poll_ms = dcfg.daemon.halt_poll_ms.max(1);
     let tick_wakes = dcfg
         .daemon
@@ -868,13 +874,21 @@ async fn main() -> Result<()> {
             // SimVenue-only board reads). The telemetry pane + ingest merge below
             // are venue-agnostic and apply identically to both arms.
             let generated_at = fortuna_core::clock::Clock::now(r.clock().as_ref()).to_iso8601();
-            let registry = r.metrics_registry();
+            let mut registry = r.metrics_registry();
             let metrics_text = registry.render_prometheus();
             let boards = r.boards_json();
             let mut views = r.rota_views(&generated_at);
             // Mission item 6: the telemetry pane — the same MetricsRegistry the
             // /metrics exposition is rendered from, shaped into a ROTA board (R2: the
             // daemon shapes; fortuna-ops serves it via read_view, never parsing text).
+            // A7: merge Phase-C DB-derived families (fills / settlements / PnL /
+            // trade_scores / belief_scores) into the registry before rendering the
+            // telemetry board. A DB error degrades the board for that segment only.
+            if let Ok(db_reg) = tokio::runtime::Handle::current().block_on(
+                fortuna_live::telemetry::phase_c_db_metrics(&pool_for_telemetry),
+            ) {
+                registry.merge(db_reg);
+            }
             views["telemetry"] = registry.telemetry_board(&generated_at);
             // OBS-2c: non-blocking read of the published telemetry (the closure is
             // sync; the ingestion loop holds the write lock only momentarily). On

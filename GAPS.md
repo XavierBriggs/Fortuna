@@ -32,6 +32,14 @@ The audit is now the canonical "what's open + readiness" source:
 - `track-d`, `track-e-docs-freshen`: stranded doc-only corrections (GAPS/BUILD_PLAN freshening), superseded by this
   prune; kept for review — delete when satisfied.
 
+## fortuna-ledger has domain-coupled query methods (A7 known gap; generic-ledger refactor deferred)
+`crates/fortuna-ledger/src/repos.rs` lines ~1349-1374 contain domain-coupled methods:
+`open_aeolus_weather_due`, `OpenWeatherBelief`, and a `provenance->>'model_id' = 'aeolus'`
+literal. The decoupling guard (`i_decoupling_spine.rs`) intentionally excludes fortuna-ledger
+from the domain-literal scan — asserting ledger=0 would fail. Unblock: generic refactor
+of BeliefsRepo to use a `model_id: &str` parameter; move Aeolus-specific query to a
+fortuna-cognition or fortuna-live layer.
+
 ## Deferred refactors (Phase B roadmap; P2 legibility — no behavior change, test-gated when done)
 - File splits: `daemon.rs` (4854L), `repos.rs` (2479L), `rota.rs` (2227L); a `DriveContext` for `drive()`'s 20-param
   signature. (AUDIT.md §12 / area-4)

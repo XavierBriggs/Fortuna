@@ -2795,6 +2795,14 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
             labels: Vec::new(),
             value: i64::from(self.gates.halts().global_halted().is_some()),
         });
+        // A7: synthesis-arm cold-calibration skip counter.
+        samples.push(MetricSample {
+            name: "fortuna_mind_skips_total",
+            help: "Events skipped by the synthesis arm due to cold calibration (no fitted Platt)",
+            counter: true,
+            labels: vec![("reason".to_string(), "cold_calibration".to_string())],
+            value: self.counters.cold_calibration_skips as i64,
+        });
         // T5.B8: per-strategy diagnostic gauges (e.g. perp basis-v2's A10
         // numbers). Appended AFTER the runner's own samples, in strategy
         // REGISTRATION order, so the export stays deterministic. Default-empty

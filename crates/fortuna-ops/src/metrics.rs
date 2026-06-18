@@ -139,6 +139,37 @@ impl MetricsRegistry {
         out
     }
 
+    /// Merge all families and series from `other` into self.
+    /// - HELP + TYPE: first-writer wins (the registry that described the family
+    ///   first keeps its metadata; the other's is silently dropped).
+    /// - Series values: counters are ADDED; gauges are OVERWRITTEN (last writer
+    ///   wins for point-in-time gauges, monotone accumulation for counters).
+    ///
+    /// Used by the daemon to merge DB-derived Phase-C families
+    /// (`fortuna_live::telemetry::phase_c_db_metrics`) into the runner-derived
+    /// registry before calling `telemetry_board`.
+    pub fn merge(&mut self, other: MetricsRegistry) {
+        // Adopt HELP + TYPE for families not already present.
+        for (name, help) in other.help {
+            self.help.entry(name).or_insert(help);
+        }
+        for (name, kind) in other.kinds {
+            self.kinds.entry(name).or_insert(kind);
+        }
+        // Merge series: counters accumulate, gauges overwrite.
+        for (name, series_map) in other.series {
+            let is_gauge = matches!(self.kinds.get(&name), Some(Kind::Gauge));
+            let dst = self.series.entry(name).or_default();
+            for (key, value) in series_map {
+                if is_gauge {
+                    dst.insert(key, value);
+                } else {
+                    *dst.entry(key).or_insert(0) += value;
+                }
+            }
+        }
+    }
+
     /// Shape the registered metrics into a ROTA board envelope (mission item 6: the
     /// telemetry pane — "the Prometheus stack on the console"). One row per metric
     /// SERIES: the subsystem (derived from the `fortuna_<sub>_` name prefix so the
