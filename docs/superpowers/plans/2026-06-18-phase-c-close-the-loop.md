@@ -33,66 +33,83 @@ Every task implicitly includes these (from the spec §2; a task violating one is
 
 ## Workstream A — The generic spine (closes mechanical + perp arms; F1, F12, F2, F13, F4-recording)
 
-### Task A1: Idempotent persistence guards (migration + repos)
-**Files:** Modify `crates/fortuna-ledger/migrations/` (new migration: `fills.fill_id` UNIQUE; `settlement_entries` unique key on `(market_ticker, intent_id)` or `(market, funding_time)`; new `bus_recordings` append-only table). Modify `crates/fortuna-ledger/src/repos.rs` (`FillsRepo::insert` → `ON CONFLICT DO NOTHING`; `SettlementsRepo::insert_entry` set-once; new `RecordingsRepo`). Test: `crates/fortuna-ledger/tests/`.
-**Interfaces — Produces:** `FillsRepo::insert(&Fill) -> Result<bool/*inserted*/>`; `SettlementsRepo::insert_entry(..) -> Result<bool>`; `RecordingsRepo::append(segment_jsonl) -> Result<()>`.
-- [ ] **Step 1:** Failing test: inserting the same `fill_id` twice yields one row (second returns `false`/no-op); same for a settlement key.
+### Task A1: Schema + idempotency prerequisites (migration + repos)
+> **Verified scope correction:** `fills.fill_id` is ALREADY `PRIMARY KEY` and `FillsRepo::insert` ALREADY has `ON CONFLICT (fill_id) DO NOTHING` (`repos.rs:58-79`); `SettlementsRepo::insert_entry` ALREADY exists (`repos.rs:280-343`) but is a **bare INSERT (no ON CONFLICT)**. Do NOT recreate the fill PK. The genuinely-new work below.
+**Files:** New migration `crates/fortuna-ledger/migrations/20260618NNNNNN_phase_c_persistence.sql` (must sequence after `20260617000001`; reuse the existing `fortuna_refuse_mutation()` — do not redefine). Modify `crates/fortuna-ledger/src/repos.rs`. Test: `crates/fortuna-ledger/tests/` (run via `SQLX_OFFLINE=true` + `DATABASE_URL=postgres:///fortuna?host=/tmp`).
+Migration adds:
+- `fills.producer TEXT` + `fills.strategy TEXT` (nullable) — so a settled fill traces to its originating producer/strategy (prereq for A4/D4 scoring).
+- `settlement_entries` business-key **UNIQUE** — separate per event type: binary-event `(market_ticker, intent_id)`; the funding plane is already handled by `scalar_beliefs` resolution, not `settlement_entries`.
+- `scalar_beliefs.producer TEXT` (typed; today `producer` lives only in `provenance` JSON) + **UNIQUE (producer, event_key)** — replay-safe window dedup (prereq for A5).
+- new `bus_recordings` append-only table (`recording_id, segment_seq, jsonl, created_at`; `fortuna_refuse_mutation` trigger).
+**Interfaces — Produces:** `SettlementsRepo::insert_entry(..) -> Result<bool /*inserted*/>` (now `ON CONFLICT DO NOTHING`); `FillsRepo::insert(&Fill, producer, strategy)`; `RecordingsRepo::append(segment_seq, jsonl) -> Result<()>`; `ScalarBeliefsRepo` upsert `ON CONFLICT (producer, event_key)`.
+- [ ] **Step 1:** Failing tests: a second `insert_entry` with the same `(market_ticker, intent_id)` is a no-op (returns `false`); a second scalar belief with the same `(producer, event_key)` is a no-op; `bus_recordings` rejects UPDATE/DELETE.
 - [ ] **Step 2:** Run → FAIL.
-- [ ] **Step 3:** Add the migration (unique constraints + recordings table + append-only trigger `fortuna_refuse_mutation`) + `ON CONFLICT` repo methods; `cargo sqlx prepare`.
-- [ ] **Step 4:** Run → PASS. Mutation-proof: drop the unique constraint → the dup-insert test REDs.
-- [ ] **Step 5:** Commit `feat(ledger): idempotent fills/settlement/recording persistence (F12/F1 prep)`.
+- [ ] **Step 3:** Write the migration + `ON CONFLICT` repo methods; `cargo sqlx prepare`.
+- [ ] **Step 4:** Run → PASS. Mutation-proof: drop a UNIQUE → the dup test REDs.
+- [ ] **Step 5:** Commit `feat(ledger): Phase-C persistence schema (settlement/belief idempotency keys, producer columns, recordings)`.
 
 ### Task A2: Wire FillsRepo on fill-applied (F12)
-**Files:** Modify `crates/fortuna-runner/src/runner.rs` (the `drain_fills`/`fill_applied` path ~`:1442`) to call `FillsRepo::insert` with a stable `fill_id`; thread the repo through the composition. Test: `crates/fortuna-runner/tests/` + a daemon_smoke assertion.
-**Interfaces — Consumes:** A1 `FillsRepo::insert`.
-- [ ] Step 1: Failing test — a paper fill produces exactly one `fills` row (and a replay of the same journal produces no second row). Step 2: FAIL. Step 3: wire the insert (idempotent). Step 4: PASS; mutation-proof (double-drain → still one row). Step 5: Commit `feat(runner): persist paper fills to the fills table (F12)`.
+> Verified: `FillsRepo::insert` exists but has **zero production callers**; `drain_fills` is at `runner.rs:1442` (exact). `fill_id` already exists/stable. New work = actually call the repo, tagged with producer/strategy.
+**Files:** Modify `crates/fortuna-runner/src/runner.rs` (`drain_fills` `:1442`) to call `FillsRepo::insert(fill, producer, strategy)` — `strategy` from the originating intent; `producer` from the belief/edge provenance behind the proposal (carry it on the intent so the fill can be attributed). Thread the repo through the composition. Test: `crates/fortuna-runner/tests/` + a daemon_smoke assertion.
+**Interfaces — Consumes:** A1 `FillsRepo::insert(&Fill, producer, strategy)`.
+- [ ] Step 1: Failing test — a paper fill produces exactly one `fills` row carrying its `strategy` (+`producer` when the proposal came from a belief); a journal replay produces no second row. Step 2: FAIL. Step 3: wire the insert (idempotent) + thread producer/strategy onto the intent. Step 4: PASS; mutation-proof (double-drain → one row). Step 5: Commit `feat(runner): persist paper fills (with producer/strategy) to the fills table (F12)`.
 
-### Task A3: Settlement driver — resolve markets → realized PnL (F1)
-**Files:** Modify `crates/fortuna-live/src/daemon.rs` (segment loop: drive `read_client.settlements_since`/`PaperVenue::settle_market` on resolved markets — the `:1452` "Phase-2 follow-on") → `SettlementsRepo::insert_entry` + realized PnL per intent; venue-agnostic (works for any `(venue,market)`). Test: `crates/fortuna-live/tests/` (sqlx) + DST.
-**Interfaces — Consumes:** A1 `SettlementsRepo`; the venue `settlements_since`. **Produces:** realized PnL recorded per settled intent.
-- [ ] Step 1: Failing test — a resolved market closes its open paper fills into `settlement_entries` with computed realized PnL; an unresolved market stays open; re-running the resolver is a no-op (idempotent). Step 2: FAIL. Step 3: implement the settlement driver (set-once, no `weather`/`kalshi` branch). Step 4: PASS. Step 5: DST seed (settlement replay deterministic) + Commit `feat(live): wire paper-live settlement → realized PnL (F1)`.
+### Task A3: Settlement bridge — venue resolution → paper settle → realized PnL (F1)
+> **Verified P0 corrections:** the paper engine does NOT self-settle — `PaperVenue::settle_market(market, winner: Side)` (`fortuna-paper/src/lib.rs:272`) needs the winning side supplied. The truth source is `KalshiReadClient::settlements_since(cursor)` → `GET /portfolio/settlements`, which parses `market_result` → `SettlementOutcome::Winner(Side)` (`kalshi/read_client.rs:63`, `kalshi/adapter.rs:919`). The bridge from one to the other **does not exist**. The `daemon.rs:1452` "Phase-2 follow-on" comment is in `paper_data_rota_views` (the ROTA builder), NOT the drive loop — the driver is new code in the segment loop.
+**Files:** Modify `crates/fortuna-live/src/daemon.rs` (segment loop) to add the **settlement bridge**; thread the live `KalshiReadClient` handle (already built for reads) into it; persist a cursor in `exec_cursors`. Modify `crates/fortuna-runner`/`fortuna-state` so realized PnL is **reconstructable from `settlement_entries`**, not only the in-memory accumulator. Test: `crates/fortuna-live/tests/` (sqlx) + DST.
+**The bridge (each segment, or on a cadence):** `read_client.settlements_since(cursor)` → for each settled market with an OPEN paper position: `paper_venue.settle_market(market, winner_side)` → `SettlementsRepo::insert_entry(..)` (idempotent via A1 key) → compute realized PnL per intent → advance + persist the cursor. Venue-agnostic: the `winner: Side` and `(venue, market)` are data; no `weather`/`kalshi` branch in the bridge logic (Kalshi is the read-client instance).
+**PnL reconciliation (idempotency 1c):** designate **`settlement_entries` as the source of truth** for realized PnL. The in-memory `PositionBook.realized_pnl` (`fortuna-state/positions.rs:223`) is a live-session display; on restart it is **seeded from `settlement_entries`** (not re-accumulated from re-polled settlements). The bridge must not double-apply a settlement already in `settlement_entries` (the A1 UNIQUE + the cursor both guard this).
+**Interfaces — Consumes:** A1 `SettlementsRepo::insert_entry`; `KalshiReadClient::settlements_since`. **Produces:** realized PnL per settled intent, reconstructable from the DB.
+- [ ] Step 1: Failing tests — (a) a settled market (read-client returns `Winner(Yes)`) closes its open paper position into `settlement_entries` + computes realized PnL; (b) an unresolved market stays open; (c) **re-running the bridge is a no-op** (idempotent); (d) **restart → realized PnL reconstructed from `settlement_entries`, no double-count**. Step 2: FAIL. Step 3: implement the bridge + cursor + PnL-from-DB seeding. Step 4: PASS. Step 5: DST seed (settlement replay deterministic, byte-identical) + Commit `feat(live): settlement bridge (venue resolution → paper settle → realized PnL from DB) (F1)`.
 
 ### Task A4: Trade scoring (per strategy/venue)
 **Files:** Modify `crates/fortuna-cognition/src/scoring.rs` or a new `trade_score` path + `crates/fortuna-ledger` (`trade_scores` rows or reuse). Compute per-settled-intent: realized PnL after fees, fill realism (maker/through-not-touch), CLV. Test: cognition tests.
-**Interfaces — Consumes:** A3 realized PnL + fills. **Produces:** `trade_score` per `(strategy, market)`.
-- [ ] Steps: failing test (a settled fill yields a trade score with PnL-after-fees + CLV) → FAIL → impl (generic, keyed by strategy/venue) → PASS → Commit `feat: trade scoring from settled fills`.
+**Interfaces — Consumes:** A3 realized PnL (from `settlement_entries`) + fills carrying `producer`/`strategy` (A1/A2). **Produces:** `trade_score` per `(strategy, market)` (and per `producer` where the fill is belief-originated — feeds D4).
+- [ ] Steps: failing test (a settled fill yields a trade score with PnL-after-fees + CLV, attributed to its strategy/producer) → FAIL → impl (generic, keyed by strategy/venue/producer — no domain literals) → PASS → Commit `feat: trade scoring from settled fills (by strategy/producer)`.
 
 ### Task A5: Funding window-dedup scoring (F2, F13)
-**Files:** Modify the funding scoring (`crates/fortuna-live/src/daemon.rs:resolve_and_score_funding_beliefs` + `crates/fortuna-cognition`) to score per **distinct `(producer, horizon)` window** (one unit/window, not per-tick); make the `[review].min_resolved_beliefs` gate count **distinct windows**. Verify `realized_value` matches `funding_rates_historical` at the exact `funding_time` (F13).
-- [ ] Step 1: Failing test — N ticks targeting one funding window produce ONE scored unit; the promotion count is per-window. Step 2: FAIL. Step 3: dedup-by-window. Step 4: PASS + a test asserting `realized_value` == the settled rate (F13). Step 5: Commit `fix(scoring): funding scored per window, not per tick (F2/F13)`.
+> **Verified key correction:** dedup must be on **`(producer, event_key)`** where `event_key = "{market}:{next_funding_time}"` (e.g. `KXBTC-…:2026-06-17T04:00:00Z`) — NOT bare `(producer, horizon)`, which would merge different markets (KXBTC, KXETH) sharing the same funding slot. Backed by A1's `UNIQUE (producer, event_key)` on `scalar_beliefs` (replay-safe, not app-layer-only).
+**Files:** Modify the funding scoring (`crates/fortuna-live/src/daemon.rs:resolve_and_score_funding_beliefs` + `crates/fortuna-cognition`) to score per **distinct `(producer, event_key)`** (one scored unit per market-window, not per-tick); make the `[review].min_resolved_beliefs` gate count **distinct `event_key`s**. Verify `realized_value` matches `funding_rates_historical` at the exact `funding_time` (F13).
+- [ ] Step 1: Failing test — N ticks for one `(market, funding_time)` produce ONE scored unit; two markets sharing a slot stay distinct; the promotion count is per-`event_key`. Step 2: FAIL. Step 3: dedup-by-event_key. Step 4: PASS + a test asserting `realized_value` == the `funding_rates_historical` rate at that `funding_time` (F13). Step 5: Commit `fix(scoring): funding scored per (producer, event_key) window, not per tick (F2/F13)`.
 
 ### Task A6: Bus recording persistence (F4-recording / replay)
-**Files:** Modify `crates/fortuna-runner/src/runner.rs` (`ShutdownReport` ~`:90` to carry `recording_jsonl`) + `crates/fortuna-live/src/daemon.rs`/`main.rs` (persist via `RecordingsRepo` each segment, not dropped). Test: runner + a replay test.
-- [ ] Steps: failing test (a recorded segment is persisted + replays byte-identically) → FAIL → thread recording to `RecordingsRepo` → PASS (replay deterministic) → Commit `feat: persist live bus recording for replay (F4)`.
+> **Verified P0 correction:** do NOT add `recording_jsonl` to `ShutdownReport` (`runner.rs:90` — that's order-cancellation accounting). `recording_jsonl` ALREADY exists on `RunnerReport` (`runner.rs:100`), populated by `runner.report()` (`runner.rs:1742`); there's also `runner.recording()` (`runner.rs:761`) for per-segment snapshots. The daemon calls only `runner.shutdown()` (`daemon.rs:3321`) and drops the recording. Fix = call `report()`/`recording()` and persist.
+**Files:** Modify `crates/fortuna-live/src/daemon.rs`/`main.rs` to call `runner.recording()` per segment (or `runner.report()` at shutdown) and persist via `RecordingsRepo::append` (A1). No change to `ShutdownReport`. Test: runner + a replay test.
+- [ ] Steps: failing test (a recorded segment is persisted to `bus_recordings` + replays byte-identically) → FAIL → call `runner.recording()`/`report()` → `RecordingsRepo::append` (append-only, replay-safe) → PASS (replay deterministic) → Commit `feat: persist live bus recording for replay via RunnerReport (F4)`.
 
 ### Task A7: Spine telemetry + decoupling guard
-**Files:** Modify `crates/fortuna-ops/src/...` `MetricsRegistry` + emit points across A2–A6 (counters: fills/settlements/realized-PnL/trade-scores by `strategy`/`venue`). Add a guard test in `crates/fortuna-invariants/tests/` (additions-only): spine money/scoring paths contain no `"weather"`/`"kalshi"`/`"aeolus"` literals.
-- [ ] Steps: failing test (key series emitted after a settle cycle; guard greps spine crates) → FAIL → emit metrics + add guard → PASS → Commit `feat: spine telemetry + decoupling guard test`.
+> **Verified corrections:** (1) the Kalshi leak is in `fortuna-live` (`daemon.rs:2277,2361` + hardcoded `"weather"`/`"kalshi"`/`fees.get("kalshi")`) — a guard scoped to spine crates only would MISS it; so this task's `fortuna-live` assertions **depend on C1** (run A7 after C1). (2) Existing invariant fixtures contain `"weather"`/`"kalshi"` literals (`i7_promotion_gates.rs:90`, `i_paper_live_no_real_order.rs:17,18,126`) → the guard must exclude `**/tests/**` and config/adapter/producer-instance paths. (3) Name the metrics so they aren't dropped.
+**Files:** Modify `crates/fortuna-ops`/`MetricsRegistry` + emit points across A2–A6. **Named counter families (all must exist):** `fills{venue,market}`, `settlements{venue}`, `realized_pnl{strategy}`, `trade_score{strategy,producer}`, `gate_rejections{check}` (the `gate_rejections_by_check` map at `runner.rs:195` — export it), `belief_scores{producer}`, `data_staleness{source}` (signal/book freshness), `mind_spend{role}` (synthesis/triage/recon — covers the B3 gap). Add a guard test in `crates/fortuna-invariants/tests/` (additions-only): grep `crates/fortuna-gates|-exec|-state|-ledger` **and** `crates/fortuna-live/src` (post-C1) for `"weather"|"kalshi"|"aeolus"` literals in money/gate/scoring/compose paths, excluding `**/tests/**`, `**/kalshi/**` (the adapter instance), and config.
+- [ ] Steps: failing test (named series emitted after a settle cycle; guard greps the listed scope with exclusions) → FAIL → emit metrics + add guard → PASS → Commit `feat: spine telemetry (named families) + decoupling guard (incl. fortuna-live, post-C1)`.
 
 ---
 
 ## Workstream B — The model arm (F0, F3, F5)
 
-### Task B1: Persist fitted calibration in `paper` (F0)
-**Files:** Modify `crates/fortuna-live/src/daemon.rs` `run_weekly_review` (~`:4184`/`:4292`): when `stage == "paper"`, call `CalibrationParamsRepo::insert` with the review's `fitted` Platt (versioned upsert; the "not capital promotion in paper" boundary documented). Test: `crates/fortuna-live/tests/` (sqlx).
-**Interfaces — Consumes:** existing `CalibrationParamsRepo::insert`, the weekly review `ScopeCalibration.fitted`.
-- [ ] Step 1: Failing test — a scope with ≥`FULL_AUTONOMY_N` resolved beliefs + `stage="paper"` writes a `calibration_params` row; re-run = versioned, idempotent; `stage="live_*"` does NOT auto-persist (I7). Step 2: FAIL. Step 3: persist in paper. Step 4: PASS; mutation-proof (flip stage gate). Step 5: Commit `feat(live): persist fitted calibration in paper stage → wakes the model arm (F0)`.
+### Task B1: Persist fitted calibration in `paper` — count-triggered (F0)
+> **Verified P0 corrections:** (1) `run_weekly_review` (`daemon.rs:4185`) computes `wr.calibration[i].fitted` (when `n ≥ FULL_AUTONOMY_N=50`) but **never calls `CalibrationParamsRepo::insert`** — it just audits + returns. (2) It only fires on a **Monday-aligned 7-day boundary** (`daemon.rs:4560`), so a multi-day/mid-week demo **never warms the model arm** even with 50+ resolved beliefs. (3) `run_weekly_review` has **no `stage` parameter** — it must be plumbed from the caller's `ExecutionMode`/`stage`.
+**Files:** Modify `crates/fortuna-live/src/daemon.rs`: (a) thread `stage` into `run_weekly_review`; when `stage=="paper"`, after `weekly_review()` returns, iterate `wr.calibration` and call `CalibrationParamsRepo::insert` for each `fitted` (versioned upsert). (b) Add a **count-triggered calibration persist on the daily-resolution boundary** (`daemon.rs:3127` weather / `:3161` funding region): when a scope crosses `FULL_AUTONOMY_N` resolved beliefs, fit + persist immediately (don't wait for Monday). `stage="live_*"` NEVER auto-persists (I7 — write the test as `ExecutionMode` membership, not string-equality). Test: `crates/fortuna-live/tests/` (sqlx).
+**Interfaces — Consumes:** `CalibrationParamsRepo::insert`, `ScopeCalibration.fitted`, the daily-resolution counts.
+- [ ] Step 1: Failing tests — (a) a scope reaching ≥50 resolved beliefs in `paper` writes a `calibration_params` row **on the daily boundary, no Monday required**; (b) re-run = versioned + idempotent; (c) `stage` ∈ live modes does NOT auto-persist. Step 2: FAIL. Step 3: plumb stage + count-trigger + persist. Step 4: PASS; mutation-proof (flip the stage gate; flip the count threshold). Step 5: Commit `feat(live): count-triggered calibration persist in paper → wakes the model arm (F0)`.
 
-### Task B2: Weather belief resolution → calibration substrate (F3)
-**Files:** Verify/repair the path: NWS CLI grader resolves open weather beliefs → `outcome/brier/clv` → feeds B1. Modify the grader cadence/wiring (`crates/fortuna-cli` grader + `crates/fortuna-live` resolution call) so weather beliefs actually resolve on the live daemon. Test: cognition/live.
-- [ ] Steps: failing test (a resolved weather belief gets `outcome`+`brier`; its scope's resolved-count increments) → FAIL → wire the resolution → PASS → Commit `fix: weather belief resolution feeds calibration (F3)`.
+### Task B2: Verify weather belief resolution + signal-freshness (F3)
+> **Verified reframe:** `resolve_and_score_weather_beliefs` is ALREADY implemented (`daemon.rs:3858`) and wired into the daily-boundary block (`daemon.rs:3127`), with a passing smoke (`daemon_smoke.rs:3901`). So this is **verification, not wiring** — the real risk is whether `nws.cli` signals are reliably ingested on the live cadence so the grader has data.
+**Files:** Add a freshness/coverage check + telemetry (`data_staleness{source="nws_climate"}`); confirm the daily resolver consumes the latest CLI; confirm resolved counts feed B1's count-trigger. Test: cognition/live.
+- [ ] Steps: failing test (a resolved weather belief gets `outcome`+`brier`+`clv`; the scope's resolved-count increments and is visible to B1; stale/absent CLI is surfaced as a metric, not silent) → run (may pass on existing code → then add the freshness assertion as the new coverage) → confirm → Commit `test(live): verify weather belief resolution + CLI signal-freshness (F3)`.
 
 ### Task B3: Gate the paid Mind call behind calibration-readiness (F5)
-**Files:** Modify `crates/fortuna-runner/src/synthesis.rs` (`on_event` ~`:174`): skip/triage-only the expensive `decide()` when no `calibration_params` row exists for the scope (don't pay Opus to size zero); still accrue the cheap belief substrate. Telemetry: a "synthesis skipped: cold calibration" metric (no silent skip).
-- [ ] Steps: failing test (cold-calibration scope → no paid synthesis call, metric emitted; warm scope → call proceeds) → FAIL → gate it → PASS → Commit `fix(synthesis): gate paid Mind call on calibration-readiness (F5)`.
+> **Verified safe (no deadlock):** weather beliefs that feed calibration come from the deterministic Aeolus daily-resolver path (`emit_aeolus_beliefs` → `daemon.rs:3127`), **independent of** synthesis's paid `decide()`. So skipping `decide()` while cold does NOT starve calibration. B3 depends on B1 to ever go warm — document that.
+**Files:** Modify `crates/fortuna-runner/src/synthesis.rs` (`on_event`, the `cycle.run`/`decide` call ~`:176`): when the scope has no `calibration_params` row, skip the expensive Opus `decide()` (it would only size zero — `compose.rs:73-74`); still let the cheap deterministic belief substrate accrue. Telemetry: `mind_spend`/a "synthesis skipped: cold calibration" counter (no silent skip).
+- [ ] Steps: failing test (cold scope → no paid `decide()`, skip metric emitted; warm scope after B1 → `decide()` proceeds) → FAIL → gate it → PASS → Commit `fix(synthesis): gate paid Mind call on calibration-readiness; depends on B1 (F5)`.
 
 ---
 
 ## Workstream C — Generic discovery / seeding (F4, F7, F9, stale-book gate; "easy weather discovery")
 
 ### Task C1: Venue-neutral `MarketCatalog`/`MarketView`
-**Files:** Create `crates/fortuna-cognition/src/catalog.rs` (a venue-neutral `MarketView { market_id, venue_id, title, category, status, ... }` + `trait MarketCatalog { async fn list(series/category) }`). Move `WeatherMarketSource` out of `kalshi::` to consume the catalog; stop `KalshiMarket` DTOs leaking into `fortuna-live` (`aeolus_venue.rs:42`, `daemon.rs:2276/2360`); drop hardcoded `venue:"kalshi"` (`aeolus_venue.rs:165`). (Spec §2.1; audit Area 5.)
-- [ ] Steps: failing test (discovery consumes `MarketView`, no `KalshiMarket` type crosses into `fortuna-live`; a guard grep) → FAIL → introduce the abstraction + adapt the Kalshi adapter to emit `MarketView` → PASS (existing weather path still green — regression) → Commit `refactor: venue-neutral MarketCatalog (decouple discovery from Kalshi; Area 5)`.
+> **Verified P1 correction:** `market_to_bucket` (`aeolus_venue.rs:111`) reads `KalshiMarket`-specific bracket geometry — `strike_type` (`"between"/"greater"/"less"`), `floor_strike_int()`, `cap_strike_int()`. A `MarketView` lacking these would **silently break the weather path** (all buckets get `None` floor/cap → malformed/zero edges). `KalshiMarket` is leaked at `aeolus_venue.rs:42`, `daemon.rs:2277,2361` (the cache type + the `KalshiMarketStatus::Active` filter).
+**Files:** Create `crates/fortuna-cognition/src/catalog.rs`: `MarketView { market_id, venue_id, title, category, status, strike_type: Option<String>, floor_strike: Option<i64>, cap_strike: Option<i64> }` (the geometry is **part of** the venue-neutral view — it's bracket semantics, not Kalshi-specific) + `trait MarketCatalog { async fn list(series_or_category) -> Vec<MarketView> }`. The Kalshi adapter populates `MarketView` (incl. geometry) from `KalshiMarket`; `market_to_bucket` consumes `MarketView`; move `WeatherMarketSource` off the `kalshi::` namespace; drop hardcoded `venue:"kalshi"` (`aeolus_venue.rs:165`) — use the `MarketView.venue_id`.
+- [ ] Steps: failing test — (a) discovery consumes `MarketView`; no `KalshiMarket`/`KalshiMarketStatus` type appears in `fortuna-live` (grep guard); **(b) regression: the weather path produces the SAME bucket floor/cap/edges via `MarketView` as it did via `KalshiMarket`** (golden compare). → FAIL → introduce the abstraction + adapt → PASS (existing weather path green) → Commit `refactor: venue-neutral MarketCatalog w/ bracket geometry (decouple from Kalshi; Area 5)`.
 
 ### Task C2: World-forward resolution_source match fix (F4)
 **Files:** Modify `crates/fortuna-cognition/src/discovery.rs:689` — the `registry.get(&resolution_source).unwrap_or(true)` exact-match against machine IDs while Opus emits prose. Normalize/fuzzy-map resolution_source → registry id so discovered events become **scoreable**.
@@ -138,9 +155,10 @@ Every task implicitly includes these (from the spec §2; a task violating one is
 **Files:** `crates/fortuna-cli/src/main.rs` (new `doctor` verb): checks DB reachable, migrations applied, required env/creds present, mode safe, `funding_rates_historical` GRANT present (F6-grant), Aeolus source reachable (F6). Test: cli.
 - [ ] Steps: failing test (doctor flags a missing GRANT / unreachable DB) → FAIL → impl → PASS → Commit `feat(cli): fortuna doctor readiness check`.
 
-### Task E2: `fortuna start paper-demo` (fresh DB, no order path) + pointer-write (F11-proper)
-**Files:** `crates/fortuna-cli/src/main.rs` (new `start paper-demo`: provision a fresh DB, apply migrations + GRANTs, set `execution_mode=live_data_only`/`paper_ledger`, run `doctor`, start daemon; daemon writes the **true** live `DATABASE_URL` to `current-demo-db-url` on boot — F11 proper). Test: cli/boot.
-- [ ] Steps: failing test (paper-demo boots with no constructible order path; pointer reflects the live DB) → FAIL → impl → PASS → Commit `feat(cli): fortuna start paper-demo (fresh DB, no order path); daemon writes live db pointer (F11)`.
+### Task E2: `fortuna start paper-demo` (fresh DB, paper fills, no REAL order) + pointer-write (F11-proper)
+> **Verified mode pin:** the demo must accrue paper fills → realized PnL, so it runs **`execution_mode = "paper_ledger"`** (routes `place()` to the LOCAL `PaperLiveVenue` — `OrderMutationPolicy::Enabled`, `daemon.rs:783-793`). `live_data_only` would block even paper fills (no loop closure). Safety is **no REAL-venue order path** — guaranteed structurally by the `KalshiReadClient` (no `place`/`cancel`) + the protected `i_paper_live_no_real_order` invariant, NOT by disabling mutation. Don't write "no order-mutation path constructible" (false for paper_ledger); write "paper fills only; no real-venue order".
+**Files:** `crates/fortuna-cli/src/main.rs` (new `start paper-demo`: provision a fresh DB, apply migrations + the `funding_rates_historical` GRANT, set `stage="paper"`/`execution_mode="paper_ledger"`/`data_source="kalshi_prod"`/`execution="paper"`, run `doctor`, start the daemon). Daemon writes the **true** live `DATABASE_URL` to `current-demo-db-url` on boot (F11-proper). Test: cli/boot.
+- [ ] Steps: failing test (paper-demo boots in `paper_ledger`; the `i_paper_live_no_real_order` wall holds — no real-venue order; pointer reflects the live DB) → FAIL → impl → PASS → Commit `feat(cli): fortuna start paper-demo (fresh DB, paper_ledger, no real order); daemon writes live db pointer (F11)`.
 
 ### Task E3: ROTA chain-view + safety pills (audit #6)
 **Files:** `crates/fortuna-live/src/daemon.rs:1421-1438` (emit `execution_mode`/`order_mutation_enabled`/book-freshness into the health view) + `crates/fortuna-ops/src/rota.rs:2107` (render safety pills + a per-market chain panel: signal→belief(by producer)→proposal→gate→fill→settle→score). Test: ops/rota.
@@ -153,6 +171,12 @@ Every task implicitly includes these (from the spec §2; a task violating one is
 ### Task E5: Demo runbook + Aeolus stable-source note (F6)
 **Files:** `docs/runbooks/paper-demo.md` (the one runbook: `doctor` → `start paper-demo` → ROTA → daily/weekly cadence → kill switch), document the Aeolus stable-URL + rolling-date requirement (F6). Update CHANGELOG. (Docs task; no code.)
 - [ ] Steps: write the runbook + CHANGELOG entry → verify links resolve → Commit `docs: paper-demo runbook + Aeolus stable-source note (F6)`.
+
+### Task E6: Operator `rearm` CLI verb (MVP-CLOSURE §4; audit §10)
+> **Verified gap:** MVP-CLOSURE-PLAN §4 lists the operator `rearm` verb as Phase C; AUDIT.md §10 flags it; it had no task. Without it, a halted daemon (drawdown/rate-limit/kill-switch) needs a full restart to re-arm (`rearm_requires_restart` in the ROTA health). `gates.rearm()` already exists (`fortuna-gates/src/halt.rs`); only the CLI surface is missing.
+**Files:** `crates/fortuna-cli/src/main.rs` (new `rearm` verb → clears a human-cleared halt out-of-band per I2, with an audit row). Test: cli.
+- [ ] Steps: failing test (`fortuna rearm` clears a halt + writes an audit row; refuses if the kill-switch sentinel is still present per I4) → FAIL → impl → PASS → Commit `feat(cli): operator rearm verb (audit §10 / MVP-CLOSURE §4)`.
+> **Also (tracked, not a task):** the killswitch `is_revoked()` FS-permission fail-open (`lib.rs:258`, audit §9, P2, mitigated by `PgHaltPoller`) is recorded in `GAPS.md` for a hardening follow-on.
 
 ---
 
@@ -167,7 +191,10 @@ Every task implicitly includes these (from the spec §2; a task violating one is
 | F5-CLI / #5 / MVP | `fortuna start paper-demo` | **E2** (+E1 doctor) |
 | #6 / MVP | ROTA execution_mode/order-mutation + chain-view | **E3** |
 | F-persona / #7 / MVP | charter + registry + enable | **D1, D2, D3** |
-| F4 world-forward / #8 / MVP | resolution_source match | **C2** |
+| F4 world-forward / #8 / MVP | resolution_source match (unblocks scoreability) | **C2** — *scope:* C2 makes world-forward events scoreable + belief-attachable; the full world-forward→market-mapping→trade chain stays watchlist-deferred per spec §6 (macro domain) |
+| Operator rearm verb | MVP-CLOSURE §4 / audit §10 | **E6** |
+| Restart PnL reconciliation | idempotency 1c | **A3** (settlement_entries = source of truth) |
+| Producer columns (fills/scalar_beliefs) | per-producer scoring prereq | **A1** |
 | F6-grant / #9 / MVP | funding GRANT | **E1** (doctor) + **E2** |
 | F2 oversampling | window-dedup scoring + promotion count | **A5** |
 | F3 calibration cold-start | weather resolution → calibration | **B2** |
@@ -188,5 +215,18 @@ Every task implicitly includes these (from the spec §2; a task violating one is
 - **Spec coverage:** spec §3 spine → A; §4 arms → A (mech/perp) + B (synthesis); §5 meteorologist → D; §6 discovery → C; §7 demo surface → E; §2 principles → Global Constraints + A1/A7 (idempotency/decoupling/telemetry guards). ✓
 - **Finding coverage:** every F-item + scorecard row + MVP gap maps to a task in the matrix above; Phase-B-done items marked n/a. ✓
 - **Placeholders:** each task names exact files, the test intent with concrete assertions, interfaces, and the commit. Per-task code bodies are expanded at execution (subagent-driven-development), following the repo's established plan style (`2026-06-16-paper-on-live-data.md`); load-bearing behavior (idempotency keys, persist calls, decoupling boundary, charter fix) is specified inline. ✓
-- **Type consistency:** A1 produces `FillsRepo::insert`/`SettlementsRepo::insert_entry`/`RecordingsRepo` consumed by A2/A3/A6; `MarketView` (C1) consumed by C2/C4; `producer` keying (A4) consumed by D4. ✓
-- **Build order:** A (spine) → B (model arm) → C (discovery) → D (persona) → E (demo surface); each ships a testable deliverable; all together = Phase C DoD.
+- **Type consistency:** `FillsRepo::insert` + `SettlementsRepo::insert_entry` ALREADY exist (A1 *adds* the `ON CONFLICT`/business-key + the `producer`/`strategy` columns + `RecordingsRepo`); A2/A3/A6 consume those. `MarketView` w/ bracket geometry (C1) consumed by C2/C4 + `market_to_bucket`. `producer` column (A1) → fills (A2) → trade scoring (A4) → per-producer (D4). Recording uses `RunnerReport.recording_jsonl` (A6), not `ShutdownReport`. ✓
+- **Build order + dependencies:** A (spine) → B (model arm) → **C1 before A7** (A7's `fortuna-live` decoupling guard depends on C1 removing the Kalshi leak) → C (rest) → D (persona) → E (demo surface). Each ships a testable deliverable; all together = Phase C DoD.
+
+## Verification record (adversarial verify loop, 2026-06-18)
+
+Three read-only verifiers (coverage+citations, technical soundness, principles+invariants) attacked this plan before any execution. Defects found and **fixed inline above** (high-confidence; several cross-corroborated by ≥2 verifiers):
+- **P0** A3 settlement bridge underspecified (no venue-resolution→`settle_market(winner)` path; wrong `:1452` cite) → rewrote A3 with the explicit bridge + PnL-from-DB reconciliation.
+- **P0** A6 targeted `ShutdownReport` for `recording_jsonl` which lives on `RunnerReport` → rewrote A6 to call `runner.report()`/`recording()`.
+- **P0** B1 calibration never fires (Monday-only weekly review; no `stage` param) → rewrote B1 with a count-triggered daily persist + `stage` plumbing.
+- **P1** C1 `MarketView` would drop bracket geometry (`strike_type`/floor/cap) → C1 now carries geometry + a weather-path regression test.
+- **P1** A5 dedup key `(producer,horizon)` merges multi-market windows → fixed to `(producer,event_key)` + a DB UNIQUE (A1).
+- **P1** no `producer` column on fills/scalar_beliefs (blocks per-producer scoring + DB dedup); settlement `insert_entry` had no `ON CONFLICT`; restart PnL double-count → all added to A1/A3.
+- **P1** decoupling guard scoped to spine only would miss the `fortuna-live` Kalshi leak → A7 now includes `fortuna-live` (after C1) with test-fixture exclusions.
+- **Scope trims:** `fills.fill_id` PK + `ON CONFLICT` already exist; `resolve_and_score_weather_beliefs` already wired → A1 re-scoped, B2 reframed to verification.
+- **Dropped item:** operator `rearm` verb → added E6.
