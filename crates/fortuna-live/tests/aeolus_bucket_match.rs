@@ -126,14 +126,14 @@ fn golden_regression_market_view_geometry() {
         .find(|m| m.ticker.contains("26JUN13-B87.5"))
         .expect("B87.5 in fixture");
     assert_eq!(between_raw.strike_type.as_deref(), Some("between"));
-    let floor = between_raw.floor_strike_int().expect("B89 has floor");
-    let cap = between_raw.cap_strike_int().expect("B89 has cap");
+    let floor = between_raw.floor_strike_int().expect("B87.5 has floor");
+    let cap = between_raw.cap_strike_int().expect("B87.5 has cap");
     let between_view = kalshi_market_to_market_view(between_raw);
     assert_eq!(between_view.strike_type.as_deref(), Some("between"));
     assert_eq!(between_view.floor_strike, Some(floor));
     assert_eq!(between_view.cap_strike, Some(cap));
     assert_eq!(between_view.market_id, between_raw.ticker);
-    let bucket = market_to_bucket(&between_view).expect("B89 'between' → InRange bucket");
+    let bucket = market_to_bucket(&between_view).expect("B87.5 'between' → InRange bucket");
     assert_eq!(
         bucket.market_key, between_raw.ticker,
         "market_key == ticker"

@@ -51,6 +51,7 @@ fn event_grades_on_rejects_other_dates_and_malformed_input() {
     // Wrong day / month / year → no match.
     assert!(!event_grades_on("KXHIGHNY-26JUN13", "2026-06-14"));
     assert!(!event_grades_on("KXHIGHNY-26JUN13", "2026-07-13"));
+    assert!(!event_grades_on("KXHIGHNY-26JUN13", "2027-06-13")); // wrong year (token 26 != 27)
     assert!(!event_grades_on("KXHIGHNY-26JUN13", "2026-06-13-extra"));
     // The '-' boundary prevents an inside-a-run false positive.
     assert!(!event_grades_on("KXHIGHNY-126JUN13", "2026-06-13"));
