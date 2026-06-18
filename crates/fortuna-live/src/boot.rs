@@ -190,6 +190,17 @@ impl ExecutionMode {
                 | ExecutionMode::ProductionOrders
         )
     }
+
+    /// Whether the daemon may AUTO-PERSIST a fitted calibration set (Task B1 /
+    /// F0). PaperLedger ONLY: live data + local paper execution is the one mode
+    /// that warms the synthesis arm's calibration from its own resolved record.
+    /// Every other mode (live-data-only, dry-run, demo, production) persists
+    /// NOTHING — calibration in those modes is an operator/promotion action, so
+    /// the daemon never advances a calibration version on its own (I7). Expressed
+    /// as ExecutionMode MEMBERSHIP so a new variant defaults to refusing.
+    pub fn auto_persist_calibration(self) -> bool {
+        matches!(self, ExecutionMode::PaperLedger)
+    }
 }
 
 /// The explicit runtime section required for any Kalshi composition.

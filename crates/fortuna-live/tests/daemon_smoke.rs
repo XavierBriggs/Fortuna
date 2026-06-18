@@ -2161,6 +2161,8 @@ async fn drive_runs_the_weekly_review_at_the_week_boundary(pool: PgPool) {
         mind: stub_mind(),
         review,
         synth_category: Some("weather".to_string()),
+        // Sim smoke (not PaperLedger): never auto-persist calibration (I7).
+        auto_persist_calibration: false,
         start: t0(),
         weekly: fortuna_live::daemon::WeeklyScheduler::new(),
         monthly: fortuna_live::daemon::MonthlyScheduler::new(),
@@ -2332,6 +2334,8 @@ async fn drive_runs_the_monthly_review_at_the_month_boundary(pool: PgPool) {
         mind: stub_mind(),
         review,
         synth_category: Some("weather".to_string()),
+        // Sim smoke (not PaperLedger): never auto-persist calibration (I7).
+        auto_persist_calibration: false,
         start: t0(),
         weekly: fortuna_live::daemon::WeeklyScheduler::new(),
         monthly: fortuna_live::daemon::MonthlyScheduler::new(),

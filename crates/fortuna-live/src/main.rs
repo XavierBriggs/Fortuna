@@ -572,6 +572,15 @@ async fn main() -> Result<()> {
             mind: synthesis_mind,
             review,
             synth_category: dcfg.synthesis.as_ref().and_then(|s| s.category.clone()),
+            // I7 (Task B1 / F0): auto-persist a fitted calibration set ONLY in
+            // PaperLedger (live data + local paper execution). Every other runtime
+            // mode — and an absent [runtime] (legacy sim) — leaves this false, so
+            // the daemon never advances a calibration version on its own outside
+            // paper. Expressed as ExecutionMode membership, never a string compare.
+            auto_persist_calibration: dcfg
+                .runtime
+                .as_ref()
+                .is_some_and(|r| r.execution_mode.auto_persist_calibration()),
             start,
             weekly: fortuna_live::daemon::WeeklyScheduler::new(),
             monthly: fortuna_live::daemon::MonthlyScheduler::new(),

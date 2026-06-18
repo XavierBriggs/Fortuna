@@ -67,8 +67,9 @@ use fortuna_cognition::mind::{
 };
 use fortuna_cognition::reconciliation::{run_reconciliation, ReconError};
 use fortuna_cognition::review::{
-    monthly_review, weekly_review, AllocationInput, LessonStatusView, MonthlyReview, ScopeKey,
-    ScopeRecord, StrategyKindView, StrategyRecord, WeeklyReview,
+    calibration_report, monthly_review, weekly_review, AllocationInput, LessonStatusView,
+    MonthlyReview, ScopeCalibration, ScopeKey, ScopeRecord, StrategyKindView, StrategyRecord,
+    WeeklyReview,
 };
 use fortuna_cognition::veto::{StubVetoMind, VetoMind};
 use fortuna_core::clock::{Clock, UtcTimestamp};
@@ -1528,6 +1529,12 @@ pub struct ReviewWiring {
     /// The [synthesis].category whose calibration scope the audit reads (None =>
     /// no calibrated scope; GO/NO-GO over the strategies still runs).
     pub synth_category: Option<String>,
+    /// I7 stage gate (Task B1 / F0): whether the daemon may AUTO-PERSIST a fitted
+    /// calibration set (the daily count-trigger + the weekly path). True ONLY in
+    /// ExecutionMode::PaperLedger; every other mode leaves it false and the daemon
+    /// persists no calibration version on its own (calibration there is an
+    /// operator action). main sets it from the runtime mode.
+    pub auto_persist_calibration: bool,
     /// Daemon boot time, for the paper_days approximation.
     pub start: UtcTimestamp,
     pub weekly: WeeklyScheduler,
@@ -3491,6 +3498,57 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                             .await;
                     }
                 }
+                // Task B1 / F0: the DAILY count-trigger that WAKES the synthesis
+                // (model) arm. Right after the resolvers add today's resolved
+                // beliefs, refit + persist the synthesis scope's calibration the
+                // MOMENT its resolved record crosses FULL_AUTONOMY_N (50) — no need
+                // to wait for the weekly/Monday boundary (which a multi-day demo may
+                // never hit). Idempotent (the fitted_on_n guard makes a re-run on
+                // unchanged data a no-op) and STAGE-GATED (auto_persist =>
+                // PaperLedger only, I7). Reuses `reviews`'s synth scope; with no
+                // [review] wiring or no synth_category it is a clean no-op. A failure
+                // ALERTS and continues — never crashes the boundary.
+                if let Some(rw) = reviews.as_ref() {
+                    if let Some(category) = rw.synth_category.as_deref() {
+                        match persist_daily_calibration(
+                            rpool,
+                            synth_model,
+                            Some(category),
+                            rw.auto_persist_calibration,
+                            now,
+                            CALIBRATION_PERSIST_BASE_TAG + day_base,
+                        )
+                        .await
+                        {
+                            Ok(n) if n > 0 => {
+                                total_send_failures += runner
+                                    .route_alerts(
+                                        slack,
+                                        &[(
+                                            fortuna_ops::MessageKind::Digest,
+                                            format!(
+                                                "calibration fitted on the resolved record — \
+                                                 model arm warm ({n} scope(s) persisted)"
+                                            ),
+                                        )],
+                                    )
+                                    .await;
+                            }
+                            Ok(_) => {}
+                            Err(e) => {
+                                total_send_failures += runner
+                                    .route_alerts(
+                                        slack,
+                                        &[(
+                                            fortuna_ops::MessageKind::Ops,
+                                            format!("daily calibration persist FAILED: {e}"),
+                                        )],
+                                    )
+                                    .await;
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -3515,12 +3573,44 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                     .await
                 {
                     Ok(wr) => {
+                        // Task B1 / F0: persist the audit's fitted calibration set(s)
+                        // — STAGE-GATED (auto_persist => PaperLedger, I7) and
+                        // idempotent (the fitted_on_n guard, so this is a no-op when
+                        // the daily count-trigger already persisted the same resolved
+                        // record). The daemon never advances a version outside paper.
+                        let week_base =
+                            CALIBRATION_PERSIST_BASE_TAG + (now.epoch_millis().max(0) as u64);
+                        let persisted = match persist_fitted_calibration(
+                            &rw.pool,
+                            &wr.calibration,
+                            rw.auto_persist_calibration,
+                            now,
+                            week_base,
+                        )
+                        .await
+                        {
+                            Ok(n) => n,
+                            Err(e) => {
+                                total_send_failures += runner
+                                    .route_alerts(
+                                        slack,
+                                        &[(
+                                            fortuna_ops::MessageKind::Ops,
+                                            format!("weekly calibration persist FAILED: {e}"),
+                                        )],
+                                    )
+                                    .await;
+                                0
+                            }
+                        };
                         let summary = format!(
                             "FORTUNA weekly review — {} calibrated scope(s), {} GO/NO-GO \
-                             recommendation(s), {} lesson candidate(s) (operator action, I7)",
+                             recommendation(s), {} lesson candidate(s), {} calibration \
+                             version(s) persisted (operator action, I7)",
                             wr.calibration.len(),
                             wr.recommendations.len(),
-                            wr.lesson_candidates.len()
+                            wr.lesson_candidates.len(),
+                            persisted,
                         );
                         let mut msgs = vec![(fortuna_ops::MessageKind::Digest, summary)];
                         for cand in &wr.lesson_candidates {
@@ -3867,6 +3957,13 @@ const RESOLVE_BATCH_CAP: i64 = 256;
 /// the same day or across days. (The daily epoch base separates day-over-day.)
 const WEATHER_SCORE_BASE_TAG: u64 = 1 << 56;
 const FUNDING_SCORE_BASE_TAG: u64 = 1 << 57;
+
+/// Per-day base TAG for the daily calibration-persist `01CAL…` param-ids (Task B1
+/// / F0). A THIRD disjoint high tag on the UTC-day epoch-ms base, 2^58 — the same
+/// 2^56-gap rationale as the score tags, so a day's `01CAL` param-ids can never
+/// collide with that day's `01BSC` weather/funding score-ids (different id space
+/// anyway) nor with another day's `01CAL` run.
+const CALIBRATION_PERSIST_BASE_TAG: u64 = 1 << 58;
 
 /// Resolve + score every DUE, capturable `funding_forecast` scalar belief
 /// (design §2.6 A2d + §9.1; the SLICE-3-part-3 standalone — NOT yet wired into
@@ -4464,6 +4561,155 @@ fn reconciliation_context<
         body,
         at,
     }]
+}
+
+/// Persist the fitted calibration set(s) of a deterministic audit, idempotently
+/// and STAGE-GATED (Task B1 / F0 — this is what WAKES the synthesis arm: with no
+/// `calibration_params` row the synthesis pipeline sizes ZERO, so an unpersisted
+/// fit never trades). Shared by the daily count-trigger and the weekly path.
+///
+/// For each scope that carries a `fitted` set AND when `auto_persist` is true:
+///   - look up `latest()` for the scope (kind = "platt") and read its provenance
+///     `fitted_on_n` (0 if there is no prior row);
+///   - the IDEMPOTENCY guard: persist ONLY when there is no prior row OR the new
+///     fit was trained on STRICTLY MORE resolved samples (`fitted_on_n` advanced).
+///     Re-running a boundary on unchanged resolved data is therefore a clean
+///     no-op (no duplicate version); new resolved data advances the version.
+///   - INSERT one versioned row (`version` rides from the deterministic audit,
+///     which is `prior + 1`).
+///
+/// I7 WALL: `auto_persist = false` (every non-PaperLedger ExecutionMode) ⇒ this
+/// persists NOTHING and returns 0. Calibration in live/dry-run/demo/production is
+/// an operator action; the daemon never advances a version on its own there.
+///
+/// Returns the number of scopes persisted. `id_base` seeds the ULID `param_id`
+/// (the UTC-day epoch base at the call site); the per-scope index is mixed into
+/// the low bits so multiple scopes in one call never collide.
+pub async fn persist_fitted_calibration(
+    pool: &PgPool,
+    scopes: &[ScopeCalibration],
+    auto_persist: bool,
+    now: UtcTimestamp,
+    id_base: u64,
+) -> Result<usize, DaemonError> {
+    // The I7 wall: a non-paper mode persists nothing, regardless of the fit.
+    if !auto_persist {
+        return Ok(0);
+    }
+    let repo = CalibrationParamsRepo::new(pool.clone());
+    let now_iso = now.to_iso8601();
+    let mut persisted = 0usize;
+    for (idx, scope) in scopes.iter().enumerate() {
+        let Some(params) = scope.fitted.as_ref() else {
+            continue;
+        };
+        // The prior row's training count, if any, gates a re-issue.
+        let latest = repo
+            .latest(
+                &scope.key.model_id,
+                &scope.key.strategy,
+                &scope.key.category,
+                SYNTH_CALIBRATION_KIND,
+            )
+            .await
+            .map_err(|e| DaemonError::Compose {
+                reason: format!("calibration persist latest: {e}"),
+            })?;
+        let prior_fitted_on_n = latest
+            .as_ref()
+            .and_then(|row| row.params.get("fitted_on_n").and_then(|v| v.as_i64()))
+            .unwrap_or(0);
+        // Idempotency: only a strictly larger resolved record earns a new version.
+        if latest.is_some() && (params.fitted_on_n as i64) <= prior_fitted_on_n {
+            continue;
+        }
+        let value = serde_json::to_value(params).map_err(|e| DaemonError::Compose {
+            reason: format!("calibration params serialize: {e}"),
+        })?;
+        // `01CAL…` param-id from the caller's day base + the per-scope index (the
+        // same string-id idiom as the daily score resolvers; the per-day epoch base
+        // separates day-over-day, the index separates scopes within one call).
+        let param_id = format!("01CAL{:021}", id_base.wrapping_add(idx as u64));
+        repo.insert(
+            &param_id,
+            &scope.key.model_id,
+            &scope.key.strategy,
+            &scope.key.category,
+            SYNTH_CALIBRATION_KIND,
+            &value,
+            params.version as i32,
+            &now_iso,
+            &now_iso,
+        )
+        .await
+        .map_err(|e| DaemonError::Compose {
+            reason: format!("calibration params insert: {e}"),
+        })?;
+        persisted += 1;
+    }
+    Ok(persisted)
+}
+
+/// The DAILY count-trigger for the synthesis arm's calibration (Task B1 / F0).
+/// Unlike the weekly path it does NOT wait for a Monday boundary: on every UTC
+/// day, once the synthesis category has enough resolved beliefs, it fits and
+/// persists — so a multi-day demo warms the model arm as soon as the resolved
+/// record crosses `FULL_AUTONOMY_N` (50), instead of staying dark until the first
+/// weekly boundary. Deterministic end to end (it reuses `calibration_report`, the
+/// same fit the weekly audit uses) and STAGE-GATED via `auto_persist` (I7:
+/// PaperLedger only). Returns the number of scopes persisted.
+///
+/// With no `synth_category` there is no calibrated scope, so it is a no-op (Ok(0)).
+/// A degenerate or below-threshold record yields `fitted = None`, so nothing is
+/// persisted — the additive-and-inert property the daily boundary relies on.
+pub async fn persist_daily_calibration(
+    pool: &PgPool,
+    synth_model: &str,
+    synth_category: Option<&str>,
+    auto_persist: bool,
+    now: UtcTimestamp,
+    id_base: u64,
+) -> Result<usize, DaemonError> {
+    let Some(category) = synth_category else {
+        return Ok(0);
+    };
+    // The resolved (claimed-p, outcome) record + CLV for the scope (the SAME
+    // query the weekly audit reads).
+    let stats = BeliefsRepo::new(pool.clone())
+        .resolved_stats(category)
+        .await
+        .map_err(|e| DaemonError::Compose {
+            reason: format!("daily calibration resolved_stats: {e}"),
+        })?;
+    let key = ScopeKey {
+        model_id: synth_model.to_string(),
+        strategy: SYNTH_CALIBRATION_STRATEGY.to_string(),
+        category: category.to_string(),
+    };
+    let record = ScopeRecord {
+        key: key.clone(),
+        samples: stats.iter().map(|s| (s.p, s.outcome)).collect(),
+        clv_bps: stats.iter().filter_map(|s| s.clv_bps).collect(),
+    };
+    // The prior version per scope, so the fitted set's version is prior + 1.
+    let mut prior_versions: std::collections::BTreeMap<ScopeKey, u32> =
+        std::collections::BTreeMap::new();
+    if let Some(row) = CalibrationParamsRepo::new(pool.clone())
+        .latest(
+            synth_model,
+            SYNTH_CALIBRATION_STRATEGY,
+            category,
+            SYNTH_CALIBRATION_KIND,
+        )
+        .await
+        .map_err(|e| DaemonError::Compose {
+            reason: format!("daily calibration latest params: {e}"),
+        })?
+    {
+        prior_versions.insert(key, row.version.max(0) as u32);
+    }
+    let scopes = calibration_report(&[record], &prior_versions);
+    persist_fitted_calibration(pool, &scopes, auto_persist, now, id_base).await
 }
 
 /// The weekly review cycle (spec 5.8 weekly review; fires at the week boundary
