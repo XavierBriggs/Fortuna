@@ -2685,6 +2685,12 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                         let ts_repo = fortuna_ledger::TradeScoresRepo::new(spool.clone());
                         let scored_at = Clock::now(runner.clock().as_ref()).to_iso8601();
                         match ts_repo.fills_aggregate(s.market.as_str()).await {
+                            // No fills for this market — nothing to score, and a NULL
+                            // strategy would defeat the UNIQUE(market_id, strategy)
+                            // dedup (NULL != NULL), so a replay could insert dup rows.
+                            // Skip: a settlement we held always has fills (A3 only
+                            // buffers held markets); this guards the contract anyway.
+                            Ok(agg) if agg.n_fills == 0 => {}
                             Ok(agg) => {
                                 let pnl_after_fees = s.realized_pnl_cents - agg.fees_cents;
                                 let trade_score_id =
