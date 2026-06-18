@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE beliefs\n               SET status = 'resolved', outcome = $2, brier = $3, clv_bps = $4\n               WHERE belief_id = $1 AND outcome IS NULL\n                 AND status IN ('open','superseded')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4",
+        "Float8",
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6efba6241269bb87a29ce66745a1875bb695277b1caacb1063b0efd63ce059d4"
+}

@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT score_id, market_id, venue, score, components, created_at\n               FROM tradability_scores WHERE market_id = $1\n               ORDER BY created_at DESC, score_id DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "score_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "market_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "venue",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "score",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 4,
+        "name": "components",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "e213ca87c2b12b6909404ab634e81b876a676b3027772c21b2a36c352338b726"
+}

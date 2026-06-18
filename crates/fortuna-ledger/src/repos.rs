@@ -45,8 +45,15 @@ impl FillsRepo {
     }
 
     /// Insert one fill; `Ok(false)` when the fill id was already recorded
-    /// (at-least-once delivery upstream).
-    pub async fn insert(&self, venue: &str, fill: &Fill) -> Result<bool, LedgerError> {
+    /// (at-least-once delivery upstream). `producer` and `strategy` are
+    /// nullable — legacy fills keep NULL; Phase-C forward populates them.
+    pub async fn insert(
+        &self,
+        venue: &str,
+        fill: &Fill,
+        producer: Option<&str>,
+        strategy: Option<&str>,
+    ) -> Result<bool, LedgerError> {
         let side = match fill.side {
             fortuna_core::market::Side::Yes => "yes",
             fortuna_core::market::Side::No => "no",
@@ -58,8 +65,9 @@ impl FillsRepo {
         let result = sqlx::query!(
             r#"INSERT INTO fills
                (fill_id, venue, venue_order_id, client_order_id, market_id,
-                side, action, price_cents, qty, fee_cents, is_maker, at)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+                side, action, price_cents, qty, fee_cents, is_maker, at,
+                producer, strategy)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
                ON CONFLICT (fill_id) DO NOTHING"#,
             fill.fill_id,
             venue,
@@ -72,7 +80,9 @@ impl FillsRepo {
             fill.qty.raw(),
             fill.fee.raw(),
             fill.is_maker,
-            fill.at.to_iso8601()
+            fill.at.to_iso8601(),
+            producer,
+            strategy
         )
         .execute(&self.pool)
         .await?;
@@ -271,6 +281,9 @@ pub struct SettlementEntryRow {
     pub amount_cents: i64,
     pub status: String,
     pub supersedes: Option<String>,
+    /// The intent that generated this settlement (nullable; NULL for legacy/
+    /// non-intent settlements). Used by the partial unique index for dedup.
+    pub intent_id: Option<String>,
     pub detail: serde_json::Value,
     pub at: String,
 }
@@ -286,6 +299,13 @@ impl SettlementsRepo {
         SettlementsRepo { pool }
     }
 
+    /// Insert one settlement entry. Returns `Ok(true)` when inserted,
+    /// `Ok(false)` when a conflicting initial entry for the same
+    /// `(market_id, intent_id)` already exists (idempotent under retry).
+    ///
+    /// The partial-unique-index `settlement_entries_intent_uniq` covers
+    /// only rows where `supersedes IS NULL AND intent_id IS NOT NULL`;
+    /// correction rows (`supersedes = Some(...)`) always insert.
     #[allow(clippy::too_many_arguments)]
     pub async fn insert_entry(
         &self,
@@ -295,33 +315,38 @@ impl SettlementsRepo {
         amount_cents: i64,
         status: &str,
         supersedes: Option<&str>,
+        intent_id: Option<&str>,
         detail: &serde_json::Value,
         at: &str,
-    ) -> Result<(), LedgerError> {
-        sqlx::query!(
+    ) -> Result<bool, LedgerError> {
+        let result = sqlx::query!(
             r#"INSERT INTO settlement_entries
                (settlement_id, market_id, venue, amount_cents, status,
-                supersedes, detail, at)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8)"#,
+                supersedes, intent_id, detail, at)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+               ON CONFLICT (market_id, intent_id)
+               WHERE supersedes IS NULL AND intent_id IS NOT NULL
+               DO NOTHING"#,
             settlement_id,
             market_id,
             venue,
             amount_cents,
             status,
             supersedes,
+            intent_id,
             detail,
             at
         )
         .execute(&self.pool)
         .await?;
-        Ok(())
+        Ok(result.rows_affected() == 1)
     }
 
     /// Full chain for a market, oldest first.
     pub async fn chain(&self, market_id: &str) -> Result<Vec<SettlementEntryRow>, LedgerError> {
         let rows = sqlx::query!(
             r#"SELECT settlement_id, market_id, venue, amount_cents, status,
-                      supersedes, detail, at
+                      supersedes, intent_id, detail, at
                FROM settlement_entries WHERE market_id = $1 ORDER BY at, settlement_id"#,
             market_id
         )
@@ -336,6 +361,7 @@ impl SettlementsRepo {
                 amount_cents: r.amount_cents,
                 status: r.status,
                 supersedes: r.supersedes,
+                intent_id: r.intent_id,
                 detail: r.detail,
                 at: r.at,
             })
@@ -2112,8 +2138,10 @@ impl ScalarBeliefsRepo {
     }
 
     /// Insert one scalar belief. The belief is unresolved on insert
-    /// (`realized_value`/`resolved_at` NULL). Append-only: the trigger refuses
-    /// any later content mutation.
+    /// (`realized_value`/`resolved_at` NULL). Returns `Ok(true)` when
+    /// inserted, `Ok(false)` when a belief with the same `(producer,
+    /// event_key)` already exists (idempotent under at-least-once delivery).
+    /// Append-only: the trigger refuses any later content mutation.
     #[allow(clippy::too_many_arguments)]
     pub async fn insert(
         &self,
@@ -2125,12 +2153,13 @@ impl ScalarBeliefsRepo {
         horizon: &str,
         provenance: &serde_json::Value,
         created_at: &str,
-    ) -> Result<(), LedgerError> {
-        sqlx::query!(
+    ) -> Result<bool, LedgerError> {
+        let result = sqlx::query!(
             r#"INSERT INTO scalar_beliefs
                (belief_id, producer, event_key, quantiles, unit, horizon,
                 provenance, created_at)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8)"#,
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+               ON CONFLICT (producer, event_key) DO NOTHING"#,
             belief_id,
             producer,
             event_key,
@@ -2142,7 +2171,7 @@ impl ScalarBeliefsRepo {
         )
         .execute(&self.pool)
         .await?;
-        Ok(())
+        Ok(result.rows_affected() == 1)
     }
 
     pub async fn get(&self, belief_id: &str) -> Result<ScalarBeliefRow, LedgerError> {
@@ -2475,5 +2504,40 @@ impl FundingRatesHistoricalRepo {
         .fetch_one(&self.pool)
         .await?;
         Ok(row.latest)
+    }
+}
+
+/// Append-only binary-bus event recorder (I5). Stores JSONL segments that
+/// can be replayed for audit. The DB trigger refuses UPDATE and DELETE.
+pub struct RecordingsRepo {
+    pool: PgPool,
+}
+
+impl RecordingsRepo {
+    pub fn new(pool: PgPool) -> RecordingsRepo {
+        RecordingsRepo { pool }
+    }
+
+    /// Append one bus-segment row. `recording_id` is a caller-supplied ULID
+    /// (unique per segment); `segment_seq` orders segments within a logical
+    /// recording session.
+    pub async fn append(
+        &self,
+        recording_id: &str,
+        segment_seq: i64,
+        jsonl: &str,
+        created_at: &str,
+    ) -> Result<(), LedgerError> {
+        sqlx::query!(
+            r#"INSERT INTO bus_recordings (recording_id, segment_seq, jsonl, created_at)
+               VALUES ($1,$2,$3,$4)"#,
+            recording_id,
+            segment_seq,
+            jsonl,
+            created_at
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 }

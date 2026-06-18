@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO personas\n               (persona_row_id, persona_id, version, domain, domain_tags,\n                reads_signal_kinds, tier, method_hash, output_schema_version,\n                status, supersedes, effective_at, created_at)\n               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int4",
+        "Text",
+        "Jsonb",
+        "Jsonb",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9c5d27ffd4cce5f0885fc40189bedf189e7ec647379e033356cc00f03c210c6b"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE domain_analyses SET status = 'superseded'\n                   WHERE analysis_id = $1 AND status = 'open'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f380f3d206d82365b7fc028b2a10f6e5119e7bd7b749f07e310c599605859c4a"
+}

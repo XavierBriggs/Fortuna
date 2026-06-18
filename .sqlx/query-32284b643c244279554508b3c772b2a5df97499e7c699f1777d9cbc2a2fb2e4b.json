@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO tradability_scores\n               (score_id, market_id, venue, score, components, created_at)\n               VALUES ($1,$2,$3,$4,$5,$6)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Float8",
+        "Jsonb",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "32284b643c244279554508b3c772b2a5df97499e7c699f1777d9cbc2a2fb2e4b"
+}

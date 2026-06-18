@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT body, provenance, review_at FROM lessons\n               WHERE lesson_id = $1 AND status = 'active'\n                 AND NOT EXISTS (\n                   SELECT 1 FROM lessons l2 WHERE l2.supersedes = lessons.lesson_id\n                 )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "body",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "provenance",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "review_at",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ae6bdae09269c925277e9dddbcac863b6efefe62eea5193d3a7b8059ad5d54d3"
+}

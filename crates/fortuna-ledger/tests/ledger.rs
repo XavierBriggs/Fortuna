@@ -288,9 +288,12 @@ fn a_fill(n: u64) -> Fill {
 #[sqlx::test(migrations = "./migrations")]
 async fn fills_repo_dedups_on_fill_id(pool: PgPool) {
     let repo = FillsRepo::new(pool);
-    assert!(repo.insert("sim", &a_fill(1)).await.unwrap());
-    assert!(!repo.insert("sim", &a_fill(1)).await.unwrap()); // duplicate
-    assert!(repo.insert("sim", &a_fill(2)).await.unwrap());
+    assert!(repo.insert("sim", &a_fill(1), None, None).await.unwrap());
+    assert!(!repo.insert("sim", &a_fill(1), None, None).await.unwrap()); // duplicate
+    assert!(repo
+        .insert("sim", &a_fill(2), Some("aeolus"), Some("weather_v1"))
+        .await
+        .unwrap());
     assert_eq!(repo.count().await.unwrap(), 2);
 }
 
@@ -350,6 +353,7 @@ async fn settlement_chain_persists_as_superseding_rows(pool: PgPool) {
         1_000,
         "pending",
         None,
+        None,
         &serde_json::json!({"winner": "Yes"}),
         "2026-06-10T13:00:00.000Z",
     )
@@ -362,6 +366,7 @@ async fn settlement_chain_persists_as_superseding_rows(pool: PgPool) {
         1_000,
         "posted",
         Some("e-1"),
+        None,
         &serde_json::json!({"winner": "Yes"}),
         "2026-06-10T13:00:01.000Z",
     )
@@ -374,6 +379,7 @@ async fn settlement_chain_persists_as_superseding_rows(pool: PgPool) {
         1_000,
         "confirmed",
         Some("e-2"),
+        None,
         &serde_json::json!({"winner": "Yes"}),
         "2026-06-10T13:00:02.000Z",
     )
@@ -395,6 +401,7 @@ async fn settlement_chain_persists_as_superseding_rows(pool: PgPool) {
             1_000,
             "confirmed",
             Some("e-2"),
+            None,
             &serde_json::json!({}),
             "2026-06-10T13:00:03.000Z",
         )
@@ -1631,4 +1638,177 @@ async fn current_edges_for_market_sees_chain_heads_only(pool: PgPool) {
         .await
         .unwrap()
         .is_empty());
+}
+
+// ---- Phase-C idempotency + recordings (Task A1) ----
+
+/// Inserting a settlement entry twice with the same (market_id, intent_id)
+/// and supersedes=None must be idempotent: second call returns Ok(false) and
+/// only one row exists. (Partial-unique-index dedup; A1 spec.)
+#[sqlx::test(migrations = "./migrations")]
+async fn settlement_entry_idempotent_on_same_intent(pool: PgPool) {
+    let repo = fortuna_ledger::SettlementsRepo::new(pool);
+    let inserted1 = repo
+        .insert_entry(
+            "se-idem-1",
+            "MKT-A",
+            "kalshi",
+            500,
+            "pending",
+            None,
+            Some("intent-abc"),
+            &serde_json::json!({}),
+            "2026-06-18T10:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    assert!(inserted1, "first insert must return true");
+
+    // Same market_id + same intent_id + supersedes=None → partial-index conflict → no-op.
+    let inserted2 = repo
+        .insert_entry(
+            "se-idem-2",
+            "MKT-A",
+            "kalshi",
+            500,
+            "pending",
+            None,
+            Some("intent-abc"),
+            &serde_json::json!({}),
+            "2026-06-18T10:00:01.000Z",
+        )
+        .await
+        .unwrap();
+    assert!(
+        !inserted2,
+        "second insert with same intent must return false"
+    );
+
+    // Only one row.
+    let chain = repo.chain("MKT-A").await.unwrap();
+    assert_eq!(chain.len(), 1);
+}
+
+/// A correction row (supersedes=Some) with the same (market_id, intent_id)
+/// must still insert — the partial-unique-index exempts rows where
+/// supersedes IS NOT NULL.
+#[sqlx::test(migrations = "./migrations")]
+async fn settlement_entry_correction_still_inserts(pool: PgPool) {
+    let repo = fortuna_ledger::SettlementsRepo::new(pool);
+
+    // Initial entry.
+    let ins1 = repo
+        .insert_entry(
+            "se-c-1",
+            "MKT-B",
+            "kalshi",
+            1_000,
+            "pending",
+            None,
+            Some("intent-xyz"),
+            &serde_json::json!({}),
+            "2026-06-18T11:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    assert!(ins1);
+
+    // Correction with supersedes set — NOT deduped by partial index.
+    let ins2 = repo
+        .insert_entry(
+            "se-c-2",
+            "MKT-B",
+            "kalshi",
+            1_000,
+            "posted",
+            Some("se-c-1"),
+            Some("intent-xyz"),
+            &serde_json::json!({}),
+            "2026-06-18T11:00:01.000Z",
+        )
+        .await
+        .unwrap();
+    assert!(ins2, "correction must insert (partial index exempt)");
+
+    let chain = repo.chain("MKT-B").await.unwrap();
+    assert_eq!(chain.len(), 2);
+}
+
+/// Inserting a scalar belief twice with the same (producer, event_key)
+/// must be idempotent: second call returns Ok(false) and only one row.
+#[sqlx::test(migrations = "./migrations")]
+async fn scalar_belief_idempotent_on_same_producer_event_key(pool: PgPool) {
+    let repo = fortuna_ledger::ScalarBeliefsRepo::new(pool);
+    let q = serde_json::json!({"p50": 0.5});
+    let prov = serde_json::json!({"model": "test"});
+
+    let ins1 = repo
+        .insert(
+            "sb-idem-1",
+            "aeolus",
+            "TEMP/KORD/2026-07-01",
+            &q,
+            "celsius",
+            "24h",
+            &prov,
+            "2026-06-18T10:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    assert!(ins1, "first insert must return true");
+
+    // Same producer + event_key → conflict → no-op.
+    let ins2 = repo
+        .insert(
+            "sb-idem-2",
+            "aeolus",
+            "TEMP/KORD/2026-07-01",
+            &q,
+            "celsius",
+            "24h",
+            &prov,
+            "2026-06-18T10:00:01.000Z",
+        )
+        .await
+        .unwrap();
+    assert!(
+        !ins2,
+        "second insert with same (producer, event_key) must return false"
+    );
+}
+
+/// bus_recordings rejects UPDATE and DELETE (append-only trigger).
+#[sqlx::test(migrations = "./migrations")]
+async fn bus_recordings_append_only(pool: PgPool) {
+    let repo = fortuna_ledger::RecordingsRepo::new(pool.clone());
+    repo.append(
+        "rec-1",
+        0,
+        r#"{"event":"test"}"#,
+        "2026-06-18T10:00:00.000Z",
+    )
+    .await
+    .unwrap();
+
+    // UPDATE must be refused by the trigger. Use sqlx::query (non-macro)
+    // so offline mode does not need a cache entry for this ad-hoc SQL.
+    let update_result =
+        sqlx::query(r#"UPDATE bus_recordings SET jsonl = 'tampered' WHERE recording_id = $1"#)
+            .bind("rec-1")
+            .execute(&pool)
+            .await;
+    assert!(
+        update_result.is_err(),
+        "UPDATE on bus_recordings must be refused"
+    );
+
+    // DELETE must also be refused.
+    let delete_result = sqlx::query(r#"DELETE FROM bus_recordings WHERE recording_id = $1"#)
+        .bind("rec-1")
+        .execute(&pool)
+        .await;
+    assert!(
+        delete_result.is_err(),
+        "DELETE on bus_recordings must be refused"
+    );
 }

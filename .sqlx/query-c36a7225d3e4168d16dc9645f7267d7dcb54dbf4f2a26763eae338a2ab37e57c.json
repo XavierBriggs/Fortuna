@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT score_id, belief_id, rule_id, score, scored_at\n               FROM belief_scores WHERE rule_id = $1\n               ORDER BY scored_at DESC, score_id DESC LIMIT $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "score_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "belief_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "rule_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "score",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 4,
+        "name": "scored_at",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "c36a7225d3e4168d16dc9645f7267d7dcb54dbf4f2a26763eae338a2ab37e57c"
+}

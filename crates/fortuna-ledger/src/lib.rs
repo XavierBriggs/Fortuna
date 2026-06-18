@@ -35,7 +35,7 @@ pub use repos::{
     CalibrationScopeRow, DiscrepanciesRepo, DomainAnalysesRepo, DomainAnalysisRow, EdgeRow,
     EdgesRepo, EventRow, EventSourceEvidenceInput, EventSourceEvidenceRepo, EventsRepo, FillsRepo,
     FundingRatesHistoricalRepo, HaltsRepo, JournalRepo, JournalRow, LessonRow, LessonsRepo,
-    OpenWeatherBelief, PersonaRow, PersonasRepo, RecentSignalRow, ReservationsRepo,
+    OpenWeatherBelief, PersonaRow, PersonasRepo, RecentSignalRow, RecordingsRepo, ReservationsRepo,
     ResolvedPersonaStats, ResolvedStat, ScalarBeliefRow, ScalarBeliefsRepo, SettlementEntryRow,
     SettlementsRepo, SignalsRepo, SnapshotRow, SnapshotsRepo, SourceRegistryRepo,
     SourceRegistryRow, TradabilityRepo, TradabilityRow,

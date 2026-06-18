@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE events SET unscoreable = TRUE WHERE event_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d413db68d45d3f53894bc7b2c7f36f39ab6fca6bbbfd10db7a0810ba6909be53"
+}

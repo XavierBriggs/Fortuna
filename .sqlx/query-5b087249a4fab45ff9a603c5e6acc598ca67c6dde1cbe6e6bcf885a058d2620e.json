@@ -1,0 +1,70 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT edge_id, market_id, venue, event_id, mapping_type,\n                      confidence, proposed_by, confirmed_by, supersedes\n               FROM market_event_edges e\n               WHERE event_id = $1\n                 AND NOT EXISTS (\n                     SELECT 1 FROM market_event_edges n\n                     WHERE n.supersedes = e.edge_id\n                 )\n               ORDER BY created_at, edge_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "edge_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "market_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "venue",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "mapping_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "confidence",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 6,
+        "name": "proposed_by",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "confirmed_by",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "supersedes",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "5b087249a4fab45ff9a603c5e6acc598ca67c6dde1cbe6e6bcf885a058d2620e"
+}
