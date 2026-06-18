@@ -95,6 +95,15 @@ fn scan_spine_for_domain_literals(crate_name: &str) -> Vec<String> {
     let root = workspace_root();
     let src_dir = root.join("crates").join(crate_name).join("src");
     let content = read_src_excluding_tests(&src_dir, &[]);
+    // Non-vacuity: a wrong/missing path would read 0 bytes and the
+    // `hits.is_empty()` assertion would pass for the WRONG reason. Fail loudly
+    // instead so a crate rename or path drift can never silently disarm the guard.
+    assert!(
+        !content.trim().is_empty(),
+        "decoupling guard scanned 0 bytes of {} — path wrong or empty; the guard \
+         would pass vacuously. Fix the scan path.",
+        src_dir.display()
+    );
     let stripped = strip_line_comments(&content);
     let mut hits = Vec::new();
     for (i, line) in stripped.lines().enumerate() {
@@ -147,6 +156,15 @@ fn fortuna_live_has_no_kalshi_type_leak() {
     let root = workspace_root();
     let src_dir = root.join("crates").join("fortuna-live").join("src");
     let content = read_src_excluding_tests(&src_dir, &["aeolus_venue.rs", "weather_source.rs"]);
+    // Non-vacuity: fail loudly if the scan read nothing (path drift) rather than
+    // pass for the wrong reason — fortuna-live/src is large, so 0 bytes means a
+    // broken path, not a clean tree.
+    assert!(
+        !content.trim().is_empty(),
+        "decoupling guard scanned 0 bytes of {} — path wrong; the guard would pass \
+         vacuously. Fix the scan path.",
+        src_dir.display()
+    );
     let stripped = strip_line_comments(&content);
     let mut hits = Vec::new();
     for (i, line) in stripped.lines().enumerate() {
