@@ -1206,6 +1206,26 @@ impl ActiveRunner {
         }
     }
 
+    /// The cumulative bus recording for this run (A6, F4). Mirrors the inner
+    /// `SimRunner::recording()` getter — read-only, no side effects. The
+    /// recording grows monotonically: every dispatched event appends to it, so
+    /// `recorded_len()` at segment end minus `recorded_len()` at segment start
+    /// equals the number of new events this segment produced.
+    pub fn recording(&self) -> &fortuna_core::bus::Recording {
+        match self {
+            ActiveRunner::Sim(r) => r.recording(),
+            ActiveRunner::Kalshi(r) => r.recording(),
+            ActiveRunner::PaperLive(r) => r.recording(),
+        }
+    }
+
+    /// The total number of events recorded so far (A6). Used by `drive()` to
+    /// track the high-water mark across segments and serialize only new events
+    /// per segment (incremental persist — no event persisted twice).
+    pub fn recorded_len(&self) -> usize {
+        self.recording().events().len()
+    }
+
     /// Record an externally-raised alert on the audit trail.
     pub fn apply_external_alert(&mut self, kind: &str, message: &str) {
         match self {
@@ -1837,6 +1857,17 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     // daemon — fail closed). A persist failure ALERTS and continues; fills
     // are the PnL substrate, not the money path.
     fills_pool: Option<PgPool>,
+    // A6 (F4): OPT-IN bus-recording persist pool. `Some(pool)` => after each
+    // segment's fill/settlement persist, the daemon appends the NEW bus events
+    // (events since the previous segment boundary) to `bus_recordings` via
+    // `RecordingsRepo::append`. The recording is CUMULATIVE across the whole
+    // run; only the SLICE since `last_recorded_idx` is serialized per segment,
+    // so no event is ever persisted twice. `recording_id` is a ULID minted
+    // once at drive-start (time-ordered across restarts; replay orders rows by
+    // recording_id). `None` => no persist (byte-identical daemon — fail closed).
+    // A persist failure ALERTS and continues (the recording is the audit
+    // substrate, not the money path).
+    recordings_pool: Option<PgPool>,
 ) -> Result<(LoopStats, fortuna_runner::ShutdownReport), DaemonError> {
     let mut total = LoopStats::default();
     // Dedup state OWNED ACROSS SEGMENTS (gate finding 2026-06-11: keeping
@@ -1889,6 +1920,15 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     // OWN counter ("01TSC" prefix). The UNIQUE (market_id, strategy) index is the
     // idempotency key — the PK is only for audit identity.
     let mut trade_score_id_base = belief_id_base;
+    // A6 (F4): bus-recording high-water mark.
+    // `last_recorded_idx` is the event count at the PREVIOUS segment boundary;
+    // each segment serializes only events[last_recorded_idx..] (incremental —
+    // no event persisted twice). `recording_seq` orders segments within this
+    // run; each segment gets its OWN ULID `recording_id` so
+    // ORDER BY recording_id across restarts produces wall-clock order.
+    // (The bus_recordings PK is recording_id, so one unique ULID per row.)
+    let mut last_recorded_idx: usize = 0;
+    let mut recording_seq: i64 = 0;
     loop {
         // slice-4e: feed one recorded PerpTick at the head of the segment so the
         // perp producers fire during this segment's ticks (EventOrigin::External,
@@ -2729,6 +2769,63 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                 format!(
                                     "trade_score fills_aggregate FAILED for market={} — score skipped: {e}",
                                     s.market
+                                ),
+                            )),
+                        }
+                    }
+                }
+            }
+        }
+
+        // A6 (F4): persist the incremental bus-recording slice for this segment.
+        // Runs AFTER fills + settlements (so every order-related event this tick
+        // produced is already in the recording before we serialize it). Mirrors
+        // the fills/settlements failure posture: a persist FAILURE alerts +
+        // continues — the recording is the audit substrate (I5), not the money
+        // path; no failure here may crash the loop. ONLY new events (since
+        // `last_recorded_idx`) are serialized via `to_jsonl_from` — the
+        // recording is cumulative across the whole run but we only write the
+        // delta, so no event is ever persisted twice.
+        //
+        // Each segment gets its OWN ULID `recording_id` (the bus_recordings PK).
+        // ULIDs are time-ordered, so ORDER BY recording_id across restarts
+        // replays segments in wall-clock order even when segment_seq resets.
+        // The ULID is minted from the injected clock at segment persist time;
+        // `from_parts(ms, 0)` uses the timestamp only (no random) — sufficient
+        // uniqueness: two segments can't complete in the same millisecond under
+        // the SimClock (clock advances between segments) and on real wall time
+        // the ms granularity is fine.
+        //
+        // `None` => no persist (byte-identical daemon — fail closed).
+        if let Some(rpool) = &recordings_pool {
+            let total = runner.recorded_len();
+            if total > last_recorded_idx {
+                let now_ts = Clock::now(runner.clock().as_ref());
+                let now_iso = now_ts.to_iso8601();
+                let segment_recording_id = {
+                    let ms = now_ts.epoch_millis().max(0) as u64;
+                    fortuna_core::ids::Ulid::from_parts(ms, recording_seq as u128).to_string()
+                };
+                match runner.recording().to_jsonl_from(last_recorded_idx) {
+                    Err(e) => alerts.push((
+                        fortuna_ops::MessageKind::Ops,
+                        format!(
+                            "bus recording serialize FAILED segment={recording_seq} — recording segment lost: {e}"
+                        ),
+                    )),
+                    Ok(jsonl) => {
+                        match fortuna_ledger::RecordingsRepo::new(rpool.clone())
+                            .append(&segment_recording_id, recording_seq, &jsonl, &now_iso)
+                            .await
+                        {
+                            Ok(()) => {
+                                last_recorded_idx = total;
+                                recording_seq += 1;
+                            }
+                            Err(e) => alerts.push((
+                                fortuna_ops::MessageKind::Ops,
+                                format!(
+                                    "bus recording persist FAILED segment={recording_seq} — recording segment lost: {e}"
                                 ),
                             )),
                         }

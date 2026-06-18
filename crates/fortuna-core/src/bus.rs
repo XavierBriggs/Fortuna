@@ -150,18 +150,32 @@ impl Recording {
         &self.events
     }
 
-    /// One JSON object per line, in dispatch order.
-    pub fn to_jsonl(&self) -> Result<String, BusError> {
+    /// One JSON object per line, in dispatch order, starting from `start`.
+    ///
+    /// `start` is clamped to `self.events.len()` — values at or beyond the end
+    /// produce an empty string without panicking. This is the building block for
+    /// incremental segment persist (A6): each segment calls `to_jsonl_from(last)`
+    /// where `last` is the count persisted at the previous segment boundary, so
+    /// only NEW events are serialized and no event is ever persisted twice.
+    pub fn to_jsonl_from(&self, start: usize) -> Result<String, BusError> {
+        let clamped = start.min(self.events.len());
         let mut out = String::new();
-        for (i, ev) in self.events.iter().enumerate() {
+        for (i, ev) in self.events[clamped..].iter().enumerate() {
             let line = serde_json::to_string(ev).map_err(|e| BusError::Serialization {
-                line: i + 1,
+                line: clamped + i + 1,
                 reason: e.to_string(),
             })?;
             out.push_str(&line);
             out.push('\n');
         }
         Ok(out)
+    }
+
+    /// One JSON object per line, in dispatch order (all events).
+    ///
+    /// Equivalent to `self.to_jsonl_from(0)`.
+    pub fn to_jsonl(&self) -> Result<String, BusError> {
+        self.to_jsonl_from(0)
     }
 
     pub fn from_jsonl(input: &str) -> Result<Self, BusError> {

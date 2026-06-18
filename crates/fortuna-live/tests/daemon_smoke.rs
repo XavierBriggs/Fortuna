@@ -225,6 +225,7 @@ async fn daemon_smoke_boot_ticks_signal_shutdown(pool: PgPool) {
         None,              // resolution_pool: none in this smoke
         None,              // C-next-1b: no live PerpTick channel in this smoke
         None,              // A2 (F12): no fills persist in this smoke
+        None,              // A6 (F4): no recording persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -335,6 +336,7 @@ async fn signal_with_working_orders_cancels_them_and_audits(pool: PgPool) {
         None,              // resolution_pool: none in this smoke
         None,              // C-next-1b: no live PerpTick channel in this smoke
         None,              // A2 (F12): no fills persist in this smoke
+        None,              // A6 (F4): no recording persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -570,6 +572,7 @@ async fn per_segment_refresh_picks_up_a_newly_confirmed_edge(pool: PgPool) {
         None,              // resolution_pool: none in this smoke
         None,              // C-next-1b: no live PerpTick channel in this smoke
         None,              // A2 (F12): no fills persist in this smoke
+        None,              // A6 (F4): no recording persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -716,6 +719,7 @@ async fn refresh_failure_keeps_last_known_edges_alerts_and_survives(pool: PgPool
         None,              // resolution_pool: none in this smoke
         None,              // C-next-1b: no live PerpTick channel in this smoke
         None,              // A2 (F12): no fills persist in this smoke
+        None,              // A6 (F4): no recording persist in this smoke
     )
     .await
     .expect("the loop must SURVIVE a failing refresh");
@@ -1287,6 +1291,7 @@ async fn drive_drains_and_persists_the_synthesis_arms_beliefs(pool: PgPool) {
         None,              // resolution_pool: none in this smoke
         None,              // C-next-1b: no live PerpTick channel in this smoke
         None,              // A2 (F12): no fills persist in this smoke
+        None,              // A6 (F4): no recording persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -1396,6 +1401,7 @@ async fn drive_drains_and_persists_funding_forecast_scalar_beliefs(pool: PgPool)
         None,               // resolution_pool: none in this smoke
         None,               // C-next-1b: no live PerpTick channel in this smoke
         None,               // A2 (F12): no fills persist in this smoke
+        None,               // A6 (F4): no recording persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -1542,6 +1548,7 @@ async fn drive_drains_the_live_perp_tick_channel_and_persists_a_scalar_belief(po
         None,               // resolution_pool: none in this smoke
         Some(rx),           // C-next-1b: the LIVE PerpTick channel (one recorded tick queued)
         None,               // A2 (F12): no fills persist in this smoke
+        None,               // A6 (F4): no recording persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -1810,6 +1817,7 @@ async fn drive_runs_daily_reconciliation_at_the_utc_day_boundary(pool: PgPool) {
         None, // resolution_pool: none in this e2e
         None, // C-next-1b: no live PerpTick channel in this smoke
         None, // A2 (F12): no fills persist in this smoke
+        None, // A6 (F4): no recording persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -2197,6 +2205,7 @@ async fn drive_runs_the_weekly_review_at_the_week_boundary(pool: PgPool) {
         None,              // resolution_pool: none in this smoke
         None,              // C-next-1b: no live PerpTick channel in this smoke
         None,              // A2 (F12): no fills persist in this smoke
+        None,              // A6 (F4): no recording persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -2367,6 +2376,7 @@ async fn drive_runs_the_monthly_review_at_the_month_boundary(pool: PgPool) {
         None,              // resolution_pool: none in this smoke
         None,              // C-next-1b: no live PerpTick channel in this smoke
         None,              // A2 (F12): no fills persist in this smoke
+        None,              // A6 (F4): no recording persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -2582,6 +2592,7 @@ async fn drive_persists_persona_analysis_and_beliefs_when_wired(pool: PgPool) {
         None,         // resolution_pool: none in this persona e2e
         None,         // C-next-1b: no live PerpTick channel in this smoke
         None,         // A2 (F12): no fills persist in this smoke
+        None,         // A6 (F4): no recording persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -2842,6 +2853,7 @@ async fn discovery_world_forward_persists_watchlist_events_and_beliefs(pool: PgP
         None,         // resolution_pool: not exercised by the world-forward e2e
         None,         // C-next-1b: no live PerpTick channel in this smoke
         None,         // A2 (F12): no fills persist in this smoke
+        None,         // A6 (F4): no recording persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -3108,6 +3120,7 @@ async fn discovery_market_back_auto_confirms_and_synthesis_drafts_a_belief(pool:
         None, // resolution_pool: not exercised here
         None, // C-next-1b: no live PerpTick channel in this smoke
         None, // A2 (F12): no fills persist in this smoke
+        None, // A6 (F4): no recording persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -3337,6 +3350,7 @@ async fn drive_with_discovery(
         None, // resolution_pool: not exercised here
         None, // C-next-1b: no live PerpTick channel in this smoke
         None, // A2 (F12): no fills persist in this smoke
+        None, // A6 (F4): no recording persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -3835,6 +3849,7 @@ async fn drive_one_boundary_with_resolution(
         Some(pool.clone()),
         None, // C-next-1b: no live PerpTick channel in this smoke
         None, // A2 (F12): no fills persist in this smoke
+        None, // A6 (F4): no recording persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -4028,5 +4043,154 @@ async fn drive_resolves_due_weather_and_funding_beliefs_on_the_daily_boundary(po
     assert_eq!(
         scores_after_second, scores_after,
         "second boundary tick is a no-op — no duplicate scores (idempotent)"
+    );
+}
+
+// ---- A6 (F4): bus recording persisted per segment, replay byte-identical ----
+
+/// A6 (F4) TDD gate: drive() with `recordings_pool: Some(pool)` persists the
+/// live bus recording to `bus_recordings` incrementally per segment — no event
+/// persisted twice — and the concatenated JSONL `from_jsonl`s to events that
+/// are byte-identical to `runner.recording().events()`.
+///
+/// MUTATION PROOF: if `to_jsonl_from` ignores `start` (always 0), the
+/// "total persisted lines == total events" assertion REDs because every
+/// segment writes the FULL recording, so the concatenation has duplicates.
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn drive_persists_bus_recording_per_segment_incrementally(pool: PgPool) {
+    use fortuna_core::bus::Recording;
+
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let dcfg = DaemonToml::parse(&text).expect("example parses");
+    let full = FortunaConfig::load_file(example_path).expect("example full-config parses");
+    let runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        t0(),
+        99, // distinct seed
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .expect("composition");
+    arb_books(&runner);
+
+    // No rows before the drive.
+    let before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM bus_recordings")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(before, 0, "no bus_recordings rows before drive");
+
+    // Drive TWO full segments then stop. Each segment runs `wakes_per_segment=4`
+    // halt polls. The stop signal fires at sleep `fire_at`; `run_loop` polls the
+    // channel each wake. We set `fire_at` AFTER two complete segments so both
+    // segments run to completion and A6 fires twice. Each wake in `run_loop` is
+    // one cadence sleep (the tick-sleep) + one halt-poll sleep = 2 sleeps per
+    // wake. Two segments × 4 wakes × 2 sleeps = 16 sleeps; fire_at=17 fires
+    // after the second segment's last wake so both segments complete in full and
+    // the stop.try_recv() breaks at the TOP of the third segment.
+    let (tx, mut stop) = tokio::sync::oneshot::channel::<()>();
+    let mut cadence = StopAtCadence {
+        clock: runner.clock.clone(),
+        sleeps: 0,
+        fire_at: 17, // after two full 4-wake segments (2×4×2=16 sleeps); stop fires on 17th
+        tx: Some(tx),
+    };
+    let mut poller = NeverHalted;
+    let loop_cfg = LoopConfig {
+        tick_interval_ms: 1000,
+        halt_poll_ms: 500,
+    };
+    let mut scrape = DegradeScrape::new(default_degrade_thresholds());
+    let mut daily = fortuna_live::daemon::DailyScheduler::new();
+
+    let mut runner = fortuna_live::daemon::ActiveRunner::Sim(runner);
+    let (_stats, _shutdown) = drive(
+        &mut runner,
+        &mut cadence,
+        &mut poller,
+        &loop_cfg,
+        4,
+        &mut stop,
+        |_r, _s| {},
+        &mut scrape,
+        None,
+        &mut daily,
+        None,               // synthesis_refresh
+        None,               // scalar persist
+        None,               // reconciliation
+        None,               // reviews
+        "claude-opus-4-8",  // S5b
+        None,               // perp feed
+        None,               // personas
+        None,               // discovery
+        None,               // resolution_pool
+        None,               // perp_tick_rx
+        None,               // A2 (F12): no fills persist in this smoke
+        Some(pool.clone()), // A6 (F4): the pool under test
+    )
+    .await
+    .expect("daemon drive");
+
+    // At least one row persisted (the recording produces events in every segment).
+    let row_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM bus_recordings")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(
+        row_count >= 1,
+        "drive() must persist at least one bus_recordings row (got {row_count})"
+    );
+
+    // Read all rows ORDER BY recording_id (ULID = chronological), concatenate,
+    // and from_jsonl. The result must be byte-identical to runner.recording().
+    let rows: Vec<(String, i64, String)> = sqlx::query_as(
+        "SELECT recording_id, segment_seq, jsonl FROM bus_recordings ORDER BY recording_id, segment_seq",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+
+    // Verify segments are in order (segment_seq is monotonically increasing).
+    for w in rows.windows(2) {
+        assert!(
+            w[0].1 < w[1].1,
+            "segment_seq must be strictly increasing: {} >= {}",
+            w[0].1,
+            w[1].1
+        );
+    }
+
+    // Concatenate all JSONL blobs.
+    let concatenated: String = rows.iter().map(|(_, _, j)| j.as_str()).collect();
+    let replayed = Recording::from_jsonl(&concatenated).expect("concatenated JSONL must parse");
+
+    // Count total persisted lines (events across all segments).
+    let total_persisted_lines: usize = rows.iter().map(|(_, _, j)| j.lines().count()).sum();
+    let live_event_count = runner.recorded_len();
+    assert!(
+        live_event_count > 0,
+        "the runner must have recorded at least one event (got {live_event_count})"
+    );
+    // MUTATION PROOF: if to_jsonl_from ignored start (always 0), every segment
+    // writes the full recording -> total_persisted_lines > live_event_count.
+    assert_eq!(
+        total_persisted_lines, live_event_count,
+        "total persisted lines must equal total live events (no event persisted twice); \
+         got persisted={total_persisted_lines} live={live_event_count}"
+    );
+
+    // Byte-identical replay: the concatenated recording's events must equal
+    // the live runner's events (same count, same content).
+    assert_eq!(
+        replayed.events(),
+        runner.recording().events(),
+        "replayed recording must be byte-identical to the live recording"
     );
 }

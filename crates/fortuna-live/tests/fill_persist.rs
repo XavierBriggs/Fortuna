@@ -145,6 +145,7 @@ async fn fills_persist_with_strategy_and_idempotent_on_replay(pool: PgPool) {
         None,               // resolution_pool: none
         None,               // C-next-1b: no live PerpTick channel
         Some(pool.clone()), // A2: fills_pool — persist paper fills
+        None,               // A6 (F4): no recording persist in this smoke
     )
     .await
     .expect("daemon drive");

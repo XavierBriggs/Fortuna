@@ -518,3 +518,91 @@ mod perp_tick {
         replay_verify(&recording, vec![]).unwrap();
     }
 }
+
+// ---- to_jsonl_from (A6: incremental segment serialization) ----
+
+#[test]
+fn to_jsonl_from_zero_equals_to_jsonl() {
+    // to_jsonl_from(0) must be byte-identical to to_jsonl() — it's a
+    // strict superset of the original (just a refactored call path).
+    let clock = Arc::new(SimClock::new(ts(1_000)));
+    let mut bus = EventBus::new(clock);
+    bus.publish_external(raw("a", json!({"x": 1})));
+    bus.publish_external(raw("b", json!({"x": 2})));
+    bus.run_until_idle().unwrap();
+
+    let rec = bus.recording();
+    assert_eq!(
+        rec.to_jsonl_from(0).unwrap(),
+        rec.to_jsonl().unwrap(),
+        "to_jsonl_from(0) must be byte-identical to to_jsonl()"
+    );
+}
+
+#[test]
+fn to_jsonl_from_k_returns_suffix_events() {
+    // to_jsonl_from(k) serializes only events[k..] — the incremental
+    // slice for segment-based persist.
+    let clock = Arc::new(SimClock::new(ts(1_000)));
+    let mut bus = EventBus::new(clock.clone());
+    bus.publish_external(raw("a", json!({"x": 1})));
+    bus.publish_external(raw("b", json!({"x": 2})));
+    bus.publish_external(raw("c", json!({"x": 3})));
+    bus.run_until_idle().unwrap();
+
+    let rec = bus.recording();
+    let full = rec.to_jsonl().unwrap();
+    let suffix_1 = rec.to_jsonl_from(1).unwrap();
+
+    // suffix_1 is a strict suffix of full: full has 3 lines, suffix_1 has 2.
+    let full_lines: Vec<&str> = full.lines().collect();
+    let suffix_lines: Vec<&str> = suffix_1.lines().collect();
+    assert_eq!(full_lines.len(), 3, "full recording has 3 events");
+    assert_eq!(suffix_lines.len(), 2, "from(1) has 2 events (events[1..])");
+    assert_eq!(
+        suffix_lines,
+        &full_lines[1..],
+        "from(1) is the last two lines of the full recording"
+    );
+
+    // Round-trip: from_jsonl of the suffix reconstructs events[1..].
+    let partial = Recording::from_jsonl(&suffix_1).unwrap();
+    assert_eq!(
+        partial.events(),
+        &rec.events()[1..],
+        "from_jsonl of the suffix reconstructs events[1..]"
+    );
+}
+
+#[test]
+fn to_jsonl_from_at_len_returns_empty_string() {
+    // to_jsonl_from(len) — start == len — produces an empty string (no lines).
+    let clock = Arc::new(SimClock::new(ts(1_000)));
+    let mut bus = EventBus::new(clock);
+    bus.publish_external(raw("e", json!({"n": 0})));
+    bus.run_until_idle().unwrap();
+
+    let rec = bus.recording();
+    let len = rec.events().len();
+    let out = rec.to_jsonl_from(len).unwrap();
+    assert!(
+        out.is_empty(),
+        "to_jsonl_from(len) must return an empty string, got {out:?}"
+    );
+}
+
+#[test]
+fn to_jsonl_from_beyond_len_clamps_to_empty() {
+    // to_jsonl_from(> len) must clamp to empty, NEVER panic (out-of-bounds).
+    let clock = Arc::new(SimClock::new(ts(1_000)));
+    let mut bus = EventBus::new(clock);
+    bus.publish_external(raw("e", json!({"n": 0})));
+    bus.run_until_idle().unwrap();
+
+    let rec = bus.recording();
+    let out = rec.to_jsonl_from(rec.events().len() + 99).unwrap();
+    assert!(
+        out.is_empty(),
+        "to_jsonl_from(> len) must clamp to empty, got {out:?}"
+    );
+}

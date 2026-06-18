@@ -128,6 +128,7 @@ async fn drive_once(runner: &mut ActiveRunner, pool: &PgPool, fire_at: u64) {
         None,               // resolution_pool: none
         None,               // C-next-1b: no live PerpTick channel
         Some(pool.clone()), // A2/A3: ledger pool — persist fills AND settlements
+        None,               // A6 (F4): no recording persist in this smoke
     )
     .await
     .expect("daemon drive");

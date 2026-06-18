@@ -907,6 +907,10 @@ async fn main() -> Result<()> {
         // applied fill (Sim, Kalshi-paper, or PaperLive) lands in the fills
         // table with its strategy and NULL producer (D4 adds producer).
         Some(pool.clone()),
+        // A6 (F4): persist the bus recording per segment (append-only;
+        // `RecordingsRepo::append`). Always wire the ledger pool so every
+        // segment's decision event-stream is replayable (I5 / F4).
+        Some(pool.clone()),
     )
     .await
     .context("daemon loop")?;
