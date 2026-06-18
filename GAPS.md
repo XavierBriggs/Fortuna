@@ -45,3 +45,6 @@ fortuna-cognition or fortuna-live layer.
   signature. (AUDIT.md §12 / area-4)
 - Dual mode model (`[runtime]` vs `[daemon]`): coherent + cross-validated today; collapse-to-one-axis deferred. (area-2)
 - `AnthropicVetoMind`: `StubVetoMind::allow_all` inert stub. (area-2)
+
+## C2 follow-on: source-registry domain_tag specificity (2026-06-18, Phase C)
+`SourceRegistry::resolve` (signals.rs) fuzzy-maps prose `resolution_source` → a registry id by token-subset over the source_id and its `domain_tags`. A **single-token** `domain_tag` that is a common English word (e.g. `["weather"]`, `["press"]`) will match ANY prose containing that word — over-eager (false scoreability against the wrong source). Operator-gated: the registry is curated, so use multi-word phrases ("federal reserve") or acronyms that also appear in the source_id ("fomc" on `rss_fomc_*`) as domain_tags when specificity matters. A code-level mitigation (≥2-token domain_tags, or single-token-must-appear-in-source_id) was deliberately NOT applied — it trades this false-positive for false-negatives on legit single-token acronyms, and the real registry contents aren't known. Revisit if discovered events resolve to wrong sources in the soak.
