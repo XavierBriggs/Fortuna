@@ -73,6 +73,16 @@ const EXAMPLE_PATH: &str = concat!(
     "/../../config/fortuna.example.toml"
 );
 
+/// Explicit `[runtime]` blocks the boot gate now requires for venue=kalshi
+/// (boot.rs `validate_bootable`). `dry_run` is the safe mode for composing the
+/// demo-endpoint runner (no orders, no composite data_source needed);
+/// `paper_ledger` is the paper-on-live mode (pairs with data_source=kalshi_prod
+/// / execution=paper).
+const RUNTIME_DRY_RUN: &str =
+    "\n[runtime]\nstage = \"paper\"\nexecution_mode = \"dry_run\"\norders_enabled = false\n";
+const RUNTIME_PAPER_LEDGER: &str =
+    "\n[runtime]\nstage = \"paper\"\nexecution_mode = \"paper_ledger\"\norders_enabled = false\n";
+
 /// The committed example rewritten for the Kalshi demo (venue=kalshi,
 /// stage=paper) with a [kalshi] section and a [synthesis] arm appended, so the
 /// composition exercises BOTH the mech_structural and the (Paper-staged)
@@ -99,7 +109,7 @@ fn paper_live_dcfg_text() -> String {
              data_source = \"kalshi_prod\"\n\
              execution = \"paper\"",
         1,
-    )
+    ) + RUNTIME_PAPER_LEDGER
 }
 
 /// A non-placeholder demo-credential env, matching the established convention
@@ -121,7 +131,7 @@ fn cred_env() -> BTreeMap<String, String> {
 
 #[sqlx::test(migrations = "../fortuna-ledger/migrations")]
 async fn compose_kalshi_runner_builds_a_paper_kalshi_runner(pool: PgPool) {
-    let text = kalshi_dcfg_text();
+    let text = kalshi_dcfg_text() + RUNTIME_DRY_RUN;
     let dcfg = DaemonToml::parse(&text).expect("kalshi demo config parses");
     dcfg.validate_bootable().expect("kalshi @ paper boots");
     let full = FortunaConfig::load_str(&text).expect("full paper-live config parses");

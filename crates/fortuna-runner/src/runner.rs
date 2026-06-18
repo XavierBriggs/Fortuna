@@ -18,7 +18,7 @@ use fortuna_cognition::veto::{
 use fortuna_core::book::FeeModel;
 use fortuna_core::bus::{EventBus, EventPayload, Recording};
 use fortuna_core::clock::{Clock, SimClock, UtcTimestamp};
-use fortuna_core::ids::{IdGen, IntentGroupId, IntentId};
+use fortuna_core::ids::{EventId, IdGen, IntentGroupId, IntentId};
 use fortuna_core::market::{ClientOrderId, Contracts, MarketId, Side, StrategyId, VenueId};
 use fortuna_core::money::Cents;
 use fortuna_core::perp::{FundingObservation, PerpMarks};
@@ -175,6 +175,13 @@ pub struct SimRunner<V: Venue = SimVenue, J: IntentJournal + Send = MemoryJourna
     /// PnL follows venue truth, divergence is recorded, never
     /// reconciled away). Value: (canonical outcome, edge id).
     canonical_resolutions: BTreeMap<MarketId, (Side, String)>,
+    /// Current confirmed market -> canonical event mappings. The daemon feeds
+    /// this through the same per-segment edge refresh used by synthesis.
+    market_events: BTreeMap<MarketId, EventId>,
+    /// Pending reserved exposure by intent and canonical event. The reservation
+    /// ledger is strategy-scoped; this index makes gate check 9 see pending
+    /// orders on related markets.
+    event_reservations: BTreeMap<IntentId, (EventId, Cents)>,
     /// Calibration quality per strategy (T2.8 calibration_quality), fed
     /// by the composition. MISSING => 0.0 => synthesis sizes ZERO (fail
     /// closed; an unmeasured calibration earns no size).
@@ -547,6 +554,8 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
             dispute_frozen: std::collections::BTreeSet::new(),
             mismatch_streak: BTreeMap::new(),
             canonical_resolutions: BTreeMap::new(),
+            market_events: BTreeMap::new(),
+            event_reservations: BTreeMap::new(),
             calibration_quality: BTreeMap::new(),
             kelly_fraction: config_kelly_fraction,
             submit_times: BTreeMap::new(),
@@ -1098,7 +1107,7 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
             // tick's already-gated legs must be aborted here.
             if self.audit_dead {
                 for (prior, _) in &staged {
-                    let _ = self.reservations.release(*prior)?;
+                    let _ = self.release_reservation(*prior)?;
                 }
                 return Ok(());
             }
@@ -1134,6 +1143,9 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
                     )?;
                     self.reservations
                         .reserve(strategy_id.as_str(), intent, leg_cost)?;
+                    if let Some(event) = self.market_events.get(&leg.market).copied() {
+                        self.event_reservations.insert(intent, (event, leg_cost));
+                    }
                     staged.push((intent, gated));
                 }
             }
@@ -1142,7 +1154,7 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
             // All-or-nothing: nothing was submitted; release what was
             // reserved and walk away clean.
             for (intent, _) in &staged {
-                let _ = self.reservations.release(*intent)?;
+                let _ = self.release_reservation(*intent)?;
             }
             return Ok(());
         }
@@ -1151,7 +1163,7 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
         // if the audit store is dead, whatever path killed it.
         if self.audit_dead {
             for (prior, _) in &staged {
-                let _ = self.reservations.release(*prior)?;
+                let _ = self.release_reservation(*prior)?;
             }
             return Ok(());
         }
@@ -1187,7 +1199,7 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
                         group_legs.push(intent);
                     }
                     LegOutcome::Submitted(SubmitOutcome::Rejected { reason }) => {
-                        let _ = self.reservations.release(intent)?;
+                        let _ = self.release_reservation(intent)?;
                         self.audit(
                             "order",
                             Some(&intent.to_string()),
@@ -1211,7 +1223,7 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
                         );
                     }
                     LegOutcome::NotSubmitted(ExecError::WorkingOrderExists { .. }) => {
-                        let _ = self.reservations.release(intent)?;
+                        let _ = self.release_reservation(intent)?;
                     }
                     LegOutcome::NotSubmitted(e) => return Err(e.into()),
                 }
@@ -1393,6 +1405,10 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
             })
             .unwrap_or(Cents::ZERO);
         let strategy_exposure = self.reservations.active_total(candidate.strategy.as_str());
+        let event_id = self.market_events.get(&candidate.market).copied();
+        let event_exposure = event_id
+            .map(|event| self.current_event_exposure(event))
+            .unwrap_or(Cents::ZERO);
         let recent = self.manager.known_client_order_ids();
         let own_resting: Vec<fortuna_gates::RestingOrderView> = self
             .manager
@@ -1411,8 +1427,8 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
             open_exposure_cents: open_exposure,
             market_exposure_cents: market_exposure,
             strategy_exposure_cents: strategy_exposure,
-            event_exposure_cents: Cents::ZERO,
-            event_id: None,
+            event_exposure_cents: event_exposure,
+            event_id,
             book: self.books.get(&candidate.market),
             last_trade_price: None,
             fee_model: &self.fee_model,
@@ -1507,11 +1523,39 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
             })
             .unwrap_or(false);
         if terminal {
-            let _ = self.reservations.release(intent)?;
+            let _ = self.release_reservation(intent)?;
             self.submit_times
                 .remove(ClientOrderId::from_intent(intent).as_str());
         }
         Ok(())
+    }
+
+    fn release_reservation(&mut self, intent: IntentId) -> Result<bool, RunnerError> {
+        let released = self.reservations.release(intent)?;
+        if released {
+            self.event_reservations.remove(&intent);
+        }
+        Ok(released)
+    }
+
+    fn current_event_exposure(&self, event: EventId) -> Cents {
+        let mut total = Cents::ZERO;
+        for p in self.positions.positions() {
+            if self.market_events.get(&p.market).copied() == Some(event) {
+                let basis = p
+                    .yes
+                    .cost_basis
+                    .checked_add(p.no.cost_basis)
+                    .unwrap_or(Cents::ZERO);
+                total = total.checked_add(basis).unwrap_or(total);
+            }
+        }
+        for (reserved_event, amount) in self.event_reservations.values() {
+            if *reserved_event == event {
+                total = total.checked_add(*amount).unwrap_or(total);
+            }
+        }
+        total
     }
 
     async fn check_drawdown(&mut self) -> Result<bool, RunnerError> {
@@ -2795,8 +2839,12 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
         // markets via market_meta, so stale-dated discoveries cost no real poll.
         let mut known: std::collections::BTreeSet<MarketId> =
             self.markets.iter().cloned().collect();
+        self.market_events.clear();
         for e in edges {
             if let Ok(mid) = MarketId::new(&e.market) {
+                if let Ok(event) = e.event_id.parse::<EventId>() {
+                    self.market_events.insert(mid.clone(), event);
+                }
                 if known.insert(mid.clone()) {
                     self.markets.push(mid);
                 }
@@ -3283,6 +3331,142 @@ mod a3_type_level {
         assert_eq!(v.category, "weather");
         assert_eq!(v.resolution_source, "test");
         assert_eq!(v.volume_contracts, Some(10));
+    }
+
+    #[test]
+    fn gate_inputs_bind_related_markets_to_one_event_exposure_cap() {
+        let start = UtcTimestamp::parse_iso8601("2026-06-10T12:00:00.000Z").unwrap();
+        let gate_config = toml::from_str(
+            r#"
+            [global]
+            max_total_exposure_cents = 800000
+            max_daily_loss_cents = 50000
+            min_order_contracts = 1
+            max_order_contracts = 1000
+            price_band_cents = 45
+            max_cross_cents = 10
+            per_market_exposure_cents = 100000
+            per_event_exposure_cents = 1000
+            require_event_mapping = true
+
+            [per_strategy.s1]
+            max_exposure_cents = 100000
+            max_order_notional_cents = 100000
+            min_net_edge_bps = 0
+
+            [rate.recording]
+            burst = 100
+            sustained_per_min = 600
+            market_burst = 50
+            market_sustained_per_min = 300
+            "#,
+        )
+        .expect("gate config parses");
+        let fees: fortuna_venues::fees::FeeSchedule = toml::from_str(
+            r#"
+                formula = "quadratic"
+                effective_date = "2026-01-01"
+                taker_coeff = "0.07"
+                maker_coeff = "0.0175"
+            "#,
+        )
+        .expect("fee schedule parses");
+        let market = |id: &str| Market {
+            id: MarketId::new(id).expect("market id parses"),
+            venue: VenueId::new("recording").expect("venue id parses"),
+            title: format!("market {id}"),
+            category: "weather".into(),
+            status: MarketStatus::Trading,
+            close_at: None,
+            settlement: fortuna_venues::SettlementMeta {
+                oracle_type: "weather".into(),
+                resolution_source: "test".into(),
+                expected_lag_hours: 1,
+            },
+            volume_contracts: Some(10),
+            payout_per_contract: Cents::new(100),
+        };
+        let config = RunnerConfig {
+            seed: 99,
+            gate_config,
+            exec_policy: fortuna_exec::ExecPolicy::default(),
+            envelopes: BTreeMap::from([("s1".to_string(), Cents::new(100_000))]),
+            max_daily_loss: Cents::new(50_000),
+            fee_model: ScheduleFeeModel::new(vec![fees]).expect("fee model"),
+            markets: vec![market("KX-A"), market("KX-B")],
+            starting_cash: Cents::new(1_000_000),
+            faults: Some(FaultConfig::none(99)),
+            mark_policy: MarkPolicy {
+                max_book_age_ms: 60_000,
+                max_spread_cents: 20,
+            },
+            max_sets_per_proposal: 50,
+            kelly_fraction: 0.25,
+            veto_mind: None,
+            veto_strategies: Vec::new(),
+        };
+        let venue = RecordingVenue::new(Arc::new(Mutex::new(Vec::new())));
+        let clock = Arc::new(SimClock::new(start));
+        let mut runner = futures::executor::block_on(SimRunner::new_with_venue(
+            config,
+            Vec::new(),
+            Box::new(MemoryAuditSink::default()),
+            start,
+            MemoryJournal::default(),
+            venue,
+            clock.clone(),
+            &[Stage::Sim, Stage::Paper],
+        ))
+        .expect("runner constructs");
+
+        let mut ids = IdGen::new(123);
+        let event = EventId::new(ids.next(start).expect("event id"));
+        let pending = IntentId::new(ids.next(start).expect("pending intent id"));
+        runner
+            .market_events
+            .insert(MarketId::new("KX-A").expect("market id"), event);
+        runner
+            .market_events
+            .insert(MarketId::new("KX-B").expect("market id"), event);
+        runner
+            .event_reservations
+            .insert(pending, (event, Cents::new(900)));
+        runner.books.insert(
+            MarketId::new("KX-B").expect("market id"),
+            OrderBook {
+                market: MarketId::new("KX-B").expect("market id"),
+                as_of: start,
+                yes_bids: vec![fortuna_core::book::PriceLevel {
+                    price: Cents::new(45),
+                    qty: Contracts::new(100),
+                }],
+                yes_asks: vec![fortuna_core::book::PriceLevel {
+                    price: Cents::new(55),
+                    qty: Contracts::new(100),
+                }],
+            },
+        );
+
+        let intent = IntentId::new(ids.next(start).expect("candidate intent id"));
+        let candidate = CandidateOrder {
+            intent_id: intent,
+            strategy: StrategyId::new("s1").expect("strategy id"),
+            venue: VenueId::new("recording").expect("venue id"),
+            market: MarketId::new("KX-B").expect("market id"),
+            side: Side::Yes,
+            action: Action::Buy,
+            limit_price: Cents::new(50),
+            qty: Contracts::new(3),
+            fair_value: Cents::new(60),
+            client_order_id: ClientOrderId::from_intent(intent),
+        };
+
+        let outcome = runner.evaluate_gates(&candidate);
+        assert_eq!(
+            outcome.gated.unwrap_err().check,
+            fortuna_gates::GateCheck::EventExposure,
+            "pending exposure on KX-A must bind the same event cap for KX-B"
+        );
     }
 
     fn paper_live_market() -> Market {

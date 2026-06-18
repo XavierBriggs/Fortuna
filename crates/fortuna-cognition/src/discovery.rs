@@ -207,6 +207,7 @@ struct NormalizationEntry {
     statement: Option<String>,
     resolution_criteria: Option<String>,
     resolution_source: String,
+    #[serde(deserialize_with = "crate::beliefs::de_horizon_opt")]
     horizon: Option<UtcTimestamp>,
     category: String,
     mapping: MappingType,
@@ -473,8 +474,10 @@ struct WatchlistEntry {
     statement: String,
     resolution_criteria: String,
     resolution_source: String,
+    #[serde(deserialize_with = "crate::beliefs::de_horizon_opt")]
     horizon: Option<UtcTimestamp>,
     category: String,
+    reasoning: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -488,6 +491,37 @@ struct WatchlistBatch {
     /// (no free-text journal prose) exactly like market-back. The harness still
     /// enforces the unscoreable rule below — the schema guides, the code decides.
     beliefs: Vec<BeliefDraft>,
+}
+
+fn valid_watchlist_text(value: &str) -> bool {
+    let trimmed = value.trim();
+    trimmed.len() >= 3
+        && !matches!(
+            trimmed.to_ascii_lowercase().as_str(),
+            "x" | "xx" | "xxx" | "n/a" | "na" | "none" | "null" | "todo" | "tbd"
+        )
+}
+
+fn validate_watchlist_entry(entry: &WatchlistEntry) -> Result<(), String> {
+    if !valid_watchlist_text(&entry.event_hint) {
+        return Err("event_hint is a placeholder or too short".to_string());
+    }
+    if !valid_watchlist_text(&entry.statement) {
+        return Err("statement is a placeholder or too short".to_string());
+    }
+    if !valid_watchlist_text(&entry.resolution_criteria) {
+        return Err("resolution_criteria is a placeholder or too short".to_string());
+    }
+    if !valid_watchlist_text(&entry.resolution_source) {
+        return Err("resolution_source is a placeholder or too short".to_string());
+    }
+    if !valid_watchlist_text(&entry.category) {
+        return Err("category is a placeholder or too short".to_string());
+    }
+    if !valid_watchlist_text(&entry.reasoning) {
+        return Err("reasoning is a placeholder or too short".to_string());
+    }
+    Ok(())
 }
 
 /// Strict JSON schema for the world-forward batch (spec 5.12): candidate events
@@ -509,14 +543,15 @@ fn watchlist_schema() -> serde_json::Value {
                     "type": "object",
                     "additionalProperties": false,
                     "required": ["event_hint", "statement", "resolution_criteria",
-                        "resolution_source", "horizon", "category"],
+                        "resolution_source", "horizon", "category", "reasoning"],
                     "properties": {
                         "event_hint": {"type": "string"},
                         "statement": {"type": "string"},
                         "resolution_criteria": {"type": "string"},
                         "resolution_source": {"type": "string"},
                         "horizon": {"type": ["string", "null"]},
-                        "category": {"type": "string"}
+                        "category": {"type": "string"},
+                        "reasoning": {"type": "string"}
                     }
                 }
             },
@@ -558,6 +593,9 @@ pub struct WatchlistCandidate {
     pub resolution_source: String,
     pub horizon: Option<UtcTimestamp>,
     pub category: String,
+    /// Human-readable model rationale for why this watch belongs on the list.
+    /// DATA only: surfaced to Slack/ROTA/audit, never executed.
+    pub reasoning: String,
     /// True when the declared resolution source is not a checkable,
     /// enabled registry source: excluded from watchlist counts and
     /// calibration (spec 5.12 — no beliefs nobody can grade).
@@ -639,6 +677,13 @@ pub async fn world_forward_discovery(
     };
 
     for entry in batch.candidates {
+        if let Err(reason) = validate_watchlist_entry(&entry) {
+            outcome.defects.push(format!(
+                "watchlist candidate '{}' refused: {reason}",
+                entry.event_hint
+            ));
+            continue;
+        }
         // The unscoreable rule: the declared source must be a checkable,
         // ENABLED registry source at creation.
         let unscoreable = registry
@@ -652,22 +697,29 @@ pub async fn world_forward_discovery(
             resolution_source: entry.resolution_source,
             horizon: entry.horizon,
             category: entry.category,
+            reasoning: entry.reasoning,
             unscoreable,
         });
     }
 
-    let scoreable: BTreeMap<&str, ()> = outcome
-        .candidates
-        .iter()
-        .filter(|c| !c.unscoreable)
-        .map(|c| (c.event_id.as_str(), ()))
-        .collect();
-    let unscoreable_ids: BTreeMap<&str, ()> = outcome
-        .candidates
-        .iter()
-        .filter(|c| c.unscoreable)
-        .map(|c| (c.event_id.as_str(), ()))
-        .collect();
+    let mut scoreable: BTreeMap<String, String> = BTreeMap::new();
+    let mut unscoreable_ids: BTreeMap<String, String> = BTreeMap::new();
+    for c in &outcome.candidates {
+        let aliases = [
+            c.event_id.clone(),
+            c.event_id
+                .strip_prefix("watch:")
+                .unwrap_or(c.event_id.as_str())
+                .to_string(),
+        ];
+        for alias in aliases {
+            if c.unscoreable {
+                unscoreable_ids.insert(alias, c.event_id.clone());
+            } else {
+                scoreable.insert(alias, c.event_id.clone());
+            }
+        }
+    }
 
     // Provenance is HARNESS knowledge (spec 5.5), stamped post-call — the model
     // never writes its own. `decide()` stamps it for the synthesis path; the
@@ -680,7 +732,8 @@ pub async fn world_forward_discovery(
         "cost_cents": decision.cost_cents,
     });
     for mut belief in batch.beliefs {
-        if scoreable.contains_key(belief.event_id.as_str()) {
+        if let Some(canonical_event_id) = scoreable.get(belief.event_id.as_str()) {
+            belief.event_id = canonical_event_id.clone();
             belief.provenance = provenance.clone();
             outcome.beliefs.push(belief);
         } else if unscoreable_ids.contains_key(belief.event_id.as_str()) {

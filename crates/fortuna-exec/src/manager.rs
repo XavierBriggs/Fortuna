@@ -52,6 +52,8 @@ pub enum ExecError {
     },
     #[error("journal error: {reason}")]
     Journal { reason: String },
+    #[error("order mutation disabled by runtime mode: {reason}")]
+    OrderMutationDisabled { reason: String },
     #[error(transparent)]
     Venue(#[from] VenueError),
     #[error(transparent)]
@@ -168,6 +170,15 @@ pub struct ExecPolicy {
     /// Strategies explicitly allowed to ladder (stack working orders on one
     /// (strategy, market, side) key).
     pub laddering: BTreeSet<String>,
+    /// Runtime-mode rail: when set, submission refuses before journaling
+    /// SubmitAttempted and before any venue mutation.
+    pub order_mutation: OrderMutationPolicy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OrderMutationPolicy {
+    Enabled,
+    Disabled { reason: String },
 }
 
 impl Default for ExecPolicy {
@@ -176,6 +187,25 @@ impl Default for ExecPolicy {
             default_ttl_ms: 60_000,
             per_strategy_ttl_ms: BTreeMap::new(),
             laddering: BTreeSet::new(),
+            order_mutation: OrderMutationPolicy::Enabled,
+        }
+    }
+}
+
+impl ExecPolicy {
+    pub fn with_order_mutation_disabled(mut self, reason: impl Into<String>) -> Self {
+        self.order_mutation = OrderMutationPolicy::Disabled {
+            reason: reason.into(),
+        };
+        self
+    }
+
+    fn ensure_order_mutation_enabled(&self) -> Result<(), ExecError> {
+        match &self.order_mutation {
+            OrderMutationPolicy::Enabled => Ok(()),
+            OrderMutationPolicy::Disabled { reason } => Err(ExecError::OrderMutationDisabled {
+                reason: reason.clone(),
+            }),
         }
     }
 }
@@ -282,6 +312,7 @@ impl<J: IntentJournal> OrderManager<J> {
         group: Option<IntentGroupId>,
         venue: &dyn Venue,
     ) -> Result<SubmitOutcome, ExecError> {
+        self.policy.ensure_order_mutation_enabled()?;
         let snapshot = OrderSnapshot::from(&order);
         let intent = snapshot.intent_id;
 
@@ -412,6 +443,7 @@ impl<J: IntentJournal> OrderManager<J> {
         group: Option<IntentGroupId>,
         venue: &dyn Venue,
     ) -> Result<Vec<LegOutcome>, ExecError> {
+        self.policy.ensure_order_mutation_enabled()?;
         // Phase 0 (sequential, deterministic): pre-checks + journal.
         let mut slots: Vec<Option<LegOutcome>> = Vec::with_capacity(orders.len());
         let mut staged: Vec<(usize, fortuna_gates::GatedOrder)> = Vec::new();
@@ -889,13 +921,14 @@ impl<J: IntentJournal> OrderManager<J> {
             intent,
             event,
         };
-        Self::fold(
-            &mut self.intents,
-            &mut self.by_coid,
-            &mut self.fills_seen,
-            &row,
-        )?;
-        self.journal.append(intent, row.event).await?;
+        let mut intents = self.intents.clone();
+        let mut by_coid = self.by_coid.clone();
+        let mut fills_seen = self.fills_seen.clone();
+        Self::fold(&mut intents, &mut by_coid, &mut fills_seen, &row)?;
+        self.journal.append(intent, row.event.clone()).await?;
+        self.intents = intents;
+        self.by_coid = by_coid;
+        self.fills_seen = fills_seen;
         Ok(())
     }
 

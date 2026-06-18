@@ -6,7 +6,7 @@
 //! anyway). `SimClock` is deterministic, shareable, and monotone
 //! non-decreasing; `RealClock` is the single permitted wall-time read.
 
-use chrono::{DateTime, TimeZone, Timelike, Utc};
+use chrono::{DateTime, NaiveDate, TimeZone, Timelike, Utc};
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 use std::sync::{Mutex, PoisonError};
@@ -71,6 +71,28 @@ impl UtcTimestamp {
         Ok(UtcTimestamp(truncate_to_ms(dt.with_timezone(&Utc))))
     }
 
+    /// Lenient parse for MODEL-EMITTED horizon strings: a full RFC3339 datetime,
+    /// OR a bare calendar date `YYYY-MM-DD` (which an LLM routinely emits for an
+    /// event horizon) normalized to `00:00:00.000Z` UTC. It also accepts the
+    /// observed short model phrase `resolved YYYY-MM-DD` by extracting its one
+    /// date token. This is OPT-IN — the strict `parse_iso8601` and the default
+    /// `Deserialize` stay strict so venue timestamps, audit times, etc. never
+    /// silently widen; only cognition horizon fields that face the model use
+    /// this. Anything else is an error.
+    pub fn parse_iso8601_or_date(input: &str) -> Result<Self, ClockError> {
+        if let Ok(ts) = Self::parse_iso8601(input) {
+            return Ok(ts);
+        }
+        let t = input.trim();
+        if let Some(date) = normalized_model_horizon_date(t) {
+            return Self::parse_iso8601(&format!("{date}T00:00:00.000Z"));
+        }
+        Err(ClockError::Parse {
+            input: input.to_string(),
+            reason: "neither an RFC3339 datetime nor a YYYY-MM-DD model horizon".to_string(),
+        })
+    }
+
     pub fn checked_add_millis(self, millis: i64) -> Result<Self, ClockError> {
         let sum = self
             .epoch_millis()
@@ -78,6 +100,44 @@ impl UtcTimestamp {
             .ok_or(ClockError::Overflow)?;
         Self::from_epoch_millis(sum)
     }
+}
+
+fn normalized_model_horizon_date(input: &str) -> Option<String> {
+    if is_valid_date_token(input) {
+        return Some(input.to_string());
+    }
+    if input.len() > 32 {
+        return None;
+    }
+    let lower = input.to_ascii_lowercase();
+    if !matches!(
+        lower.split_ascii_whitespace().next(),
+        Some("resolved" | "resolve" | "by" | "on" | "until")
+    ) {
+        return None;
+    }
+    let mut dates = input
+        .split_ascii_whitespace()
+        .filter(|token| is_valid_date_token(token));
+    let only = dates.next()?;
+    if dates.next().is_some() {
+        return None;
+    }
+    Some(only.to_string())
+}
+
+fn is_valid_date_token(input: &str) -> bool {
+    let b = input.as_bytes();
+    if !(input.len() == 10
+        && b[4] == b'-'
+        && b[7] == b'-'
+        && b[..4].iter().all(u8::is_ascii_digit)
+        && b[5..7].iter().all(u8::is_ascii_digit)
+        && b[8..10].iter().all(u8::is_ascii_digit))
+    {
+        return false;
+    }
+    NaiveDate::parse_from_str(input, "%Y-%m-%d").is_ok()
 }
 
 impl fmt::Display for UtcTimestamp {

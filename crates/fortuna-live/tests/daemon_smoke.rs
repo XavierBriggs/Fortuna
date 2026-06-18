@@ -2716,7 +2716,8 @@ async fn discovery_world_forward_persists_watchlist_events_and_beliefs(pool: PgP
                     "resolution_criteria": "NWS Central Park daily climate reports",
                     "resolution_source": "nws",
                     "horizon": "2026-06-25T00:00:00.000Z",
-                    "category": "weather"
+                    "category": "weather",
+                    "reasoning": "NWS daily climate reports can verify the NYC heat threshold."
                 },
                 {
                     "event_hint": "alien-disclosure",
@@ -2724,7 +2725,8 @@ async fn discovery_world_forward_persists_watchlist_events_and_beliefs(pool: PgP
                     "resolution_criteria": "vibes",
                     "resolution_source": "my-cool-blog",
                     "horizon": "2026-12-31T00:00:00.000Z",
-                    "category": "politics"
+                    "category": "politics",
+                    "reasoning": "The model claims this is observable, but the source is not admitted."
                 }
             ],
             "beliefs": [{
@@ -2847,6 +2849,16 @@ async fn discovery_world_forward_persists_watchlist_events_and_beliefs(pool: PgP
     assert_eq!(
         watch_events, 2,
         "both candidates (scoreable + unscoreable) persist as events (got {watch_events})"
+    );
+    let unscoreable_watch_events: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM events WHERE event_id = 'watch:alien-disclosure' AND unscoreable",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        unscoreable_watch_events, 1,
+        "the recorded unscoreable watch event must be labeled unscoreable"
     );
 
     // The SCOREABLE candidate's belief fanned out (and only it — the unscoreable

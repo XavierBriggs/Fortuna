@@ -47,6 +47,22 @@ const KALSHI_OK: &str = "[kalshi]\n\
      series = [\"KXHIGHNY\"]\n\
      bracket_sets = [[\"KXHIGHNY-A\", \"KXHIGHNY-B\", \"KXHIGHNY-C\"]]\n";
 
+/// A kalshi@paper config under the current boot contract (boot.rs `validate_bootable`,
+/// the venue=kalshi/stage=paper arm): an explicit `[runtime]` (paper_ledger,
+/// orders disabled — the safe demo mode) plus the composite
+/// `data_source = "kalshi_prod"` / `execution = "paper"` that the
+/// live_data_only|paper_ledger modes require. `kalshi_block` is the optional
+/// `[kalshi]` section (None = omitted, to test the missing-universe refusal).
+fn paper_on_live_cfg(kalshi_block: Option<&str>) -> String {
+    cfg_with("kalshi", "paper", kalshi_block).replacen(
+        "stage = \"paper\"              # I7 validation stage: sim | paper | live_min | scaled.",
+        "stage = \"paper\"              # I7 validation stage: sim | paper | live_min | scaled.\n\
+         data_source = \"kalshi_prod\"\n\
+         execution = \"paper\"",
+        1,
+    ) + "\n[runtime]\nstage = \"paper\"\nexecution_mode = \"paper_ledger\"\norders_enabled = false\n"
+}
+
 #[test]
 fn sim_at_sim_stage_boots() {
     // The committed default: venue = "sim", stage = "sim".
@@ -80,9 +96,10 @@ fn sim_at_paper_stage_is_bad_config() {
 
 #[test]
 fn kalshi_at_paper_with_kalshi_section_boots() {
-    // The demo: venue = "kalshi", stage = "paper", a non-empty [kalshi].series.
+    // The demo: venue = "kalshi", stage = "paper", explicit [runtime] (paper_ledger,
+    // orders disabled), data_source=kalshi_prod/execution=paper, non-empty [kalshi].series.
     // validate_bootable is Ok (the credential check is in compose, not here).
-    let cfg = DaemonToml::parse(&cfg_with("kalshi", "paper", Some(KALSHI_OK))).expect("parses");
+    let cfg = DaemonToml::parse(&paper_on_live_cfg(Some(KALSHI_OK))).expect("parses");
     let k = cfg
         .kalshi
         .as_ref()
@@ -90,12 +107,12 @@ fn kalshi_at_paper_with_kalshi_section_boots() {
     assert_eq!(k.series, vec!["KXHIGHNY".to_string()]);
     assert_eq!(k.bracket_sets.len(), 1);
     cfg.validate_bootable()
-        .expect("kalshi @ paper with a non-empty [kalshi] boots");
+        .expect("kalshi paper-on-live with a non-empty [kalshi] boots");
 }
 
 #[test]
 fn kalshi_prod_data_with_paper_execution_boots() {
-    let cfg = DaemonToml::parse(&cfg_with_data_execution("kalshi_prod", "paper")).expect("parses");
+    let cfg = DaemonToml::parse(&paper_on_live_cfg(Some(KALSHI_OK))).expect("parses");
     assert_eq!(cfg.daemon.data_source.as_deref(), Some("kalshi_prod"));
     assert_eq!(cfg.daemon.execution.as_deref(), Some("paper"));
     cfg.validate_bootable()
@@ -120,8 +137,9 @@ fn kalshi_prod_data_with_real_execution_is_refused() {
 #[test]
 fn kalshi_at_paper_without_kalshi_section_is_bad_config() {
     // No [kalshi] => no trading universe => refuse (a silently-inert daemon is
-    // worse than a loud refusal).
-    let cfg = DaemonToml::parse(&cfg_with("kalshi", "paper", None)).expect("parses");
+    // worse than a loud refusal). The [runtime] + data_source/execution are valid,
+    // so validation reaches the [kalshi].series check.
+    let cfg = DaemonToml::parse(&paper_on_live_cfg(None)).expect("parses");
     assert!(cfg.kalshi.is_none(), "no [kalshi] section present");
     match cfg.validate_bootable() {
         Err(BootError::BadConfig { reason }) => assert!(
@@ -136,7 +154,7 @@ fn kalshi_at_paper_without_kalshi_section_is_bad_config() {
 fn kalshi_at_paper_with_empty_series_is_bad_config() {
     // A present-but-empty series is the same failure: an empty catalog.
     let empty_series = "[kalshi]\nseries = []\nbracket_sets = []\n";
-    let cfg = DaemonToml::parse(&cfg_with("kalshi", "paper", Some(empty_series))).expect("parses");
+    let cfg = DaemonToml::parse(&paper_on_live_cfg(Some(empty_series))).expect("parses");
     match cfg.validate_bootable() {
         Err(BootError::BadConfig { reason }) => assert!(
             reason.contains("series"),

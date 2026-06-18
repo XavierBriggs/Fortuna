@@ -476,7 +476,7 @@ pub async fn compose_runner(
     let config = RunnerConfig {
         seed: audit_seed,
         gate_config: full.gates.clone(),
-        exec_policy: fortuna_exec::ExecPolicy::default(),
+        exec_policy: exec_policy_for_runtime(dcfg),
         envelopes,
         max_daily_loss: Cents::new(full.gates.global.max_daily_loss_cents),
         fee_model,
@@ -769,6 +769,29 @@ fn kalshi_fee_model(full: &FortunaConfig) -> Result<ScheduleFeeModel, DaemonErro
     })
 }
 
+fn exec_policy_for_runtime(dcfg: &DaemonToml) -> fortuna_exec::ExecPolicy {
+    let policy = fortuna_exec::ExecPolicy::default();
+    let Some(runtime) = dcfg.runtime.as_ref() else {
+        return policy;
+    };
+    if !runtime.orders_enabled {
+        return policy.with_order_mutation_disabled(format!(
+            "runtime execution_mode={} has orders_enabled=false",
+            runtime.execution_mode.as_str()
+        ));
+    }
+    match runtime.execution_mode {
+        crate::boot::ExecutionMode::LiveDataOnly | crate::boot::ExecutionMode::DryRun => policy
+            .with_order_mutation_disabled(format!(
+                "runtime execution_mode={} forbids order mutation",
+                runtime.execution_mode.as_str()
+            )),
+        crate::boot::ExecutionMode::PaperLedger
+        | crate::boot::ExecutionMode::DemoOrders
+        | crate::boot::ExecutionMode::ProductionOrders => policy,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn compose_kalshi_family_runner_with_venue<V: Venue + 'static>(
     pool: PgPool,
@@ -955,7 +978,7 @@ async fn compose_kalshi_family_runner_with_venue<V: Venue + 'static>(
     let config = RunnerConfig {
         seed: audit_seed,
         gate_config: full.gates.clone(),
-        exec_policy: fortuna_exec::ExecPolicy::default(),
+        exec_policy: exec_policy_for_runtime(dcfg),
         envelopes,
         max_daily_loss: Cents::new(full.gates.global.max_daily_loss_cents),
         fee_model,
@@ -1558,6 +1581,146 @@ pub struct DiscoveryWiring {
     pub weather_source: Option<std::sync::Arc<dyn fortuna_venues::kalshi::WeatherMarketSource>>,
 }
 
+fn event_text_tokens(s: &str) -> BTreeSet<String> {
+    const STOP: &[&str] = &[
+        "a", "an", "and", "as", "at", "be", "by", "for", "from", "in", "is", "of", "on", "or",
+        "the", "to", "will", "with",
+    ];
+    s.split(|c: char| !c.is_ascii_alphanumeric())
+        .filter_map(|part| {
+            let mut token = part.trim().to_ascii_lowercase();
+            if token.len() > 3 && token.ends_with('s') {
+                token.pop();
+            }
+            if token.len() < 3 && token != "ny" || STOP.contains(&token.as_str()) {
+                None
+            } else {
+                Some(token)
+            }
+        })
+        .collect()
+}
+
+fn normalized_event_text(s: &str) -> String {
+    event_text_tokens(s)
+        .into_iter()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn event_text_similarity(a: &str, b: &str) -> f64 {
+    let a = event_text_tokens(a);
+    let b = event_text_tokens(b);
+    if a.is_empty() || b.is_empty() {
+        return 0.0;
+    }
+    let intersection = a.intersection(&b).count() as f64;
+    let union = a.union(&b).count() as f64;
+    if union <= 0.0 {
+        0.0
+    } else {
+        intersection / union
+    }
+}
+
+fn event_family_key(statement: &str) -> Option<String> {
+    let tokens = event_text_tokens(statement);
+    let has = |s: &str| tokens.contains(s);
+    let year = if has("2026") { "2026" } else { "unknown" };
+    if has("wind") && has("gust") && (has("ny") || has("york") || has("upstate")) {
+        return Some(format!("weather:ny-wind-gust:{year}"));
+    }
+    if (has("fed") || (has("federal") && has("reserve"))) && has("stress") && has("test") {
+        return Some(format!("macro:fed-stress-test:{year}"));
+    }
+    if has("warsh") && has("chair") && (has("fed") || has("federal") || has("reserve")) {
+        return Some(format!("macro:warsh-fed-chair:{year}"));
+    }
+    if has("fomc") && has("hold") && (has("june") || has("16") || has("17")) {
+        return Some(format!("macro:fomc-hold-june:{year}"));
+    }
+    if has("miran") && (has("successor") || has("sworn")) {
+        return Some(format!("macro:miran-successor:{year}"));
+    }
+    if has("miran") && has("resignation") {
+        return Some(format!("macro:miran-resignation:{year}"));
+    }
+    None
+}
+
+async fn find_world_forward_duplicate_event(
+    pool: &PgPool,
+    statement: &str,
+    category: &str,
+    benchmark_at: &str,
+) -> Result<Option<(String, f64)>, sqlx::Error> {
+    let rows = sqlx::query_as::<_, (String, String, String, String)>(
+        "SELECT event_id, statement, category, benchmark_at \
+         FROM events \
+         WHERE status <> 'dead' \
+         ORDER BY created_at DESC LIMIT 200",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let normalized = normalized_event_text(statement);
+    let family = event_family_key(statement);
+    let mut best: Option<(String, f64)> = None;
+    for (event_id, existing_statement, existing_category, existing_benchmark_at) in rows {
+        if family.is_some() && family == event_family_key(&existing_statement) {
+            return Ok(Some((event_id, 1.0)));
+        }
+        if normalized == normalized_event_text(&existing_statement) {
+            return Ok(Some((event_id, 1.0)));
+        }
+        let score = event_text_similarity(statement, &existing_statement);
+        if score >= 0.55 && best.as_ref().map(|(_, s)| score > *s).unwrap_or(true) {
+            best = Some((event_id.clone(), score));
+            continue;
+        }
+        if existing_category.eq_ignore_ascii_case(category)
+            && existing_benchmark_at == benchmark_at
+            && score >= 0.35
+            && best.as_ref().map(|(_, s)| score > *s).unwrap_or(true)
+        {
+            best = Some((event_id, score));
+        }
+    }
+    Ok(best)
+}
+
+fn summarize_belief_evidence(evidence: &serde_json::Value) -> String {
+    let Some(items) = evidence.as_array() else {
+        return evidence.to_string();
+    };
+    items
+        .iter()
+        .take(3)
+        .map(|item| {
+            let source = item
+                .get("source")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let reference = item.get("ref").and_then(|v| v.as_str()).unwrap_or("");
+            let note = item
+                .get("weight_note")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let mut s = source.to_string();
+            if !reference.is_empty() {
+                s.push(' ');
+                s.push_str(reference);
+            }
+            if !note.is_empty() {
+                s.push_str(": ");
+                s.push_str(note);
+            }
+            s
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     // demo-flip Phase 2: an ActiveRunner (Sim or Kalshi), not a bare
@@ -1801,12 +1964,12 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                         // (they ride only as a context body; market_back_discovery
                         // assembles internally).
                         let ctx_items: Vec<ContextItem> = rows
-                            .into_iter()
+                            .iter()
                             .filter_map(|r| {
                                 let body = r.payload.to_string();
                                 Some(ContextItem {
                                     content_hash: content_hash_of(&body),
-                                    item_id: r.signal_id,
+                                    item_id: r.signal_id.clone(),
                                     section: SectionKind::FreshSignals,
                                     body,
                                     at: fortuna_core::clock::UtcTimestamp::parse_iso8601(
@@ -2675,13 +2838,23 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                         // received_at SKIPS that row (filter_map), never a panic — the
                         // signal is untrusted DATA (it rides only as a context body;
                         // world_forward_discovery assembles + anonymizes internally).
+                        let evidence_links: Vec<_> = rows
+                            .iter()
+                            .map(|r| fortuna_ledger::EventSourceEvidenceInput {
+                                signal_id: r.signal_id.clone(),
+                                signal_received_at: r.received_at.clone(),
+                                source: r.source.clone(),
+                                signal_type: r.kind.clone(),
+                                content_hash: r.content_hash.clone(),
+                            })
+                            .collect();
                         let ctx_items: Vec<ContextItem> = rows
-                            .into_iter()
+                            .iter()
                             .filter_map(|r| {
                                 let body = r.payload.to_string();
                                 Some(ContextItem {
                                     content_hash: content_hash_of(&body),
-                                    item_id: r.signal_id,
+                                    item_id: r.signal_id.clone(),
                                     section: SectionKind::FreshSignals,
                                     body,
                                     at: fortuna_core::clock::UtcTimestamp::parse_iso8601(
@@ -2751,6 +2924,40 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                     // non-null anchor for the row; the discovery loop
                                     // enriches events later, spec 5.12).
                                     let benchmark_at = horizon_iso.as_deref().unwrap_or(&now_iso);
+                                    match find_world_forward_duplicate_event(
+                                        &dw.pool,
+                                        &cand.statement,
+                                        &cand.category,
+                                        benchmark_at,
+                                    )
+                                    .await
+                                    {
+                                        Ok(Some((existing_event_id, score))) => {
+                                            alerts.push((
+                                                fortuna_ops::MessageKind::Review,
+                                                format!(
+                                                    "discovery duplicate watch skipped: {} looked like existing {} (similarity {:.2})\nstatement: {}\nreasoning: {}",
+                                                    cand.event_id,
+                                                    existing_event_id,
+                                                    score,
+                                                    cand.statement,
+                                                    cand.reasoning
+                                                ),
+                                            ));
+                                            continue;
+                                        }
+                                        Ok(None) => {}
+                                        Err(e) => {
+                                            alerts.push((
+                                                fortuna_ops::MessageKind::Ops,
+                                                format!(
+                                                    "discovery duplicate check FAILED ({}): {e}",
+                                                    cand.event_id
+                                                ),
+                                            ));
+                                            continue;
+                                        }
+                                    }
                                     if let Err(e) = fortuna_ledger::EventsRepo::new(dw.pool.clone())
                                         .create(
                                             &cand.event_id,
@@ -2773,6 +2980,55 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                         ));
                                         continue;
                                     }
+                                    if cand.unscoreable {
+                                        if let Err(e) =
+                                            fortuna_ledger::EventsRepo::new(dw.pool.clone())
+                                                .mark_unscoreable(&cand.event_id)
+                                                .await
+                                        {
+                                            alerts.push((
+                                                fortuna_ops::MessageKind::Ops,
+                                                format!(
+                                                    "discovery watch-event unscoreable mark FAILED ({}): {e}",
+                                                    cand.event_id
+                                                ),
+                                            ));
+                                        }
+                                    }
+                                    alerts.push((
+                                        fortuna_ops::MessageKind::Review,
+                                        format!(
+                                            "new discovery watch event: {}\ncategory: {}\nbenchmark: {}\nscoreable: {}\nstatement: {}\nresolution: {} via {}\nmodel reasoning: {}",
+                                            cand.event_id,
+                                            cand.category,
+                                            benchmark_at,
+                                            !cand.unscoreable,
+                                            cand.statement,
+                                            cand.resolution_criteria,
+                                            cand.resolution_source,
+                                            cand.reasoning
+                                        ),
+                                    ));
+                                    if let Err(e) =
+                                        fortuna_ledger::EventSourceEvidenceRepo::new(
+                                            dw.pool.clone(),
+                                        )
+                                        .insert_many(
+                                            &cand.event_id,
+                                            "model_context",
+                                            &now_iso,
+                                            &evidence_links,
+                                        )
+                                        .await
+                                    {
+                                        alerts.push((
+                                            fortuna_ops::MessageKind::Ops,
+                                            format!(
+                                                "discovery evidence-link persist FAILED ({}): {e}",
+                                                cand.event_id
+                                            ),
+                                        ));
+                                    }
                                 }
                                 // Fan the SCOREABLE candidates' beliefs out through the
                                 // existing binary-belief path, attributed to the pre-built
@@ -2784,13 +3040,29 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                 if n > 0 {
                                     let pairs: Vec<_> = outcome
                                         .beliefs
-                                        .into_iter()
+                                        .iter()
+                                        .cloned()
                                         .map(|b| (dw.strategy.clone(), b))
                                         .collect();
                                     match persist_beliefs(&dw.pool, &pairs, &now_iso, belief_id_base)
                                         .await
                                     {
-                                        Ok(persisted) => belief_id_base += persisted as u64,
+                                        Ok(persisted) => {
+                                            belief_id_base += persisted as u64;
+                                            for (_, belief) in &pairs {
+                                                alerts.push((
+                                                    fortuna_ops::MessageKind::Review,
+                                                    format!(
+                                                        "new discovery belief: {}\np={:.4} raw={:.4} horizon={}\nevidence/reasoning: {}",
+                                                        belief.event_id,
+                                                        belief.p,
+                                                        belief.p_raw,
+                                                        belief.horizon.to_iso8601(),
+                                                        summarize_belief_evidence(&belief.evidence)
+                                                    ),
+                                                ));
+                                            }
+                                        }
                                         Err(e) => alerts.push((
                                             fortuna_ops::MessageKind::Ops,
                                             format!(
@@ -4422,6 +4694,35 @@ mod tests {
         assert!(!edge_refresh_transition(false, &mut failing, &mut failures));
         assert!(!edge_refresh_transition(false, &mut failing, &mut failures));
         assert_eq!(failures, 3);
+    }
+
+    #[test]
+    fn world_forward_event_similarity_catches_rephrased_same_horizon_watch() {
+        let a =
+            "Wind gusts of at least 45 mph will be observed in western New York on June 18, 2026.";
+        let b = "A wind gust of 45 mph or greater will be recorded in western/northern NY advisory zones on June 18, 2026.";
+        assert!(
+            event_text_similarity(a, b) >= 0.35,
+            "rephrased wind watch should dedupe"
+        );
+
+        let unrelated = "The Federal Reserve will release its annual bank stress test results on June 24, 2026.";
+        assert!(
+            event_text_similarity(a, unrelated) < 0.35,
+            "unrelated watches should not dedupe only because both are events"
+        );
+    }
+
+    #[test]
+    fn world_forward_event_family_key_catches_current_watch_families() {
+        let a = "A wind gust of 45 mph or greater will be recorded in western/northern NY or VT advisory zones on June 18, 2026.";
+        let b = "At least one NWS station in the upstate New York wind advisory area will record a gust of 40+ mph on June 18, 2026.";
+        assert_eq!(event_family_key(a), event_family_key(b));
+
+        let stress_a =
+            "The Federal Reserve will release its 2026 annual bank stress test results by June 24, 2026.";
+        let stress_b = "The Federal Reserve releases annual stress test results by June 24, 2026.";
+        assert_eq!(event_family_key(stress_a), event_family_key(stress_b));
     }
 
     /// A scripted MindTransport: present => AnthropicMind, never called (id() is

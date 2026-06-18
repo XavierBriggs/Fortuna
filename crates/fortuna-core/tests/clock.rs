@@ -65,6 +65,43 @@ fn parse_rejects_garbage() {
 }
 
 #[test]
+fn parse_iso8601_or_date_accepts_bare_date_at_utc_midnight() {
+    // The model routinely emits a bare YYYY-MM-DD horizon; the lenient parser
+    // normalizes it to 00:00:00.000Z so one date-only field no longer kills a
+    // whole structured batch.
+    let d = UtcTimestamp::parse_iso8601_or_date("2026-06-24").unwrap();
+    assert_eq!(d.to_iso8601(), "2026-06-24T00:00:00.000Z");
+    assert_eq!(
+        d,
+        UtcTimestamp::parse_iso8601("2026-06-24T00:00:00.000Z").unwrap()
+    );
+    // A full datetime still parses identically to the strict path.
+    let full = "2026-06-24T18:30:00.000Z";
+    assert_eq!(
+        UtcTimestamp::parse_iso8601_or_date(full).unwrap(),
+        UtcTimestamp::parse_iso8601(full).unwrap()
+    );
+    // Garbage and partial/invalid dates are still rejected (no silent widening).
+    assert!(UtcTimestamp::parse_iso8601_or_date("2026-06").is_err());
+    assert!(UtcTimestamp::parse_iso8601_or_date("2026-13-45").is_err());
+    assert!(UtcTimestamp::parse_iso8601_or_date("June 24 2026").is_err());
+    assert!(UtcTimestamp::parse_iso8601_or_date("").is_err());
+}
+
+#[test]
+fn parse_iso8601_or_date_accepts_observed_resolved_date_phrase() {
+    // REGRESSION (demo soak 2026-06-17): the world-forward model emitted the
+    // short horizon phrase "resolved 2026-05-22". This parser is opt-in for
+    // model horizons, so accepting that one-date phrase does not widen normal
+    // timestamp deserialization.
+    let d = UtcTimestamp::parse_iso8601_or_date("resolved 2026-05-22").unwrap();
+    assert_eq!(d.to_iso8601(), "2026-05-22T00:00:00.000Z");
+
+    assert!(UtcTimestamp::parse_iso8601_or_date("resolved 2026-05-22 2026-05-23").is_err());
+    assert!(UtcTimestamp::parse_iso8601_or_date("approximately 2026-05-22").is_err());
+}
+
+#[test]
 fn from_epoch_millis_out_of_chrono_range_is_error() {
     assert!(matches!(
         UtcTimestamp::from_epoch_millis(i64::MAX),

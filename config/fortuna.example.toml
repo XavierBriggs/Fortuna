@@ -129,6 +129,13 @@ allow_stub_mind = false
 [deadman]
 ping_interval_secs = 60
 
+# Explicit runtime mode for non-sim compositions. Required when venue="kalshi".
+# The safest demo is live Kalshi data with order mutation disabled:
+# [runtime]
+# stage = "paper"
+# execution_mode = "live_data_only" # live_data_only | dry_run | paper_ledger | demo_orders | production_orders
+# orders_enabled = false
+
 [daemon]                   # T4.1: the live composition daemon
 venue = "sim"              # "sim" (requires stage="sim") or "kalshi" (requires stage="paper")
 stage = "sim"              # I7 validation stage: sim | paper | live_min | scaled.

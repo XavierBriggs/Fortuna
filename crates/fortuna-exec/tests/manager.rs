@@ -12,7 +12,8 @@ use fortuna_core::ids::{IdGen, IntentId};
 use fortuna_core::market::{Action, ClientOrderId, Contracts, MarketId, Side, StrategyId, VenueId};
 use fortuna_core::money::Cents;
 use fortuna_exec::{
-    ExecError, ExecPolicy, IntentStatus, MemoryJournal, OrderManager, SubmitOutcome,
+    ExecError, ExecPolicy, IntentJournal, IntentStatus, JournalRow, MemoryJournal, OrderManager,
+    SubmitOutcome,
 };
 use fortuna_gates::{CandidateOrder, GateConfig, GateInputs, GatePipeline};
 use fortuna_venues::fees::{FeeSchedule, ScheduleFeeModel};
@@ -156,6 +157,40 @@ fn manager(clock: Arc<SimClock>) -> OrderManager<MemoryJournal> {
     .unwrap()
 }
 
+#[derive(Debug, Default)]
+struct FailingJournal {
+    rows: Vec<JournalRow>,
+    fail_appends: bool,
+}
+
+#[async_trait::async_trait]
+impl IntentJournal for FailingJournal {
+    async fn append(
+        &mut self,
+        _intent: IntentId,
+        _event: fortuna_exec::IntentEvent,
+    ) -> Result<(), ExecError> {
+        if self.fail_appends {
+            return Err(ExecError::Journal {
+                reason: "injected append failure".to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    async fn load_all(&self) -> Result<Vec<JournalRow>, ExecError> {
+        Ok(self.rows.clone())
+    }
+
+    async fn cursor(&self) -> Result<Cursor, ExecError> {
+        Ok(Cursor::start())
+    }
+
+    async fn set_cursor(&mut self, _cursor: Cursor) -> Result<(), ExecError> {
+        Ok(())
+    }
+}
+
 // ---- submission ----
 
 #[test]
@@ -175,6 +210,38 @@ fn submit_journals_before_the_network_and_acks_on_success() {
     // The journal shows Created -> SubmitAttempted -> Acked, in order.
     let kinds = m.journal().event_kinds_for(intent);
     assert_eq!(kinds, vec!["created", "submit_attempted", "acked"]);
+}
+
+#[test]
+fn journal_append_failure_does_not_mutate_memory_or_touch_venue() {
+    let clock = Arc::new(SimClock::new(t0()));
+    let venue = venue_with(FaultConfig::none(1), clock.clone());
+    let mut m = futures::executor::block_on(OrderManager::recover(
+        FailingJournal {
+            fail_appends: true,
+            ..FailingJournal::default()
+        },
+        clock.clone(),
+        ExecPolicy::default(),
+    ))
+    .unwrap();
+
+    let order = gate(candidate(101, "M1", 40, 5), &clock);
+    let intent = order.intent_id();
+    let err = futures::executor::block_on(m.submit(order, &venue)).unwrap_err();
+
+    assert!(
+        matches!(err, ExecError::Journal { .. }),
+        "expected journal failure, got {err:?}"
+    );
+    assert!(
+        m.intent(intent).is_none(),
+        "failed durable append must not leave a folded in-memory intent"
+    );
+    assert!(
+        venue.resting_orders().is_empty(),
+        "no order may reach the venue after a failed pre-submit journal append"
+    );
 }
 
 #[test]
@@ -657,6 +724,43 @@ fn boot_resolves_submitted_intent_that_never_reached_the_venue() {
     let report = futures::executor::block_on(m2.boot_reconcile(&healthy)).unwrap();
     assert_eq!(report.closed_unsubmitted, vec![intent]);
     assert_eq!(m2.intent(intent).unwrap().status, IntentStatus::BootClosed);
+}
+
+#[test]
+fn runtime_mode_disabled_refuses_before_journal_or_venue_place() {
+    let clock = Arc::new(SimClock::new(t0()));
+    let venue = venue_with(FaultConfig::none(1), clock.clone());
+    let policy = ExecPolicy::default().with_order_mutation_disabled("test live_data_only");
+    let mut m = futures::executor::block_on(OrderManager::recover(
+        MemoryJournal::default(),
+        clock.clone(),
+        policy,
+    ))
+    .unwrap();
+    let order = gate(candidate(19, "M1", 40, 5), &clock);
+    let intent = order.intent_id();
+
+    let err = futures::executor::block_on(m.submit(order, &venue)).unwrap_err();
+    assert!(
+        matches!(err, ExecError::OrderMutationDisabled { .. }),
+        "disabled runtime mode must refuse before submit, got {err:?}"
+    );
+    assert!(
+        m.intent(intent).is_none(),
+        "disabled runtime mode must not fold a Created intent"
+    );
+    assert!(
+        futures::executor::block_on(m.journal().load_all())
+            .unwrap()
+            .is_empty(),
+        "disabled runtime mode must not journal Created/SubmitAttempted"
+    );
+    assert!(
+        futures::executor::block_on(venue.open_orders())
+            .unwrap()
+            .is_empty(),
+        "disabled runtime mode must not call venue.place"
+    );
 }
 
 #[test]

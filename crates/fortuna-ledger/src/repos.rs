@@ -524,6 +524,58 @@ impl EventsRepo {
     }
 }
 
+/// One immutable link between a generated event and a signal row that was in
+/// the model context when the event was proposed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventSourceEvidenceInput {
+    pub signal_id: String,
+    pub signal_received_at: String,
+    pub source: String,
+    pub signal_type: String,
+    pub content_hash: String,
+}
+
+pub struct EventSourceEvidenceRepo {
+    pool: PgPool,
+}
+
+impl EventSourceEvidenceRepo {
+    pub fn new(pool: PgPool) -> EventSourceEvidenceRepo {
+        EventSourceEvidenceRepo { pool }
+    }
+
+    pub async fn insert_many(
+        &self,
+        event_id: &str,
+        relation: &str,
+        created_at: &str,
+        evidence: &[EventSourceEvidenceInput],
+    ) -> Result<u64, LedgerError> {
+        let mut inserted = 0;
+        for e in evidence {
+            let result = sqlx::query(
+                r#"INSERT INTO event_source_evidence
+                   (event_id, signal_id, signal_received_at, source, signal_type,
+                    content_hash, relation, created_at)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+                   ON CONFLICT (event_id, signal_id, signal_received_at) DO NOTHING"#,
+            )
+            .bind(event_id)
+            .bind(&e.signal_id)
+            .bind(&e.signal_received_at)
+            .bind(&e.source)
+            .bind(&e.signal_type)
+            .bind(&e.content_hash)
+            .bind(relation)
+            .bind(created_at)
+            .execute(&self.pool)
+            .await?;
+            inserted += result.rows_affected();
+        }
+        Ok(inserted)
+    }
+}
+
 /// One persisted market-event edge row (spec 5.12; superseding inserts).
 #[derive(Debug, Clone)]
 pub struct EdgeRow {

@@ -495,6 +495,7 @@ pub async fn recent_discovery_events(
                 COUNT(DISTINCT mee.market_id) AS markets \
          FROM events e \
          LEFT JOIN market_event_edges mee ON mee.event_id = e.event_id \
+         WHERE e.status <> 'dead' \
          GROUP BY e.event_id, e.statement, e.category, e.status, e.benchmark_at, e.created_at \
          ORDER BY e.created_at DESC LIMIT $1",
     )

@@ -158,6 +158,51 @@ pub struct DaemonSection {
     pub metrics_bind: String,
 }
 
+/// Explicit runtime mutation mode. This deliberately sits beside the older
+/// `[daemon]` composition fields so boot can reject ambiguous Kalshi configs
+/// before any transport or runner is constructed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionMode {
+    LiveDataOnly,
+    DryRun,
+    PaperLedger,
+    DemoOrders,
+    ProductionOrders,
+}
+
+impl ExecutionMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ExecutionMode::LiveDataOnly => "live_data_only",
+            ExecutionMode::DryRun => "dry_run",
+            ExecutionMode::PaperLedger => "paper_ledger",
+            ExecutionMode::DemoOrders => "demo_orders",
+            ExecutionMode::ProductionOrders => "production_orders",
+        }
+    }
+
+    pub fn allows_order_mutation(self) -> bool {
+        matches!(
+            self,
+            ExecutionMode::PaperLedger
+                | ExecutionMode::DemoOrders
+                | ExecutionMode::ProductionOrders
+        )
+    }
+}
+
+/// The explicit runtime section required for any Kalshi composition.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeSection {
+    pub stage: String,
+    pub execution_mode: ExecutionMode,
+    pub orders_enabled: bool,
+    #[serde(default)]
+    pub production_unlock: bool,
+}
+
 /// The default validation stage when `[daemon].stage` is omitted: `"sim"`.
 /// Back-compat — pre-demo-flip configs have no `stage` field and mean Sim.
 fn default_stage() -> String {
@@ -403,6 +448,7 @@ impl Default for DiscoverySection {
 
 #[derive(Debug, Deserialize)]
 struct RawToml {
+    runtime: Option<RuntimeSection>,
     daemon: Option<DaemonSection>,
     cognition: Option<CognitionSection>,
     sim: Option<SimSection>,
@@ -422,6 +468,9 @@ struct RawToml {
 /// The parsed daemon-relevant config.
 #[derive(Debug, Clone)]
 pub struct DaemonToml {
+    /// Explicit runtime mode. Required when `venue = "kalshi"`; optional for
+    /// legacy sim configs so old DST/test fixtures keep parsing.
+    pub runtime: Option<RuntimeSection>,
     pub daemon: DaemonSection,
     pub cognition: CognitionSection,
     pub sim: Option<SimSection>,
@@ -499,6 +548,7 @@ impl DaemonToml {
                 .to_string(),
         })?;
         Ok(DaemonToml {
+            runtime: raw.runtime,
             daemon,
             cognition,
             sim: raw.sim,
@@ -518,6 +568,41 @@ impl DaemonToml {
 
     /// Boot checks beyond parsing: venue gating and operational pins.
     pub fn validate_bootable(&self) -> Result<(), BootError> {
+        if let Some(runtime) = self.runtime.as_ref() {
+            if runtime.stage != self.daemon.stage {
+                return Err(BootError::BadConfig {
+                    reason: format!(
+                        "[runtime].stage {:?} must match [daemon].stage {:?}",
+                        runtime.stage, self.daemon.stage
+                    ),
+                });
+            }
+            if runtime.execution_mode == ExecutionMode::LiveDataOnly && runtime.orders_enabled {
+                return Err(BootError::BadConfig {
+                    reason: "orders_enabled = true is invalid when execution_mode = \
+                             \"live_data_only\""
+                        .to_string(),
+                });
+            }
+            if runtime.orders_enabled && !runtime.execution_mode.allows_order_mutation() {
+                return Err(BootError::BadConfig {
+                    reason: format!(
+                        "orders_enabled = true is invalid when execution_mode = {:?}",
+                        runtime.execution_mode.as_str()
+                    ),
+                });
+            }
+            if runtime.execution_mode != ExecutionMode::ProductionOrders
+                && runtime.production_unlock
+            {
+                return Err(BootError::BadConfig {
+                    reason: "production_unlock may only be set with execution_mode = \
+                             \"production_orders\""
+                        .to_string(),
+                });
+            }
+        }
+
         if let Some(data_source) = self.daemon.data_source.as_deref() {
             match data_source {
                 "kalshi_prod" => {
@@ -604,6 +689,70 @@ impl DaemonToml {
                 // env-only, gated later in resolve_kalshi_demo_creds (not here — the
                 // boot gate is pure over config, never reads the environment).
                 "paper" => {
+                    let runtime = self.runtime.as_ref().ok_or_else(|| BootError::BadConfig {
+                        reason: "venue = \"kalshi\" requires explicit [runtime] with \
+                                 execution_mode and orders_enabled"
+                            .to_string(),
+                    })?;
+                    match runtime.execution_mode {
+                        ExecutionMode::LiveDataOnly | ExecutionMode::PaperLedger => {
+                            if self.daemon.data_source.as_deref() != Some("kalshi_prod")
+                                || self.daemon.execution.as_deref() != Some("paper")
+                            {
+                                return Err(BootError::BadConfig {
+                                    reason: format!(
+                                        "execution_mode = {:?} requires data_source = \
+                                         \"kalshi_prod\" and execution = \"paper\"",
+                                        runtime.execution_mode.as_str()
+                                    ),
+                                });
+                            }
+                        }
+                        ExecutionMode::DryRun => {
+                            if runtime.orders_enabled {
+                                return Err(BootError::BadConfig {
+                                    reason: "execution_mode = \"dry_run\" must keep \
+                                             orders_enabled = false"
+                                        .to_string(),
+                                });
+                            }
+                        }
+                        ExecutionMode::DemoOrders => {
+                            if self.daemon.data_source.is_some() || self.daemon.execution.is_some()
+                            {
+                                return Err(BootError::BadConfig {
+                                    reason: "execution_mode = \"demo_orders\" must use the \
+                                             Kalshi demo endpoint path, not composite \
+                                             data_source/execution fields"
+                                        .to_string(),
+                                });
+                            }
+                            if !runtime.orders_enabled {
+                                return Err(BootError::BadConfig {
+                                    reason: "execution_mode = \"demo_orders\" requires \
+                                             orders_enabled = true"
+                                        .to_string(),
+                                });
+                            }
+                        }
+                        ExecutionMode::ProductionOrders => {
+                            if !runtime.production_unlock {
+                                return Err(BootError::VenueNotBootable {
+                                    venue: "kalshi".to_string(),
+                                    reason: "execution_mode = \"production_orders\" requires \
+                                             [runtime].production_unlock = true and still needs \
+                                             the I7 promotion gate"
+                                        .to_string(),
+                                });
+                            }
+                            return Err(BootError::VenueNotBootable {
+                                venue: "kalshi".to_string(),
+                                reason: "production_orders remains refused by the daemon: live \
+                                         capital promotion is an operator action through I7"
+                                    .to_string(),
+                            });
+                        }
+                    }
                     let series_ok = self
                         .kalshi
                         .as_ref()
@@ -749,6 +898,30 @@ per_cycle_budget_cents = 50
 bracket_sets = [["SIM-BKT-LO", "SIM-BKT-MID", "SIM-BKT-HI"]]
 "#;
 
+    const KALSHI_PAPER_LIVE_BASE: &str = r#"
+[runtime]
+stage = "paper"
+execution_mode = "live_data_only"
+orders_enabled = false
+
+[daemon]
+venue = "kalshi"
+stage = "paper"
+data_source = "kalshi_prod"
+execution = "paper"
+tick_interval_ms = 1000
+halt_poll_ms = 500
+metrics_bind = "127.0.0.1:9187"
+
+[cognition]
+daily_budget_cents = 1500
+per_cycle_budget_cents = 50
+
+[kalshi]
+series = ["KXBTC"]
+bracket_sets = [["KXBTC-LO", "KXBTC-HI"]]
+"#;
+
     #[test]
     fn config_without_killswitch_section_parses_to_none_and_boots() {
         // Omitting [killswitch] entirely => killswitch == None (the daemon is
@@ -760,6 +933,83 @@ bracket_sets = [["SIM-BKT-LO", "SIM-BKT-MID", "SIM-BKT-HI"]]
         );
         dcfg.validate_bootable()
             .expect("a config with no [killswitch] boots");
+    }
+
+    #[test]
+    fn kalshi_requires_explicit_runtime_section() {
+        let text = KALSHI_PAPER_LIVE_BASE
+            .replace(
+                "[runtime]\nstage = \"paper\"\nexecution_mode = \"live_data_only\"\norders_enabled = false\n\n",
+                "",
+            );
+        let dcfg = DaemonToml::parse(&text).expect("shape parses");
+        let err = dcfg
+            .validate_bootable()
+            .expect_err("kalshi configs must name an explicit runtime mode");
+        match err {
+            BootError::BadConfig { reason } => assert!(reason.contains("[runtime]")),
+            other => panic!("expected BadConfig naming [runtime], got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn live_data_only_accepts_paper_live_with_orders_disabled() {
+        let dcfg = DaemonToml::parse(KALSHI_PAPER_LIVE_BASE).expect("parses");
+        dcfg.validate_bootable()
+            .expect("live_data_only + orders_enabled=false is the safe demo mode");
+        let runtime = dcfg.runtime.expect("runtime parsed");
+        assert_eq!(runtime.execution_mode, ExecutionMode::LiveDataOnly);
+        assert!(!runtime.orders_enabled);
+    }
+
+    #[test]
+    fn live_data_only_refuses_orders_enabled() {
+        let text = KALSHI_PAPER_LIVE_BASE.replace(
+            "execution_mode = \"live_data_only\"\norders_enabled = false",
+            "execution_mode = \"live_data_only\"\norders_enabled = true",
+        );
+        let dcfg = DaemonToml::parse(&text).expect("parses");
+        let err = dcfg
+            .validate_bootable()
+            .expect_err("live_data_only must not permit order mutation");
+        match err {
+            BootError::BadConfig { reason } => assert!(reason.contains("orders_enabled")),
+            other => panic!("expected BadConfig for orders_enabled, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn demo_orders_refuses_production_data_composite_path() {
+        let text = KALSHI_PAPER_LIVE_BASE.replace(
+            "execution_mode = \"live_data_only\"\norders_enabled = false",
+            "execution_mode = \"demo_orders\"\norders_enabled = true",
+        );
+        let dcfg = DaemonToml::parse(&text).expect("parses");
+        let err = dcfg
+            .validate_bootable()
+            .expect_err("demo_orders must not use kalshi_prod/paper composite fields");
+        match err {
+            BootError::BadConfig { reason } => assert!(reason.contains("demo endpoint")),
+            other => panic!("expected BadConfig for demo endpoint mismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn production_orders_still_refuses_even_with_unlock() {
+        let text = KALSHI_PAPER_LIVE_BASE.replace(
+            "execution_mode = \"live_data_only\"\norders_enabled = false",
+            "execution_mode = \"production_orders\"\norders_enabled = true\nproduction_unlock = true",
+        );
+        let dcfg = DaemonToml::parse(&text).expect("parses");
+        let err = dcfg
+            .validate_bootable()
+            .expect_err("production orders remain I7/operator gated");
+        match err {
+            BootError::VenueNotBootable { reason, .. } => {
+                assert!(reason.contains("production_orders"))
+            }
+            other => panic!("expected VenueNotBootable for production orders, got {other:?}"),
+        }
     }
 
     #[test]

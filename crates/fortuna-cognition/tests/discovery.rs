@@ -351,7 +351,8 @@ fn watchlist_body() -> MindOutput {
                     "resolution_criteria": "NWS Central Park daily climate reports",
                     "resolution_source": "nws",
                     "horizon": "2026-06-25T00:00:00.000Z",
-                    "category": "weather"
+                    "category": "weather",
+                    "reasoning": "NWS daily climate reports can verify the NYC heat threshold."
                 },
                 {
                     "event_hint": "alien-disclosure",
@@ -359,7 +360,8 @@ fn watchlist_body() -> MindOutput {
                     "resolution_criteria": "vibes",
                     "resolution_source": "my-cool-blog",
                     "horizon": "2026-12-31T00:00:00.000Z",
-                    "category": "politics"
+                    "category": "politics",
+                    "reasoning": "The model claims the event is observable, but the source is not admitted."
                 }
             ],
             "beliefs": [{
@@ -452,7 +454,8 @@ async fn world_forward_refuses_beliefs_on_unscoreable_or_unknown_events() {
                 "resolution_criteria": "vibes",
                 "resolution_source": "my-cool-blog",
                 "horizon": "2026-12-31T00:00:00.000Z",
-                "category": "politics"
+                "category": "politics",
+                "reasoning": "The model claims the event is observable, but the source is not admitted."
             }],
             "beliefs": [
                 {
@@ -487,4 +490,197 @@ async fn world_forward_refuses_beliefs_on_unscoreable_or_unknown_events() {
     assert_eq!(outcome.defects.len(), 2);
     assert!(outcome.defects.iter().any(|d| d.contains("unscoreable")));
     assert!(outcome.defects.iter().any(|d| d.contains("never-declared")));
+}
+
+#[tokio::test]
+async fn world_forward_accepts_belief_event_id_without_watch_prefix() {
+    let mind = StubMind::scripted(vec![serde_json::from_value(json!({
+        "beliefs": [],
+        "proposals": [],
+        "journal": {"body": json!({
+            "candidates": [{
+                "event_hint": "fed-stress-test-release",
+                "statement": "The Federal Reserve releases annual stress test results by June 24, 2026",
+                "resolution_criteria": "Federal Reserve Board press release",
+                "resolution_source": "nws",
+                "horizon": "2026-06-24",
+                "category": "macro",
+                "reasoning": "The event has a dated public release source and a clear benchmark."
+            }],
+            "beliefs": [{
+                "event_id": "fed-stress-test-release",
+                "p": 0.8,
+                "p_raw": 0.8,
+                "horizon": "2026-06-24",
+                "evidence": [{"source": "nws", "ref": "sig-fed"}]
+            }]
+        }).to_string()}
+    }))
+    .unwrap()]);
+
+    let mut budget = DiscoveryBudget::new(500);
+    let outcome = world_forward_discovery(
+        &mind,
+        &[],
+        &registry(),
+        &mut budget,
+        t("2026-06-17T23:16:17.664Z"),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(outcome.beliefs.len(), 1);
+    assert_eq!(outcome.beliefs[0].event_id, "watch:fed-stress-test-release");
+}
+
+#[tokio::test]
+async fn world_forward_refuses_placeholder_watchlist_candidates() {
+    let mind = StubMind::scripted(vec![serde_json::from_value(json!({
+        "beliefs": [],
+        "proposals": [],
+        "journal": {"body": json!({
+            "candidates": [{
+                "event_hint": "x",
+                "statement": "x",
+                "resolution_criteria": "x",
+                "resolution_source": "x",
+                "horizon": null,
+                "category": "x",
+                "reasoning": "x"
+            }],
+            "beliefs": []
+        }).to_string()}
+    }))
+    .unwrap()]);
+
+    let mut budget = DiscoveryBudget::new(500);
+    let outcome = world_forward_discovery(
+        &mind,
+        &[],
+        &registry(),
+        &mut budget,
+        t("2026-06-17T23:16:17.664Z"),
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        outcome.candidates.is_empty(),
+        "placeholder watchlist events must never persist"
+    );
+    assert!(
+        outcome
+            .defects
+            .iter()
+            .any(|d| d.contains("placeholder") && d.contains("refused")),
+        "placeholder refusal is audit-visible: {:?}",
+        outcome.defects
+    );
+}
+
+#[tokio::test]
+async fn world_forward_accepts_date_only_horizons() {
+    // REGRESSION (live soak 2026-06-17): real Opus emits a bare YYYY-MM-DD
+    // horizon on BOTH the candidate and its belief. The strict parser rejected
+    // it ("watchlist body violated the contract: cannot parse 2026-06-24"),
+    // killing every world-forward pass. The lenient horizon parser normalizes a
+    // date to UTC midnight so the batch survives.
+    let mind = StubMind::scripted(vec![serde_json::from_value(json!({
+        "beliefs": [],
+        "proposals": [],
+        "journal": {"body": json!({
+            "candidates": [{
+                "event_hint": "heat-dome-2026-06",
+                "statement": "A heat dome produces 3+ consecutive 95F days in NYC in June 2026",
+                "resolution_criteria": "NWS Central Park daily climate reports",
+                "resolution_source": "nws",
+                "horizon": "2026-06-25",
+                "category": "weather",
+                "reasoning": "NWS daily climate reports can verify the NYC heat threshold."
+            }],
+            "beliefs": [{
+                "event_id": "watch:heat-dome-2026-06",
+                "p": 0.3, "p_raw": 0.3,
+                "horizon": "2026-06-25",
+                "evidence": [{"source": "nws", "ref": "sig-9"}]
+            }]
+        }).to_string()}
+    }))
+    .unwrap()]);
+    let mut budget = DiscoveryBudget::new(500);
+    let outcome = world_forward_discovery(
+        &mind,
+        &[],
+        &registry(),
+        &mut budget,
+        t("2026-06-11T07:00:00.000Z"),
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        outcome.defects.is_empty(),
+        "a date-only horizon must NOT violate the contract: {:?}",
+        outcome.defects
+    );
+    assert_eq!(outcome.candidates.len(), 1);
+    assert_eq!(
+        outcome.candidates[0].horizon,
+        Some(t("2026-06-25T00:00:00.000Z")),
+        "bare date normalized to UTC midnight"
+    );
+    assert_eq!(outcome.beliefs.len(), 1);
+    assert_eq!(outcome.beliefs[0].horizon, t("2026-06-25T00:00:00.000Z"));
+}
+
+#[tokio::test]
+async fn world_forward_accepts_observed_resolved_date_phrase() {
+    // REGRESSION (demo soak 2026-06-17): after date-only support, Opus emitted
+    // "resolved 2026-05-22" for a model-facing horizon. Keep that phrase
+    // accepted only through the opt-in cognition horizon parser.
+    let mind = StubMind::scripted(vec![serde_json::from_value(json!({
+        "beliefs": [],
+        "proposals": [],
+        "journal": {"body": json!({
+            "candidates": [{
+                "event_hint": "fed-warsh-oath",
+                "statement": "Kevin Warsh takes the Fed chair oath by May 22, 2026",
+                "resolution_criteria": "Federal Reserve Board press release",
+                "resolution_source": "nws",
+                "horizon": "resolved 2026-05-22",
+                "category": "macro",
+                "reasoning": "A Federal Reserve press release would verify the oath timing."
+            }],
+            "beliefs": [{
+                "event_id": "watch:fed-warsh-oath",
+                "p": 0.8, "p_raw": 0.8,
+                "horizon": "resolved 2026-05-22",
+                "evidence": [{"source": "nws", "ref": "sig-fed-warsh"}]
+            }]
+        }).to_string()}
+    }))
+    .unwrap()]);
+    let mut budget = DiscoveryBudget::new(500);
+    let outcome = world_forward_discovery(
+        &mind,
+        &[],
+        &registry(),
+        &mut budget,
+        t("2026-06-11T07:00:00.000Z"),
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        outcome.defects.is_empty(),
+        "the observed resolved-date phrase must not violate the contract: {:?}",
+        outcome.defects
+    );
+    assert_eq!(outcome.candidates.len(), 1);
+    assert_eq!(
+        outcome.candidates[0].horizon,
+        Some(t("2026-05-22T00:00:00.000Z"))
+    );
+    assert_eq!(outcome.beliefs.len(), 1);
+    assert_eq!(outcome.beliefs[0].horizon, t("2026-05-22T00:00:00.000Z"));
 }

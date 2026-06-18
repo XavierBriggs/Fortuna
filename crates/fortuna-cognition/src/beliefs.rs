@@ -12,9 +12,29 @@
 //! Persistence is the ledger repo's job; everything here is pure.
 
 use fortuna_core::clock::UtcTimestamp;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
 use thiserror::Error;
+
+/// serde adapter for a MODEL-EMITTED horizon: a full RFC3339 datetime OR a bare
+/// `YYYY-MM-DD` date (normalized to UTC midnight). Used only on cognition fields
+/// the model writes; venue/audit timestamps keep the strict default deserializer.
+pub(crate) fn de_horizon<'de, D: Deserializer<'de>>(d: D) -> Result<UtcTimestamp, D::Error> {
+    let s = String::deserialize(d)?;
+    UtcTimestamp::parse_iso8601_or_date(&s).map_err(serde::de::Error::custom)
+}
+
+/// As [`de_horizon`], for an OPTIONAL horizon (`null`/absent ⇒ `None`).
+pub(crate) fn de_horizon_opt<'de, D: Deserializer<'de>>(
+    d: D,
+) -> Result<Option<UtcTimestamp>, D::Error> {
+    match Option::<String>::deserialize(d)? {
+        None => Ok(None),
+        Some(s) => UtcTimestamp::parse_iso8601_or_date(&s)
+            .map(Some)
+            .map_err(serde::de::Error::custom),
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum BeliefError {
@@ -56,6 +76,11 @@ pub struct BeliefDraft {
     pub p: f64,
     /// Pre-calibration probability.
     pub p_raw: f64,
+    /// The model emits this; it is parsed leniently (a bare `YYYY-MM-DD` date is
+    /// normalized to UTC midnight) because the LLM routinely emits a date-only
+    /// event horizon, and one such field must not reject an otherwise-valid
+    /// belief. Serialization is always the strict full ISO8601 form.
+    #[serde(deserialize_with = "de_horizon")]
     pub horizon: UtcTimestamp,
     pub evidence: serde_json::Value,
     /// Stamped by the HARNESS after the model call ({model_id,
