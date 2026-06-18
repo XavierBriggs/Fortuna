@@ -313,7 +313,7 @@ Use concise tables where useful.
 When auditing Fortuna, treat the north star as:
 
 ```text
-A safe, replayable, venue connected system that can close the loop from live market data to risk gated demo execution to auditable PnL, with a path toward a $50k PnL system.
+A safe, replayable, venue connected system that can close the loop from live market data to risk gated demo execution to auditable PnL, with a path toward a $50k/month PnL run-rate.
 ```
 
 Fortuna MVP is not complete until this loop works:

@@ -4,7 +4,7 @@ Use this profile when auditing Fortuna or a similar trading system.
 
 ## North star
 
-Fortuna should become a safe, replayable, venue connected trading system that can close the loop from live market data to risk gated demo execution to auditable PnL, with a path toward a $50k PnL system.
+Fortuna should become a safe, replayable, venue connected trading system that can close the loop from live market data to risk gated demo execution to auditable PnL, with a path toward a $50k/month PnL run-rate.
 
 ## MVP loop
 

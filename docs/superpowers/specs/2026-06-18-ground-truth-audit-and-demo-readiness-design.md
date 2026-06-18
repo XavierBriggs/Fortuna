@@ -10,7 +10,7 @@ This initiative establishes **ground truth**, cuts the **bloat**, and closes the
 
 ## 2. North Star & target state
 
-**North star:** a safe, replayable, venue-connected system that closes the loop from live market data → risk-gated paper execution → auditable PnL → scored validation, on a path toward **$50k validated PnL**.
+**North star:** a safe, replayable, venue-connected system that closes the loop from live market data → risk-gated paper execution → auditable PnL → scored validation, on a path toward a **$50k/month validated PnL run-rate**.
 
 **Concrete target (definition of done for this initiative):** one clean command —
 

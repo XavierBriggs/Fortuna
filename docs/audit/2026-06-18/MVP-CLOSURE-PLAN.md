@@ -3,7 +3,7 @@
 **Authored from the 2026-06-18 audit** (`docs/audit/2026-06-18/AUDIT.md` + `verification.md`). This is **Phase C**: it runs *after* Phase B consolidation (refactor roadmap in AUDIT.md §12). Every gap below is a verified finding; nothing here is a guess.
 
 ## North Star
-A safe, replayable, venue-connected system that closes the loop from live market data → risk-gated paper execution → auditable PnL → scored validation, toward $50k validated PnL.
+A safe, replayable, venue-connected system that closes the loop from live market data → risk-gated paper execution → auditable PnL → scored validation, toward a $50k/month validated PnL run-rate.
 
 ## Definition Of Done
 `fortuna start paper-demo` boots a lean, single-trunk system on **live Kalshi data** with **no constructible order-mutation path**; the loop **settles and scores**; all strategies accrue paper data; one view shows the full chain (mode, freshness, belief, proposal, gate, paper fill, settlement, score); calibration accrues so the model arm trades. `cargo fmt`, `clippy -D warnings`, the invariant suite, and DST all green.

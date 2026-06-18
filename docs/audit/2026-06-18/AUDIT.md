@@ -37,7 +37,7 @@ A ~130k-LOC Rust workspace (≈51% tests/examples — appropriate for a trading 
 
 ## 3. Target System And North Star
 
-`fortuna start paper-demo` → one command boots the closed **paper** loop on **live Kalshi data**, no constructible order-mutation path, all strategies in paper, every decision flowing `signal → belief → mapping → proposal → gate → paper-fill → settlement → score`, one view showing the chain, **data accruing** to hone strategies — on a path toward $50k validated PnL. (Full target in `docs/superpowers/specs/2026-06-18-ground-truth-audit-and-demo-readiness-design.md`.)
+`fortuna start paper-demo` → one command boots the closed **paper** loop on **live Kalshi data**, no constructible order-mutation path, all strategies in paper, every decision flowing `signal → belief → mapping → proposal → gate → paper-fill → settlement → score`, one view showing the chain, **data accruing** to hone strategies — on a path toward a $50k/month validated PnL run-rate. (Full target in `docs/superpowers/specs/2026-06-18-ground-truth-audit-and-demo-readiness-design.md`.)
 
 ## 4. Architecture Map
 
