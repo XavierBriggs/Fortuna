@@ -5,7 +5,7 @@
 //! only the TRAIT lives here, next to the other venue-neutral types.
 
 use async_trait::async_trait;
-use fortuna_cognition::discovery::MarketView;
+use fortuna_core::market::MarketView;
 
 use crate::VenueError;
 

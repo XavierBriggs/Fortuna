@@ -87,36 +87,12 @@ impl DiscoveryBudget {
 
 // -------------------------------------------------------------- prefilter
 
-/// A venue catalog listing as the prefilter consumes it (built from
-/// `fortuna_venues::Market` by the composition).
-#[derive(Debug, Clone)]
-pub struct MarketView {
-    pub market_id: String,
-    pub venue: String,
-    pub title: String,
-    pub category: String,
-    pub volume_contracts: Option<i64>,
-    pub resolution_source: String,
-    pub close_at: Option<UtcTimestamp>,
-    // ------------------------------------------------------------------
-    // Venue-neutral bracket geometry (C1 — decouple weather path).
-    // Populated by the kalshi adapter's KalshiMarket→MarketView conversion;
-    // absent (None/"") on non-bracket market views (e.g. prefilter path).
-    // ------------------------------------------------------------------
-    /// Temperature-bracket strike semantics: `"between"` | `"greater"` | `"less"`.
-    /// `None` on non-bracket markets.
-    pub strike_type: Option<String>,
-    /// Lower strike bound as an integer (degrees for temperature series).
-    /// `None` when absent or non-integral on the wire.
-    pub floor_strike: Option<i64>,
-    /// Upper strike bound as an integer (degrees for temperature series).
-    /// `None` when absent or non-integral on the wire.
-    pub cap_strike: Option<i64>,
-    /// Venue-neutral market status. The kalshi adapter maps `KalshiMarketStatus`
-    /// to `"active"` | `"settled"` | `"closed"` | `"inactive"` | `"unknown"`.
-    /// Empty string when the source did not supply a status.
-    pub status: String,
-}
+// `MarketView` now lives in `fortuna-core::market` so that `fortuna-venues`
+// can return it from `WeatherMarketSource::day_set` without a
+// `fortuna-venues → fortuna-cognition` dep edge (which would violate I4).
+// Re-exported here to preserve all existing `fortuna_cognition::discovery::MarketView`
+// paths in `fortuna-runner`, `fortuna-live`, and cognition-internal callers.
+pub use fortuna_core::market::MarketView;
 
 #[derive(Debug, Clone)]
 pub struct PrefilterConfig {

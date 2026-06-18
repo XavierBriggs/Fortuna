@@ -21,7 +21,7 @@ use crate::kalshi::dto::{error_reason, GetMarketsResponse, KalshiMarket, KalshiM
 use crate::weather_source::WeatherMarketSource;
 use crate::VenueError;
 use async_trait::async_trait;
-use fortuna_cognition::discovery::MarketView;
+use fortuna_core::market::MarketView;
 use std::sync::Arc;
 
 // ------------------------------------------------------------------- conversion
