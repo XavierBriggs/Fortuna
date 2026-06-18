@@ -688,3 +688,127 @@ async fn world_forward_accepts_observed_resolved_date_phrase() {
     assert_eq!(outcome.beliefs.len(), 1);
     assert_eq!(outcome.beliefs[0].horizon, t("2026-05-22T00:00:00.000Z"));
 }
+
+// -------------------------------------------------- C2: prose resolution_source → scoreable (F4 fix)
+
+fn registry_with_fed() -> SourceRegistry {
+    let mut reg = SourceRegistry::new();
+    // "rss_fed_press" with domain_tags that prose like "Federal Reserve Board
+    // press releases" should match via the fuzzy resolver.
+    reg.upsert(SourceEntry {
+        source_id: "rss_fed_press".to_string(),
+        trust_tier: TrustTier::new(7).unwrap(),
+        domain_tags: vec!["federal reserve".to_string(), "fomc".to_string()],
+        enabled: true,
+    });
+    reg.upsert(SourceEntry {
+        source_id: "nws".to_string(),
+        trust_tier: TrustTier::new(8).unwrap(),
+        domain_tags: vec!["weather".to_string()],
+        enabled: true,
+    });
+    reg
+}
+
+#[tokio::test]
+async fn world_forward_prose_resolution_source_resolves_to_enabled_scoreable() {
+    // F4 BUG: before C2, registry.get("Federal Reserve Board press releases") returns
+    // None (exact lookup fails) → unscoreable=true → no belief attaches.
+    // After C2, registry.resolve(prose) fuzzy-matches "rss_fed_press" via the
+    // "federal reserve" domain_tag → unscoreable=false → belief attaches.
+    let mind = StubMind::scripted(vec![serde_json::from_value(json!({
+        "beliefs": [],
+        "proposals": [],
+        "journal": {"body": json!({
+            "candidates": [{
+                "event_hint": "fed-rate-decision",
+                "statement": "The Federal Reserve holds the federal funds rate at 4.25-4.5% at the June 2026 FOMC meeting",
+                "resolution_criteria": "Federal Reserve Board official press release",
+                "resolution_source": "Federal Reserve Board press releases",
+                "horizon": "2026-06-18T18:00:00.000Z",
+                "category": "macro",
+                "reasoning": "Official FOMC statement resolves this cleanly."
+            }],
+            "beliefs": [{
+                "event_id": "watch:fed-rate-decision",
+                "p": 0.85,
+                "p_raw": 0.85,
+                "horizon": "2026-06-18T18:00:00.000Z",
+                "evidence": [{"source": "rss_fed_press", "ref": "fomc-june-2026"}]
+            }]
+        }).to_string()}
+    }))
+    .unwrap()]);
+
+    let mut budget = DiscoveryBudget::new(500);
+    let outcome = world_forward_discovery(
+        &mind,
+        &[],
+        &registry_with_fed(),
+        &mut budget,
+        t("2026-06-17T12:00:00.000Z"),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(outcome.candidates.len(), 1, "one candidate produced");
+    let candidate = &outcome.candidates[0];
+    // THE F4 FIX: prose resolves to rss_fed_press (enabled) → scoreable
+    assert!(
+        !candidate.unscoreable,
+        "prose resolution_source must resolve to an enabled registry entry and be scoreable (F4)"
+    );
+    // And the belief must attach (only scoreable events get beliefs)
+    assert_eq!(
+        outcome.beliefs.len(),
+        1,
+        "belief must attach to scoreable world-forward event"
+    );
+    assert_eq!(outcome.beliefs[0].event_id, "watch:fed-rate-decision");
+    assert!(
+        outcome.defects.is_empty(),
+        "no defects: {:?}",
+        outcome.defects
+    );
+}
+
+#[tokio::test]
+async fn world_forward_unregistered_prose_resolution_source_remains_unscoreable() {
+    // Prose that matches no registry source stays unscoreable — the existing
+    // behaviour for truly unknown sources is preserved.
+    let mind = StubMind::scripted(vec![serde_json::from_value(json!({
+        "beliefs": [],
+        "proposals": [],
+        "journal": {"body": json!({
+            "candidates": [{
+                "event_hint": "random-blog-event",
+                "statement": "Some event resolved by an obscure blog",
+                "resolution_criteria": "My cool blog",
+                "resolution_source": "my-cool-blog dot com",
+                "horizon": "2026-12-31T00:00:00.000Z",
+                "category": "politics",
+                "reasoning": "Unregistered source."
+            }],
+            "beliefs": []
+        }).to_string()}
+    }))
+    .unwrap()]);
+
+    let mut budget = DiscoveryBudget::new(500);
+    let outcome = world_forward_discovery(
+        &mind,
+        &[],
+        &registry_with_fed(),
+        &mut budget,
+        t("2026-06-17T12:00:00.000Z"),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(outcome.candidates.len(), 1);
+    assert!(
+        outcome.candidates[0].unscoreable,
+        "unregistered prose source must remain unscoreable"
+    );
+    assert!(outcome.beliefs.is_empty(), "no belief on unscoreable event");
+}

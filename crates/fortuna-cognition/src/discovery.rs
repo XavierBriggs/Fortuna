@@ -679,9 +679,12 @@ pub async fn world_forward_discovery(
             continue;
         }
         // The unscoreable rule: the declared source must be a checkable,
-        // ENABLED registry source at creation.
+        // ENABLED registry source at creation. Opus emits a PROSE
+        // resolution_source (e.g. "Federal Reserve Board press releases");
+        // `resolve` fuzzy-maps that prose to a registry entry so it can
+        // match machine ids like "rss_fed_press" (F4 fix).
         let unscoreable = registry
-            .get(&entry.resolution_source)
+            .resolve(&entry.resolution_source)
             .map(|s| !s.enabled)
             .unwrap_or(true);
         outcome.candidates.push(WatchlistCandidate {
