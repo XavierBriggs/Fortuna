@@ -139,9 +139,14 @@ Migration adds:
 **Files:** `config/personas/meteorologist/` (charter `persona.md` + `schema.json` — exist; verify), `config/fortuna.toml` (`[personas]` enable + budget + cadence), seed the `personas` table at boot (or migration). Test: boot test (personas enabled boots; registry non-empty).
 - [ ] Steps: failing test (boot with `[personas]` enabled succeeds; `personas` rows exist) → FAIL → seed + enable → PASS → Commit `feat(personas): seed registry + enable meteorologist`.
 
-### Task D3: Meteorologist authors weather beliefs (parallel to Aeolus)
-**Files:** Wire the meteorologist persona to trigger on NWS AFD/alerts/CLI for existing weather events → `domain_analysis` + belief `producer="meteorologist"` (parallel to Aeolus; sees Aeolus + market in context per spec §5). Test: cognition (a scripted-Mind persona run yields a belief + analysis).
-- [ ] Steps: failing test (meteorologist trigger → domain_analysis + per-bracket belief, `producer=meteorologist`) → FAIL → wire trigger+context+persist → PASS → Commit `feat(personas): meteorologist authors weather beliefs (the intelligence arm)`.
+### Task D3: Meteorologist authors weather beliefs + captures replayable reasoning (parallel to Aeolus)
+**Files:** Wire the meteorologist persona to trigger on NWS AFD/alerts/CLI for existing weather events → `domain_analysis` + belief `producer="meteorologist"` (parallel to Aeolus; sees Aeolus + market in context per spec §5). Test: cognition.
+**Reasoning capture (so events are replayable + explainable — "every claim has evidence"):**
+- The meteorologist schema (`config/personas/meteorologist/schema.json`) carries a **free-text `rationale`** field (the verbatim "why"), in addition to the structured `regime`/`confidence`/`key_risk`/`outcomes[].p`.
+- Persist `domain_analyses.signal_manifest` = the exact inputs (AFD/alerts/CLI/Aeolus/market) it reasoned over, plus `content_hash`/`manifest_hash`.
+- Write `event_source_evidence` links (event → the `signal_id`s in context) so a replay can walk event → inputs → reasoning → belief without parsing free text.
+- The belief's `provenance`/`evidence` references the `analysis_id`.
+- [ ] Steps: failing test — a meteorologist run produces (a) a `domain_analysis` with `rationale` + `signal_manifest` + `event_source_evidence` rows for the inputs, and (b) a per-bracket belief `producer=meteorologist` referencing the analysis; the whole chain (inputs → rationale → belief) is reconstructable from the DB. → FAIL → wire trigger+context+persist+evidence-links → PASS → Commit `feat(personas): meteorologist authors weather beliefs + replayable rationale/evidence (the intelligence arm)`.
 
 ### Task D4: Per-producer scoring + synthesis prices best-calibrated
 **Files:** Verify belief scoring keys per `producer` (aeolus vs meteorologist scored independently); modify `crates/fortuna-runner/src/synthesis.rs` to price the calibrated producer (or ensemble). Telemetry: per-producer Brier/CLV. Test: cognition.
@@ -160,9 +165,10 @@ Migration adds:
 **Files:** `crates/fortuna-cli/src/main.rs` (new `start paper-demo`: provision a fresh DB, apply migrations + the `funding_rates_historical` GRANT, set `stage="paper"`/`execution_mode="paper_ledger"`/`data_source="kalshi_prod"`/`execution="paper"`, run `doctor`, start the daemon). Daemon writes the **true** live `DATABASE_URL` to `current-demo-db-url` on boot (F11-proper). Test: cli/boot.
 - [ ] Steps: failing test (paper-demo boots in `paper_ledger`; the `i_paper_live_no_real_order` wall holds — no real-venue order; pointer reflects the live DB) → FAIL → impl → PASS → Commit `feat(cli): fortuna start paper-demo (fresh DB, paper_ledger, no real order); daemon writes live db pointer (F11)`.
 
-### Task E3: ROTA chain-view + safety pills (audit #6)
-**Files:** `crates/fortuna-live/src/daemon.rs:1421-1438` (emit `execution_mode`/`order_mutation_enabled`/book-freshness into the health view) + `crates/fortuna-ops/src/rota.rs:2107` (render safety pills + a per-market chain panel: signal→belief(by producer)→proposal→gate→fill→settle→score). Test: ops/rota.
-- [ ] Steps: failing test (health view carries `order_mutation_enabled`; chain panel renders a market's chain) → FAIL → emit + render → PASS → Commit `feat(rota): chain-view + execution-mode/order-mutation safety pills (audit #6)`.
+### Task E3: ROTA chain-view + safety pills + reasoning drill-in (audit #6)
+**Files:** `crates/fortuna-live/src/daemon.rs:1421-1438` (emit `execution_mode`/`order_mutation_enabled`/book-freshness into the health view) + `crates/fortuna-ops/src/rota.rs:2107` (render safety pills + a per-event chain panel). Test: ops/rota.
+The chain panel renders, per event/market: **signals (inputs) → belief(s) by producer with the model's `rationale` (the "why") → proposal → gate decision → fill → settlement → score** — an Event-Workbench-lite drill-in reading `event_source_evidence` (inputs), `domain_analyses.rationale` (reasoning), `beliefs`, `audit` (proposal thesis + gate), and `settlement_entries`/`trade_score`. This is the operator-facing "replay its reasoning for an event" surface.
+- [ ] Steps: failing test (health view carries `order_mutation_enabled`; the chain panel for an event renders its inputs + the model's rationale + the full decision chain) → FAIL → emit + render → PASS → Commit `feat(rota): chain-view + safety pills + per-event reasoning drill-in (audit #6)`.
 
 ### Task E4: Dead-man ping + ops hardening (F8)
 **Files:** Investigate/fix the `dead-man ping FAILED: transport failure` (`daemon.rs` dead-man + monitor endpoint); ensure the heartbeat reconnects + alerts on failure (telemetry). Test: live/ops.
