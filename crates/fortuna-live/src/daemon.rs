@@ -2095,6 +2095,13 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                             .collect();
                         // Deterministic prefilter (spec 5.12) — pure, no IO.
                         let pre = fortuna_cognition::discovery::prefilter(&catalog, &dw.prefilter);
+                        // C4 (F7): collect the full prefilter-survivor market IDs BEFORE the
+                        // edge-dedup loop (which moves out of pre.survivors). We need the
+                        // complete set — including markets WITH edges — to build the
+                        // existing_by_market map and populate existing_events for
+                        // match-before-create (spec 5.12).
+                        let all_survivor_ids: Vec<String> =
+                            pre.survivors.iter().map(|s| s.market_id.clone()).collect();
                         // Dedup already-edged listings (spec 5.12: a listing with a
                         // current edge is not re-normalized). A query failure ALERTS +
                         // SKIPS that listing (never crash, never re-edge blindly).
@@ -2118,12 +2125,98 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                 )),
                             }
                         }
-                        // The richer match-before-create events query is a follow-up
-                        // (ledgered): this rung passes an EMPTY existing-events set, so
-                        // every normalization is a NEW-event draft (a claimed match to
-                        // a nonexistent event is dropped with a defect by the callee).
+                        // C4 (F7): deterministic market→event map from the edge table.
+                        // Build `existing_by_market` for ALL survivors (including those
+                        // already excluded from `survivors_to_normalize`): any market that
+                        // already has an edge maps to its current event_id. This serves two
+                        // purposes:
+                        //   1. Populate `existing_events` so the model can claim a valid
+                        //      `matches_event_id` (match-before-create; spec 5.12).
+                        //   2. Guard the persist loop: if a draft somehow names a market
+                        //      that already has an event (race guard / defensive layer),
+                        //      reuse the existing event_id — never mint a duplicate.
+                        // A query failure is non-fatal: we fall back to an empty map
+                        // (same behaviour as before), log it, and proceed.
+                        let existing_by_market: std::collections::BTreeMap<String, String> =
+                            match sqlx::query!(
+                                r#"SELECT DISTINCT ON (market_id) market_id, event_id
+                                   FROM market_event_edges
+                                   WHERE market_id = ANY($1)
+                                   ORDER BY market_id, edge_id DESC"#,
+                                &all_survivor_ids as &[String]
+                            )
+                            .fetch_all(&dw.pool)
+                            .await
+                            {
+                                Ok(rows) => rows
+                                    .into_iter()
+                                    .map(|r| (r.market_id, r.event_id))
+                                    .collect(),
+                                Err(e) => {
+                                    alerts.push((
+                                        fortuna_ops::MessageKind::Ops,
+                                        format!(
+                                            "discovery existing-event map query FAILED — \
+                                             proceeding with empty map (match-before-create \
+                                             degraded): {e}"
+                                        ),
+                                    ));
+                                    std::collections::BTreeMap::new()
+                                }
+                            };
+                        // Populate `existing_events` from the events those edges
+                        // point to — gives the model a real validation set for any
+                        // claimed `matches_event_id`. An empty map → empty set (same
+                        // behaviour as before; degraded but non-fatal).
+                        let mapped_event_ids: Vec<String> = existing_by_market
+                            .values()
+                            .cloned()
+                            .collect::<std::collections::BTreeSet<_>>()
+                            .into_iter()
+                            .collect();
                         let existing_events: Vec<fortuna_cognition::discovery::ExistingEventView> =
-                            Vec::new();
+                            if mapped_event_ids.is_empty() {
+                                Vec::new()
+                            } else {
+                                match sqlx::query!(
+                                    r#"SELECT event_id, resolution_source, horizon
+                                       FROM events
+                                       WHERE event_id = ANY($1)"#,
+                                    &mapped_event_ids as &[String]
+                                )
+                                .fetch_all(&dw.pool)
+                                .await
+                                {
+                                    Ok(rows) => rows
+                                        .into_iter()
+                                        .map(|r| {
+                                            use fortuna_core::clock::UtcTimestamp;
+                                            fortuna_cognition::discovery::ExistingEventView {
+                                                event_id: r.event_id,
+                                                resolution_source: r.resolution_source,
+                                                horizon: r.horizon.as_deref().and_then(|h| {
+                                                    UtcTimestamp::parse_iso8601(h).ok()
+                                                }),
+                                                // A cheap `false` here is conservative:
+                                                // the model may still match; the belief-wake
+                                                // path is a nice-to-have, not load-bearing
+                                                // for the idempotency fix.
+                                                has_open_belief: false,
+                                            }
+                                        })
+                                        .collect(),
+                                    Err(e) => {
+                                        alerts.push((
+                                            fortuna_ops::MessageKind::Ops,
+                                            format!(
+                                                "discovery existing-events fetch FAILED — \
+                                                 proceeding with empty set: {e}"
+                                            ),
+                                        ));
+                                        Vec::new()
+                                    }
+                                }
+                            };
                         // One call normalizes survivors + scores edges (the budget
                         // mutates in place; returns an outcome, no `?`). On Err it
                         // ALERTS and falls through to route_alerts (no segment-level
@@ -2161,6 +2254,22 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                 let mut new_event_ids: std::collections::BTreeMap<String, String> =
                                     std::collections::BTreeMap::new();
                                 for draft in &outcome.new_events {
+                                    // C4 (F7) persist-loop guard: check the deterministic
+                                    // market→event map FIRST. If the market already has an
+                                    // event (via an edge in `existing_by_market`), reuse
+                                    // that event_id — never mint a duplicate. The edge-dedup
+                                    // loop above normally prevents a market with an edge from
+                                    // reaching `survivors_to_normalize`; this is a defensive
+                                    // second layer (idempotency in the face of races or
+                                    // future refactors).
+                                    let placeholder = format!("new:{}", draft.market_id);
+                                    if let Some(reuse_id) = existing_by_market.get(&draft.market_id)
+                                    {
+                                        // Market already has a canonical event — reuse it.
+                                        new_event_ids.insert(placeholder, reuse_id.clone());
+                                        // Do NOT advance event_id_base (no mint happened).
+                                        continue;
+                                    }
                                     let event_id = format!("01EVT{:021}", dw.event_id_base);
                                     let exists: bool = match sqlx::query_scalar(
                                         "SELECT EXISTS(SELECT 1 FROM events WHERE event_id = $1)",
@@ -2184,7 +2293,6 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                     // (the callee's placeholder) — map it to the minted
                                     // id whether or not we INSERT (an already-present row
                                     // is still the right target for this segment's edge).
-                                    let placeholder = format!("new:{}", draft.market_id);
                                     if exists {
                                         new_event_ids.insert(placeholder, event_id.clone());
                                         dw.event_id_base = dw.event_id_base.wrapping_add(1);

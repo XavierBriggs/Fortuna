@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT ON (market_id) market_id, event_id\n                                   FROM market_event_edges\n                                   WHERE market_id = ANY($1)\n                                   ORDER BY market_id, edge_id DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "market_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "event_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "a110b7909bf918a4bc5b53c415110ca62d7c6985cd4e67e33034cb9357b5a85c"
+}

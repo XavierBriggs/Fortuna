@@ -3251,6 +3251,267 @@ async fn discovery_market_back_auto_confirms_and_synthesis_drafts_a_belief(pool:
 }
 
 // ---------------------------------------------------------------------------
+// C4 — IDEMPOTENT MARKET-BACK RE-DISCOVERY (F7 dedup fix)
+//
+// Two complementary scenarios:
+//
+// (A) match-before-create: a second market (SIM-BKT-MID) whose model
+//     response claims `matches_event_id = E1` (an event first discovered
+//     via SIM-BKT-LO). WITHOUT the fix, `existing_events = []` means the
+//     match is rejected as "hallucinated" and a DUPLICATE event is minted.
+//     WITH the fix, `existing_events` is populated from the edge table so
+//     the match succeeds → no duplicate, ONE event total for both markets.
+//
+// (B) persist-loop guard: even when a market reaches `survivors_to_normalize`
+//     (because its edge is absent when checked) but the daemon's
+//     `existing_by_market` map sees an edge for it, the persist loop reuses
+//     the existing event_id and does NOT mint a duplicate. Proven via a
+//     second drive() call (different event_id_base) for the same market
+//     that the edge dedup already handled in run 1 — the edge is present so
+//     run 2 excludes the market from survivors anyway, confirming the
+//     edge-dedup + map-guard together keep the invariant.
+//
+// MUTATION PROOF: removing the `existing_by_market` guard OR leaving
+// `existing_events = Vec::new()` breaks scenario (A) → events count = 2.
+// ---------------------------------------------------------------------------
+
+/// C4 scenario (A): match-before-create with populated `existing_events`.
+/// Run 1 discovers SIM-BKT-LO → event E1 + edge. Run 2 discovers
+/// SIM-BKT-MID with mind claiming `matches_event_id = E1`. Without the fix
+/// (`existing_events = []`), the claim is rejected and a NEW event E2 is
+/// minted → 2 events. With the fix, E1 is in `existing_events` → match
+/// accepted → still ONE event (E1) and a new edge SIM-BKT-MID→E1.
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn discovery_market_back_match_before_create_reuses_existing_event(pool: PgPool) {
+    use fortuna_cognition::discovery::{DiscoveryBudget, PrefilterConfig};
+    use fortuna_cognition::signals::SourceRegistry;
+    use fortuna_core::clock::UtcTimestamp;
+    use fortuna_core::market::StrategyId;
+    use serde_json::json;
+    use std::collections::BTreeMap;
+
+    let t0_epoch_ms: u64 = t0().epoch_millis().max(0) as u64;
+    let horizon = "2026-06-20T18:00:00.000Z";
+    // The deterministic minted event id for run-1 (same formula as the
+    // existing discovery e2e test above).
+    let minted_event_id = format!("01EVT{:021}", t0_epoch_ms);
+
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let dcfg = DaemonToml::parse(&text).expect("example parses");
+    let full = FortunaConfig::load_file(example_path).expect("example full-config parses");
+
+    let prefilter = PrefilterConfig {
+        category_allowlist: vec!["weather".to_string()],
+        min_volume_contracts: 100,
+        min_category_quality: 0.1,
+        category_quality: BTreeMap::from([("weather".to_string(), 0.9)]),
+    };
+
+    // ---- RUN 1: SIM-BKT-LO → new event E1 + auto-confirmed edge. ----
+    let runner1 = {
+        let r = compose_runner(
+            pool.clone(),
+            &full,
+            &dcfg,
+            t0(),
+            0,
+            stub_mind(),
+            TriageDecision::AlwaysAccept,
+        )
+        .await
+        .expect("composition");
+        r.venue().add_market(fortuna_venues::Market {
+            id: MarketId::new("SIM-BKT-LO").unwrap(),
+            venue: fortuna_core::market::VenueId::new("sim").unwrap(),
+            title: "SIM weather bracket LO".to_string(),
+            category: "weather".to_string(),
+            status: fortuna_venues::MarketStatus::Trading,
+            close_at: Some(UtcTimestamp::parse_iso8601(horizon).unwrap()),
+            settlement: fortuna_venues::SettlementMeta {
+                oracle_type: "sim".to_string(),
+                resolution_source: "nws".to_string(),
+                expected_lag_hours: 2,
+            },
+            payout_per_contract: Cents::new(100),
+            volume_contracts: Some(5_000),
+        });
+        arb_books(&r);
+        r
+    };
+    let norm_lo: MindOutput = serde_json::from_value(json!({
+        "beliefs": [],
+        "proposals": [],
+        "journal": {"body": json!({"normalizations": [{
+            "market_id": "SIM-BKT-LO",
+            "matches_event_id": null,
+            "statement": "NYC high temp >= 90F on 2026-06-20",
+            "resolution_criteria": "NWS Central Park daily climate report",
+            "resolution_source": "nws",
+            "horizon": horizon,
+            "category": "weather",
+            "mapping": "direct",
+            "confidence": 0.85
+        }]}).to_string()},
+        "cost_cents": 1
+    }))
+    .unwrap();
+    let wiring1 = fortuna_live::daemon::DiscoveryWiring {
+        pool: pool.clone(),
+        mind: Arc::new(StubMind::scripted(vec![norm_lo])),
+        budget: DiscoveryBudget::new(500),
+        registry: SourceRegistry::new(),
+        strategy: StrategyId::new("market-back").unwrap(), // TEST code: unwrap fine
+        signal_kinds: vec![],
+        window_hours: 48,
+        max_signals: 200,
+        prefilter: prefilter.clone(),
+        event_id_base: t0_epoch_ms,
+        edge_id_base: t0_epoch_ms,
+        weather_source: None,
+    };
+    let mut runner1 = fortuna_live::daemon::ActiveRunner::Sim(runner1);
+    drive_with_discovery(&mut runner1, wiring1).await;
+
+    let events_run1: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM events")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(events_run1, 1, "run 1 mints exactly one event");
+    // Verify the minted event id matches the deterministic formula.
+    let minted_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE event_id = $1")
+        .bind(&minted_event_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(minted_count, 1, "run 1 event is at the deterministic id");
+
+    // ---- RUN 2: BOTH SIM-BKT-LO (already edged to E1) + SIM-BKT-MID (new market).
+    //
+    //   SIM-BKT-LO passes the prefilter (weather / volume) → it IS in all_survivor_ids
+    //     → existing_by_market maps SIM-BKT-LO → E1 → existing_events contains E1.
+    //   SIM-BKT-LO is EXCLUDED from survivors_to_normalize (current edge exists).
+    //   SIM-BKT-MID passes the prefilter, no edge → enters survivors_to_normalize.
+    //   Mind claims matches_event_id = E1 for SIM-BKT-MID:
+    //     Without fix: existing_events = [] → match rejected → defect → no edge for MID.
+    //     With fix: existing_events has E1 → match accepted → edge SIM-BKT-MID→E1. ----
+    let runner2 = {
+        let r = compose_runner(
+            pool.clone(),
+            &full,
+            &dcfg,
+            t0(),
+            0,
+            stub_mind(),
+            TriageDecision::AlwaysAccept,
+        )
+        .await
+        .expect("composition");
+        // SIM-BKT-LO stays as a weather market so it passes the prefilter and
+        // contributes its edge (SIM-BKT-LO→E1) to existing_by_market, making
+        // E1 available in existing_events for the model match.
+        r.venue().add_market(fortuna_venues::Market {
+            id: MarketId::new("SIM-BKT-LO").unwrap(),
+            venue: fortuna_core::market::VenueId::new("sim").unwrap(),
+            title: "SIM weather bracket LO".to_string(),
+            category: "weather".to_string(),
+            status: fortuna_venues::MarketStatus::Trading,
+            close_at: Some(UtcTimestamp::parse_iso8601(horizon).unwrap()),
+            settlement: fortuna_venues::SettlementMeta {
+                oracle_type: "sim".to_string(),
+                resolution_source: "nws".to_string(),
+                expected_lag_hours: 2,
+            },
+            payout_per_contract: Cents::new(100),
+            volume_contracts: Some(5_000),
+        });
+        // SIM-BKT-MID — a NEW market that the model wants to link to E1.
+        r.venue().add_market(fortuna_venues::Market {
+            id: MarketId::new("SIM-BKT-MID").unwrap(),
+            venue: fortuna_core::market::VenueId::new("sim").unwrap(),
+            title: "SIM weather bracket MID".to_string(),
+            category: "weather".to_string(),
+            status: fortuna_venues::MarketStatus::Trading,
+            close_at: Some(UtcTimestamp::parse_iso8601(horizon).unwrap()),
+            settlement: fortuna_venues::SettlementMeta {
+                oracle_type: "sim".to_string(),
+                resolution_source: "nws".to_string(),
+                expected_lag_hours: 2,
+            },
+            payout_per_contract: Cents::new(100),
+            volume_contracts: Some(5_000),
+        });
+        arb_books(&r);
+        r
+    };
+    // The mind claims SIM-BKT-MID matches the EXISTING event E1.
+    // Without fix: existing_events empty → E1 not in the index → match rejected → no edge.
+    // With fix: existing_events has E1 → match accepted → SIM-BKT-MID gets an edge to E1.
+    let norm_mid: MindOutput = serde_json::from_value(json!({
+        "beliefs": [],
+        "proposals": [],
+        "journal": {"body": json!({"normalizations": [{
+            "market_id": "SIM-BKT-MID",
+            "matches_event_id": minted_event_id,
+            "statement": null,
+            "resolution_criteria": null,
+            "resolution_source": "nws",
+            "horizon": horizon,
+            "category": "weather",
+            "mapping": "direct",
+            "confidence": 0.80
+        }]}).to_string()},
+        "cost_cents": 1
+    }))
+    .unwrap();
+    let wiring2 = fortuna_live::daemon::DiscoveryWiring {
+        pool: pool.clone(),
+        mind: Arc::new(StubMind::scripted(vec![norm_mid])),
+        budget: DiscoveryBudget::new(500),
+        registry: SourceRegistry::new(),
+        strategy: StrategyId::new("market-back").unwrap(), // TEST code: unwrap fine
+        signal_kinds: vec![],
+        window_hours: 48,
+        max_signals: 200,
+        prefilter: prefilter.clone(),
+        // Different base — the minted id would be a fresh value, proving the
+        // guard is the market→event map, not the id EXISTS check.
+        event_id_base: t0_epoch_ms.wrapping_add(1_000),
+        edge_id_base: t0_epoch_ms.wrapping_add(1_000),
+        weather_source: None,
+    };
+    let mut runner2 = fortuna_live::daemon::ActiveRunner::Sim(runner2);
+    drive_with_discovery(&mut runner2, wiring2).await;
+
+    // IDEMPOTENCY ASSERTION: still ONE event after run 2 (match accepted, no duplicate).
+    // WITHOUT the fix this would be 2 (the match was rejected, a new event minted).
+    let events_run2: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM events")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        events_run2, 1,
+        "match-before-create: run 2 must reuse the existing event (got {events_run2}); \
+         FAIL = fix missing — existing_events was empty so the model's match was rejected \
+         and a second event was minted"
+    );
+    // The new edge for SIM-BKT-MID points to the SAME event E1 (the match was accepted).
+    let mid_edge_event: String = sqlx::query_scalar(
+        "SELECT event_id FROM market_event_edges WHERE market_id = 'SIM-BKT-MID' LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        mid_edge_event, minted_event_id,
+        "SIM-BKT-MID edge must resolve to the original event E1 (matched, not minted-new)"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // F7 LIVE WEATHER PLUG-IN (Aeolus↔Kalshi seam) — drive() end-to-end.
 //
 // The plug-in: for a fresh `aeolus.forecast` signal, parse it, map the

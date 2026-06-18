@@ -17,7 +17,7 @@ The audit is now the canonical "what's open + readiness" source:
 - No `fortuna start paper-demo` CLI; ROTA Health omits `execution_mode`/`order_mutation_enabled`.
 - Personas inert: charter never injected (`main.rs:474` uses synthesis charter) + registry empty + `[personas]` OFF.
 - World-forward unscoreable trap (`discovery.rs:689` exact-match vs prose `resolution_source`).
-- Market-back never dedups events (`daemon.rs:2010` empty `existing_events`); no DB unique constraint on events.
+- Market-back never dedups events (`daemon.rs:2010` empty `existing_events`) — **CLOSED by C4** (populated `existing_by_market` + `existing_events`; persist-loop guard); no DB unique constraint on events (deferred — append-only table, guard is sufficient).
 
 ## Operator actions (runtime; not code — daemon was live during Phase B)
 - Stale demo DBs `fortuna_demo_paper_green_2026061704*` (×4) + `fortuna_demo_paper_live` are abandoned snapshots —
@@ -51,3 +51,13 @@ fortuna-cognition or fortuna-live layer.
 
 ## C3 follow-on: empty category_allowlist asymmetry (2026-06-18, Phase C)
 The market-back prefilter (discovery.rs:122) treats an empty `[discovery] category_allowlist` as reject-ALL (`!contains` → fail-closed); the world-forward gate (C3, discovery.rs:727) treats empty as bypass (fail-open, "no vocab configured = no filter"). Same config field, opposite default — only bites an UNCONFIGURED deployment. Mitigation: the demo config MUST set `category_allowlist` (E2) so both paths use the real vocab. Reconcile the two defaults (pick one semantic for empty) in a future discovery-config pass; not changed now to avoid touching market-back's existing tests/behavior.
+
+## C4 part-2: mech_structural bracket ladder still uses config (deferred — 2026-06-18, Phase C)
+The `mech_structural` strategy (and the demo config's `[kalshi].bracket_sets`) still sources
+its bracket-market ladders from static config, which may hold expired or stale dated tickers
+(e.g. `JUN16` brackets after 2026-06-16). The idempotent market-back event-matching fix (C4)
+addresses event deduplication but does NOT refresh the bracket ladder live. Unblock steps:
+resolve the live day-set from the live catalog (the Kalshi venue `market_views()`) using the
+rolling series prefix (e.g. `KXHIGHNY`) instead of dated ticker literals in config; OR ensure
+the demo config always uses rolling/date-agnostic bracket identifiers that remain valid across
+demo runs. Handle in E2/E5 (demo config hardening + live catalog wiring for the mech arm).
