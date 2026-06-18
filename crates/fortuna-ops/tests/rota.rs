@@ -1975,7 +1975,9 @@ async fn forecasts_scorecard_aggregates_resolved_scores_per_producer(pool: sqlx:
         sb.insert(
             id,
             producer,
-            "ev-key",
+            // Distinct event_key per belief: two funding_forecast windows must not
+            // collide under scalar_beliefs UNIQUE(producer, event_key) (Phase C A1).
+            &format!("ev-key-{i}"),
             &serde_json::json!([{"q":0.1,"v":0.0},{"q":0.5,"v":0.0001},{"q":0.9,"v":0.0003}]),
             unit,
             "2026-06-13T16:00:00.000Z",
