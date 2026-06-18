@@ -151,6 +151,25 @@ impl Strategy for SynthesisStrategy {
         if !quotes.iter().any(|q| q.market == edge.market) {
             return Ok(Vec::new());
         }
+
+        // B3 Part 2 (F5): skip the paid Mind call while the calibration scope
+        // is cold (no params row yet). The skip is NON-SILENT: the counter
+        // increments and surfaces through runner.counters() for ops.
+        //
+        // NO-DEADLOCK REASONING: the calibration substrate for this scope
+        // (synth_category) is fed by the DETERMINISTIC Aeolus daily resolver
+        // (weather beliefs resolved against NWS-CLI ground truth), NOT by this
+        // synthesis strategy's paid decide() call. So skipping decide() while
+        // cold does NOT starve the calibration B1 needs — Aeolus keeps
+        // producing resolvable weather beliefs → B1 warms the scope and persists
+        // calibration_params → the B3 Part-1 per-segment refresh delivers the
+        // fitted context here → synthesis wakes. The skip is a temporary budget
+        // gate, not a causal cycle.
+        if !self.cycle.is_calibrated() {
+            self.metrics.cold_calibration_skips += 1;
+            return Ok(Vec::new());
+        }
+
         let trigger_at = ev.at.checked_add_millis(1)?;
         // Context: the point-in-time market snapshot the mind reasons
         // over (assembled, budgeted, and manifest-hashed by the cycle).
@@ -307,5 +326,10 @@ impl Strategy for SynthesisStrategy {
         // next book event with no further wiring.
         self.edges = edges.to_vec();
         Some(self.edges.len())
+    }
+
+    fn set_calibration(&mut self, calibration: Option<CalibrationContext>) -> bool {
+        self.cycle.set_calibration(calibration);
+        true
     }
 }

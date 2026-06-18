@@ -117,6 +117,9 @@ pub struct StrategyMetrics {
     /// The mind's own running spend today (budget-true: includes failed
     /// calls). Gauge semantics; resets at the mind's 00:00 UTC roll.
     pub mind_spend_today_cents: i64,
+    /// B3 Part 2 (F5): on_event calls skipped because the arm held no
+    /// calibration (cold). Non-silent: the runner aggregates into RunCounters.
+    pub cold_calibration_skips: u64,
 }
 
 /// One degraded-cognition event for the audit log (F1: degrade is never
@@ -227,6 +230,17 @@ pub trait Strategy: Send {
     /// fail-closed; the arm then prices nothing until the next refresh).
     fn refresh_edges(&mut self, _edges: &[fortuna_cognition::cycle::EdgeView]) -> Option<usize> {
         None
+    }
+    /// B3 Part 1: live-update the calibration context (the per-segment daemon
+    /// push so B1's persisted params reach synthesis without a restart). Returns
+    /// `true` for synthesis strategies that consumed the update; `false` for
+    /// mechanical strategies (no calibration concept — they are never affected).
+    /// Default `false` so all existing strategies compile without change.
+    fn set_calibration(
+        &mut self,
+        _calibration: Option<fortuna_cognition::cycle::CalibrationContext>,
+    ) -> bool {
+        false
     }
     /// Point-in-time diagnostic GAUGE samples this strategy wants surfaced on
     /// the metrics export (T5.B8). The runner appends them, in strategy

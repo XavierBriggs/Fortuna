@@ -1179,8 +1179,10 @@ async fn synthesis_arm_trades_with_ledger_calibration_and_an_injected_mind(pool:
 async fn drive_drains_and_persists_the_synthesis_arms_beliefs(pool: PgPool) {
     // T4.1/S6: the daemon's drive loop DRAINS the synthesis arm's belief drafts
     // and PERSISTS them per segment (the calibration substrate). The synth arm
-    // drafts a belief whenever its book event fires + the mind believes
-    // (calibration is irrelevant to belief DRAFTING — it gates only pricing).
+    // drafts a belief whenever its book event fires + the mind believes.
+    // B3: the arm gates the Mind call on is_calibrated() — it must be warm
+    // before it will draft anything, so we seed a calibration_params row to
+    // make the boot-time (and per-segment) fetch return Some.
     // NON-VACUOUS: a belief for evt-1 lands in the ledger that was NOT there
     // before drive — the drain->persist wiring is load-bearing.
     let example_path = concat!(
@@ -1189,6 +1191,29 @@ async fn drive_drains_and_persists_the_synthesis_arms_beliefs(pool: PgPool) {
     );
     let text = std::fs::read_to_string(example_path).unwrap();
     let full = FortunaConfig::load_file(example_path).unwrap();
+
+    // B3: seed a calibration_params row so the synth arm boots warm (the
+    // identity-ish Platt is sufficient — the test asserts belief DRAFTING,
+    // not calibration accuracy; any valid params row makes is_calibrated() true).
+    fortuna_ledger::CalibrationParamsRepo::new(pool.clone())
+        .insert(
+            "01PARAMDRAINTEST000000001",
+            "claude-opus-4-8",
+            "synth_events",
+            "weather",
+            "platt",
+            &serde_json::json!({
+                "version": 1,
+                "method": { "Platt": { "a": 0.0, "b": 1.0 } },
+                "extremization_k": 1.0,
+                "fitted_on_n": 10
+            }),
+            1,
+            "2026-06-10T00:00:00.000Z",
+            "2026-06-10T00:00:00.000Z",
+        )
+        .await
+        .unwrap();
 
     // A confirmed sim edge SIM-BKT-LO -> evt-1 (the belief's event).
     fortuna_ledger::EventsRepo::new(pool.clone())
@@ -1220,7 +1245,13 @@ async fn drive_drains_and_persists_the_synthesis_arms_beliefs(pool: PgPool) {
         .await
         .unwrap();
 
-    let dcfg = DaemonToml::parse(&format!("{text}\n[synthesis]\nvenue = \"sim\"\n")).unwrap();
+    // category = "weather" is required so the boot-time + per-segment calibration
+    // fetch fires (syn.category.as_deref() = Some("weather")), finds the params
+    // row above, and delivers Some(ctx) to the arm => is_calibrated() == true.
+    let dcfg = DaemonToml::parse(&format!(
+        "{text}\n[synthesis]\nvenue = \"sim\"\ncategory = \"weather\"\n"
+    ))
+    .unwrap();
     let runner = compose_runner(
         pool.clone(),
         &full,
@@ -2959,13 +2990,41 @@ async fn discovery_market_back_auto_confirms_and_synthesis_drafts_a_belief(pool:
     let horizon = "2026-06-20T18:00:00.000Z";
 
     // ---- Boot WITH [synthesis] scoped to sim (so the synthesis arm composes), but
-    //      NO pre-seeded event/edge — the discovery block creates them. ----
+    //      NO pre-seeded event/edge — the discovery block creates them.
+    //      B3: category = "weather" so the per-segment calibration fetch fires;
+    //      the calibration_params row seeded below makes is_calibrated() true. ----
     let example_path = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../config/fortuna.example.toml"
     );
     let text = std::fs::read_to_string(example_path).unwrap();
-    let dcfg = DaemonToml::parse(&format!("{text}\n[synthesis]\nvenue = \"sim\"\n")).unwrap();
+    let dcfg = DaemonToml::parse(&format!(
+        "{text}\n[synthesis]\nvenue = \"sim\"\ncategory = \"weather\"\n"
+    ))
+    .unwrap();
+
+    // B3: seed a calibration_params row for the synthesis scope so the arm boots
+    // warm (is_calibrated() == true). Identity-ish Platt is fine — this test
+    // asserts the catalog->event->edge->belief CHAIN, not calibration accuracy.
+    fortuna_ledger::CalibrationParamsRepo::new(pool.clone())
+        .insert(
+            "01PARAMDISC00000000000001",
+            "claude-opus-4-8",
+            "synth_events",
+            "weather",
+            "platt",
+            &serde_json::json!({
+                "version": 1,
+                "method": { "Platt": { "a": 0.0, "b": 1.0 } },
+                "extremization_k": 1.0,
+                "fitted_on_n": 10
+            }),
+            1,
+            "2026-06-10T00:00:00.000Z",
+            "2026-06-10T00:00:00.000Z",
+        )
+        .await
+        .unwrap();
     let full = FortunaConfig::load_file(example_path).expect("example full-config parses");
     // The SYNTHESIS mind believes on the minted event id (the chain's far end).
     let runner = compose_runner(

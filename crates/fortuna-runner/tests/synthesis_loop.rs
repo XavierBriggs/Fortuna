@@ -939,3 +939,126 @@ fn budget_breach_and_discarded_output_write_audit_rows() {
         "wholly-discarded output must leave an audit trace"
     );
 }
+
+// ---- B3 Part 2: cold arm skips the mind; Part 1: refresh warms the arm ----
+
+/// A Mind that counts calls.
+struct CountingMind {
+    calls: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    output: MindOutput,
+}
+
+#[async_trait::async_trait]
+impl Mind for CountingMind {
+    fn id(&self) -> &str {
+        "counting"
+    }
+    async fn decide(
+        &self,
+        _ctx: &fortuna_cognition::context::AssembledContext,
+    ) -> Result<MindOutput, MindError> {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(self.output.clone())
+    }
+}
+
+fn cold_synthesis_config() -> SynthesisConfig {
+    // Same as synthesis_config() but calibration is None (arm starts cold).
+    SynthesisConfig {
+        id: StrategyId::new("synth_sim").unwrap(),
+        edges: vec![EdgeView {
+            market: "KX-A".to_string(),
+            event_id: "evt-1".to_string(),
+            mapping: MappingType::Direct,
+            tier: EdgeTier::Confirmed,
+        }],
+        comparator: ComparatorConfig {
+            min_edge_cents: 5,
+            required_tier: EdgeTier::Proposed,
+        },
+        triage: TriageDecision::AlwaysAccept,
+        shadow_quota: 0,
+        calibration: None, // cold
+        stage: fortuna_runner::Stage::Sim,
+    }
+}
+
+#[test]
+fn cold_arm_calls_mind_zero_times_and_increments_skip_counter() {
+    // B3 Part 2 (F5): a cold arm (no calibration) must NOT call the paid
+    // Mind. The arm emits zero proposals and cold_calibration_skips increments.
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let mind: Arc<dyn Mind> = Arc::new(CountingMind {
+        calls: calls.clone(),
+        output: belief_output("evt-1", 0.70),
+    });
+    let strategy = fortuna_runner::synthesis::SynthesisStrategy::new(cold_synthesis_config(), mind);
+    let mut r = SimRunner::new(
+        runner_config(80),
+        vec![Box::new(strategy)],
+        Box::new(MemoryAuditSink::default()),
+        t0(),
+    )
+    .unwrap();
+    r.set_calibration_quality("synth_sim", 0.0);
+    set_book(&r, 58, 60);
+
+    let report = futures::executor::block_on(r.tick()).unwrap();
+    assert_eq!(report.proposals, 0, "cold arm must emit no proposals");
+    assert_eq!(
+        calls.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "cold arm must call the mind ZERO times (F5)"
+    );
+    // Skip counter is visible through runner counters.
+    assert!(
+        r.counters().cold_calibration_skips >= 1,
+        "cold_calibration_skips must be incremented"
+    );
+}
+
+#[test]
+fn refresh_synthesis_calibration_warms_the_arm_and_mind_gets_called() {
+    // B3 Part 1: after refresh_synthesis_calibration delivers a Some(ctx),
+    // on_event must call the mind (warm path). The cold→warm transition is the
+    // load-bearing proof that B1's persist reaches synthesis.
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let mind: Arc<dyn Mind> = Arc::new(CountingMind {
+        calls: calls.clone(),
+        output: belief_output("evt-1", 0.70),
+    });
+    let strategy = fortuna_runner::synthesis::SynthesisStrategy::new(cold_synthesis_config(), mind);
+    let mut r = SimRunner::new(
+        runner_config(81),
+        vec![Box::new(strategy)],
+        Box::new(MemoryAuditSink::default()),
+        t0(),
+    )
+    .unwrap();
+    r.set_calibration_quality("synth_sim", 1.0);
+    set_book(&r, 58, 60);
+
+    // First tick: cold — mind not called.
+    let report = futures::executor::block_on(r.tick()).unwrap();
+    assert_eq!(report.proposals, 0, "cold arm proposes nothing");
+    assert_eq!(
+        calls.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "cold arm: mind not called"
+    );
+
+    // Part 1: warm the arm via refresh_synthesis_calibration.
+    r.refresh_synthesis_calibration(Some(near_identity_calibration()), 1.0);
+
+    // Second tick: warm — mind IS called.
+    let report2 = futures::executor::block_on(r.tick()).unwrap();
+    assert!(
+        calls.load(std::sync::atomic::Ordering::SeqCst) >= 1,
+        "after refresh_synthesis_calibration(Some), mind must be called"
+    );
+    // With calibration, fair ~70 vs ask 60 should yield a proposal.
+    assert!(
+        report2.proposals >= 1,
+        "warm arm proposes when edge exists: {report2:?}"
+    );
+}

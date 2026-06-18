@@ -549,3 +549,33 @@ async fn low_data_scope_gets_little_autonomous_weight() {
     // w = 10/50 = 0.2: p = 0.2*0.9 + 0.8*0.59 = 0.652.
     assert!((p - 0.652).abs() < 1e-9, "got {p}");
 }
+
+// ---- B3 Part 1: set_calibration / is_calibrated ----
+
+#[test]
+fn set_calibration_some_makes_is_calibrated_true() {
+    let mut cycle = DecisionCycle::new(
+        TriageDecision::AlwaysAccept,
+        ShadowSampler::new(0),
+        config(),
+    );
+    assert!(!cycle.is_calibrated(), "fresh cycle is cold");
+    cycle.set_calibration(Some(near_identity_calibration()));
+    assert!(cycle.is_calibrated(), "after set_calibration(Some) => warm");
+}
+
+#[test]
+fn set_calibration_none_makes_is_calibrated_false() {
+    let mut cycle = DecisionCycle::new(
+        TriageDecision::AlwaysAccept,
+        ShadowSampler::new(0),
+        config(),
+    )
+    .with_calibration(near_identity_calibration());
+    assert!(cycle.is_calibrated(), "wired via with_calibration => warm");
+    cycle.set_calibration(None);
+    assert!(
+        !cycle.is_calibrated(),
+        "set_calibration(None) => cold again"
+    );
+}

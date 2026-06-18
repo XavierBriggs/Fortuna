@@ -1155,6 +1155,21 @@ impl ActiveRunner {
         }
     }
 
+    /// B3 Part 1: push a freshly fetched calibration context into the synthesis
+    /// arm (per-segment daemon refresh so B1's persisted params reach synthesis
+    /// without a restart). Mirrors `refresh_synthesis_edges` delegation.
+    pub fn refresh_synthesis_calibration(
+        &mut self,
+        calibration: Option<fortuna_cognition::cycle::CalibrationContext>,
+        quality: f64,
+    ) -> bool {
+        match self {
+            ActiveRunner::Sim(r) => r.refresh_synthesis_calibration(calibration, quality),
+            ActiveRunner::Kalshi(r) => r.refresh_synthesis_calibration(calibration, quality),
+            ActiveRunner::PaperLive(r) => r.refresh_synthesis_calibration(calibration, quality),
+        }
+    }
+
     /// Drain buffered binary belief drafts for composition-side persistence.
     pub fn drain_pending_beliefs(
         &mut self,
@@ -1890,6 +1905,11 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     // the latch on the next success, and counts every failure.
     let mut refresh_failing = false;
     let mut edge_refresh_failures = 0u64;
+    // B3 Part 1: calibration-refresh failure latch — mirrors the edge-refresh
+    // latch. A DB failure keeps the last-known calibration (the arm stays warm
+    // or stays cold — whichever it already was); alerts ONCE per outage; never
+    // crashes the loop.
+    let mut calib_refresh_failing = false;
     // S6 belief-id monotonic base: seed from the drive-start epoch so ids never
     // collide ACROSS runs (a later restart starts at a larger epoch), and the
     // per-persist increment keeps them unique WITHIN a run. (A full ULID is the
@@ -2603,6 +2623,42 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                 "synthesis edge refresh FAILING — trading on last-known edge set: {e}"
                             ),
                         ));
+                    }
+                }
+            }
+
+            // B3 Part 1: per-segment calibration refresh. Re-fetch the scope's
+            // fitted params + resolved stats from the ledger and push into the
+            // synthesis arm so B1's persisted calibration_params takes effect
+            // within one segment (not a restart). A fetch FAILURE keeps the
+            // LAST-KNOWN calibration (arm stays warm/cold as-is — never crash),
+            // alerts ONCE per outage (mirrors the edge-refresh failure posture).
+            if let Some(category) = syn.category.as_deref() {
+                let fetch = calibration_for_scope(
+                    &CalibrationParamsRepo::new(pool.clone()),
+                    &BeliefsRepo::new(pool.clone()),
+                    synth_model,
+                    SYNTH_CALIBRATION_STRATEGY,
+                    category,
+                    SYNTH_CALIBRATION_KIND,
+                )
+                .await;
+                match fetch {
+                    Ok((ctx, quality)) => {
+                        runner.refresh_synthesis_calibration(ctx, quality);
+                        calib_refresh_failing = false;
+                    }
+                    Err(e) => {
+                        if !calib_refresh_failing {
+                            calib_refresh_failing = true;
+                            alerts.push((
+                                fortuna_ops::MessageKind::Ops,
+                                format!(
+                                    "synthesis calibration refresh FAILING \
+                                     — arm holds last-known calibration: {e}"
+                                ),
+                            ));
+                        }
                     }
                 }
             }

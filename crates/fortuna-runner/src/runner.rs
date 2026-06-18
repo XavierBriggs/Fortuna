@@ -349,6 +349,10 @@ pub struct RunCounters {
     /// synthesis strategy owns its mind; a shared-mind composition would
     /// double-count and must export per-strategy instead).
     pub mind_spend_today_cents: i64,
+    /// B3 Part 2 (F5): on_event calls skipped because the synthesis arm held
+    /// no calibration (cold). Aggregated from strategy metrics. A7 exports it
+    /// as a named Prometheus family; for now it surfaces here for ops.
+    pub cold_calibration_skips: u64,
 }
 
 /// One strategy's day in numbers for the rich daily digest (S6b). Plain data;
@@ -2886,6 +2890,7 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
             counters.model_proposals_discarded += m.model_proposals_discarded;
             counters.cognition_cost_cents += m.cognition_cost_cents;
             counters.mind_spend_today_cents += m.mind_spend_today_cents;
+            counters.cold_calibration_skips += m.cold_calibration_skips;
         }
         counters
     }
@@ -2951,6 +2956,38 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
             }
         }
         count
+    }
+
+    /// Push a freshly fetched calibration context into the synthesis arm (B3
+    /// Part 1 per-segment refresh). Mirrors `refresh_synthesis_edges`: finds
+    /// every edge-trading arm and calls `set_calibration` on it, then updates
+    /// the arm's calibration quality (the Kelly sizing scalar). A `None` ctx
+    /// reverts the arm to the cold fail-closed state until a future segment
+    /// delivers a fitted row. Returns `true` when at least one synthesis arm
+    /// was found and refreshed, `false` for a mechanically-only daemon.
+    pub fn refresh_synthesis_calibration(
+        &mut self,
+        calibration: Option<fortuna_cognition::cycle::CalibrationContext>,
+        quality: f64,
+    ) -> bool {
+        let mut found = false;
+        for s in self.strategies.iter_mut() {
+            if s.set_calibration(calibration.clone()) {
+                found = true;
+            }
+        }
+        if found {
+            // Mirror `set_calibration_quality` — the Kelly sizing scalar must
+            // track the live quality so sizing reflects the same epoch as the
+            // context. The arm's `set_calibration_quality` key is its strategy
+            // id string; iterate over the map to update any synthesis arm.
+            for s in &self.strategies {
+                if s.edge_count().is_some() {
+                    self.calibration_quality.insert(s.id().to_string(), quality);
+                }
+            }
+        }
+        found
     }
 
     /// The live catalog as discovery `MarketView`s (T4.2): the all-status catalog
