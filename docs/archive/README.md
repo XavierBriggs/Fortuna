@@ -1,13 +1,13 @@
 # docs/archive — historical material (Phase B consolidation, 2026-06-18)
 
-Moved here by the Phase B consolidation (per `docs/audit/2026-06-18/doc-triage.md`) to
-de-clutter the active doc set. Nothing is deleted — it's all in git history and here.
+Items moved out of the active doc set during Phase B. Nothing is deleted — all in git history.
 
-- `reviews/` — 54 point-in-time gate-review verdicts. The live pointer
-  `docs/reviews/GATE-FINDINGS-LATEST.md` stays in place.
-- `research-raw/<venue>/raw/` — 254 raw scraped API pages already synthesized into
-  the `docs/research/**/research.md` files (which remain authoritative and in place).
-- `amendments/` — the four root `AMENDMENT-track-*.md` one-off track spec amendments.
+- `amendments/` — the four root `AMENDMENT-track-*.md` one-off track spec amendments
+  (referenced only textually from `docs/reviews/GATE-FINDINGS-LATEST.md`, not via links).
+- `gaps-history.md` — the full pre-prune `GAPS.md` resolved ledger (5858 lines). The lean
+  root `GAPS.md` points here.
 
-Active source-of-truth docs (unchanged): `docs/spec.md`, `CLAUDE.md`, `docs/architecture.md`,
-`docs/runbooks/`, the `docs/research/**/research.md` syntheses, and `docs/audit/2026-06-18/`.
+**Note:** `docs/reviews/` and `docs/research/**/raw/` were briefly archived here, then
+**restored** — they are actively linked (the gate-verdict bus `GATE-FINDINGS-LATEST.md`
+indexes the reviews; the `research.md` syntheses link their raw provenance pages). They
+remain in their original locations.

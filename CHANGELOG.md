@@ -8,6 +8,18 @@ concise bullet per logical change; newest-relevant first.
 
 ## [Unreleased]
 
+### Ground-truth audit + Phase B consolidation (repo-wide, 2026-06-18)
+
+#### Added
+- **Phase-A deep audit** (`docs/audit/2026-06-18/`): 9-area ensemble (auditor + adversary) + an independent Verifier (38 findings, 35 upheld) → the atlas (`AUDIT.md`), MVP closure plan (`MVP-CLOSURE-PLAN.md`), branch ledger, doc triage, readiness scorecard. Verdict: **safe engine, fix-not-rebuild** (I1–I7 code-enforced, 34 invariant tests + 515 DST seeds green); dominant gap = "computed but never persisted" (settlement/calibration/fills/bus-recording repos have `insert` methods with **zero production callers**). Installed the `deep-codebase-audit` skill.
+
+#### Changed
+- **Integrated ~1.3k lines of in-flight work** (was uncommitted, in no branch/tag): the `[runtime]` ExecutionMode model (live_data_only/dry_run/paper_ledger/demo_orders/production_orders) + the `OrderMutationPolicy` exec rail + per-event-exposure gate check-9 + the `event_source_evidence` migration. `fmt` + `clippy -D warnings` + full workspace tests green; `boot_gate`/`kalshi_compose` tests migrated to the new `[runtime]` contract.
+- **Consolidation**: branches 15→2 (trunk promoted to `main`; every old branch preserved as an `archive/*` tag); worktrees 5→1; `GAPS.md` pruned 5858→39 lines (full ledger → `docs/archive/gaps-history.md`); 4 root `AMENDMENT-*.md` archived; 5 stale demo DBs dropped (live `fortuna_demo` kept); `.agents/`/`.codex/` gitignored. (`docs/reviews/` + research raw pages were briefly archived then restored — actively linked.)
+
+#### Deferred (rationale in `docs/audit/2026-06-18/PHASE-B-SUMMARY.md` + `GAPS.md`)
+- File splits (daemon.rs 4854L / repos.rs / rota.rs), dual-mode-model collapse, the `AnthropicVetoMind` stub, and the daemon "fresh restart" (Phase-C kickoff).
+
 ### Kill switch, I4 & demo bring-up (fortuna-killswitch / fortuna-live / docs, verifier-landed)
 
 #### Added
