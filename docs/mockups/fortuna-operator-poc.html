@@ -1,0 +1,1399 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FORTUNA Operator POC</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: oklch(12% 0.014 86);
+      --surface: oklch(18% 0.017 86);
+      --surface-2: oklch(22% 0.018 86);
+      --surface-3: oklch(25% 0.02 86);
+      --line: oklch(34% 0.026 86);
+      --line-soft: oklch(28% 0.022 86);
+      --text: oklch(91% 0.027 86);
+      --muted: oklch(70% 0.032 86);
+      --faint: oklch(53% 0.028 86);
+      --gold: oklch(79% 0.13 85);
+      --gold-2: oklch(63% 0.11 80);
+      --mint: oklch(72% 0.11 164);
+      --blue: oklch(70% 0.1 232);
+      --red: oklch(65% 0.14 27);
+      --amber: oklch(76% 0.13 72);
+      --radius: 8px;
+      --space-xs: 4px;
+      --space-sm: 8px;
+      --space-md: 12px;
+      --space-lg: 16px;
+      --space-xl: 24px;
+      --space-2xl: 32px;
+      --font-ui: "Aptos", "Avenir Next", "Segoe UI", sans-serif;
+      --font-display: "Optima", "Aptos Display", "Times New Roman", serif;
+      --font-num: "SF Mono", "Cascadia Mono", "Menlo", monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        linear-gradient(135deg, oklch(8% 0.012 86), var(--bg) 52%, oklch(15% 0.014 112));
+      color: var(--text);
+      font-family: var(--font-ui);
+      letter-spacing: 0;
+    }
+
+    button, input, select, textarea { font: inherit; }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 252px minmax(0, 1fr) 372px;
+    }
+
+    .rail {
+      min-height: 100vh;
+      position: sticky;
+      top: 0;
+      border-right: 1px solid var(--line);
+      background: color-mix(in oklch, var(--bg), black 10%);
+      padding: var(--space-xl) var(--space-lg);
+      display: grid;
+      grid-template-rows: auto auto 1fr auto;
+      gap: var(--space-xl);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: var(--space-md);
+    }
+
+    .brand img {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 1px solid color-mix(in oklch, var(--gold), transparent 35%);
+    }
+
+    .brand strong {
+      display: block;
+      font-family: var(--font-display);
+      font-size: 1.05rem;
+      letter-spacing: 0.18em;
+      font-weight: 500;
+    }
+
+    .brand span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.8rem;
+      margin-top: 2px;
+    }
+
+    .nav {
+      display: grid;
+      gap: var(--space-sm);
+    }
+
+    .nav button {
+      border: 1px solid transparent;
+      border-radius: var(--radius);
+      background: transparent;
+      color: var(--muted);
+      min-height: 44px;
+      width: 100%;
+      padding: 9px;
+      display: grid;
+      grid-template-columns: 24px 1fr auto;
+      align-items: center;
+      gap: var(--space-sm);
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .nav button.active {
+      color: var(--text);
+      border-color: color-mix(in oklch, var(--gold), transparent 60%);
+      background: color-mix(in oklch, var(--gold), transparent 91%);
+    }
+
+    .nav code {
+      color: var(--gold);
+      font-family: var(--font-num);
+      font-size: 0.72rem;
+    }
+
+    .nav small {
+      color: var(--faint);
+      font-family: var(--font-num);
+    }
+
+    .mini-board {
+      display: grid;
+      gap: var(--space-sm);
+      align-content: start;
+    }
+
+    .section-label {
+      color: var(--faint);
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      margin-bottom: var(--space-xs);
+    }
+
+    .thesis {
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      background: color-mix(in oklch, var(--surface), transparent 12%);
+      padding: var(--space-md);
+      display: grid;
+      gap: var(--space-sm);
+    }
+
+    .thesis.selected {
+      border-color: color-mix(in oklch, var(--gold), transparent 45%);
+      background: color-mix(in oklch, var(--gold), transparent 91%);
+    }
+
+    .thesis-top {
+      display: flex;
+      justify-content: space-between;
+      gap: var(--space-sm);
+      color: var(--faint);
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .thesis strong {
+      font-size: 0.88rem;
+      line-height: 1.28;
+    }
+
+    .num { font-family: var(--font-num); }
+    .gold { color: var(--gold); }
+    .mint { color: var(--mint); }
+    .red { color: var(--red); }
+    .amber { color: var(--amber); }
+
+    .rail-note {
+      border: 1px solid color-mix(in oklch, var(--mint), transparent 72%);
+      border-radius: var(--radius);
+      background: color-mix(in oklch, var(--mint), transparent 94%);
+      padding: var(--space-md);
+      color: var(--muted);
+      font-size: 0.8rem;
+      line-height: 1.4;
+    }
+
+    main {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    .topbar {
+      min-height: 73px;
+      border-bottom: 1px solid var(--line);
+      padding: var(--space-lg) var(--space-xl);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-xl);
+      position: sticky;
+      top: 0;
+      z-index: 4;
+      background: color-mix(in oklch, var(--bg), black 5%);
+    }
+
+    .crumbs {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      color: var(--muted);
+      font-size: 0.86rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .crumbs b { color: var(--text); }
+
+    .status-strip {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: var(--space-sm);
+    }
+
+    .pill {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      min-height: 28px;
+      padding: 5px 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 0.74rem;
+      white-space: nowrap;
+    }
+
+    .pill b { color: var(--text); }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--mint);
+    }
+
+    .dot.warn { background: var(--amber); }
+    .dot.red { background: var(--red); }
+
+    .content {
+      min-width: 0;
+      padding: var(--space-xl);
+      display: grid;
+      gap: var(--space-xl);
+      align-content: start;
+    }
+
+    .view { display: none; }
+    .view.active {
+      display: grid;
+      gap: var(--space-xl);
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(270px, 0.34fr);
+      gap: var(--space-xl);
+      align-items: end;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: var(--space-xl);
+    }
+
+    .eyebrow {
+      color: var(--gold);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      margin-bottom: var(--space-md);
+    }
+
+    h1 {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: clamp(2.4rem, 5vw, 4.8rem);
+      line-height: 0.95;
+      font-weight: 500;
+      max-width: 980px;
+    }
+
+    .hero-actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: var(--space-sm);
+    }
+
+    .btn {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      color: var(--text);
+      min-height: 42px;
+      padding: 10px 12px;
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      gap: var(--space-sm);
+      cursor: pointer;
+    }
+
+    .btn.primary {
+      background: var(--gold);
+      color: var(--bg);
+      border-color: color-mix(in oklch, var(--gold), black 8%);
+      font-weight: 800;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(330px, 0.68fr);
+      gap: var(--space-xl);
+      align-items: start;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: color-mix(in oklch, var(--surface), transparent 4%);
+      overflow: hidden;
+      min-width: 0;
+    }
+
+    .panel-head {
+      padding: var(--space-lg);
+      border-bottom: 1px solid var(--line-soft);
+      display: flex;
+      justify-content: space-between;
+      gap: var(--space-lg);
+      align-items: center;
+    }
+
+    .panel-title {
+      min-width: 0;
+      display: grid;
+      gap: 3px;
+    }
+
+    .panel-title h2 {
+      margin: 0;
+      font-size: 1rem;
+      line-height: 1.15;
+    }
+
+    .panel-title span {
+      color: var(--faint);
+      font-size: 0.78rem;
+      line-height: 1.3;
+    }
+
+    .panel-body {
+      padding: var(--space-lg);
+    }
+
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: var(--space-sm);
+    }
+
+    .kpi {
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      padding: var(--space-md);
+      background: color-mix(in oklch, var(--surface-2), transparent 35%);
+      display: grid;
+      gap: 4px;
+      min-height: 84px;
+      align-content: center;
+    }
+
+    .kpi span {
+      color: var(--faint);
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .kpi b {
+      font-family: var(--font-num);
+      font-size: 1.12rem;
+      color: var(--gold);
+      overflow-wrap: anywhere;
+    }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: var(--space-sm);
+    }
+
+    .stage {
+      min-height: 112px;
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      background: color-mix(in oklch, var(--surface-2), transparent 30%);
+      padding: var(--space-md);
+      display: grid;
+      align-content: space-between;
+      gap: var(--space-md);
+    }
+
+    .stage.active {
+      border-color: color-mix(in oklch, var(--gold), transparent 42%);
+      background: color-mix(in oklch, var(--gold), transparent 91%);
+    }
+
+    .stage small {
+      color: var(--faint);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-size: 0.68rem;
+    }
+
+    .stage strong {
+      line-height: 1.25;
+      font-size: 0.9rem;
+    }
+
+    .stage span {
+      color: var(--muted);
+      font-size: 0.76rem;
+      line-height: 1.35;
+    }
+
+    .timeline {
+      min-height: 250px;
+      position: relative;
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      background:
+        linear-gradient(to bottom, transparent 0 24%, color-mix(in oklch, var(--line), transparent 74%) 24% 24.5%, transparent 24.5% 49%, color-mix(in oklch, var(--line), transparent 74%) 49% 49.5%, transparent 49.5% 74%, color-mix(in oklch, var(--line), transparent 74%) 74% 74.5%, transparent 74.5%),
+        color-mix(in oklch, var(--bg), transparent 10%);
+      overflow: hidden;
+    }
+
+    .timeline svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    .timeline-labels {
+      position: absolute;
+      inset: var(--space-md);
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      pointer-events: none;
+      color: var(--faint);
+      font-family: var(--font-num);
+      font-size: 0.68rem;
+    }
+
+    .list {
+      display: grid;
+      gap: var(--space-sm);
+    }
+
+    .row {
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      background: color-mix(in oklch, var(--surface-2), transparent 34%);
+      padding: var(--space-md);
+      display: grid;
+      gap: 5px;
+    }
+
+    .row-top {
+      display: flex;
+      justify-content: space-between;
+      gap: var(--space-sm);
+      align-items: start;
+    }
+
+    .row strong { line-height: 1.25; }
+
+    .row p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.35;
+    }
+
+    .strategy-list {
+      display: grid;
+      gap: var(--space-md);
+    }
+
+    .strategy {
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      padding: var(--space-md);
+      background: color-mix(in oklch, var(--surface-2), transparent 32%);
+      display: grid;
+      grid-template-columns: minmax(180px, 0.55fr) minmax(280px, 1fr) minmax(190px, 0.48fr);
+      gap: var(--space-lg);
+      align-items: center;
+    }
+
+    .strategy-name {
+      display: grid;
+      gap: 6px;
+    }
+
+    .strategy-name span {
+      color: var(--muted);
+      line-height: 1.35;
+      font-size: 0.78rem;
+    }
+
+    .ramp {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .step {
+      border: 1px solid var(--line-soft);
+      border-radius: 7px;
+      min-height: 58px;
+      padding: 8px;
+      display: grid;
+      gap: 3px;
+      align-content: center;
+      color: var(--faint);
+      background: color-mix(in oklch, var(--bg), transparent 16%);
+    }
+
+    .step.done {
+      color: var(--text);
+      border-color: color-mix(in oklch, var(--mint), transparent 40%);
+      background: color-mix(in oklch, var(--mint), transparent 91%);
+    }
+
+    .step.now {
+      color: var(--text);
+      border-color: color-mix(in oklch, var(--gold), transparent 35%);
+      background: color-mix(in oklch, var(--gold), transparent 89%);
+    }
+
+    .step.block {
+      color: var(--text);
+      border-color: color-mix(in oklch, var(--amber), transparent 46%);
+    }
+
+    .step b {
+      font-size: 0.76rem;
+      line-height: 1.1;
+    }
+
+    .step span {
+      font-family: var(--font-num);
+      font-size: 0.68rem;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: var(--space-sm);
+    }
+
+    .metric {
+      display: grid;
+      gap: 4px;
+    }
+
+    .metric span {
+      color: var(--faint);
+      font-size: 0.66rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .metric b {
+      font-family: var(--font-num);
+      font-size: 0.9rem;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: var(--space-sm);
+    }
+
+    .flow-node {
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      padding: var(--space-md);
+      min-height: 134px;
+      display: grid;
+      align-content: space-between;
+      gap: var(--space-sm);
+      background: color-mix(in oklch, var(--surface-2), transparent 32%);
+    }
+
+    .flow-node.hot {
+      border-color: color-mix(in oklch, var(--gold), transparent 42%);
+      background: color-mix(in oklch, var(--gold), transparent 91%);
+    }
+
+    .flow-node small {
+      color: var(--faint);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-size: 0.68rem;
+    }
+
+    .flow-node strong {
+      font-size: 0.92rem;
+      line-height: 1.25;
+    }
+
+    .flow-node span {
+      color: var(--muted);
+      line-height: 1.35;
+      font-size: 0.76rem;
+    }
+
+    .tick {
+      display: grid;
+      grid-template-columns: 70px minmax(0, 1fr) auto 74px;
+      gap: var(--space-md);
+      align-items: center;
+      border-bottom: 1px solid var(--line-soft);
+      padding: 10px 0;
+      font-size: 0.78rem;
+    }
+
+    .tick:last-child { border-bottom: 0; }
+
+    .tick .src {
+      color: var(--faint);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .tick .msg {
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+
+    .table th,
+    .table td {
+      text-align: left;
+      padding: 10px 8px;
+      border-bottom: 1px solid var(--line-soft);
+      vertical-align: top;
+    }
+
+    .table th {
+      color: var(--faint);
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .table td {
+      color: var(--muted);
+    }
+
+    .table b { color: var(--text); }
+
+    .form {
+      display: grid;
+      gap: var(--space-md);
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+    }
+
+    .field label {
+      color: var(--faint);
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    .field input,
+    .field textarea,
+    .field select {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: color-mix(in oklch, var(--bg), transparent 5%);
+      color: var(--text);
+      padding: 10px 11px;
+      outline: 0;
+    }
+
+    .field textarea {
+      min-height: 88px;
+      resize: vertical;
+      line-height: 1.4;
+    }
+
+    .assistant {
+      min-height: 100vh;
+      position: sticky;
+      top: 0;
+      border-left: 1px solid var(--line);
+      background: color-mix(in oklch, var(--surface), black 10%);
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+    }
+
+    .assistant-head {
+      padding: var(--space-xl) var(--space-lg) var(--space-lg);
+      border-bottom: 1px solid var(--line);
+      display: grid;
+      gap: var(--space-sm);
+    }
+
+    .assistant-head h2 {
+      margin: 0;
+      font-size: 1.02rem;
+    }
+
+    .assistant-head p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.4;
+      font-size: 0.82rem;
+    }
+
+    .chat {
+      padding: var(--space-lg);
+      display: grid;
+      gap: var(--space-md);
+      align-content: start;
+      overflow: auto;
+      max-height: calc(100vh - 238px);
+    }
+
+    .bubble {
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      background: color-mix(in oklch, var(--surface-2), transparent 26%);
+      padding: var(--space-md);
+      display: grid;
+      gap: var(--space-sm);
+      line-height: 1.4;
+      font-size: 0.84rem;
+    }
+
+    .bubble.user {
+      border-color: color-mix(in oklch, var(--gold), transparent 50%);
+      background: color-mix(in oklch, var(--gold), transparent 91%);
+    }
+
+    .bubble h3 {
+      margin: 0;
+      font-size: 0.88rem;
+    }
+
+    .bubble p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .bubble ul {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+    }
+
+    .citations {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-sm);
+    }
+
+    .citation {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--faint);
+      padding: 4px 8px;
+      font-family: var(--font-num);
+      font-size: 0.68rem;
+    }
+
+    .prompts {
+      padding: var(--space-lg);
+      border-top: 1px solid var(--line);
+      display: grid;
+      gap: var(--space-sm);
+    }
+
+    .prompt-grid {
+      display: grid;
+      gap: var(--space-sm);
+    }
+
+    .prompt {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: transparent;
+      color: var(--text);
+      padding: 9px 10px;
+      text-align: left;
+      cursor: pointer;
+      font-size: 0.78rem;
+      line-height: 1.25;
+    }
+
+    .prompt:hover {
+      border-color: color-mix(in oklch, var(--gold), transparent 42%);
+      background: color-mix(in oklch, var(--gold), transparent 94%);
+    }
+
+    .ask-box {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: var(--space-sm);
+    }
+
+    .ask-box input {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: color-mix(in oklch, var(--bg), transparent 4%);
+      color: var(--text);
+      padding: 10px;
+      min-width: 0;
+    }
+
+    @media (max-width: 1280px) {
+      .app {
+        grid-template-columns: 220px minmax(0, 1fr);
+      }
+
+      .assistant {
+        position: relative;
+        min-height: unset;
+        grid-column: 1 / -1;
+        border-left: 0;
+        border-top: 1px solid var(--line);
+      }
+
+      .chat {
+        max-height: 420px;
+      }
+    }
+
+    @media (max-width: 940px) {
+      .app {
+        grid-template-columns: 1fr;
+      }
+
+      .rail {
+        position: relative;
+        min-height: unset;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .hero,
+      .grid-2,
+      .strategy {
+        grid-template-columns: 1fr;
+      }
+
+      .kpis,
+      .pipeline,
+      .flow {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 620px) {
+      .topbar,
+      .content,
+      .rail {
+        padding: var(--space-lg);
+      }
+
+      .status-strip,
+      .hero-actions,
+      .kpis,
+      .pipeline,
+      .flow,
+      .ramp,
+      .metrics,
+      .tick {
+        grid-template-columns: 1fr;
+      }
+
+      .topbar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="rail">
+      <div class="brand">
+        <img src="assets/fortuna-compass.png" alt="FORTUNA compass mark">
+        <div>
+          <strong>FORTUNA</strong>
+          <span>Operator POC</span>
+        </div>
+      </div>
+
+      <nav class="nav" aria-label="POC views">
+        <button class="active" data-view="overview"><code>01</code><span>Command Center</span><small>live</small></button>
+        <button data-view="events"><code>02</code><span>Event Workbench</span><small>4</small></button>
+        <button data-view="strategies"><code>03</code><span>Strategy Ramp</span><small>5</small></button>
+        <button data-view="discovery"><code>04</code><span>Discovery & Flow</span><small>18</small></button>
+        <button data-view="actions"><code>05</code><span>Operator Actions</span><small>audit</small></button>
+      </nav>
+
+      <section class="mini-board">
+        <div class="section-label">Tracked theses</div>
+        <article class="thesis selected">
+          <div class="thesis-top"><span>IPO / private</span><span class="gold num">31%</span></div>
+          <strong>Anthropic files for IPO before Dec 31, 2026</strong>
+        </article>
+        <article class="thesis">
+          <div class="thesis-top"><span>Energy / geo</span><span class="gold num">44%</span></div>
+          <strong>Hormuz disruption pushes Brent above $95 by Aug expiry</strong>
+        </article>
+        <article class="thesis">
+          <div class="thesis-top"><span>Metals / macro</span><span class="gold num">58%</span></div>
+          <strong>Gold settles above $3,700 after tariff shock window</strong>
+        </article>
+      </section>
+
+      <div class="rail-note">
+        Read-only POC. It shows the product shape: monitor, inspect, ask questions, then perform explicit audited actions.
+      </div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <div class="crumbs"><span>FORTUNA</span><span>/</span><b id="view-title">Command Center</b><span>/</span><span>mock data</span></div>
+        <div class="status-strip">
+          <span class="pill"><span class="dot"></span><b>Daemon</b> paper</span>
+          <span class="pill"><span class="dot"></span><b>Discovery</b> catalog wired</span>
+          <span class="pill"><span class="dot warn"></span><b>Promotion</b> human-only</span>
+          <span class="pill"><span class="dot"></span><b>Kill</b> armed</span>
+        </div>
+      </header>
+
+      <section class="content">
+        <section id="overview" class="view active">
+          <div class="hero">
+            <div>
+              <div class="eyebrow">Operator console / live paper run</div>
+              <h1>One place to see what FORTUNA sees, believes, blocks, and recommends.</h1>
+            </div>
+            <div class="kpis">
+              <div class="kpi"><span>Signals</span><b>4,773</b></div>
+              <div class="kpi"><span>Events</span><b>72</b></div>
+              <div class="kpi"><span>Beliefs</span><b>72</b></div>
+              <div class="kpi"><span>Live cap</span><b>$0</b></div>
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <section class="panel">
+              <div class="panel-head">
+                <div class="panel-title"><h2>System Flow</h2><span>From market/source data to a gated decision</span></div>
+                <span class="pill"><b>2</b> active streams</span>
+              </div>
+              <div class="panel-body flow">
+                <div class="flow-node hot"><small>01 Ingest</small><strong>Venue catalogs, RSS, Aeolus, perps ticks</strong><span>Append-only source stream.</span></div>
+                <div class="flow-node hot"><small>02 Discovery</small><strong>Events and market edges</strong><span>Market-back catalog wiring is active.</span></div>
+                <div class="flow-node"><small>03 Mind</small><strong>Triage, personas, synthesis</strong><span>Budgeted, schema-validated model calls.</span></div>
+                <div class="flow-node"><small>04 Strategy</small><strong>Paper proposals</strong><span>Mechanical and synthesis candidates.</span></div>
+                <div class="flow-node"><small>05 Gates</small><strong>Risk boundary</strong><span>Stage, caps, kill state, and exposure.</span></div>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
+                <div class="panel-title"><h2>Live Tick Tape</h2><span>Readable data-plane motion</span></div>
+              </div>
+              <div class="panel-body">
+                <div id="tick-tape"></div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section id="events" class="view">
+          <div class="hero">
+            <div>
+              <div class="eyebrow">Canonical event / operator seeded</div>
+              <h1>Anthropic files for IPO before Dec 31, 2026</h1>
+            </div>
+            <div class="hero-actions">
+              <button class="btn primary">Seed Event</button>
+              <button class="btn">Attach Source</button>
+              <button class="btn">Run Persona</button>
+              <button class="btn">Review Edge</button>
+            </div>
+          </div>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title"><h2>Pipeline State</h2><span>Why this is watchlist-only today</span></div>
+              <span class="pill"><b>3</b> blockers</span>
+            </div>
+            <div class="panel-body pipeline">
+              <div class="stage active"><small>Signal · 12</small><strong>News and filings watched</strong><span>RSS, SEC, trusted operator links.</span></div>
+              <div class="stage active"><small>Event · 1</small><strong>Canonical event created</strong><span>Resolution source declared.</span></div>
+              <div class="stage"><small>Persona · 0</small><strong>IPO analyst not active</strong><span>Needs registered persona run.</span></div>
+              <div class="stage active"><small>Belief · 3</small><strong>Prior probability tracked</strong><span>Watchlist scoring only.</span></div>
+              <div class="stage"><small>Market · 0</small><strong>No tradable edge yet</strong><span>Discovery keeps polling venues.</span></div>
+              <div class="stage"><small>Gates · hold</small><strong>Execution unavailable</strong><span>No confirmed market mapping.</span></div>
+            </div>
+          </section>
+
+          <div class="grid-2">
+            <section class="panel">
+              <div class="panel-head">
+                <div class="panel-title"><h2>Belief Timeline</h2><span>Probability history and why it moved</span></div>
+                <span class="pill"><b>Current</b><span class="gold num">31%</span></span>
+              </div>
+              <div class="panel-body">
+                <div class="timeline">
+                  <svg viewBox="0 0 720 250" aria-hidden="true">
+                    <path d="M40 198 C120 188, 150 176, 210 164 S330 140, 390 130 S490 112, 555 96 S640 76, 685 68" fill="none" stroke="oklch(79% 0.13 85 / 0.18)" stroke-width="23" stroke-linecap="round"></path>
+                    <path d="M40 181 C120 174, 150 160, 210 149 S330 125, 390 116 S490 99, 555 84 S640 66, 685 58" fill="none" stroke="oklch(79% 0.13 85)" stroke-width="4" stroke-linecap="round"></path>
+                    <circle cx="210" cy="149" r="6" fill="oklch(70% 0.1 232)"></circle>
+                    <circle cx="390" cy="116" r="6" fill="oklch(72% 0.11 164)"></circle>
+                    <circle cx="685" cy="58" r="7" fill="oklch(79% 0.13 85)"></circle>
+                  </svg>
+                  <div class="timeline-labels"><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span><span>Now</span></div>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
+                <div class="panel-title"><h2>Reasoning</h2><span>Model/persona output in normal language</span></div>
+              </div>
+              <div class="panel-body list">
+                <div class="row">
+                  <div class="row-top"><strong>31% after capital-market comparables update</strong><span class="gold num">+4.0</span></div>
+                  <p>Valuation pressure and peer-window reopening raise the IPO-path probability. No confirmed S-1 or bank mandate, so this remains a belief-only watchlist event.</p>
+                </div>
+                <div class="row">
+                  <div class="row-top"><strong>27% after secondary-market liquidity signal</strong><span class="gold num">+2.5</span></div>
+                  <p>Accepted as tier-B evidence. Useful for watchlist scoring, insufficient for tradable edge.</p>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section id="strategies" class="view">
+          <div class="hero">
+            <div>
+              <div class="eyebrow">I7 ramp / forward validation</div>
+              <h1>Every strategy has a visible path from paper evidence to capital.</h1>
+            </div>
+            <div class="kpis">
+              <div class="kpi"><span>Paper days</span><b>04 / 30</b></div>
+              <div class="kpi"><span>Resolved</span><b>12 / 60</b></div>
+              <div class="kpi"><span>Breaks</span><b>0</b></div>
+              <div class="kpi"><span>Live cap</span><b>$0</b></div>
+            </div>
+          </div>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title"><h2>Strategy Ramp Board</h2><span>Paper can run automatically; promotion is human-only</span></div>
+              <span class="pill"><b>Next</b> paper evidence</span>
+            </div>
+            <div class="panel-body strategy-list" id="strategy-list"></div>
+          </section>
+        </section>
+
+        <section id="discovery" class="view">
+          <div class="hero">
+            <div>
+              <div class="eyebrow">Discovery / market flow / perps</div>
+              <h1>Make the moving parts legible before they become decisions.</h1>
+            </div>
+            <div class="kpis">
+              <div class="kpi"><span>Catalog</span><b>live</b></div>
+              <div class="kpi"><span>Edges</span><b>72</b></div>
+              <div class="kpi"><span>Perp ticks/min</span><b>286</b></div>
+              <div class="kpi"><span>Funding</span><b>8h</b></div>
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <section class="panel">
+              <div class="panel-head">
+                <div class="panel-title"><h2>Discovery Inbox</h2><span>Proposed mappings and signals awaiting review</span></div>
+              </div>
+              <div class="panel-body list" id="discovery-list"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
+                <div class="panel-title"><h2>Market Mapping</h2><span>Venue instruments projected onto canonical events</span></div>
+              </div>
+              <div class="panel-body">
+                <table class="table">
+                  <thead><tr><th>Venue</th><th>Market</th><th>Status</th><th>Trad</th></tr></thead>
+                  <tbody>
+                    <tr><td>Kalshi</td><td><b>KXHIGHNY bracket ladder</b><br><span class="num">6 markets</span></td><td>confirmed</td><td>0.91</td></tr>
+                    <tr><td>Kinetics</td><td><b>KXBTCPERP</b><br><span class="num">basis-v2</span></td><td>data-only</td><td>0.64</td></tr>
+                    <tr><td>Watchlist</td><td><b>01EVT-ANTH-IPO</b><br><span class="num">score-only</span></td><td>active</td><td>1.00</td></tr>
+                    <tr><td>Kalshi</td><td><b>Anthropic IPO</b><br><span class="num">not found</span></td><td>unmapped</td><td>0.00</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section id="actions" class="view">
+          <div class="hero">
+            <div>
+              <div class="eyebrow">Audited operator actions</div>
+              <h1>Actions are explicit. The assistant can explain or draft, but not silently mutate.</h1>
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <section class="panel">
+              <div class="panel-head">
+                <div class="panel-title"><h2>Seed Event</h2><span>Create a zero-capital watchlist event</span></div>
+              </div>
+              <div class="panel-body">
+                <form class="form">
+                  <div class="field"><label>Statement</label><textarea>Anthropic files for IPO before Dec 31, 2026</textarea></div>
+                  <div class="field"><label>Category</label><select><option>IPO / private markets</option><option>Energy / geopolitics</option><option>Macro / commodities</option></select></div>
+                  <div class="field"><label>Resolution source</label><input value="SEC EDGAR, company announcement, exchange listing"></div>
+                  <div class="field"><label>Starting belief</label><input value="24.5%"></div>
+                  <button class="btn primary" type="button">Create Watchlist Event</button>
+                </form>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
+                <div class="panel-title"><h2>Promotion Review</h2><span>Recommendation only; operator acts out of band</span></div>
+              </div>
+              <div class="panel-body list">
+                <div class="row"><div class="row-top"><strong>mech_structural</strong><span class="amber num">04/30d</span></div><p>Blocked: paper duration incomplete. CLV positive, fee ratio acceptable, no invariant breaks.</p></div>
+                <div class="row"><div class="row-top"><strong>synth_events</strong><span class="amber num">12/60</span></div><p>Blocked: insufficient resolved beliefs. Brier edge is promising but too small-sample.</p></div>
+                <div class="row"><div class="row-top"><strong>perp_basis_v2</strong><span class="amber num">0/60d</span></div><p>Blocked: data collection only. Funding carry requires regime evidence before capital.</p></div>
+              </div>
+            </section>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <aside class="assistant">
+      <div class="assistant-head">
+        <h2>Ask FORTUNA</h2>
+        <p>Read-only analyst for the mock state. Answers cite the view/data it used and separate observed facts from blockers.</p>
+      </div>
+      <div class="chat" id="chat">
+        <div class="bubble">
+          <h3>Operator analyst ready.</h3>
+          <p>Ask how a strategy is doing, why an event cannot trade, what the system is seeing, or how promotion works.</p>
+          <div class="citations"><span class="citation">mock:views</span><span class="citation">mock:audit</span></div>
+        </div>
+      </div>
+      <div class="prompts">
+        <div class="prompt-grid">
+          <button class="prompt" data-q="How is mech_extremes doing?">How is mech_extremes doing?</button>
+          <button class="prompt" data-q="Why can't the Anthropic IPO event trade?">Why can't the Anthropic IPO event trade?</button>
+          <button class="prompt" data-q="Explain the whole system simply.">Explain the whole system simply.</button>
+          <button class="prompt" data-q="What needs to happen before perps go live?">What needs to happen before perps go live?</button>
+        </div>
+        <div class="ask-box">
+          <input id="ask-input" placeholder="Ask about a strategy, event, or gate">
+          <button class="btn primary" id="ask-send">Ask</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    const strategies = [
+      {
+        name: "mech_structural",
+        desc: "YES/NO sum scans, bracket monotonicity, equivalent-event divergence.",
+        steps: [["Sim","passed","done"],["Paper","04/30d","now"],["Live-min","locked","block"],["Scaled","locked",""]],
+        metrics: [["CLV","+18 bps"],["Fees/PnL","0.21"],["Orders","42"]]
+      },
+      {
+        name: "mech_extremes",
+        desc: "Favorite-longshot fade with model veto scored counterfactually.",
+        steps: [["Sim","passed","done"],["Paper","04/30d","now"],["Live-min","locked","block"],["Scaled","locked",""]],
+        metrics: [["Veto value","pending"],["Rejects","7"],["Paper PnL","+$12.40"]]
+      },
+      {
+        name: "synth_events",
+        desc: "Model-generated beliefs and proposals in low-attention event markets.",
+        steps: [["Shadow","paired","done"],["Paper","12/60 beliefs","now"],["Live-min","locked","block"],["Scaled","locked",""]],
+        metrics: [["Brier","0.184"],["Market base","0.196"],["CLV","+9 bps"]]
+      },
+      {
+        name: "aeolus_eval",
+        desc: "Weather signal scored, zero capital until calibration earns trust.",
+        steps: [["Ingest","live","done"],["Score","daily","now"],["Promote","unknown","block"],["Trade","locked",""]],
+        metrics: [["Beliefs","72"],["Resolved","0"],["Capital","$0"]]
+      },
+      {
+        name: "perp_basis_v2",
+        desc: "Kinetics ticks and funding feed paired with event ladders.",
+        steps: [["Feed","active","done"],["Paper","basis only","now"],["Live-min","60d evidence","block"],["Scaled","locked",""]],
+        metrics: [["Ticks/min","286"],["Funding","8h"],["Fee floor","post-promo"]]
+      }
+    ];
+
+    const ticks = [
+      ["PERP", "KXBTCPERP bid/ask changed", "+4.2 bps", "10:59:42", "mint"],
+      ["KALSHI", "KXHIGHNY bracket ladder refreshed", "6 mkts", "10:59:39", ""],
+      ["SIGNAL", "NWS discussion accepted", "tier A", "10:58:10", "mint"],
+      ["GATE", "synth_events proposal blocked", "no edge", "10:57:44", "red"],
+      ["MIND", "triage skipped low-value trigger", "2c", "10:57:02", ""]
+    ];
+
+    const discoveries = [
+      ["RSS item matched to IPO watchlist", "Trust tier B; queued for cheap triage.", "review"],
+      ["Kalshi catalog scan found no direct Anthropic IPO market", "No tradable edge; thesis remains zero-capital.", "hold"],
+      ["KXHIGHNY ladder matched to weather canonical event", "Confirmed bracket-component edge.", "confirmed"],
+      ["KXBTCPERP funding tick accepted", "Feeds basis-v2 paper scoring and funding history.", "active"]
+    ];
+
+    function renderTicks() {
+      document.getElementById("tick-tape").innerHTML = ticks.map(t => `
+        <div class="tick">
+          <span class="src">${t[0]}</span>
+          <span class="msg">${t[1]}</span>
+          <span class="num ${t[4]}">${t[2]}</span>
+          <span class="num">${t[3]}</span>
+        </div>
+      `).join("");
+    }
+
+    function renderStrategies() {
+      document.getElementById("strategy-list").innerHTML = strategies.map(s => `
+        <article class="strategy">
+          <div class="strategy-name"><strong>${s.name}</strong><span>${s.desc}</span></div>
+          <div class="ramp">${s.steps.map(step => `<div class="step ${step[2]}"><b>${step[0]}</b><span>${step[1]}</span></div>`).join("")}</div>
+          <div class="metrics">${s.metrics.map(m => `<div class="metric"><span>${m[0]}</span><b>${m[1]}</b></div>`).join("")}</div>
+        </article>
+      `).join("");
+    }
+
+    function renderDiscoveries() {
+      document.getElementById("discovery-list").innerHTML = discoveries.map(d => `
+        <div class="row">
+          <div class="row-top"><strong>${d[0]}</strong><span class="pill">${d[2]}</span></div>
+          <p>${d[1]}</p>
+        </div>
+      `).join("");
+    }
+
+    const titles = {
+      overview: "Command Center",
+      events: "Event Workbench",
+      strategies: "Strategy Ramp",
+      discovery: "Discovery & Flow",
+      actions: "Operator Actions"
+    };
+
+    document.querySelectorAll(".nav button").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const view = btn.dataset.view;
+        document.querySelectorAll(".nav button").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+        document.getElementById(view).classList.add("active");
+        document.getElementById("view-title").textContent = titles[view];
+      });
+    });
+
+    function answerFor(question) {
+      const q = question.toLowerCase();
+      if (q.includes("mech_extremes")) {
+        return {
+          title: "mech_extremes is running in Paper and is not live-eligible yet.",
+          bullets: [
+            "Observed: 4 / 30 required paper trading days are complete.",
+            "Observed: paper PnL is +$12.40 with 7 model vetoes logged.",
+            "Blocked: veto value is still pending and the paper-duration gate is incomplete.",
+            "Action boundary: FORTUNA may recommend GO later, but promotion remains human-only."
+          ],
+          cites: ["strategy:mech_extremes", "gate:I7", "mock:paper"]
+        };
+      }
+      if (q.includes("anthropic") || q.includes("ipo")) {
+        return {
+          title: "The Anthropic IPO event is a watchlist belief, not a tradable setup.",
+          bullets: [
+            "Observed: canonical event exists with SEC/company/exchange resolution sources.",
+            "Observed: current mock belief is 31%.",
+            "Blocked: no confirmed venue market edge exists.",
+            "Blocked: IPO persona has not produced a domain-analysis artifact.",
+            "Result: zero capital and no orders by design."
+          ],
+          cites: ["event:01EVT-ANTH-IPO", "view:pipeline", "gate:no-edge"]
+        };
+      }
+      if (q.includes("perp")) {
+        return {
+          title: "perp_basis_v2 is collecting and paper-scoring data.",
+          bullets: [
+            "Observed: Kinetics public ticks and funding cadence are active in the mock.",
+            "Observed: strategy is in paper/basis-only state.",
+            "Blocked: funding-carry and perps promotion need longer forward regime evidence.",
+            "Risk note: fee floors should use post-promo economics, not temporary promo pricing."
+          ],
+          cites: ["strategy:perp_basis_v2", "mock:ticks", "spec:perps"]
+        };
+      }
+      return {
+        title: "FORTUNA separates data, belief, strategy, gates, and operator action.",
+        bullets: [
+          "Sources and venue catalogs become append-only signals.",
+          "Discovery maps signals and venue markets to canonical events.",
+          "Personas and synthesis create beliefs and reasoning, not orders.",
+          "Strategies propose paper/live intents, but gates decide whether anything can be sent.",
+          "Promotion to live capital is never automatic; the UI should show the recommendation and blocker trail."
+        ],
+        cites: ["view:flow", "invariant:I6", "invariant:I7"]
+      };
+    }
+
+    function appendMessage(kind, payload) {
+      const chat = document.getElementById("chat");
+      const node = document.createElement("div");
+      node.className = "bubble" + (kind === "user" ? " user" : "");
+      if (kind === "user") {
+        node.innerHTML = `<p>${payload}</p>`;
+      } else {
+        node.innerHTML = `
+          <h3>${payload.title}</h3>
+          <ul>${payload.bullets.map(b => `<li>${b}</li>`).join("")}</ul>
+          <div class="citations">${payload.cites.map(c => `<span class="citation">${c}</span>`).join("")}</div>
+        `;
+      }
+      chat.appendChild(node);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    function ask(q) {
+      const text = (q || document.getElementById("ask-input").value || "").trim();
+      if (!text) return;
+      appendMessage("user", text);
+      appendMessage("assistant", answerFor(text));
+      document.getElementById("ask-input").value = "";
+    }
+
+    document.querySelectorAll(".prompt").forEach(btn => btn.addEventListener("click", () => ask(btn.dataset.q)));
+    document.getElementById("ask-send").addEventListener("click", () => ask());
+    document.getElementById("ask-input").addEventListener("keydown", e => {
+      if (e.key === "Enter") ask();
+    });
+
+    renderTicks();
+    renderStrategies();
+    renderDiscoveries();
+  </script>
+</body>
+</html>

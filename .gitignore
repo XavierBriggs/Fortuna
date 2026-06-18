@@ -7,3 +7,7 @@ fixtures/**/*.secret.*
 .keys/
 data/
 .playwright-mcp/
+
+# Per-tool agent mirrors (canonical skills live in .claude/)
+.agents/
+.codex/

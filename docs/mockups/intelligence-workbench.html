@@ -1,0 +1,1074 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FORTUNA Intelligence Workbench Mock</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: oklch(13% 0.014 86);
+      --bg-2: oklch(17% 0.018 86);
+      --panel: oklch(20% 0.018 86);
+      --panel-2: oklch(24% 0.018 86);
+      --line: oklch(34% 0.025 86);
+      --line-soft: oklch(28% 0.02 86);
+      --text: oklch(91% 0.026 86);
+      --muted: oklch(70% 0.034 86);
+      --faint: oklch(53% 0.028 86);
+      --gold: oklch(79% 0.13 85);
+      --gold-2: oklch(63% 0.11 80);
+      --mint: oklch(72% 0.11 168);
+      --blue: oklch(70% 0.1 230);
+      --red: oklch(66% 0.13 26);
+      --space-xs: 4px;
+      --space-sm: 8px;
+      --space-md: 12px;
+      --space-lg: 16px;
+      --space-xl: 24px;
+      --space-2xl: 32px;
+      --space-3xl: 48px;
+      --radius: 8px;
+      --font-ui: "Aptos", "Avenir Next", "Segoe UI", sans-serif;
+      --font-display: "Optima", "Aptos Display", "Avenir Next", serif;
+      --font-num: "SF Mono", "Cascadia Mono", "Roboto Mono", monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        linear-gradient(135deg, oklch(10% 0.014 86), var(--bg) 46%, oklch(15% 0.015 120));
+      color: var(--text);
+      font-family: var(--font-ui);
+      letter-spacing: 0;
+    }
+
+    button, input, select, textarea {
+      font: inherit;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 248px minmax(0, 1fr);
+    }
+
+    .rail {
+      border-right: 1px solid var(--line);
+      background: color-mix(in oklch, var(--bg-2), black 10%);
+      padding: var(--space-xl) var(--space-lg);
+      display: grid;
+      grid-template-rows: auto auto 1fr auto;
+      gap: var(--space-xl);
+      position: sticky;
+      top: 0;
+      min-height: 100vh;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: var(--space-md);
+    }
+
+    .brand img {
+      width: 42px;
+      height: 42px;
+      object-fit: cover;
+      border-radius: 50%;
+      border: 1px solid color-mix(in oklch, var(--gold), transparent 35%);
+    }
+
+    .brand-title {
+      display: grid;
+      gap: 2px;
+    }
+
+    .brand-title strong {
+      font-family: var(--font-display);
+      font-size: 1.08rem;
+      letter-spacing: 0.18em;
+      font-weight: 500;
+    }
+
+    .brand-title span {
+      color: var(--muted);
+      font-size: 0.78rem;
+    }
+
+    .rail-actions {
+      display: grid;
+      gap: var(--space-sm);
+    }
+
+    .nav-button {
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      display: grid;
+      grid-template-columns: 20px 1fr auto;
+      align-items: center;
+      gap: var(--space-sm);
+      width: 100%;
+      padding: 10px 9px;
+      border-radius: var(--radius);
+      text-align: left;
+      cursor: default;
+    }
+
+    .nav-button.active {
+      color: var(--text);
+      border-color: color-mix(in oklch, var(--gold), transparent 62%);
+      background: color-mix(in oklch, var(--gold), transparent 90%);
+    }
+
+    .nav-icon {
+      width: 16px;
+      height: 16px;
+      display: inline-grid;
+      place-items: center;
+      color: var(--gold);
+      font-family: var(--font-num);
+      font-size: 0.78rem;
+    }
+
+    .count {
+      color: var(--faint);
+      font-family: var(--font-num);
+      font-size: 0.72rem;
+    }
+
+    .rail-section-title {
+      color: var(--faint);
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      margin-bottom: var(--space-sm);
+    }
+
+    .watchlist {
+      display: grid;
+      gap: var(--space-sm);
+      align-content: start;
+    }
+
+    .watch-item {
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      background: color-mix(in oklch, var(--panel), transparent 18%);
+      padding: var(--space-md);
+      display: grid;
+      gap: var(--space-sm);
+    }
+
+    .watch-item.selected {
+      border-color: color-mix(in oklch, var(--gold), transparent 42%);
+      background: color-mix(in oklch, var(--gold), transparent 91%);
+    }
+
+    .watch-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: var(--space-sm);
+      color: var(--muted);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .watch-item strong {
+      font-size: 0.88rem;
+      line-height: 1.25;
+      font-weight: 620;
+    }
+
+    .prob {
+      font-family: var(--font-num);
+      color: var(--gold);
+    }
+
+    .operator {
+      border: 1px solid color-mix(in oklch, var(--mint), transparent 70%);
+      border-radius: var(--radius);
+      padding: var(--space-md);
+      color: var(--muted);
+      background: color-mix(in oklch, var(--mint), transparent 94%);
+      font-size: 0.82rem;
+      line-height: 1.45;
+    }
+
+    main {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-xl);
+      padding: var(--space-lg) var(--space-xl);
+      border-bottom: 1px solid var(--line);
+      background: color-mix(in oklch, var(--bg), transparent 6%);
+      position: sticky;
+      top: 0;
+      z-index: 4;
+    }
+
+    .crumbs {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      color: var(--muted);
+      font-size: 0.86rem;
+      min-width: 0;
+    }
+
+    .crumbs b {
+      color: var(--text);
+      font-weight: 620;
+    }
+
+    .status-strip {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .pill {
+      min-height: 26px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 5px 9px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 0.75rem;
+      white-space: nowrap;
+    }
+
+    .pill strong {
+      color: var(--text);
+      font-weight: 650;
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--mint);
+    }
+
+    .dot.warn { background: var(--gold); }
+    .dot.red { background: var(--red); }
+
+    .workspace {
+      min-width: 0;
+      padding: var(--space-xl);
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(360px, 0.75fr);
+      gap: var(--space-xl);
+      align-items: start;
+    }
+
+    .column {
+      min-width: 0;
+      display: grid;
+      gap: var(--space-xl);
+    }
+
+    .event-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: var(--space-xl);
+      align-items: start;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: var(--space-xl);
+    }
+
+    .eyebrow {
+      color: var(--gold);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      margin-bottom: var(--space-sm);
+    }
+
+    h1 {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: clamp(2rem, 4vw, 4.4rem);
+      line-height: 0.96;
+      letter-spacing: 0;
+      font-weight: 500;
+      max-width: 930px;
+    }
+
+    .event-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-sm);
+      margin-top: var(--space-lg);
+    }
+
+    .primary-actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(118px, 1fr));
+      gap: var(--space-sm);
+      min-width: 260px;
+    }
+
+    .action {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      color: var(--text);
+      padding: 10px 12px;
+      min-height: 40px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .action.gold {
+      border-color: color-mix(in oklch, var(--gold), transparent 35%);
+      color: var(--bg);
+      background: var(--gold);
+      font-weight: 720;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: color-mix(in oklch, var(--panel), transparent 4%);
+      overflow: hidden;
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: var(--space-lg);
+      padding: var(--space-lg);
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .panel-title {
+      display: grid;
+      gap: 3px;
+    }
+
+    .panel-title h2 {
+      margin: 0;
+      font-size: 0.98rem;
+      line-height: 1.1;
+      font-weight: 720;
+    }
+
+    .panel-title span {
+      color: var(--faint);
+      font-size: 0.78rem;
+    }
+
+    .panel-body {
+      padding: var(--space-lg);
+    }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: var(--space-sm);
+    }
+
+    .stage {
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      padding: var(--space-md);
+      min-height: 118px;
+      min-width: 0;
+      display: grid;
+      align-content: space-between;
+      gap: var(--space-md);
+      background: color-mix(in oklch, var(--panel-2), transparent 28%);
+      overflow-wrap: break-word;
+    }
+
+    .stage.active {
+      border-color: color-mix(in oklch, var(--gold), transparent 42%);
+      background: color-mix(in oklch, var(--gold), transparent 91%);
+    }
+
+    .stage-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-sm);
+      min-width: 0;
+      color: var(--faint);
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .stage-top span {
+      min-width: 0;
+    }
+
+    .stage strong {
+      font-size: 0.88rem;
+      line-height: 1.25;
+      font-weight: 700;
+    }
+
+    .stage small {
+      color: var(--muted);
+      line-height: 1.35;
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 0.8fr);
+      gap: var(--space-xl);
+      align-items: stretch;
+    }
+
+    .chart {
+      min-height: 270px;
+      position: relative;
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      background:
+        linear-gradient(to bottom, transparent 0 24%, color-mix(in oklch, var(--line), transparent 72%) 24% 24.5%, transparent 24.5% 49%, color-mix(in oklch, var(--line), transparent 72%) 49% 49.5%, transparent 49.5% 74%, color-mix(in oklch, var(--line), transparent 72%) 74% 74.5%, transparent 74.5%),
+        color-mix(in oklch, var(--bg-2), transparent 8%);
+      overflow: hidden;
+    }
+
+    .chart svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    .chart-labels {
+      position: absolute;
+      inset: var(--space-md);
+      display: flex;
+      justify-content: space-between;
+      align-items: end;
+      color: var(--faint);
+      font-family: var(--font-num);
+      font-size: 0.68rem;
+      pointer-events: none;
+    }
+
+    .belief-list {
+      display: grid;
+      gap: var(--space-sm);
+    }
+
+    .belief-row {
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      padding: var(--space-md);
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: var(--space-md);
+      align-items: start;
+      background: color-mix(in oklch, var(--panel-2), transparent 35%);
+    }
+
+    .belief-time {
+      color: var(--faint);
+      font-family: var(--font-num);
+      font-size: 0.72rem;
+      white-space: nowrap;
+    }
+
+    .belief-copy {
+      min-width: 0;
+      display: grid;
+      gap: 5px;
+    }
+
+    .belief-copy strong {
+      font-size: 0.88rem;
+      line-height: 1.3;
+    }
+
+    .belief-copy span {
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.35;
+    }
+
+    .reasoning {
+      display: grid;
+      gap: var(--space-md);
+    }
+
+    .quote {
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      background: color-mix(in oklch, var(--panel-2), transparent 30%);
+      padding: var(--space-lg);
+      display: grid;
+      gap: var(--space-md);
+    }
+
+    .quote p {
+      margin: 0;
+      color: var(--text);
+      line-height: 1.5;
+      font-size: 0.94rem;
+      max-width: 72ch;
+    }
+
+    .quote-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-sm);
+      color: var(--faint);
+      font-family: var(--font-num);
+      font-size: 0.72rem;
+    }
+
+    .feed {
+      display: grid;
+      gap: var(--space-sm);
+    }
+
+    .feed-row {
+      display: grid;
+      grid-template-columns: 80px minmax(0, 1fr) auto;
+      gap: var(--space-md);
+      padding: var(--space-md) 0;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .feed-row:last-child { border-bottom: 0; }
+
+    .feed-time {
+      color: var(--faint);
+      font-family: var(--font-num);
+      font-size: 0.72rem;
+    }
+
+    .feed-main {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .feed-main strong {
+      font-size: 0.86rem;
+      line-height: 1.3;
+    }
+
+    .feed-main span {
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.35;
+    }
+
+    .seed-form {
+      display: grid;
+      gap: var(--space-md);
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+    }
+
+    .field label {
+      color: var(--faint);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    .field input,
+    .field select,
+    .field textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: color-mix(in oklch, var(--bg-2), transparent 4%);
+      color: var(--text);
+      padding: 10px 11px;
+      outline: 0;
+    }
+
+    .field textarea {
+      min-height: 92px;
+      resize: vertical;
+      line-height: 1.45;
+    }
+
+    .field input:focus,
+    .field select:focus,
+    .field textarea:focus {
+      border-color: color-mix(in oklch, var(--gold), transparent 25%);
+    }
+
+    .decision {
+      display: grid;
+      gap: var(--space-md);
+    }
+
+    .readiness {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: var(--space-sm);
+    }
+
+    .ready-item {
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      padding: var(--space-md);
+      display: grid;
+      gap: 4px;
+      background: color-mix(in oklch, var(--panel-2), transparent 40%);
+    }
+
+    .ready-item b {
+      font-size: 0.86rem;
+    }
+
+    .ready-item span {
+      color: var(--muted);
+      font-size: 0.74rem;
+      line-height: 1.35;
+    }
+
+    .market-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+
+    .market-table th,
+    .market-table td {
+      padding: 10px 8px;
+      border-bottom: 1px solid var(--line-soft);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .market-table th {
+      color: var(--faint);
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-weight: 600;
+    }
+
+    .market-table td {
+      color: var(--muted);
+    }
+
+    .market-table b {
+      color: var(--text);
+      font-weight: 650;
+    }
+
+    .mono {
+      font-family: var(--font-num);
+    }
+
+    @media (max-width: 1180px) {
+      .app {
+        grid-template-columns: 1fr;
+      }
+
+      .rail {
+        position: static;
+        min-height: unset;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .pipeline {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 760px) {
+      .topbar,
+      .event-header,
+      .split,
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .workspace,
+      .topbar {
+        padding: var(--space-lg);
+      }
+
+      .pipeline {
+        grid-template-columns: 1fr;
+      }
+
+      .primary-actions,
+      .readiness {
+        grid-template-columns: 1fr;
+      }
+
+      .feed-row,
+      .belief-row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="rail">
+      <div class="brand">
+        <img src="assets/fortuna-compass.png" alt="FORTUNA compass mark">
+        <div class="brand-title">
+          <strong>FORTUNA</strong>
+          <span>Intelligence Workbench</span>
+        </div>
+      </div>
+
+      <nav class="rail-actions" aria-label="Workbench sections">
+        <button class="nav-button active"><span class="nav-icon">01</span><span>Event Workbench</span><span class="count">72</span></button>
+        <button class="nav-button"><span class="nav-icon">02</span><span>Discovery Inbox</span><span class="count">18</span></button>
+        <button class="nav-button"><span class="nav-icon">03</span><span>Persona Runs</span><span class="count">0</span></button>
+        <button class="nav-button"><span class="nav-icon">04</span><span>Market Mapping</span><span class="count">12</span></button>
+        <button class="nav-button"><span class="nav-icon">05</span><span>Paper Decisions</span><span class="count">4</span></button>
+      </nav>
+
+      <section>
+        <div class="rail-section-title">Tracked theses</div>
+        <div class="watchlist">
+          <article class="watch-item selected">
+            <div class="watch-top"><span>IPO / private</span><span class="prob">31%</span></div>
+            <strong>Anthropic files for IPO before Dec 31, 2026</strong>
+          </article>
+          <article class="watch-item">
+            <div class="watch-top"><span>Energy / geo</span><span class="prob">44%</span></div>
+            <strong>Hormuz disruption pushes Brent above $95 by Aug expiry</strong>
+          </article>
+          <article class="watch-item">
+            <div class="watch-top"><span>Metals / macro</span><span class="prob">58%</span></div>
+            <strong>Gold settles above $3,700 after tariff shock window</strong>
+          </article>
+          <article class="watch-item">
+            <div class="watch-top"><span>Weather / Kalshi</span><span class="prob">48%</span></div>
+            <strong>Miami high temperature bracket clears 95F tomorrow</strong>
+          </article>
+        </div>
+      </section>
+
+      <div class="operator">
+        Paper mode. Seeded events stay watchlist-only until a confirmed market edge, calibration record, and gate pass exist.
+      </div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <div class="crumbs">
+          <span>FORTUNA</span><span>/</span><b>Intelligence</b><span>/</span><span>Event 01EVT-ANTH-IPO</span>
+        </div>
+        <div class="status-strip">
+          <span class="pill"><span class="dot"></span><strong>Paper</strong> Kalshi demo</span>
+          <span class="pill"><span class="dot warn"></span><strong>Mind</strong> budget guarded</span>
+          <span class="pill"><span class="dot"></span><strong>Kill</strong> armed</span>
+        </div>
+      </header>
+
+      <section class="workspace">
+        <div class="column">
+          <section class="event-header">
+            <div>
+              <div class="eyebrow">Canonical Event / Operator Seeded</div>
+              <h1>Anthropic files for IPO before Dec 31, 2026</h1>
+              <div class="event-meta">
+                <span class="pill"><strong>Resolution</strong> SEC EDGAR S-1 or official exchange listing</span>
+                <span class="pill"><strong>Horizon</strong> 2026-12-31</span>
+                <span class="pill"><strong>Status</strong> watchlist only</span>
+                <span class="pill"><strong>Capital</strong> zero</span>
+              </div>
+            </div>
+            <div class="primary-actions">
+              <button class="action gold">Seed Event</button>
+              <button class="action">Attach Source</button>
+              <button class="action">Run Persona</button>
+              <button class="action">Review Edge</button>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Pipeline State</h2>
+                <span>One readable chain from source to possible order</span>
+              </div>
+              <span class="pill"><strong>3</strong> stages blocked</span>
+            </div>
+            <div class="panel-body">
+              <div class="pipeline">
+                <article class="stage active">
+                  <div class="stage-top"><span>Signal</span><span>12</span></div>
+                  <strong>News and filings watched</strong>
+                  <small>RSS, SEC, trusted operator links</small>
+                </article>
+                <article class="stage active">
+                  <div class="stage-top"><span>Event</span><span>1</span></div>
+                  <strong>Canonical event created</strong>
+                  <small>Resolution source declared</small>
+                </article>
+                <article class="stage">
+                  <div class="stage-top"><span>Persona</span><span>0</span></div>
+                  <strong>IPO analyst not active</strong>
+                  <small>Needs registered persona run</small>
+                </article>
+                <article class="stage active">
+                  <div class="stage-top"><span>Belief</span><span>3</span></div>
+                  <strong>Prior probability tracked</strong>
+                  <small>Watchlist scoring only</small>
+                </article>
+                <article class="stage">
+                  <div class="stage-top"><span>Market</span><span>0</span></div>
+                  <strong>No tradable edge yet</strong>
+                  <small>Discovery keeps polling venues</small>
+                </article>
+                <article class="stage">
+                  <div class="stage-top"><span>Gates</span><span>hold</span></div>
+                  <strong>Execution unavailable</strong>
+                  <small>No confirmed market mapping</small>
+                </article>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Belief Timeline</h2>
+                <span>Probability history with provenance and why it moved</span>
+              </div>
+              <span class="pill"><strong>Current</strong> <span class="prob">31%</span></span>
+            </div>
+            <div class="panel-body split">
+              <div class="chart" aria-label="Mock probability chart">
+                <svg viewBox="0 0 720 270" role="img">
+                  <path d="M40 215 C120 205, 150 190, 210 178 S330 154, 390 145 S490 126, 555 111 S640 92, 685 82" fill="none" stroke="oklch(79% 0.13 85)" stroke-width="4" stroke-linecap="round"/>
+                  <path d="M40 232 C120 222, 150 205, 210 193 S330 169, 390 162 S490 145, 555 129 S640 111, 685 101" fill="none" stroke="oklch(79% 0.13 85 / 0.18)" stroke-width="24" stroke-linecap="round"/>
+                  <circle cx="210" cy="178" r="6" fill="oklch(70% 0.1 230)"/>
+                  <circle cx="390" cy="145" r="6" fill="oklch(72% 0.11 168)"/>
+                  <circle cx="685" cy="82" r="7" fill="oklch(79% 0.13 85)"/>
+                </svg>
+                <div class="chart-labels">
+                  <span>Mar</span><span>Apr</span><span>May</span><span>Jun</span><span>Now</span>
+                </div>
+              </div>
+              <div class="belief-list">
+                <article class="belief-row">
+                  <span class="belief-time">Jun 17</span>
+                  <div class="belief-copy">
+                    <strong>31% after capital-market comparables update</strong>
+                    <span>Private AI valuation pressure increases filing plausibility, but no confirmed bank mandate.</span>
+                  </div>
+                  <span class="prob">+4.0</span>
+                </article>
+                <article class="belief-row">
+                  <span class="belief-time">May 29</span>
+                  <div class="belief-copy">
+                    <strong>27% after secondary-market liquidity signal</strong>
+                    <span>Signal accepted, source tier B, not enough for marketable thesis.</span>
+                  </div>
+                  <span class="prob">+2.5</span>
+                </article>
+                <article class="belief-row">
+                  <span class="belief-time">Mar 04</span>
+                  <div class="belief-copy">
+                    <strong>24.5% operator prior</strong>
+                    <span>Seeded as watchlist event with SEC EDGAR resolution source.</span>
+                  </div>
+                  <span class="prob">base</span>
+                </article>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Reasoning Drawer</h2>
+                <span>What the model or persona said, separated from gates and execution</span>
+              </div>
+              <span class="pill"><strong>Source</strong> mock synthesis</span>
+            </div>
+            <div class="panel-body reasoning">
+              <article class="quote">
+                <p>The evidence supports a higher IPO-path probability than the base private-company prior, but the thesis is still immature. The strongest positive inputs are valuation pressure, peer-window reopening, and liquidity demand from late employees. The strongest negatives are control preference, regulatory exposure, and lack of a confirmed S-1 or lead-left bank signal.</p>
+                <div class="quote-meta">
+                  <span>model: synthesis</span>
+                  <span>cost: 38c</span>
+                  <span>manifest: 7 source hashes</span>
+                  <span>action: belief only</span>
+                </div>
+              </article>
+            </div>
+          </section>
+        </div>
+
+        <aside class="column">
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Seed Event</h2>
+                <span>Create a watchlist event without touching code</span>
+              </div>
+            </div>
+            <div class="panel-body">
+              <form class="seed-form">
+                <div class="field">
+                  <label for="statement">Statement</label>
+                  <textarea id="statement">Anthropic files for IPO before Dec 31, 2026</textarea>
+                </div>
+                <div class="field">
+                  <label for="category">Category</label>
+                  <select id="category">
+                    <option>IPO / private markets</option>
+                    <option>Energy / geopolitics</option>
+                    <option>Macro / commodities</option>
+                    <option>Weather / event markets</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="resolution">Resolution source</label>
+                  <input id="resolution" value="SEC EDGAR, company announcement, exchange listing">
+                </div>
+                <div class="field">
+                  <label for="belief">Starting belief</label>
+                  <input id="belief" value="24.5%">
+                </div>
+                <button class="action gold" type="button">Create Watchlist Event</button>
+              </form>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Strategy Readiness</h2>
+                <span>Why this can or cannot become a trade</span>
+              </div>
+            </div>
+            <div class="panel-body decision">
+              <div class="readiness">
+                <div class="ready-item">
+                  <b>Resolution</b>
+                  <span>Declared and scoreable</span>
+                </div>
+                <div class="ready-item">
+                  <b>Persona</b>
+                  <span>Missing active IPO analyst</span>
+                </div>
+                <div class="ready-item">
+                  <b>Market edge</b>
+                  <span>No confirmed venue mapping</span>
+                </div>
+                <div class="ready-item">
+                  <b>Capital</b>
+                  <span>Blocked by design</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Discovery Inbox</h2>
+                <span>Candidate signals and mappings awaiting review</span>
+              </div>
+            </div>
+            <div class="panel-body feed">
+              <article class="feed-row">
+                <span class="feed-time">10:42</span>
+                <div class="feed-main">
+                  <strong>RSS item matched to IPO watchlist</strong>
+                  <span>Trust tier B; queued for cheap triage.</span>
+                </div>
+                <span class="pill">review</span>
+              </article>
+              <article class="feed-row">
+                <span class="feed-time">09:18</span>
+                <div class="feed-main">
+                  <strong>Kalshi catalog scan found no direct market</strong>
+                  <span>No tradable edge; thesis remains zero-capital.</span>
+                </div>
+                <span class="pill">hold</span>
+              </article>
+              <article class="feed-row">
+                <span class="feed-time">07:53</span>
+                <div class="feed-main">
+                  <strong>Macro calendar source refreshed</strong>
+                  <span>Upcoming CPI and Fed events attached as context.</span>
+                </div>
+                <span class="pill">ok</span>
+              </article>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Market Mapping</h2>
+                <span>Venue instruments projected onto this event</span>
+              </div>
+            </div>
+            <div class="panel-body">
+              <table class="market-table">
+                <thead>
+                  <tr><th>Venue</th><th>Market</th><th>Status</th><th>Trad</th></tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Kalshi</td>
+                    <td><b>none</b><br><span class="mono">catalog scan</span></td>
+                    <td>unmapped</td>
+                    <td>0.00</td>
+                  </tr>
+                  <tr>
+                    <td>Broker</td>
+                    <td><b>not listed</b><br><span class="mono">private issuer</span></td>
+                    <td>untradable</td>
+                    <td>0.00</td>
+                  </tr>
+                  <tr>
+                    <td>Watchlist</td>
+                    <td><b>01EVT-ANTH-IPO</b><br><span class="mono">score-only</span></td>
+                    <td>active</td>
+                    <td>1.00</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </aside>
+      </section>
+    </main>
+  </div>
+</body>
+</html>
