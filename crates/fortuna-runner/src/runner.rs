@@ -147,6 +147,13 @@ pub struct SimRunner<V: Venue = SimVenue, J: IntentJournal + Send = MemoryJourna
         StrategyId,
         fortuna_cognition::scalar_beliefs::ScalarBeliefDraft,
     )>,
+    /// Applied fills awaiting composition-side persistence to the `fills`
+    /// table (A2 / F12). The runner never writes Postgres; the daemon drains
+    /// via `drain_applied_fills` and persists each via `FillsRepo::insert`.
+    /// Strategy is resolved BEFORE `release_if_terminal` so the intent record
+    /// is still live at capture time. `None` for orphan fills (no owning
+    /// intent — these are already tracked as discrepancies).
+    pending_fills: Vec<(fortuna_core::book::Fill, Option<StrategyId>)>,
     veto_mind: Option<Arc<dyn VetoMind>>,
     veto_strategies: std::collections::BTreeSet<StrategyId>,
     /// Vetoed-away quantity awaiting its market's settlement for
@@ -541,6 +548,7 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
             audit_dead: false,
             pending_beliefs: Vec::new(),
             pending_scalar_beliefs: Vec::new(),
+            pending_fills: Vec::new(),
             veto_mind: config.veto_mind,
             veto_strategies: config.veto_strategies.into_iter().collect(),
             open_vetoes: Vec::new(),
@@ -673,6 +681,16 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
         fortuna_cognition::scalar_beliefs::ScalarBeliefDraft,
     )> {
         std::mem::take(&mut self.pending_scalar_beliefs)
+    }
+
+    /// Take the applied fills buffered since the last drain (A2 / F12). Each
+    /// entry carries the fill and the strategy that owned the intent at the
+    /// time of application (resolved before `release_if_terminal` so the
+    /// IntentRecord is still live). The daemon persists them via
+    /// `FillsRepo::insert`; draining empties the buffer so a fill is
+    /// persisted once. `producer` is deferred to D4 — passed as `None`.
+    pub fn drain_applied_fills(&mut self) -> Vec<(fortuna_core::book::Fill, Option<StrategyId>)> {
+        std::mem::take(&mut self.pending_fills)
     }
 
     /// Inject an external `PerpTick` onto the bus for the NEXT `tick()` to
@@ -1495,6 +1513,17 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
                         Some(&fill.fill_id),
                         serde_json::to_value(fill).unwrap_or_default(),
                     );
+                    // A2 (F12): resolve strategy BEFORE release_if_terminal
+                    // (which may drop the IntentRecord) and buffer for
+                    // daemon-side persistence. Pure in-memory; runner stays
+                    // Pg-agnostic. `None` strategy means the intent was not
+                    // found (shouldn't happen for an applied fill, but handled
+                    // defensively rather than panicking).
+                    let fill_strategy = self
+                        .manager
+                        .intent(app.intent)
+                        .map(|r| r.order.strategy.clone());
+                    self.pending_fills.push((fill.clone(), fill_strategy));
                     self.release_if_terminal(app.intent)?;
                 }
             }

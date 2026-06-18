@@ -1179,6 +1179,19 @@ impl ActiveRunner {
         }
     }
 
+    /// Drain applied fills buffered since the last drain (A2 / F12). The
+    /// daemon persists them via `FillsRepo::insert`; draining empties the
+    /// buffer so a fill is persisted exactly once per segment. `producer` is
+    /// deferred to D4; each entry carries the owning strategy (or `None` for
+    /// fills whose intent was not found — handled defensively).
+    pub fn drain_applied_fills(&mut self) -> Vec<(fortuna_core::book::Fill, Option<StrategyId>)> {
+        match self {
+            ActiveRunner::Sim(r) => r.drain_applied_fills(),
+            ActiveRunner::Kalshi(r) => r.drain_applied_fills(),
+            ActiveRunner::PaperLive(r) => r.drain_applied_fills(),
+        }
+    }
+
     /// Record an externally-raised alert on the audit trail.
     pub fn apply_external_alert(&mut self, kind: &str, message: &str) {
         match self {
@@ -1802,6 +1815,14 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
             fortuna_core::perp::FundingObservation,
         )>,
     >,
+    // A2 (F12): OPT-IN fill persistence pool. `Some(pool)` => applied fills
+    // are drained each segment and persisted to the `fills` table via
+    // `FillsRepo::insert` with `producer = None` (D4 wires producer) and the
+    // captured strategy id. NOT gated on `[synthesis]` — mechanical
+    // strategies produce fills too. `None` => no persist (byte-identical
+    // daemon — fail closed). A persist failure ALERTS and continues; fills
+    // are the PnL substrate, not the money path.
+    fills_pool: Option<PgPool>,
 ) -> Result<(LoopStats, fortuna_runner::ShutdownReport), DaemonError> {
     let mut total = LoopStats::default();
     // Dedup state OWNED ACROSS SEGMENTS (gate finding 2026-06-11: keeping
@@ -2531,6 +2552,50 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                             drained.len()
                         ),
                     )),
+                }
+            }
+        }
+
+        // A2 (F12): drain + persist applied fills per segment. Runs OUTSIDE
+        // the `synthesis_refresh` block on purpose — mechanical strategies
+        // (mech_structural, mech_extremes, etc.) produce fills without a
+        // [synthesis] section, so gating this on synthesis_refresh-Some would
+        // silently drop their fills. Mirrors the scalar-belief failure
+        // posture: a persist FAILURE alerts + counts but never crashes (fills
+        // are the PnL/calibration substrate, not the money path); the drained
+        // set is lost on failure (re-buffering is the ledgered refinement).
+        // `None` => no persist (byte-identical daemon — fail closed).
+        if let Some(fpool) = &fills_pool {
+            let applied_fills = runner.drain_applied_fills();
+            if !applied_fills.is_empty() {
+                let repo = fortuna_ledger::FillsRepo::new(fpool.clone());
+                // Derive a stable venue string from the runner's active venue.
+                // All three variants (Sim / Kalshi / PaperLive) carry a venue
+                // whose id() is the canonical string persisted alongside the fill.
+                let venue_str: String = match runner {
+                    ActiveRunner::Sim(r) => r.venue().id().as_str().to_string(),
+                    ActiveRunner::Kalshi(r) => r.venue().id().as_str().to_string(),
+                    ActiveRunner::PaperLive(r) => r.venue().id().as_str().to_string(),
+                };
+                for (fill, strategy) in &applied_fills {
+                    match repo
+                        .insert(
+                            &venue_str,
+                            fill,
+                            None,
+                            strategy.as_ref().map(|s| s.as_str()),
+                        )
+                        .await
+                    {
+                        Ok(_) => {}
+                        Err(e) => alerts.push((
+                            fortuna_ops::MessageKind::Ops,
+                            format!(
+                                "fill persist FAILED for fill_id={} — fill lost this segment: {e}",
+                                fill.fill_id
+                            ),
+                        )),
+                    }
                 }
             }
         }

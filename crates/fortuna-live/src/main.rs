@@ -903,6 +903,10 @@ async fn main() -> Result<()> {
         // C-next-1b: the LIVE PerpTick channel receiver — `Some` only when the
         // producer was spawned (gated on [perp_event_basis_v2]); `None` otherwise.
         perp_tick_rx_for_drive,
+        // A2 (F12): persist paper fills. Always wire the ledger pool so every
+        // applied fill (Sim, Kalshi-paper, or PaperLive) lands in the fills
+        // table with its strategy and NULL producer (D4 adds producer).
+        Some(pool.clone()),
     )
     .await
     .context("daemon loop")?;

@@ -224,6 +224,7 @@ async fn daemon_smoke_boot_ticks_signal_shutdown(pool: PgPool) {
         None,              // [discovery]: none in this smoke
         None,              // resolution_pool: none in this smoke
         None,              // C-next-1b: no live PerpTick channel in this smoke
+        None,              // A2 (F12): no fills persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -333,6 +334,7 @@ async fn signal_with_working_orders_cancels_them_and_audits(pool: PgPool) {
         None,              // [discovery]: none in this smoke
         None,              // resolution_pool: none in this smoke
         None,              // C-next-1b: no live PerpTick channel in this smoke
+        None,              // A2 (F12): no fills persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -567,6 +569,7 @@ async fn per_segment_refresh_picks_up_a_newly_confirmed_edge(pool: PgPool) {
         None,              // [discovery]: none in this smoke
         None,              // resolution_pool: none in this smoke
         None,              // C-next-1b: no live PerpTick channel in this smoke
+        None,              // A2 (F12): no fills persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -712,6 +715,7 @@ async fn refresh_failure_keeps_last_known_edges_alerts_and_survives(pool: PgPool
         None,              // [discovery]: none in this smoke
         None,              // resolution_pool: none in this smoke
         None,              // C-next-1b: no live PerpTick channel in this smoke
+        None,              // A2 (F12): no fills persist in this smoke
     )
     .await
     .expect("the loop must SURVIVE a failing refresh");
@@ -1282,6 +1286,7 @@ async fn drive_drains_and_persists_the_synthesis_arms_beliefs(pool: PgPool) {
         None,              // [discovery]: none in this smoke
         None,              // resolution_pool: none in this smoke
         None,              // C-next-1b: no live PerpTick channel in this smoke
+        None,              // A2 (F12): no fills persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -1390,6 +1395,7 @@ async fn drive_drains_and_persists_funding_forecast_scalar_beliefs(pool: PgPool)
         None,               // [discovery]: none in this smoke
         None,               // resolution_pool: none in this smoke
         None,               // C-next-1b: no live PerpTick channel in this smoke
+        None,               // A2 (F12): no fills persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -1535,6 +1541,7 @@ async fn drive_drains_the_live_perp_tick_channel_and_persists_a_scalar_belief(po
         None,               // [discovery]: none in this smoke
         None,               // resolution_pool: none in this smoke
         Some(rx),           // C-next-1b: the LIVE PerpTick channel (one recorded tick queued)
+        None,               // A2 (F12): no fills persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -1802,6 +1809,7 @@ async fn drive_runs_daily_reconciliation_at_the_utc_day_boundary(pool: PgPool) {
         None, // [discovery]: none in this e2e
         None, // resolution_pool: none in this e2e
         None, // C-next-1b: no live PerpTick channel in this smoke
+        None, // A2 (F12): no fills persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -2188,6 +2196,7 @@ async fn drive_runs_the_weekly_review_at_the_week_boundary(pool: PgPool) {
         None,              // [discovery]: none in this smoke
         None,              // resolution_pool: none in this smoke
         None,              // C-next-1b: no live PerpTick channel in this smoke
+        None,              // A2 (F12): no fills persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -2357,6 +2366,7 @@ async fn drive_runs_the_monthly_review_at_the_month_boundary(pool: PgPool) {
         None,              // [discovery]: none in this smoke
         None,              // resolution_pool: none in this smoke
         None,              // C-next-1b: no live PerpTick channel in this smoke
+        None,              // A2 (F12): no fills persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -2571,6 +2581,7 @@ async fn drive_persists_persona_analysis_and_beliefs_when_wired(pool: PgPool) {
         None,         // [discovery]: none in this persona e2e
         None,         // resolution_pool: none in this persona e2e
         None,         // C-next-1b: no live PerpTick channel in this smoke
+        None,         // A2 (F12): no fills persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -2830,6 +2841,7 @@ async fn discovery_world_forward_persists_watchlist_events_and_beliefs(pool: PgP
         Some(wiring), // [discovery]: the wiring under test
         None,         // resolution_pool: not exercised by the world-forward e2e
         None,         // C-next-1b: no live PerpTick channel in this smoke
+        None,         // A2 (F12): no fills persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -3095,6 +3107,7 @@ async fn discovery_market_back_auto_confirms_and_synthesis_drafts_a_belief(pool:
         Some(wiring),
         None, // resolution_pool: not exercised here
         None, // C-next-1b: no live PerpTick channel in this smoke
+        None, // A2 (F12): no fills persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -3323,6 +3336,7 @@ async fn drive_with_discovery(
         Some(wiring),
         None, // resolution_pool: not exercised here
         None, // C-next-1b: no live PerpTick channel in this smoke
+        None, // A2 (F12): no fills persist in this smoke
     )
     .await
     .expect("daemon drive");
@@ -3820,6 +3834,7 @@ async fn drive_one_boundary_with_resolution(
         None,              // [discovery]
         Some(pool.clone()),
         None, // C-next-1b: no live PerpTick channel in this smoke
+        None, // A2 (F12): no fills persist in this smoke
     )
     .await
     .expect("daemon drive");
