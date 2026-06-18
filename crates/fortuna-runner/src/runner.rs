@@ -3004,6 +3004,10 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
                 volume_contracts: m.volume_contracts,
                 resolution_source: m.settlement.resolution_source.clone(),
                 close_at: m.close_at,
+                strike_type: None,
+                floor_strike: None,
+                cap_strike: None,
+                status: String::new(),
             })
             .collect()
     }

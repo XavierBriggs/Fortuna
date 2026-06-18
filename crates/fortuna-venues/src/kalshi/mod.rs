@@ -61,4 +61,8 @@ pub use client::{
     KALSHI_PROD_BASE_URL,
 };
 pub use read_client::KalshiReadClient;
-pub use weather::{event_grades_on, KalshiWeatherSource, WeatherMarketSource};
+pub use weather::{event_grades_on, kalshi_market_to_market_view, KalshiWeatherSource};
+// Re-export the trait from the venue-neutral location so existing
+// `fortuna_venues::kalshi::WeatherMarketSource` paths still compile.
+// After A7's guard is wired, callers should import from `fortuna_venues::WeatherMarketSource`.
+pub use crate::weather_source::WeatherMarketSource;

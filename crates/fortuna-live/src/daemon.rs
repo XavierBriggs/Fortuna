@@ -1647,7 +1647,7 @@ pub struct DiscoveryWiring {
     /// discovery: default-off, alert-and-continue, never panics. The edges are
     /// idempotent across segments (a market that already carries a current edge is
     /// skipped, mirroring the market-back dedup).
-    pub weather_source: Option<std::sync::Arc<dyn fortuna_venues::kalshi::WeatherMarketSource>>,
+    pub weather_source: Option<std::sync::Arc<dyn fortuna_venues::WeatherMarketSource>>,
 }
 
 fn event_text_tokens(s: &str) -> BTreeSet<String> {
@@ -2388,7 +2388,7 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                         };
                         let mut day_sets: BTreeMap<
                             (String, String),
-                            Result<Vec<fortuna_venues::kalshi::dto::KalshiMarket>, String>,
+                            Result<Vec<fortuna_cognition::discovery::MarketView>, String>,
                         > = BTreeMap::new();
                         for r in rows {
                             // Untrusted payload: try the `{forecasts:[...]}` wrapper
@@ -2470,10 +2470,7 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                 // and does NOT filter status, so the filter is here).
                                 let buckets: Vec<_> = day
                                     .iter()
-                                    .filter(|m| {
-                                        m.status
-                                            == fortuna_venues::kalshi::dto::KalshiMarketStatus::Active
-                                    })
+                                    .filter(|m| m.status == "active")
                                     .filter_map(crate::aeolus_venue::market_to_bucket)
                                     .collect();
                                 if buckets.is_empty() {

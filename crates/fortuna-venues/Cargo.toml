@@ -6,6 +6,9 @@ edition = "2021"
 [dependencies]
 fortuna-core = { path = "../fortuna-core" }
 fortuna-gates = { path = "../fortuna-gates" }
+# C1 decoupling: WeatherMarketSource returns Vec<MarketView> (venue-neutral bracket
+# geometry carrier). fortuna-cognition has no dep on fortuna-venues → no cycle.
+fortuna-cognition = { path = "../fortuna-cognition" }
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

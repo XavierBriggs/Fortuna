@@ -171,7 +171,7 @@ async fn main() -> Result<()> {
     // INERT off the kalshi demo. It is threaded into the discovery wiring below.
     let (mut active_runner, weather_source): (
         ActiveRunner,
-        Option<Arc<dyn fortuna_venues::kalshi::WeatherMarketSource>>,
+        Option<Arc<dyn fortuna_venues::WeatherMarketSource>>,
     ) = match dcfg.daemon.venue.as_str() {
         "kalshi" if dcfg.daemon.data_source.as_deref() == Some("kalshi_prod") => {
             // Paper-on-live-data: signed PROD reads only, local paper execution.
@@ -183,10 +183,9 @@ async fn main() -> Result<()> {
                 resolve_kalshi_prod_creds(&env).context("kalshi prod credentials")?;
             let transport = build_kalshi_prod_transport(key_id, key_pem, transport_clock)
                 .context("kalshi prod transport")?;
-            let weather: Option<Arc<dyn fortuna_venues::kalshi::WeatherMarketSource>> =
-                Some(Arc::new(fortuna_venues::kalshi::KalshiWeatherSource::new(
-                    transport.clone(),
-                )));
+            let weather: Option<Arc<dyn fortuna_venues::WeatherMarketSource>> = Some(Arc::new(
+                fortuna_venues::kalshi::KalshiWeatherSource::new(transport.clone()),
+            ));
             let runner = compose_paper_live_runner_with_transport(
                 pool.clone(),
                 &full,
@@ -228,10 +227,9 @@ async fn main() -> Result<()> {
                 resolve_kalshi_demo_creds(&env).context("kalshi demo credentials")?;
             let transport = build_kalshi_demo_transport(key_id, key_pem, transport_clock)
                 .context("kalshi demo transport")?;
-            let weather: Option<Arc<dyn fortuna_venues::kalshi::WeatherMarketSource>> =
-                Some(Arc::new(fortuna_venues::kalshi::KalshiWeatherSource::new(
-                    transport.clone(),
-                )));
+            let weather: Option<Arc<dyn fortuna_venues::WeatherMarketSource>> = Some(Arc::new(
+                fortuna_venues::kalshi::KalshiWeatherSource::new(transport.clone()),
+            ));
             let runner = compose_kalshi_runner_with_transport(
                 pool.clone(),
                 &full,

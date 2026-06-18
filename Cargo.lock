@@ -808,6 +808,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "base64",
+ "fortuna-cognition",
  "fortuna-core",
  "fortuna-gates",
  "futures",

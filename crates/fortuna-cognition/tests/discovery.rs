@@ -45,6 +45,10 @@ fn market(id: &str, category: &str, volume: i64, source: &str) -> MarketView {
         volume_contracts: Some(volume),
         resolution_source: source.to_string(),
         close_at: Some(t("2026-06-20T18:00:00.000Z")),
+        strike_type: None,
+        floor_strike: None,
+        cap_strike: None,
+        status: String::new(),
     }
 }
 

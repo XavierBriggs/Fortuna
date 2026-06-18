@@ -17,26 +17,56 @@
 //!     `market.ticker`.
 
 use crate::kalshi::client::KalshiTransport;
-use crate::kalshi::dto::{error_reason, GetMarketsResponse, KalshiMarket};
+use crate::kalshi::dto::{error_reason, GetMarketsResponse, KalshiMarket, KalshiMarketStatus};
+use crate::weather_source::WeatherMarketSource;
 use crate::VenueError;
 use async_trait::async_trait;
+use fortuna_cognition::discovery::MarketView;
 use std::sync::Arc;
 
-/// The day-set source the F7 live plug-in consumes. Given a Kalshi temperature
-/// SERIES (e.g. `KXHIGHNY`) and a forecast TARGET DATE (`YYYY-MM-DD`), return the
-/// markets that grade on that date.
+// ------------------------------------------------------------------- conversion
+
+/// Convert a `KalshiMarketStatus` to a venue-neutral status string used by
+/// [`MarketView`]. `"active"` is the only tradeable value; everything else is
+/// non-tradeable (settled / closed / unknown).
+fn status_str(s: KalshiMarketStatus) -> String {
+    match s {
+        KalshiMarketStatus::Active => "active".to_string(),
+        KalshiMarketStatus::Finalized | KalshiMarketStatus::Determined => "settled".to_string(),
+        KalshiMarketStatus::Closed => "closed".to_string(),
+        KalshiMarketStatus::Initialized | KalshiMarketStatus::Inactive => "inactive".to_string(),
+        KalshiMarketStatus::Disputed
+        | KalshiMarketStatus::Amended
+        | KalshiMarketStatus::Unknown => "unknown".to_string(),
+    }
+}
+
+/// Convert a raw `KalshiMarket` into a venue-neutral [`MarketView`] carrying
+/// bracket geometry. `ticker` becomes `market_id`; `venue` is hardcoded
+/// `"kalshi"` (this conversion is the Kalshi adapter's domain). Title falls
+/// back to `yes_sub_title` when `title` is absent (display-only chain).
 ///
-/// A date with NO live markets yields an empty `Vec` — NOT an error ("a
-/// synthesized event with no live market is simply not traded", contract). A
-/// transport or response-parse failure is an `Err`: a malformed venue frame is a
-/// hard error, never a fabricated market.
-#[async_trait]
-pub trait WeatherMarketSource: Send + Sync {
-    async fn day_set(
-        &self,
-        series: &str,
-        target_date: &str,
-    ) -> Result<Vec<KalshiMarket>, VenueError>;
+/// This conversion is the ONLY place in `kalshi::` that produces a
+/// `MarketView` with geometry; it is the excluded path for A7's guard.
+pub fn kalshi_market_to_market_view(m: &KalshiMarket) -> MarketView {
+    let title = m
+        .title
+        .clone()
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| m.yes_sub_title.clone());
+    MarketView {
+        market_id: m.ticker.clone(),
+        venue: "kalshi".to_string(),
+        title,
+        category: String::new(), // not carried by the bracket DTO
+        volume_contracts: m.volume_fp.as_ref().and_then(|fp| fp.parse::<i64>().ok()),
+        resolution_source: String::new(), // not carried by the bracket DTO
+        close_at: None,                   // close_time is a string; not parsed here
+        strike_type: m.strike_type.clone(),
+        floor_strike: m.floor_strike_int(),
+        cap_strike: m.cap_strike_int(),
+        status: status_str(m.status),
+    }
 }
 
 /// 3-letter UPPERCASE month tokens as Kalshi writes them in event tickers
@@ -111,7 +141,7 @@ impl WeatherMarketSource for KalshiWeatherSource {
         &self,
         series: &str,
         target_date: &str,
-    ) -> Result<Vec<KalshiMarket>, VenueError> {
+    ) -> Result<Vec<MarketView>, VenueError> {
         let mut out = Vec::new();
         let mut cursor = String::new();
         for _ in 0..MAX_PAGES {
@@ -142,7 +172,7 @@ impl WeatherMarketSource for KalshiWeatherSource {
                 })?;
             for m in parsed.markets {
                 if event_grades_on(&m.event_ticker, target_date) {
-                    out.push(m);
+                    out.push(kalshi_market_to_market_view(&m));
                 }
             }
             cursor = parsed.cursor;

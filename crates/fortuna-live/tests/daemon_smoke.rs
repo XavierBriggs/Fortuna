@@ -3284,7 +3284,9 @@ fn knyc_forecast_payload() -> serde_json::Value {
 
 /// The recorded KXHIGHNY markets whose event_ticker carries `token` (e.g.
 /// "26JUN15" for the active day-set, "26JUN13" for the settled one).
-fn recorded_markets_for(token: &str) -> Vec<fortuna_venues::kalshi::dto::KalshiMarket> {
+/// Returns venue-neutral [`MarketView`]s (converted from the raw fixture via
+/// `kalshi_market_to_market_view`; the raw `KalshiMarket` stays in the adapter).
+fn recorded_markets_for(token: &str) -> Vec<fortuna_cognition::discovery::MarketView> {
     let raw = std::fs::read_to_string(KALSHI_HIGH_TEMP_FIXTURE).expect("read kalshi fixture");
     let root: serde_json::Value = serde_json::from_str(&raw).expect("kalshi fixture is json");
     let all: Vec<fortuna_venues::kalshi::dto::KalshiMarket> =
@@ -3292,21 +3294,22 @@ fn recorded_markets_for(token: &str) -> Vec<fortuna_venues::kalshi::dto::KalshiM
             .expect("Vec<KalshiMarket>");
     all.into_iter()
         .filter(|m| m.event_ticker.contains(token))
+        .map(|m| fortuna_venues::kalshi::kalshi_market_to_market_view(&m))
         .collect()
 }
 
 /// A stub day-set source: returns a FIXED recorded day-set for any (series,date).
 struct StubWeatherSource {
-    day: Vec<fortuna_venues::kalshi::dto::KalshiMarket>,
+    day: Vec<fortuna_cognition::discovery::MarketView>,
 }
 
 #[async_trait::async_trait]
-impl fortuna_venues::kalshi::WeatherMarketSource for StubWeatherSource {
+impl fortuna_venues::WeatherMarketSource for StubWeatherSource {
     async fn day_set(
         &self,
         _series: &str,
         _target_date: &str,
-    ) -> Result<Vec<fortuna_venues::kalshi::dto::KalshiMarket>, fortuna_venues::VenueError> {
+    ) -> Result<Vec<fortuna_cognition::discovery::MarketView>, fortuna_venues::VenueError> {
         Ok(self.day.clone())
     }
 }
@@ -3314,17 +3317,17 @@ impl fortuna_venues::kalshi::WeatherMarketSource for StubWeatherSource {
 /// A counting source used by the cache regression: repeated signals carrying
 /// the same forecast should share one day-set lookup inside a segment.
 struct CountingWeatherSource {
-    day: Vec<fortuna_venues::kalshi::dto::KalshiMarket>,
+    day: Vec<fortuna_cognition::discovery::MarketView>,
     calls: Arc<AtomicUsize>,
 }
 
 #[async_trait::async_trait]
-impl fortuna_venues::kalshi::WeatherMarketSource for CountingWeatherSource {
+impl fortuna_venues::WeatherMarketSource for CountingWeatherSource {
     async fn day_set(
         &self,
         _series: &str,
         _target_date: &str,
-    ) -> Result<Vec<fortuna_venues::kalshi::dto::KalshiMarket>, fortuna_venues::VenueError> {
+    ) -> Result<Vec<fortuna_cognition::discovery::MarketView>, fortuna_venues::VenueError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(self.day.clone())
     }
@@ -3338,7 +3341,7 @@ impl fortuna_venues::kalshi::WeatherMarketSource for CountingWeatherSource {
 /// boundary), exactly like main.rs.
 fn weather_wiring_with_source(
     pool: PgPool,
-    weather_source: Arc<dyn fortuna_venues::kalshi::WeatherMarketSource>,
+    weather_source: Arc<dyn fortuna_venues::WeatherMarketSource>,
 ) -> fortuna_live::daemon::DiscoveryWiring {
     use fortuna_cognition::discovery::{DiscoveryBudget, PrefilterConfig};
     use fortuna_cognition::signals::SourceRegistry;
@@ -3366,7 +3369,7 @@ fn weather_wiring_with_source(
 
 fn weather_wiring(
     pool: PgPool,
-    day: Vec<fortuna_venues::kalshi::dto::KalshiMarket>,
+    day: Vec<fortuna_cognition::discovery::MarketView>,
 ) -> fortuna_live::daemon::DiscoveryWiring {
     weather_wiring_with_source(pool, Arc::new(StubWeatherSource { day }))
 }
@@ -3648,7 +3651,7 @@ async fn drive_weather_plugin_drops_an_edge_when_its_market_leaves_the_day_set(p
 
     // Drop the T85 (greater) market from the active June-15 set: 6 → 5.
     let mut day = recorded_markets_for("26JUN15");
-    day.retain(|m| !m.ticker.contains("-T85"));
+    day.retain(|m| !m.market_id.contains("-T85"));
     assert_eq!(day.len(), 5, "exactly the T85 market removed");
 
     let mut runner = fortuna_live::daemon::ActiveRunner::Sim(runner);
@@ -3717,10 +3720,8 @@ async fn drive_weather_plugin_skips_a_settled_day_set(pool: PgPool) {
         "the recorded June-13 set is 6 markets"
     );
     assert!(
-        settled_june13
-            .iter()
-            .all(|m| m.status == fortuna_venues::kalshi::dto::KalshiMarketStatus::Determined),
-        "June 13 is settled"
+        settled_june13.iter().all(|m| m.status == "settled"),
+        "June 13 is settled (status=='settled' after adapter conversion)"
     );
 
     let mut runner = fortuna_live::daemon::ActiveRunner::Sim(runner);

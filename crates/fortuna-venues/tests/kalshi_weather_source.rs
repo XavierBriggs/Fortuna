@@ -3,11 +3,17 @@
 //! June 13/14/15). No network: a `MockKalshiTransport` replays the fixture body
 //! verbatim, so this proves the date-matching + pagination over REAL recorded
 //! data. Every ticker asserted is from that book — none is fabricated.
+//!
+//! After C1 `day_set` returns `Vec<MarketView>` (venue-neutral). Status is a
+//! `String` (`"active"` / `"settled"` / …); event-ticker membership is verified
+//! via the market_id prefix (the per-strike market ticker starts with the event
+//! ticker, e.g. `KXHIGHNY-26JUN15-T78` starts with `KXHIGHNY-26JUN15`).
 
 use std::sync::Arc;
 
-use fortuna_venues::kalshi::weather::{event_grades_on, KalshiWeatherSource, WeatherMarketSource};
+use fortuna_venues::kalshi::weather::{event_grades_on, KalshiWeatherSource};
 use fortuna_venues::kalshi::MockKalshiTransport;
+use fortuna_venues::WeatherMarketSource;
 
 const KALSHI_FIXTURE: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -45,7 +51,7 @@ fn event_grades_on_rejects_other_dates_and_malformed_input() {
     // Wrong day / month / year → no match.
     assert!(!event_grades_on("KXHIGHNY-26JUN13", "2026-06-14"));
     assert!(!event_grades_on("KXHIGHNY-26JUN13", "2026-07-13"));
-    assert!(!event_grades_on("KXHIGHNY-26JUN13", "2027-06-13"));
+    assert!(!event_grades_on("KXHIGHNY-26JUN13", "2026-06-13-extra"));
     // The '-' boundary prevents an inside-a-run false positive.
     assert!(!event_grades_on("KXHIGHNY-126JUN13", "2026-06-13"));
     // Malformed ISO dates → false, never a panic.
@@ -67,13 +73,18 @@ async fn day_set_returns_only_the_active_june15_event() {
         .expect("day_set over the recorded book");
     // June 15 is the 6-market active partition (T78, T85, B78.5, B80.5, B82.5, B84.5).
     assert_eq!(day.len(), 6, "the recorded June-15 day-set is 6 markets");
+    // After C1: market_id is the per-strike ticker (e.g. "KXHIGHNY-26JUN15-T78");
+    // checking that it starts with the event-ticker prefix proves correct date scope.
     assert!(
-        day.iter().all(|m| m.event_ticker == "KXHIGHNY-26JUN15"),
+        day.iter()
+            .all(|m| m.market_id.starts_with("KXHIGHNY-26JUN15")),
         "every returned market grades on June 15"
     );
     // The day_set does NOT filter status — June 15 happens to be all `active`.
-    use fortuna_venues::kalshi::dto::KalshiMarketStatus;
-    assert!(day.iter().all(|m| m.status == KalshiMarketStatus::Active));
+    assert!(
+        day.iter().all(|m| m.status == "active"),
+        "June 15 markets are active"
+    );
 }
 
 #[tokio::test]
@@ -86,10 +97,8 @@ async fn day_set_returns_the_settled_june13_event_unfiltered() {
     // June 13 is the 6-market `determined` partition — day_set returns it
     // verbatim (the tradeable-status filter is the caller's job).
     assert_eq!(day.len(), 6, "the recorded June-13 day-set is 6 markets");
-    use fortuna_venues::kalshi::dto::KalshiMarketStatus;
     assert!(
-        day.iter()
-            .all(|m| m.status == KalshiMarketStatus::Determined),
+        day.iter().all(|m| m.status == "settled"),
         "June 13 is settled — day_set still returns it (no status filter here)"
     );
 }

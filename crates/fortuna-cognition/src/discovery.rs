@@ -98,6 +98,24 @@ pub struct MarketView {
     pub volume_contracts: Option<i64>,
     pub resolution_source: String,
     pub close_at: Option<UtcTimestamp>,
+    // ------------------------------------------------------------------
+    // Venue-neutral bracket geometry (C1 — decouple weather path).
+    // Populated by the kalshi adapter's KalshiMarket→MarketView conversion;
+    // absent (None/"") on non-bracket market views (e.g. prefilter path).
+    // ------------------------------------------------------------------
+    /// Temperature-bracket strike semantics: `"between"` | `"greater"` | `"less"`.
+    /// `None` on non-bracket markets.
+    pub strike_type: Option<String>,
+    /// Lower strike bound as an integer (degrees for temperature series).
+    /// `None` when absent or non-integral on the wire.
+    pub floor_strike: Option<i64>,
+    /// Upper strike bound as an integer (degrees for temperature series).
+    /// `None` when absent or non-integral on the wire.
+    pub cap_strike: Option<i64>,
+    /// Venue-neutral market status. The kalshi adapter maps `KalshiMarketStatus`
+    /// to `"active"` | `"settled"` | `"closed"` | `"inactive"` | `"unknown"`.
+    /// Empty string when the source did not supply a status.
+    pub status: String,
 }
 
 #[derive(Debug, Clone)]
