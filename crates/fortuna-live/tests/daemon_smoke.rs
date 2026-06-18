@@ -4138,14 +4138,19 @@ async fn drive_persists_bus_recording_per_segment_incrementally(pool: PgPool) {
     .await
     .expect("daemon drive");
 
-    // At least one row persisted (the recording produces events in every segment).
+    // The smoke drives TWO segments, each producing bus events, so >=2 rows
+    // persist. >=2 (not >=1) is load-bearing: the mutation-proof checks below
+    // (total_persisted_lines == live_event_count; byte-identical replay) only
+    // DETECT a `to_jsonl_from`-ignores-`start` regression when at least two
+    // incremental segments exist — with a single row a from-0 mutation looks
+    // identical to correct incremental output.
     let row_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM bus_recordings")
         .fetch_one(&pool)
         .await
         .unwrap();
     assert!(
-        row_count >= 1,
-        "drive() must persist at least one bus_recordings row (got {row_count})"
+        row_count >= 2,
+        "drive() must persist >=2 incremental bus_recordings rows (got {row_count})"
     );
 
     // Read all rows ORDER BY recording_id (ULID = chronological), concatenate,

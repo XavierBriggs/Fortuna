@@ -2791,10 +2791,11 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
         // ULIDs are time-ordered, so ORDER BY recording_id across restarts
         // replays segments in wall-clock order even when segment_seq resets.
         // The ULID is minted from the injected clock at segment persist time;
-        // `from_parts(ms, 0)` uses the timestamp only (no random) — sufficient
-        // uniqueness: two segments can't complete in the same millisecond under
-        // the SimClock (clock advances between segments) and on real wall time
-        // the ms granularity is fine.
+        // `from_parts(ms, recording_seq)` uses the clock ms plus the segment
+        // counter as the low bits (no random) — sufficient uniqueness even if
+        // two segments complete in the same millisecond, and under the SimClock
+        // the clock also advances between segments; on real wall time the ms
+        // granularity plus the counter is fine.
         //
         // `None` => no persist (byte-identical daemon — fail closed).
         if let Some(rpool) = &recordings_pool {
