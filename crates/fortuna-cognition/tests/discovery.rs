@@ -841,6 +841,11 @@ fn normalize_category_collapses_case_and_separators() {
     );
     assert_eq!(normalize_category("Weather"), "weather");
     assert_eq!(normalize_category("  weather  "), "weather");
+    // Trailing/leading separator must NOT leave a residual space (idempotency).
+    assert_eq!(normalize_category("macro/"), "macro");
+    assert_eq!(normalize_category("/macro"), "macro");
+    assert_eq!(normalize_category("macro-"), "macro");
+    assert_eq!(normalize_category("macro/fed/"), "macro fed");
 }
 
 #[test]
@@ -856,6 +861,11 @@ fn normalize_category_is_idempotent() {
         "weather",
         "  Weather  ",
         "MACRO/MONETARY-POLICY",
+        // trailing/leading separators — the case that exposed the bug:
+        "macro/",
+        "/macro",
+        "macro-",
+        "macro/fed/",
     ] {
         let once = normalize_category(raw);
         let twice = normalize_category(&once);

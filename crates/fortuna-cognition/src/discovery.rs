@@ -645,6 +645,10 @@ pub fn normalize_category(raw: &str) -> String {
             in_sep = false;
         }
     }
+    // A trailing separator (e.g. "macro/") leaves a trailing space from the
+    // collapse step; trim it so normalize is IDEMPOTENT (normalize(normalize(x))
+    // == normalize(x)) and "macro/" canonicalizes to "macro", not "macro ".
+    result.truncate(result.trim_end().len());
     result
 }
 
@@ -717,9 +721,15 @@ pub async fn world_forward_discovery(
         }
         // C3 (F9): controlled vocabulary gate. Normalize the raw category
         // and match against normalized allowlist entries. If the allowlist
-        // is empty, the gate is bypassed (unconfigured / legacy). On a match,
-        // store the CANONICAL allowlist spelling so all case/separator
-        // variants collapse to one string. On no match, reject with a defect.
+        // is empty, the gate is bypassed (empty = "no vocabulary configured"
+        // = no filter — the sensible default). NOTE the market-back prefilter
+        // treats an empty `category_allowlist` as reject-ALL (`!contains`,
+        // discovery.rs:122) — the opposite default. This asymmetry is
+        // pre-existing and only bites an UNCONFIGURED deployment; the demo
+        // MUST set `[discovery] category_allowlist` (E2) so both paths use the
+        // real vocab and neither default triggers. See GAPS.md "C3 follow-on".
+        // On a match, store the CANONICAL allowlist spelling so all
+        // case/separator variants collapse to one string. On no match, reject.
         let canonical_category = if category_allowlist.is_empty() {
             entry.category.clone()
         } else {
