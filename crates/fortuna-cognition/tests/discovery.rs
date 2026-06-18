@@ -22,8 +22,9 @@
 //! Written BEFORE src/discovery.rs per the repository TDD doctrine.
 
 use fortuna_cognition::discovery::{
-    market_back_discovery, prefilter, tradability_score, watchlist_count, world_forward_discovery,
-    DiscoveryBudget, ExistingEventView, MarketView, PrefilterConfig, WatchlistEventView,
+    market_back_discovery, normalize_category, prefilter, tradability_score, watchlist_count,
+    world_forward_discovery, DiscoveryBudget, ExistingEventView, MarketView, PrefilterConfig,
+    WatchlistEventView,
 };
 use fortuna_cognition::events::MappingType;
 use fortuna_cognition::mind::{MindOutput, StubMind};
@@ -389,6 +390,7 @@ async fn world_forward_enforces_the_unscoreable_rule_and_cost_cap() {
         &mind,
         &[],
         &registry(),
+        &[],
         &mut budget,
         t("2026-06-11T07:00:00.000Z"),
     )
@@ -435,6 +437,7 @@ async fn world_forward_enforces_the_unscoreable_rule_and_cost_cap() {
         &mind,
         &[],
         &registry(),
+        &[],
         &mut spent,
         t("2026-06-11T07:00:00.000Z"),
     )
@@ -484,6 +487,7 @@ async fn world_forward_refuses_beliefs_on_unscoreable_or_unknown_events() {
         &mind,
         &[],
         &registry(),
+        &[],
         &mut budget,
         t("2026-06-11T07:00:00.000Z"),
     )
@@ -527,6 +531,7 @@ async fn world_forward_accepts_belief_event_id_without_watch_prefix() {
         &mind,
         &[],
         &registry(),
+        &[],
         &mut budget,
         t("2026-06-17T23:16:17.664Z"),
     )
@@ -562,6 +567,7 @@ async fn world_forward_refuses_placeholder_watchlist_candidates() {
         &mind,
         &[],
         &registry(),
+        &[],
         &mut budget,
         t("2026-06-17T23:16:17.664Z"),
     )
@@ -616,6 +622,7 @@ async fn world_forward_accepts_date_only_horizons() {
         &mind,
         &[],
         &registry(),
+        &[],
         &mut budget,
         t("2026-06-11T07:00:00.000Z"),
     )
@@ -669,6 +676,7 @@ async fn world_forward_accepts_observed_resolved_date_phrase() {
         &mind,
         &[],
         &registry(),
+        &[],
         &mut budget,
         t("2026-06-11T07:00:00.000Z"),
     )
@@ -745,6 +753,7 @@ async fn world_forward_prose_resolution_source_resolves_to_enabled_scoreable() {
         &mind,
         &[],
         &registry_with_fed(),
+        &[],
         &mut budget,
         t("2026-06-17T12:00:00.000Z"),
     )
@@ -799,6 +808,7 @@ async fn world_forward_unregistered_prose_resolution_source_remains_unscoreable(
         &mind,
         &[],
         &registry_with_fed(),
+        &[],
         &mut budget,
         t("2026-06-17T12:00:00.000Z"),
     )
@@ -811,4 +821,237 @@ async fn world_forward_unregistered_prose_resolution_source_remains_unscoreable(
         "unregistered prose source must remain unscoreable"
     );
     assert!(outcome.beliefs.is_empty(), "no belief on unscoreable event");
+}
+
+// -------------------------------------------------- C3: normalize_category + allowlist gate (F9)
+
+#[test]
+fn normalize_category_collapses_case_and_separators() {
+    // Core canonicalization: trim, lowercase, collapse whitespace/`/`/`-`/`_` → single space.
+    assert_eq!(normalize_category("Macro"), "macro");
+    assert_eq!(normalize_category("MACRO"), "macro");
+    assert_eq!(normalize_category(" macro "), "macro");
+    assert_eq!(normalize_category("Macro/Fed"), "macro fed");
+    assert_eq!(normalize_category("macro/fed"), "macro fed");
+    assert_eq!(normalize_category("macro-policy"), "macro policy");
+    assert_eq!(normalize_category("macro_policy"), "macro policy");
+    assert_eq!(
+        normalize_category("MACRO/MONETARY-POLICY"),
+        "macro monetary policy"
+    );
+    assert_eq!(normalize_category("Weather"), "weather");
+    assert_eq!(normalize_category("  weather  "), "weather");
+}
+
+#[test]
+fn normalize_category_is_idempotent() {
+    // normalize(normalize(x)) == normalize(x) for arbitrary inputs.
+    for raw in &[
+        "Macro",
+        "MACRO",
+        "Macro/Fed",
+        "macro-monetary-policy",
+        "macro_policy",
+        "x",
+        "weather",
+        "  Weather  ",
+        "MACRO/MONETARY-POLICY",
+    ] {
+        let once = normalize_category(raw);
+        let twice = normalize_category(&once);
+        assert_eq!(once, twice, "not idempotent for input {:?}", raw);
+    }
+}
+
+#[tokio::test]
+async fn world_forward_allowlist_accepts_allowlisted_category_canonicalized() {
+    // C3 (F9): a candidate whose category is an allowlisted variant ("Macro", "MACRO")
+    // is accepted and stored under the CANONICAL allowlist spelling ("macro").
+    // Two variants of "macro" collapse to ONE distinct stored category.
+    let allowlist = vec!["macro".to_string(), "weather".to_string()];
+
+    let mind = StubMind::scripted(vec![serde_json::from_value(json!({
+        "beliefs": [],
+        "proposals": [],
+        "journal": {"body": json!({
+            "candidates": [
+                {
+                    "event_hint": "fed-rate-decision",
+                    "statement": "The Federal Reserve holds rates at June FOMC",
+                    "resolution_criteria": "Federal Reserve Board official press release",
+                    "resolution_source": "nws",
+                    "horizon": "2026-06-18T18:00:00.000Z",
+                    "category": "Macro",
+                    "reasoning": "Clear FOMC event."
+                },
+                {
+                    "event_hint": "fed-warsh-oath",
+                    "statement": "Kevin Warsh takes the Fed chair oath",
+                    "resolution_criteria": "Federal Reserve Board press release",
+                    "resolution_source": "nws",
+                    "horizon": "2026-06-20T18:00:00.000Z",
+                    "category": "MACRO",
+                    "reasoning": "Variant spelling of the same category."
+                }
+            ],
+            "beliefs": []
+        }).to_string()}
+    }))
+    .unwrap()]);
+
+    let mut budget = DiscoveryBudget::new(500);
+    let outcome = world_forward_discovery(
+        &mind,
+        &[],
+        &registry(),
+        &allowlist,
+        &mut budget,
+        t("2026-06-18T00:00:00.000Z"),
+    )
+    .await
+    .unwrap();
+
+    // Both candidates accepted (they normalize to "macro" which is allowlisted).
+    assert_eq!(
+        outcome.candidates.len(),
+        2,
+        "both macro-variant candidates accepted: {:?}",
+        outcome.defects
+    );
+    // No-13-spelling-drift: all accepted candidates share ONE canonical category string.
+    let categories: std::collections::HashSet<&str> = outcome
+        .candidates
+        .iter()
+        .map(|c| c.category.as_str())
+        .collect();
+    assert_eq!(
+        categories.len(),
+        1,
+        "N case-variants collapse to one canonical category: {:?}",
+        categories
+    );
+    assert!(
+        categories.contains("macro"),
+        "stored category is the canonical allowlist spelling: {:?}",
+        categories
+    );
+    // No defects from the category gate.
+    assert!(
+        outcome.defects.is_empty(),
+        "no defects from allowlisted variants: {:?}",
+        outcome.defects
+    );
+}
+
+#[tokio::test]
+async fn world_forward_allowlist_rejects_unknown_category() {
+    // C3 (F9): a candidate whose normalized category does not appear in the allowlist
+    // is REJECTED with an audit-visible defect. "x" → rejected; garbage → rejected.
+    let allowlist = vec!["macro".to_string(), "weather".to_string()];
+
+    let mind = StubMind::scripted(vec![serde_json::from_value(json!({
+        "beliefs": [],
+        "proposals": [],
+        "journal": {"body": json!({
+            "candidates": [
+                {
+                    "event_hint": "heat-dome-2026-06",
+                    "statement": "A heat dome produces 3+ consecutive 95F days in NYC",
+                    "resolution_criteria": "NWS Central Park daily climate reports",
+                    "resolution_source": "nws",
+                    "horizon": "2026-06-25T00:00:00.000Z",
+                    "category": "weather",
+                    "reasoning": "NWS can verify."
+                },
+                {
+                    "event_hint": "garbage-event",
+                    "statement": "Something about some thing that happened somewhere",
+                    "resolution_criteria": "Unknown vibes-based metric",
+                    "resolution_source": "nws",
+                    "horizon": "2026-12-31T00:00:00.000Z",
+                    "category": "monetary_policy",
+                    "reasoning": "A valid-length category that is not in the allowlist."
+                }
+            ],
+            "beliefs": []
+        }).to_string()}
+    }))
+    .unwrap()]);
+
+    let mut budget = DiscoveryBudget::new(500);
+    let outcome = world_forward_discovery(
+        &mind,
+        &[],
+        &registry(),
+        &allowlist,
+        &mut budget,
+        t("2026-06-18T00:00:00.000Z"),
+    )
+    .await
+    .unwrap();
+
+    // "weather" is allowlisted → accepted; "x" is not → rejected.
+    assert_eq!(
+        outcome.candidates.len(),
+        1,
+        "only the allowlisted candidate survives: {:?}",
+        outcome.defects
+    );
+    assert_eq!(outcome.candidates[0].event_id, "watch:heat-dome-2026-06");
+    // The rejection is audit-visible as a defect.
+    assert!(
+        outcome
+            .defects
+            .iter()
+            .any(|d| d.contains("not in controlled vocabulary")),
+        "category rejection is audit-visible: {:?}",
+        outcome.defects
+    );
+}
+
+#[tokio::test]
+async fn world_forward_empty_allowlist_bypasses_category_gate() {
+    // C3 (F9): an empty allowlist means "no vocabulary gate" (legacy / unconfigured
+    // behaviour). Candidates with any category pass through.
+    let mind = StubMind::scripted(vec![serde_json::from_value(json!({
+        "beliefs": [],
+        "proposals": [],
+        "journal": {"body": json!({
+            "candidates": [{
+                "event_hint": "heat-dome-2026-06",
+                "statement": "A heat dome produces 3+ consecutive 95F days in NYC",
+                "resolution_criteria": "NWS Central Park daily climate reports",
+                "resolution_source": "nws",
+                "horizon": "2026-06-25T00:00:00.000Z",
+                "category": "weather",
+                "reasoning": "NWS can verify."
+            }],
+            "beliefs": []
+        }).to_string()}
+    }))
+    .unwrap()]);
+
+    let mut budget = DiscoveryBudget::new(500);
+    // Empty allowlist: the gate is skipped, candidate passes.
+    let outcome = world_forward_discovery(
+        &mind,
+        &[],
+        &registry(),
+        &[],
+        &mut budget,
+        t("2026-06-18T00:00:00.000Z"),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        outcome.candidates.len(),
+        1,
+        "empty allowlist bypasses the gate"
+    );
+    assert!(
+        outcome.defects.is_empty(),
+        "no defects from empty allowlist: {:?}",
+        outcome.defects
+    );
 }

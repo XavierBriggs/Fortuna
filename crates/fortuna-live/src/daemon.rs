@@ -3232,6 +3232,7 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                             dw.mind.as_ref(),
                             &ctx_items,
                             &dw.registry,
+                            &dw.prefilter.category_allowlist,
                             &mut dw.budget,
                             now,
                         )
