@@ -3483,13 +3483,19 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                             if nws_cli_is_stale(freshest, now, NWS_CLI_STALE_SECS) {
                                 let age_msg = match freshest {
                                     None => "absent (no nws.cli signal ever ingested)".to_string(),
+                                    // An unparseable timestamp is itself a staleness signal —
+                                    // say so rather than printing a misleading age=0h.
                                     Some(ts) => {
-                                        let age_h = (now.epoch_millis()
-                                            - fortuna_core::clock::UtcTimestamp::parse_iso8601(ts)
-                                                .map(|t| t.epoch_millis())
-                                                .unwrap_or(now.epoch_millis()))
-                                            / 3_600_000;
-                                        format!("freshest={ts}, age={age_h}h")
+                                        match fortuna_core::clock::UtcTimestamp::parse_iso8601(ts) {
+                                            Ok(t) => {
+                                                let age_h = (now.epoch_millis() - t.epoch_millis())
+                                                    / 3_600_000;
+                                                format!("freshest={ts}, age={age_h}h")
+                                            }
+                                            Err(_) => {
+                                                format!("freshest={ts} (unparseable timestamp)")
+                                            }
+                                        }
                                     }
                                 };
                                 total_send_failures += runner

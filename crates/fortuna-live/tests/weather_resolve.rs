@@ -369,13 +369,11 @@ fn not_stale_when_cli_fresh() {
 
 #[test]
 fn stale_exactly_at_threshold_boundary() {
-    // CLI received exactly NWS_CLI_STALE_SECS ago → is stale (boundary is exclusive: > not >=).
+    // Staleness uses STRICTLY-GREATER: `age_secs > max_secs`. So at exactly the
+    // threshold (age == max_secs) the CLI is NOT yet stale; one second past it IS.
     // now() = 2026-06-15T00:00:00.000Z, threshold 36h = 129600s.
-    // Exactly 36h before now = 2026-06-13T12:00:00.000Z.
+    // Exactly 36h before now = 2026-06-13T12:00:00.000Z (age == threshold → NOT stale).
     let exactly_at_boundary = "2026-06-13T12:00:00.000Z";
-    // age == threshold → stale (age > max_secs uses strictly-greater; at the boundary it IS stale).
-    // Contracts: if age > max_secs → stale. At exactly max_secs, age == max_secs → NOT stale.
-    // We want age strictly > max_secs to trigger. Test this boundary precisely:
     assert!(
         !nws_cli_is_stale(Some(exactly_at_boundary), now(), 36 * 3600),
         "CLI exactly at the 36h boundary is NOT yet stale (age == threshold, not exceeding it)"
