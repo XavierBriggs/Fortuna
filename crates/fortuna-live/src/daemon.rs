@@ -1885,6 +1885,10 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     // The (market_id, notice_id) partial-unique index — NOT this PK — is the
     // set-once idempotency key.
     let mut settlement_id_base = belief_id_base;
+    // A4: trade-score id monotonic base. Same seeding pattern as settlement_id_base;
+    // OWN counter ("01TSC" prefix). The UNIQUE (market_id, strategy) index is the
+    // idempotency key — the PK is only for audit identity.
+    let mut trade_score_id_base = belief_id_base;
     loop {
         // slice-4e: feed one recorded PerpTick at the head of the segment so the
         // perp producers fire during this segment's ticks (EventOrigin::External,
@@ -2668,6 +2672,60 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                 s.market, s.notice_id
                             ),
                         )),
+                    }
+
+                    // A4: compute + persist the trade score for this market.
+                    // Runs on EVERY settlement (not synthesis-gated), using the
+                    // same pool. `fills_aggregate` gives us strategy/fees/counts
+                    // from the `fills` table; `pnl_after_fees = realized_pnl -
+                    // fees`. `Ok(false)` is a normal idempotent skip. Alert +
+                    // continue on error (calibration substrate, not money path).
+                    // `producer = None` until D4 wires the belief attribution.
+                    {
+                        let ts_repo = fortuna_ledger::TradeScoresRepo::new(spool.clone());
+                        let scored_at = Clock::now(runner.clock().as_ref()).to_iso8601();
+                        match ts_repo.fills_aggregate(s.market.as_str()).await {
+                            Ok(agg) => {
+                                let pnl_after_fees = s.realized_pnl_cents - agg.fees_cents;
+                                let trade_score_id =
+                                    format!("01TSC{trade_score_id_base:021}");
+                                trade_score_id_base += 1;
+                                match ts_repo
+                                    .insert(
+                                        &trade_score_id,
+                                        s.market.as_str(),
+                                        s.venue.as_str(),
+                                        agg.strategy.as_deref(),
+                                        None, // producer: D4
+                                        s.realized_pnl_cents,
+                                        agg.fees_cents,
+                                        pnl_after_fees,
+                                        agg.n_fills,
+                                        agg.maker_fills,
+                                        &s.at.to_iso8601(),
+                                        &scored_at,
+                                    )
+                                    .await
+                                {
+                                    // Ok(true) = inserted; Ok(false) = idempotent skip (NORMAL).
+                                    Ok(_) => {}
+                                    Err(e) => alerts.push((
+                                        fortuna_ops::MessageKind::Ops,
+                                        format!(
+                                            "trade_score persist FAILED for market={} — score lost this segment: {e}",
+                                            s.market
+                                        ),
+                                    )),
+                                }
+                            }
+                            Err(e) => alerts.push((
+                                fortuna_ops::MessageKind::Ops,
+                                format!(
+                                    "trade_score fills_aggregate FAILED for market={} — score skipped: {e}",
+                                    s.market
+                                ),
+                            )),
+                        }
                     }
                 }
             }

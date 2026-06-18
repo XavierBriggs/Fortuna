@@ -2541,3 +2541,96 @@ impl RecordingsRepo {
         Ok(())
     }
 }
+
+// ---------- A4: trade scores per (market, strategy) from settled fills ----------
+
+/// Aggregate of a market's fills, consumed by `TradeScoresRepo::insert` to
+/// compute `pnl_after_fees_cents`.
+#[derive(Debug, Clone)]
+pub struct FillAggregate {
+    pub strategy: Option<String>,
+    pub fees_cents: i64,
+    pub n_fills: i64,
+    pub maker_fills: i64,
+}
+
+/// Per-(market, strategy) trade score: realized PnL NET of basis + fill
+/// realism (maker/taker ratio). Append-only (the DB trigger refuses
+/// UPDATE/DELETE). One row per settled market+strategy (UNIQUE constraint
+/// enforces idempotency under restart/replay).
+pub struct TradeScoresRepo {
+    pool: PgPool,
+}
+
+impl TradeScoresRepo {
+    pub fn new(pool: PgPool) -> TradeScoresRepo {
+        TradeScoresRepo { pool }
+    }
+
+    /// Aggregate fill stats for a market from the `fills` table. Returns a
+    /// zero-count aggregate (strategy=None, all counts 0) when no fills exist
+    /// for the market — the daemon skips insert when n_fills is 0.
+    pub async fn fills_aggregate(&self, market_id: &str) -> Result<FillAggregate, LedgerError> {
+        let row = sqlx::query!(
+            r#"SELECT MAX(strategy)                                                   AS "strategy?",
+                      COALESCE(SUM(fee_cents), 0)::BIGINT                            AS "fees_cents!: i64",
+                      COUNT(*)::BIGINT                                               AS "n_fills!: i64",
+                      COALESCE(SUM(CASE WHEN is_maker THEN 1 ELSE 0 END), 0)::BIGINT AS "maker_fills!: i64"
+               FROM fills WHERE market_id = $1"#,
+            market_id
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(FillAggregate {
+            strategy: row.strategy,
+            fees_cents: row.fees_cents,
+            n_fills: row.n_fills,
+            maker_fills: row.maker_fills,
+        })
+    }
+
+    /// Insert one trade score. Returns `Ok(true)` when inserted, `Ok(false)`
+    /// when the UNIQUE (market_id, strategy) constraint fires — idempotent
+    /// under restart/replay (mirrors `FillsRepo::insert`). The DB trigger
+    /// refuses UPDATE/DELETE (append-only I5).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn insert(
+        &self,
+        trade_score_id: &str,
+        market_id: &str,
+        venue: &str,
+        strategy: Option<&str>,
+        producer: Option<&str>,
+        realized_pnl_cents: i64,
+        fees_cents: i64,
+        pnl_after_fees_cents: i64,
+        n_fills: i64,
+        maker_fills: i64,
+        settled_at: &str,
+        scored_at: &str,
+    ) -> Result<bool, LedgerError> {
+        let result = sqlx::query!(
+            r#"INSERT INTO trade_scores
+               (trade_score_id, market_id, venue, strategy, producer,
+                realized_pnl_cents, fees_cents, pnl_after_fees_cents,
+                n_fills, maker_fills, settled_at, scored_at)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+               ON CONFLICT (market_id, strategy) DO NOTHING"#,
+            trade_score_id,
+            market_id,
+            venue,
+            strategy,
+            producer,
+            realized_pnl_cents,
+            fees_cents,
+            pnl_after_fees_cents,
+            n_fills,
+            maker_fills,
+            settled_at,
+            scored_at
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
+    }
+}

@@ -298,3 +298,126 @@ async fn settlement_persists_net_pnl_and_is_idempotent_and_db_is_truth(pool: PgP
         "realized PnL SUM unchanged after replay"
     );
 }
+
+// ─── A4: settled market with fills -> one trade_scores row ────────────────────
+
+/// A4 gate: when a market settles AND has fills, `drive()` persists exactly
+/// one `trade_scores` row. `pnl_after_fees_cents` equals the settlement's
+/// `realized_pnl_cents` minus the summed `fee_cents` from the fills table.
+///
+/// NON-VACUOUS: `trade_scores` is empty before drive; the ONLY writer is the
+/// A4 hook in the settlement-drain block; the fills pool (`Some(pool)`) is
+/// the same wired for A2/A3, so fills arrive before settlements.
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn trade_score_written_for_settled_market_with_fills(pool: PgPool) {
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let dcfg = DaemonToml::parse(&text).expect("example parses");
+    dcfg.validate_bootable().expect("example boots sim");
+    let full = FortunaConfig::load_file(example_path).expect("example full-config parses");
+
+    let runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        t0(),
+        43,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .expect("composition");
+    arb_books(&runner);
+    let mut runner = ActiveRunner::Sim(runner);
+
+    // Segment 1: open positions (fills land in the fills table).
+    drive_once(&mut runner, &pool, 4).await;
+
+    // Verify fills were persisted (A2 must be wired for A4 to aggregate).
+    let fill_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM fills WHERE market_id = 'SIM-BKT-LO'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    // mech_structural opens a position on SIM-BKT-LO; if no fills yet, retry with more wakes.
+    // At minimum, the strategy trades the arb set — SIM-BKT-LO is in it.
+
+    // Settle SIM-BKT-LO at the venue.
+    {
+        let ActiveRunner::Sim(r) = &runner else {
+            panic!("sim runner");
+        };
+        r.venue()
+            .settle_market(&MarketId::new("SIM-BKT-LO").unwrap(), Side::Yes)
+            .unwrap();
+    }
+
+    // Re-arm the books for the next segment's poll, then drive again so the
+    // settlement processor reconciles + the daemon drains + persists A3 + A4.
+    arb_books(match &runner {
+        ActiveRunner::Sim(r) => r,
+        _ => unreachable!(),
+    });
+    drive_once(&mut runner, &pool, 4).await;
+
+    // The settled market now carries a non-zero realized PnL in memory.
+    let realized_pnl = realized_pnl_of(&runner, "SIM-BKT-LO");
+    assert_ne!(realized_pnl, 0, "SIM-BKT-LO settled with a realized PnL");
+
+    // A4: exactly ONE trade_scores row for the settled market.
+    let score_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM trade_scores WHERE market_id = 'SIM-BKT-LO'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        score_count, 1,
+        "A4: exactly one trade_scores row for the settled market (got {score_count})"
+    );
+
+    // The summed fill fees for SIM-BKT-LO.
+    let fill_fees: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(fee_cents), 0)::bigint FROM fills WHERE market_id = 'SIM-BKT-LO'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    // pnl_after_fees_cents == realized_pnl_cents - fees.
+    let pnl_after_fees: i64 = sqlx::query_scalar(
+        "SELECT pnl_after_fees_cents FROM trade_scores WHERE market_id = 'SIM-BKT-LO'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        pnl_after_fees,
+        realized_pnl - fill_fees,
+        "pnl_after_fees_cents = settlement PnL − fill fees (realized={realized_pnl}, fees={fill_fees})"
+    );
+
+    // The score is attributed to the fills' strategy (mech_structural or mech_extremes).
+    let strategy: Option<String> =
+        sqlx::query_scalar("SELECT strategy FROM trade_scores WHERE market_id = 'SIM-BKT-LO'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(
+        strategy.is_some(),
+        "A4: trade_scores row has a non-null strategy (got {strategy:?})"
+    );
+
+    // The score counts match the persisted fills.
+    let ts_n_fills: i64 =
+        sqlx::query_scalar("SELECT n_fills FROM trade_scores WHERE market_id = 'SIM-BKT-LO'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        ts_n_fills, fill_count,
+        "n_fills in trade_scores matches the fills table count"
+    );
+}
