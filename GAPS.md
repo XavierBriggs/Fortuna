@@ -68,6 +68,26 @@ rolling series prefix (e.g. `KXHIGHNY`) instead of dated ticker literals in conf
 the demo config always uses rolling/date-agnostic bracket identifiers that remain valid across
 demo runs. Handle in E2/E5 (demo config hardening + live catalog wiring for the mech arm).
 
+## GO-gate config diverges from spec §11 thresholds (2026-06-19, found by scoring-doc V&V)
+The shipped `config/fortuna.example.toml` sets two GO/NO-GO thresholds that diverge from spec
+Section 11 (spec.md:384), surfaced while validating the Scoring & Validation Architecture doc:
+- **`min_paper_days_mechanical = 14`** (fortuna.example.toml:92) vs spec §11 **`≥ 30 trading days for mechanical`**. Config is HALF the spec bar — a mechanical strategy could clear the paper gate in 2 weeks instead of the spec-mandated ~6. `crates/fortuna-cognition/tests/review.rs:123` uses 30 (the spec value), so the code authors knew the bar; the example config diverges. Consumed at review.rs:147/214.
+- **`max_fee_pnl_ratio = 0.5`** (fortuna.example.toml:94) vs spec §11 **`fee/PnL ratio < 0.35`**. Config permits fees up to 50% of PnL before NO-GO; spec caps at 35%. Consumed at review.rs:280.
+Both diverge in the *less strict* direction (weaker gate than spec). NOT changed yet — the demo config (E2) and a spec/config reconciliation pass should decide whether to (a) tighten the example config to the spec values (30 / 0.35), or (b) ratify the looser demo values with an explicit rationale. Until reconciled, the §8 demo scorecard cites the SPEC values (30 / 0.35) as authoritative, not the shipped config. NB: `min_resolved_beliefs_synthesis = 100` (config) is *stricter* than spec's `≥ 60`, so it is conservative and needs no action.
+
+## Persona/synthesis binary beliefs are never resolved or scored (2026-06-19, found by scoring-doc V&V)
+There are exactly TWO live belief resolvers: `resolve_and_score_weather_beliefs` (daemon.rs:4637,
+Aeolus-only — its queue `open_aeolus_weather_due` filters `provenance->>'model_id'='aeolus'`,
+repos.rs:1362, + an `aeolus:` event-id prefix guard) and `resolve_and_score_funding_beliefs`
+(daemon.rs:4378, funding scalar). Meteorologist/persona binary beliefs (event_id
+`{region_key}#{suffix}`, provenance `persona_id`; persona_beliefs.rs) and synthesis binary beliefs
+match NEITHER filter, so they are never resolved or scored in production. `resolved_persona_stats`
+(repos.rs:1305) selects `WHERE outcome IS NOT NULL`, but nothing live sets that outcome (only
+persona_e2e.rs does, by hand). **Consequence:** the Aeolus-vs-meteorologist head-to-head (the D3
+thesis payoff, spec/demo §0) accrues ZERO scored persona data today. Unblock = D-4/G2 in the
+scoring architecture doc: build resolution for persona + synthesis binary beliefs (not just unify
+the two existing forks). This is a hard prerequisite for the demo's head-to-head, scheduled P1.
+
 ## Disputed invariant tests
 ### C5 BookAge gate vs i1_universal_gate hardcoded check-count (2026-06-18, Phase C)
 Task C5 (book-freshness gate) adds an 11th gate check (BookAge) to `GateCheck::ALL`. The i1_universal_gate invariant test hardcodes the count `assert_eq!(out.records.len(), 10)` (2 sites: i1_universal_gate + i1_prop_all_orders_carry_gate_verdicts). Adding ANY gate check makes that `10` wrong. The C5 subagent changed `10` → `GateCheck::ALL.len()` (a self-adjusting STRENGTHENING) — but that MODIFIES a protected invariant assertion, which the constitution forbids without operator review. **RESOLVED 2026-06-18 (operator-approved, see chat):** chose the SEPARATE BookAge check (cleaner: single-responsibility + distinct `gate_rejections{check="book_age"}` telemetry + explicit ordering before price-sanity + spec-faithful). The i1 count update `10 → GateCheck::ALL.len()` is a genuine STRENGTHENING (verifies EVERY check produces a verdict regardless of count, not a fixed N) and is operator-blessed. The change was re-applied (cherry-pick of a9140c0). **Protected-invariant baseline re-based past this commit:** future `check-protected-invariants.sh` runs in this session compare against the post-C5 commit so this approved change is grandfathered while any NEW invariant modification is still caught. The hardcoded-`10` brittleness is the root cause; using `GateCheck::ALL.len()` makes i1 self-adjusting for future checks.
