@@ -419,10 +419,10 @@ async fn main() -> Result<()> {
     // the registry HEAD, and validate_against it (a file whose hash != the active
     // registry row — or an inactive/version-mismatched head — REFUSES to boot, so
     // a tampered method never runs, design §6). The persona STRATEGY id is built
-    // ONCE here (no fallible id construction on the loop path). The persona mind is
-    // the SAME synthesis mind (one build; a stub mind proposes nothing). Absent /
-    // `enabled = false` => None => the persona step never runs (byte-identical
-    // daemon). Built BEFORE `pool` + `synthesis_mind` move below.
+    // ONCE here (no fallible id construction on the loop path). Each persona gets
+    // its OWN Mind built from its charter (D1, audit Area 8 — see the per-persona
+    // mind map below), NOT the shared synthesis mind. Absent / `enabled = false`
+    // => None => the persona step never runs (byte-identical daemon).
     let persona_strategy = fortuna_core::market::StrategyId::new("domain-analysis")
         .map_err(|e| anyhow::anyhow!("building persona strategy id: {e}"))?;
     let personas_wiring = match dcfg.personas.as_ref() {
