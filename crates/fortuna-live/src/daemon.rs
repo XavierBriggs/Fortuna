@@ -3152,9 +3152,13 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                         //
                         // D3: also build a signal_id-keyed lookup of
                         // EventSourceEvidenceInput so the persona path can write
-                        // evidence links (mirror of the discovery path). The lookup is
-                        // built in the SAME pass so we never re-read; only envelopes
-                        // that parse cleanly enter both the signals vec and the map.
+                        // evidence links (same insert_many + "model_context" relation
+                        // as the discovery path). NOTE the ORDERING differs: discovery
+                        // writes evidence BEFORE its persist; the persona path must
+                        // write it AFTER persist_beliefs because event_source_evidence
+                        // .event_id FKs to events, which persist_beliefs creates. The
+                        // lookup is built in the SAME pass so we never re-read; only
+                        // envelopes that parse cleanly enter both the signals vec and the map.
                         let mut persona_evidence_by_id: std::collections::BTreeMap<
                             String,
                             fortuna_ledger::EventSourceEvidenceInput,
