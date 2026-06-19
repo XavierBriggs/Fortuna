@@ -5518,6 +5518,86 @@ pub fn rich_daily_digest<
     })
 }
 
+/// Idempotent boot-time seed for the personas registry (D2).
+///
+/// For each configured persona entry: reads `{dir}/persona.md` + `{dir}/schema.json`,
+/// parses them through `PersonaDef::parse` (which computes `def.method_hash` = SHA-256
+/// of the ENTIRE `persona.md` — the same hash the runtime loader checks), then inserts
+/// the row only when `PersonasRepo::head` returns `None` (skip if already registered,
+/// so a re-boot never double-inserts). The seeded `method_hash` equals what the loader
+/// computes by construction — a re-hash or a separate hash computation is
+/// intentionally absent. Returns the count of rows inserted (0 on a re-boot).
+///
+/// `now_iso` MUST come from the injected boot clock (the caller's `UtcTimestamp`
+/// converted via `.to_iso8601()`), never from `SystemTime::now()` or `Utc::now()`.
+/// This keeps the timestamp deterministic for DST replay.
+pub async fn seed_personas(
+    pool: &PgPool,
+    personas_cfg: &[crate::boot::PersonaEntryConfig],
+    now_iso: &str,
+) -> anyhow::Result<usize> {
+    let repo = fortuna_ledger::PersonasRepo::new(pool.clone());
+    let mut seeded = 0usize;
+    for entry in personas_cfg {
+        let md_path = format!("{}/persona.md", entry.dir);
+        let schema_path = format!("{}/schema.json", entry.dir);
+        let md = std::fs::read_to_string(&md_path)
+            .map_err(|e| anyhow::anyhow!("seed_personas: reading {md_path}: {e}"))?;
+        let schema_json = std::fs::read_to_string(&schema_path)
+            .map_err(|e| anyhow::anyhow!("seed_personas: reading {schema_path}: {e}"))?;
+        let def = fortuna_cognition::persona::PersonaDef::parse(&md, &schema_json)
+            .map_err(|e| anyhow::anyhow!("seed_personas: parsing persona {:?}: {e}", entry.id))?;
+        // Idempotent: skip if a registry head already exists for this persona.
+        let head = repo.head(&def.meta.id).await.map_err(|e| {
+            anyhow::anyhow!(
+                "seed_personas: querying registry head for {:?}: {e}",
+                def.meta.id
+            )
+        })?;
+        if head.is_some() {
+            continue;
+        }
+        // Derive a stable row id from the persona id + version (no randomness; no
+        // wall-clock entropy — the row is uniquely identified by (persona_id, version)
+        // and the DB UNIQUE constraint enforces that; the row_id is an opaque string
+        // key for the audit trail).
+        let persona_row_id = format!("{}:v{}", def.meta.id, def.meta.version);
+        let domain_tags = serde_json::Value::Array(
+            def.meta
+                .domain_tags
+                .iter()
+                .map(|t| serde_json::Value::String(t.clone()))
+                .collect(),
+        );
+        let reads_signal_kinds = serde_json::Value::Array(
+            def.meta
+                .reads_signal_kinds
+                .iter()
+                .map(|k| serde_json::Value::String(k.clone()))
+                .collect(),
+        );
+        repo.insert(
+            &persona_row_id,
+            &def.meta.id,
+            def.meta.version,
+            &def.meta.domain,
+            &domain_tags,
+            &reads_signal_kinds,
+            &def.meta.tier,
+            &def.method_hash, // hash from PersonaDef::parse — guaranteed match
+            &def.meta.output_schema_version,
+            "active",
+            None, // supersedes: first insert, no prior row
+            now_iso,
+            now_iso,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("seed_personas: inserting persona {:?}: {e}", def.meta.id))?;
+        seeded += 1;
+    }
+    Ok(seeded)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

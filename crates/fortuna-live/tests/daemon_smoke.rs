@@ -4531,3 +4531,190 @@ async fn drive_persists_bus_recording_per_segment_incrementally(pool: PgPool) {
         "replayed recording must be byte-identical to the live recording"
     );
 }
+
+// ── D2: seed_personas tests ──────────────────────────────────────────────────
+
+/// Absolute path to the meteorologist persona directory (relative to the
+/// workspace root, converted to an absolute path so the test can be run from
+/// any working directory).
+fn meteorologist_dir() -> String {
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    // CARGO_MANIFEST_DIR = crates/fortuna-live; persona is two dirs up.
+    manifest
+        .parent() // crates/
+        .unwrap()
+        .parent() // workspace root
+        .unwrap()
+        .join("config/personas/meteorologist")
+        .to_str()
+        .unwrap()
+        .to_string()
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn seed_personas_enabled_boots_and_head_is_present(pool: PgPool) {
+    // D2 core test: with [personas] enabled + the meteorologist configured,
+    // seed_personas() succeeds, head() returns Some with the right fields,
+    // and def.validate_against(head) passes (hash-match guarantee).
+    let now_iso = "2026-06-18T00:00:00.000Z";
+    let dir = meteorologist_dir();
+
+    let cfg = vec![fortuna_live::boot::PersonaEntryConfig {
+        id: "meteorologist".to_string(),
+        dir: dir.clone(),
+        cadences: vec![],
+    }];
+
+    let seeded = fortuna_live::daemon::seed_personas(&pool, &cfg, now_iso)
+        .await
+        .expect("seed_personas should succeed");
+    assert_eq!(seeded, 1, "one persona seeded on first call");
+
+    // The head must be present with the expected fields.
+    let repo = fortuna_ledger::PersonasRepo::new(pool.clone());
+    let head = repo
+        .head("meteorologist")
+        .await
+        .expect("head query should succeed");
+    assert!(head.is_some(), "registry head must be present after seed");
+    let row = head.unwrap();
+    assert_eq!(row.version, 1, "version = 1 from persona.md frontmatter");
+    assert_eq!(row.status, "active", "status = active");
+    assert_eq!(row.domain, "weather", "domain = weather");
+
+    // Hash-match guarantee: parse the def ourselves and compare.
+    let md = std::fs::read_to_string(format!("{dir}/persona.md")).unwrap();
+    let schema_json = std::fs::read_to_string(format!("{dir}/schema.json")).unwrap();
+    let def = fortuna_cognition::persona::PersonaDef::parse(&md, &schema_json)
+        .expect("persona.md must parse");
+    assert_eq!(
+        row.method_hash, def.method_hash,
+        "seeded method_hash must equal PersonaDef::parse's hash"
+    );
+
+    // validate_against must pass (proves seed->head->validate round-trip).
+    let registry_head = fortuna_cognition::persona::RegistryHead {
+        version: row.version,
+        method_hash: row.method_hash.clone(),
+        status: row.status.clone(),
+    };
+    def.validate_against(Some(&registry_head))
+        .expect("validate_against must pass: hash/version/status all match");
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn seed_personas_is_idempotent(pool: PgPool) {
+    // D2 idempotency: calling seed_personas twice for the same persona inserts
+    // exactly one row (the second call is a no-op: head() is Some => skip).
+    let now_iso = "2026-06-18T00:00:00.000Z";
+    let cfg = vec![fortuna_live::boot::PersonaEntryConfig {
+        id: "meteorologist".to_string(),
+        dir: meteorologist_dir(),
+        cadences: vec![],
+    }];
+
+    let first = fortuna_live::daemon::seed_personas(&pool, &cfg, now_iso)
+        .await
+        .expect("first seed_personas call should succeed");
+    assert_eq!(first, 1, "first call inserts one row");
+
+    let second = fortuna_live::daemon::seed_personas(&pool, &cfg, now_iso)
+        .await
+        .expect("second seed_personas call should succeed");
+    assert_eq!(second, 0, "second call is a no-op (head already present)");
+
+    // Only one row exists for meteorologist.
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM personas WHERE persona_id = 'meteorologist'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        count, 1,
+        "exactly one row for meteorologist after two seed calls"
+    );
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn seed_personas_version_bump_causes_version_mismatch(pool: PgPool) {
+    // D2 mutation-proof: seed with the real persona.md (version=1),
+    // then simulate an operator version-bump by inserting a v2 row that has a
+    // DIFFERENT method_hash — validate_against must return VersionMismatch,
+    // proving the registry gate is real.
+    let now_iso = "2026-06-18T00:00:00.000Z";
+    let dir = meteorologist_dir();
+    let cfg = vec![fortuna_live::boot::PersonaEntryConfig {
+        id: "meteorologist".to_string(),
+        dir: dir.clone(),
+        cadences: vec![],
+    }];
+
+    // Seed the real persona (version=1, real hash).
+    fortuna_live::daemon::seed_personas(&pool, &cfg, now_iso)
+        .await
+        .expect("initial seed succeeds");
+
+    // Simulate an operator inserting a superseding v2 row with a DIFFERENT hash.
+    // This makes the REGISTRY HEAD be version=2, but the file on disk is version=1.
+    let repo = fortuna_ledger::PersonasRepo::new(pool.clone());
+    repo.insert(
+        "meteorologist:v2",
+        "meteorologist",
+        2, // bumped version
+        "weather",
+        &serde_json::json!(["temperature"]),
+        &serde_json::json!(["aeolus.forecast"]),
+        "cheap",
+        "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef", // different hash
+        "findings/v1",
+        "active",
+        Some("meteorologist:v1"),
+        now_iso,
+        now_iso,
+    )
+    .await
+    .expect("v2 insert succeeds");
+
+    // Now parse the on-disk def (still version=1) and validate against the new head.
+    let md = std::fs::read_to_string(format!("{dir}/persona.md")).unwrap();
+    let schema_json = std::fs::read_to_string(format!("{dir}/schema.json")).unwrap();
+    let def = fortuna_cognition::persona::PersonaDef::parse(&md, &schema_json)
+        .expect("persona.md parses");
+
+    let head = repo.head("meteorologist").await.unwrap().unwrap();
+    let registry_head = fortuna_cognition::persona::RegistryHead {
+        version: head.version,
+        method_hash: head.method_hash.clone(),
+        status: head.status.clone(),
+    };
+    // The file is v1; the registry head is v2 → VersionMismatch.
+    let err = def
+        .validate_against(Some(&registry_head))
+        .expect_err("version mismatch must be rejected");
+    assert!(
+        matches!(
+            err,
+            fortuna_cognition::persona::PersonaError::VersionMismatch { .. }
+        ),
+        "expected VersionMismatch, got: {err:?}"
+    );
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn seed_personas_no_op_when_personas_disabled(pool: PgPool) {
+    // D2 regression: no [personas] section => seed_personas is never called;
+    // the daemon is byte-identical (no row inserted). This test calls
+    // seed_personas with an EMPTY slice (simulating the disabled/absent path
+    // that main.rs follows when enabled=false or [personas] is absent).
+    let now_iso = "2026-06-18T00:00:00.000Z";
+    let seeded = fortuna_live::daemon::seed_personas(&pool, &[], now_iso)
+        .await
+        .expect("empty-cfg seed_personas is a no-op, not an error");
+    assert_eq!(seeded, 0, "no personas configured => nothing seeded");
+
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM personas")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0, "no rows inserted when personas list is empty");
+}

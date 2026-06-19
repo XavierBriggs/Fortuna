@@ -414,6 +414,24 @@ async fn main() -> Result<()> {
     // (merge: keep the Mid-tier reconciliation from 3-tier cognition; track-a's
     // persona/discovery wiring below is additive and retained.)
     let reconciliation = Some((pool.clone(), reconciliation_mind));
+    // D2: idempotent boot-time seed for the personas registry. When [personas] is
+    // enabled, any configured persona whose registry head is absent is inserted now
+    // (before the validation loop below, which would otherwise refuse NotRegistered).
+    // Re-boot is a no-op (head() is Some => skip). Timestamps come from `start` —
+    // the injected RealClock timestamp read at line ~86 — NEVER from SystemTime/Utc
+    // directly (DST-replay determinism, house rule). Absent/disabled => no seed.
+    if let Some(personas_sec) = dcfg.personas.as_ref() {
+        if personas_sec.enabled {
+            let now_iso = start.to_iso8601();
+            let seeded =
+                fortuna_live::daemon::seed_personas(&pool, &personas_sec.personas, &now_iso)
+                    .await
+                    .context("D2 boot-time persona seed failed")?;
+            if seeded > 0 {
+                eprintln!("fortuna-live: seeded {seeded} persona(s) into the registry");
+            }
+        }
+    }
     // OPT-IN [personas] wiring (default-off). PRESENT + enabled => load each
     // configured persona FAIL-CLOSED: read persona.md + schema.json, parse, fetch
     // the registry HEAD, and validate_against it (a file whose hash != the active
