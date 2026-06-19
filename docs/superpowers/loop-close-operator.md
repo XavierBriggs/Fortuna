@@ -1,4 +1,4 @@
-# operator.md — captain's escalation queue + decision log
+# loop-close-operator.md — captain's escalation queue + decision log (Loop-Close & Provable Demo milestone)
 
 The captain's action list for the operator + a timestamped log of ambiguities resolved by captain judgment.
 Per the charter's **Ambiguity protocol**: the captain resolves ambiguity itself (grounded in invariants → architecture doc → spec → charter), logs it here, and escalates ONLY when irreversible/outward-facing or when the docs genuinely conflict.

@@ -18,7 +18,7 @@ Close the FORTUNA learning loop **honestly** for *every* producer, and stand up 
 For each workstream: **(1) spec** it (or reuse the milestone spec's WS section) → **(2) VERIFY** the spec (QA) → **(3) PLAN** it (architecture agent + writing-plans) → **(4) VERIFY** the plan (QA — coverage vs spec, citations correct, slices sound, 3 test layers present, decoupling) → **(5) IMPLEMENT** via the per-slice loop below (SDE builder + QA verifier per slice). **Never skip a verify gate.** Keep each verify to ONE focused agent (token discipline), not a fan-out.
 
 ## Ambiguity protocol (handle it yourself — escalate rarely)
-On ambiguity: **(1) resolve with best judgment**, grounded in priority order — invariants/`CLAUDE.md` → architecture doc → spec → this charter; **(2) LOG** the decision + rationale + grounding in `operator.md` with a UTC timestamp; **(3) proceed.** **Escalate (surface to the operator) ONLY if absolutely necessary** — the decision is irreversible/outward-facing (promotion, credentials, starting the soak, spending real money) OR the invariants/docs genuinely conflict and you cannot resolve it. Everything else: decide, log, move. **Do not stall the loop for a question the docs can answer.**
+On ambiguity: **(1) resolve with best judgment**, grounded in priority order — invariants/`CLAUDE.md` → architecture doc → spec → this charter; **(2) LOG** the decision + rationale + grounding in `docs/superpowers/loop-close-operator.md` with a UTC timestamp; **(3) proceed.** **Escalate (surface to the operator) ONLY if absolutely necessary** — the decision is irreversible/outward-facing (promotion, credentials, starting the soak, spending real money) OR the invariants/docs genuinely conflict and you cannot resolve it. Everything else: decide, log, move. **Do not stall the loop for a question the docs can answer.**
 
 ## Sources of truth (re-query; never trust memory)
 - **Goal / design:** `docs/superpowers/specs/2026-06-19-loop-close-and-provable-demo-design.md`
@@ -27,7 +27,8 @@ On ambiguity: **(1) resolve with best judgment**, grounded in priority order —
 - **STATE (where we are):** `.git/sdd/progress.md` ← the ledger is truth, not your recollection
 - **Findings bus (captain-owned):** `docs/reviews/GATE-FINDINGS-LATEST.md`
 - **Constitution:** `CLAUDE.md` + `crates/fortuna-invariants/` (additions-only; protected baseline `dadd28a`)
-- **GAPS.md** (forward / deferred) · **CHANGELOG** (landed) · **`operator.md`** (your escalation queue + timestamped decision log)
+- **`docs/superpowers/loop-close-gaps.md`** (THIS milestone's forward/deferred) · repo-wide **`/GAPS.md`** (constitutional) · **CHANGELOG** (landed) · **`docs/superpowers/loop-close-operator.md`** (your escalation queue + timestamped decision log)
+  > Use the milestone-specific paths above — do NOT read a bare `operator.md`/`GAPS.md` (the repo + the operator-ui worktree have similarly-named files; collision is a real hazard).
 
 ## Each iteration = one slice cycle
 1. **Re-read** this charter + the ledger tail (`.git/sdd/progress.md`) + the current WS plan's next unchecked slice. Record the current HEAD as the pre-slice base.
@@ -53,8 +54,12 @@ On ambiguity: **(1) resolve with best judgment**, grounded in priority order —
 - **Token discipline:** per slice = **ONE builder + ONE verifier**. No fan-out workflows. The final gate is a **focused verifier set (≤3)**, not a swarm.
 - **After ANY compaction:** trust the ledger + git, NOT your summary. Re-read before acting.
 
-## Alignment check (run at every WS boundary + the final gate)
-Does the integrated work still match: **(a)** the architecture doc, **(b)** the goals (honest close · decoupled · repeatable · hardened · forward-collecting), **(c)** the §7 worked example / the demo? List any drift explicitly. If found → STOP and surface before proceeding. Then write the next WS's plan against the now-*real* interfaces.
+## Workstream boundary = the HARD, deep verify gate (ALWAYS RALPH-STOP here)
+Two tiers of verification: **per-slice** = a scoped QA gate (one verifier, that slice). **WS boundary** = the *hard, full, deeper* verify — cross-slice, integrated, adversarial. **Final** (milestone end) = the deepest, end-to-end + demo smoke. When a workstream's slices are all sealed, run the deep gate — do NOT roll into the next workstream:
+1. **Deep adversarial re-verify (harder than any per-slice gate)** — a dedicated `verifier` (QA) re-reviews the WHOLE workstream **cross-slice** against the spec + architecture doc + invariants + decoupling: hunts integration bugs the per-slice gates structurally could not see (a slice gate only sees its own diff), and **mutation-proofs the workstream's key end-to-end properties**. Token-disciplined: 1–2 focused verifiers, not a swarm.
+2. **Integration gate** — full workspace + the invariant suite + DST, the WS's slices together, all green.
+3. **Alignment check** — does the integrated work still match **(a)** the architecture doc, **(b)** the goals (honest close · decoupled · repeatable · hardened · forward-collecting), **(c)** the §7 worked example / the demo? List any drift explicitly; if found → it's not done, fix before sealing the WS.
+4. **RALPH-STOP and surface the completed workstream to the operator** — they review the whole WS before the next one is planned. Only after their go: PLAN the next WS (architecture agent + writing-plans) against the now-*real* interfaces, then VERIFY that plan, then implement.
 
 ## Keep the UI session in sync (light touch — don't over-invest)
 A parallel session builds the operator UI (worktree `.claude/worktrees/operator-ui/`) and **syncs on your commits**. So: commit the **scorecard serialization contract EARLY** (the shape he renders — pulled forward from WS2); keep commits **coherent + incremental** (one sealed slice each, never a broken intermediate on the branch); **flag UI-relevant landings** in the commit subject or on the bus (e.g. `… [UI: scorecard contract]`). Do **not** build his UI — he's got it; just don't break his sync or leave him guessing what shape to render.

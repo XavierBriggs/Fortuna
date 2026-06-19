@@ -4,6 +4,10 @@ Open items the implementation defers, lacks, or needs from the operator, each wi
 unblock steps. The full RESOLVED history (5858-line ledger) was archived 2026-06-18 in the
 Phase B consolidation → **`docs/archive/gaps-history.md`**.
 
+> **Loop-Close & Provable Demo milestone:** that work tracks its own forward/deferred items in
+> **`docs/superpowers/loop-close-gaps.md`** (and operator actions in `docs/superpowers/loop-close-operator.md`).
+> This file (`/GAPS.md`) remains the repo-wide constitutional ledger.
+
 ## Authoritative open-items source (2026-06-18 ground-truth audit)
 
 The audit is now the canonical "what's open + readiness" source:
