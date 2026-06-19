@@ -18,3 +18,6 @@ items here. Truly constitutional / repo-wide gaps also belong in `/GAPS.md`.
 
 ## Open during the loop (the loop appends here as it discovers gaps)
 _(none yet)_
+
+## Moved to WS2 (captain, 2026-06-19T14:49Z)
+- **Unified PredictiveKind->BrierRule trait dispatch (D-4 refactor)** moved from WS1 slice 3 to WS2/G5 — it is a no-op until a 2nd ScoringRule (RPS/Log) exists; G5 is its natural home.

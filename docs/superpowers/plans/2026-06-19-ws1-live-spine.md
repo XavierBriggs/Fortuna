@@ -64,7 +64,9 @@
 
 ---
 
-## Task 3: Producer-agnostic resolution + unified dispatch + fractional/grammar-robust bracket hint
+## Task 3: Producer-agnostic + fractional resolution (grammar-agnostic bracket hint)
+
+> **Scope refined 2026-06-19 (captain, YAGNI):** the unified `PredictiveKind`→`BrierRule` **trait dispatch is DEFERRED to WS2/G5** (a no-op with only one rule; G5's RPS/Log give it purpose). Slice 3 = producer-agnostic + fractional resolution via a grammar-agnostic hint (removes the daemon.rs:4723 `aeolus:` literal); this fully delivers the head-to-head. See `loop-close-operator.md`.
 
 **Files:** `daemon.rs` `resolve_and_score_weather_beliefs` (~4637-4741), `aeolus_resolve.rs:72-105` (`parse_bracket_hint`/`score_bracket`). Test: `crates/fortuna-live/tests/` + `daemon_smoke.rs` + `crates/fortuna-cognition/tests/`.
 
