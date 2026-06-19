@@ -26,10 +26,12 @@
 //! It still faces halts, price/size sanity, rate limits, idempotency, and
 //! internal netting in full.
 //!
-//! Check order (PERP_ALL): Halts(1), MarginHeadroom(11),
-//! LiquidationDistance(12), LeverageCap(13), PerpNotionalCap(14),
+//! Check order (PERP_ALL): Halts(1), MarginHeadroom(12),
+//! LiquidationDistance(13), LeverageCap(14), PerpNotionalCap(15),
 //! PriceSanity(4), SizeSanity(5), EdgeFloor(6, with funding drag + fee-trap
 //! assumed fees), RateLimits(7), Idempotency(8), InternalNetting(10).
+//! (BookAge(11) is in event-contract ALL only; the perp arm does not need it
+//! because perp marks are derived from continuous tickers, not order books.)
 
 use crate::config::{PerpAssetLimits, PerpVenueLimits, RateLimits};
 use crate::pipeline::{GateCheck, GateCheckRecord, GatePipeline, GateRejection, Verdict};

@@ -23,6 +23,14 @@ pub struct GateConfig {
     pub per_strategy: BTreeMap<String, StrategyLimits>,
     #[serde(default)]
     pub rate: BTreeMap<String, RateLimits>,
+    /// Check 11 (spec 5.3 P2 safety): maximum permitted book age in
+    /// milliseconds. `None` (default) disables the check — no-op so existing
+    /// tests and the DST corpus are unaffected. `Some(ms)` rejects any order
+    /// whose `GateInputs.book.as_of` is more than `ms` milliseconds before
+    /// `GateInputs.now`; if the book is absent, the check passes (book
+    /// absence is PriceSanity's concern).
+    #[serde(default)]
+    pub max_book_age_ms: Option<i64>,
     /// Perps domain (spec 5.15). Additive: configs without it parse and
     /// validate unchanged; perp orders then fail closed at evaluation.
     #[serde(default)]

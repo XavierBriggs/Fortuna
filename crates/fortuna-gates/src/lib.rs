@@ -1,4 +1,4 @@
-//! fortuna-gates: the universal gate pipeline (I1). Spec 5.3, checks 1-10.
+//! fortuna-gates: the universal gate pipeline (I1). Spec 5.3, checks 1-11.
 //!
 //! `GatedOrder` is a sealed type: private fields, constructible only by the
 //! pipeline after all checks pass. Venues accept `GatedOrder` exclusively,
@@ -7,7 +7,8 @@
 //!
 //! Checks (spec 5.3): halts, capital threshold, position caps, price sanity,
 //! size sanity, fee-adjusted edge floor, rate limits (I3 dual token bucket),
-//! idempotency, same-event exposure cap (via edges), internal netting.
+//! idempotency, same-event exposure cap (via edges), internal netting,
+//! book-age freshness (opt-in via `GateConfig.max_book_age_ms`).
 //! The pipeline itself is T0.5; the sealed type ships first (T0.3) so the
 //! Venue trait can bind to it.
 
