@@ -4629,7 +4629,7 @@ pub fn nws_cli_is_stale(freshest: Option<&str>, now: UtcTimestamp, max_secs: i64
 /// # Idempotency
 ///
 /// `resolve_and_score` / `ScalarBeliefsRepo::resolve` are set-once; a re-run never
-/// re-lists an already-resolved belief (`open_aeolus_weather_due` /
+/// re-lists an already-resolved belief (`open_weather_bracket_due` /
 /// `unresolved_due` exclude it), so a second call resolves 0. A `CorruptRow` from
 /// a concurrent double-resolve is treated as "already resolved, skip"; a UNIQUE
 /// `(belief_id, rule_id)` collision on the scalar score insert is treated as
@@ -4655,10 +4655,10 @@ pub async fn resolve_and_score_weather_beliefs(
     // (a) The two work queues: open binary brackets + open scalar μ/σ beliefs,
     // both DUE (`horizon <= now`). If BOTH are empty, do no signal IO at all.
     let due_binary = beliefs
-        .open_aeolus_weather_due(&now_iso, RESOLVE_BATCH_CAP)
+        .open_weather_bracket_due(&now_iso, RESOLVE_BATCH_CAP)
         .await
         .map_err(|e| DaemonError::Compose {
-            reason: format!("open_aeolus_weather_due: {e}"),
+            reason: format!("open_weather_bracket_due: {e}"),
         })?;
     let due_scalar = scalars
         .unresolved_due(AEOLUS_PRODUCER, &now_iso, RESOLVE_BATCH_CAP)

@@ -36,13 +36,14 @@ The audit is now the canonical "what's open + readiness" source:
 - `track-d`, `track-e-docs-freshen`: stranded doc-only corrections (GAPS/BUILD_PLAN freshening), superseded by this
   prune; kept for review — delete when satisfied.
 
-## fortuna-ledger has domain-coupled query methods (A7 known gap; generic-ledger refactor deferred)
-`crates/fortuna-ledger/src/repos.rs` lines ~1349-1374 contain domain-coupled methods:
-`open_aeolus_weather_due`, `OpenWeatherBelief`, and a `provenance->>'model_id' = 'aeolus'`
-literal. The decoupling guard (`i_decoupling_spine.rs`) intentionally excludes fortuna-ledger
-from the domain-literal scan — asserting ledger=0 would fail. Unblock: generic refactor
-of BeliefsRepo to use a `model_id: &str` parameter; move Aeolus-specific query to a
-fortuna-cognition or fortuna-live layer.
+## fortuna-ledger domain-coupled query methods (A7 known gap) — RESOLVED WS1.2
+**Resolved 2026-06-19 by task WS1.2 (feature/paper-on-live-data).**
+`open_aeolus_weather_due` renamed to `open_weather_bracket_due`; the
+`provenance->>'model_id' = 'aeolus'` WHERE literal replaced with
+grading-keys-present (`nws_station_id IS NOT NULL AND variable IS NOT NULL AND
+target_date IS NOT NULL`). The `i_decoupling_spine.rs` known-gap comment still
+references the old name (comments only, never assertions — not modified to comply
+with the protected-invariants rule).
 
 ## Deferred refactors (Phase B roadmap; P2 legibility — no behavior change, test-gated when done)
 - File splits: `daemon.rs` (4854L), `repos.rs` (2479L), `rota.rs` (2227L); a `DriveContext` for `drive()`'s 20-param
@@ -81,8 +82,9 @@ Both diverge in the *less strict* direction (weaker gate than spec). NOT changed
 
 ## Persona/synthesis binary beliefs are never resolved or scored (2026-06-19, found by scoring-doc V&V)
 There are exactly TWO live belief resolvers: `resolve_and_score_weather_beliefs` (daemon.rs:4637,
-Aeolus-only — its queue `open_aeolus_weather_due` filters `provenance->>'model_id'='aeolus'`,
-repos.rs:1362, + an `aeolus:` event-id prefix guard) and `resolve_and_score_funding_beliefs`
+previously Aeolus-only — queue renamed to `open_weather_bracket_due` by WS1.2, now
+producer-agnostic; an `aeolus:` event-id prefix guard still gates scoring in daemon.rs:4723)
+and `resolve_and_score_funding_beliefs`
 (daemon.rs:4378, funding scalar). Meteorologist/persona binary beliefs (event_id
 `{region_key}#{suffix}`, provenance `persona_id`; persona_beliefs.rs) and synthesis binary beliefs
 match NEITHER filter, so they are never resolved or scored in production. `resolved_persona_stats`

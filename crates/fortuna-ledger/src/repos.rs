@@ -1094,6 +1094,10 @@ pub struct OpenWeatherBelief {
     pub nws_station_id: String,
     pub target_date: String,
     pub horizon: String,
+    /// Which pipeline stamped this belief (`provenance->>'producer'`).
+    /// `None` only for pre-normalisation rows that predate the producer field;
+    /// all beliefs written since Slice 1 carry it.
+    pub producer: Option<String>,
 }
 
 /// Belief ledger ops (spec 5.5): rows are immutable (DB content guard);
@@ -1336,17 +1340,20 @@ impl BeliefsRepo {
         })
     }
 
-    /// Open Aeolus weather beliefs whose window has CLOSED at `now_iso` — the
+    /// Open weather-bracket beliefs whose window has CLOSED at `now_iso` — the
     /// `resolve_and_score_weather_beliefs` work queue (source contract §5 Layer
     /// 3; mirrors `ScalarBeliefsRepo::unresolved_due`). A row qualifies iff it is
-    /// still `open`, was produced by Aeolus (`provenance->>'model_id' = 'aeolus'`),
-    /// and is due (`horizon <= $1`). `horizon` is ISO8601 TEXT with fixed-ms
-    /// precision (sorts lexically == chronologically), so `<=` is a correct
-    /// chronological gate and `ORDER BY horizon ASC` is oldest-due-first. `limit`
-    /// caps the batch (the loop drains in bounded chunks; a later run takes the
-    /// rest). A belief whose grading provenance keys are absent (impossible for an
-    /// Aeolus belief, which always stamps them) is skipped, never grades on NULLs.
-    pub async fn open_aeolus_weather_due(
+    /// still `open`, carries all three grading keys (`nws_station_id`, `variable`,
+    /// `target_date` in its provenance JSON), and is due (`horizon <= $1`).
+    /// Selection is **producer-agnostic**: any belief carrying the weather grading
+    /// keys qualifies, regardless of which pipeline produced it (Aeolus,
+    /// meteorologist, or any future producer). Persona MACRO beliefs and synthesis
+    /// beliefs lack the grading keys and are therefore excluded automatically.
+    /// `horizon` is ISO8601 TEXT with fixed-ms precision (sorts lexically ==
+    /// chronologically), so `<=` is a correct chronological gate and
+    /// `ORDER BY horizon ASC` is oldest-due-first. `limit` caps the batch (the
+    /// loop drains in bounded chunks; a later run takes the rest).
+    pub async fn open_weather_bracket_due(
         &self,
         now_iso: &str,
         limit: i64,
@@ -1356,10 +1363,13 @@ impl BeliefsRepo {
                       provenance->>'variable'       AS variable,
                       provenance->>'nws_station_id' AS nws_station_id,
                       provenance->>'target_date'    AS target_date,
+                      provenance->>'producer'       AS producer,
                       horizon
                FROM beliefs
                WHERE status = 'open'
-                 AND provenance->>'model_id' = 'aeolus'
+                 AND provenance->>'nws_station_id' IS NOT NULL
+                 AND provenance->>'variable'       IS NOT NULL
+                 AND provenance->>'target_date'    IS NOT NULL
                  AND horizon <= $1
                ORDER BY horizon ASC, belief_id ASC
                LIMIT $2"#,
@@ -1379,6 +1389,7 @@ impl BeliefsRepo {
                     nws_station_id: r.nws_station_id?,
                     target_date: r.target_date?,
                     horizon: r.horizon,
+                    producer: r.producer,
                 })
             })
             .collect())
