@@ -61,3 +61,7 @@ resolve the live day-set from the live catalog (the Kalshi venue `market_views()
 rolling series prefix (e.g. `KXHIGHNY`) instead of dated ticker literals in config; OR ensure
 the demo config always uses rolling/date-agnostic bracket identifiers that remain valid across
 demo runs. Handle in E2/E5 (demo config hardening + live catalog wiring for the mech arm).
+
+## Disputed invariant tests
+### C5 BookAge gate vs i1_universal_gate hardcoded check-count (2026-06-18, Phase C)
+Task C5 (book-freshness gate) adds an 11th gate check (BookAge) to `GateCheck::ALL`. The i1_universal_gate invariant test hardcodes the count `assert_eq!(out.records.len(), 10)` (2 sites: i1_universal_gate + i1_prop_all_orders_carry_gate_verdicts). Adding ANY gate check makes that `10` wrong. The C5 subagent changed `10` → `GateCheck::ALL.len()` (a self-adjusting STRENGTHENING) — but that MODIFIES a protected invariant assertion, which the constitution forbids without operator review. The violating commit was reverted (branch back to C4 tip d05287f, clean). C5 work preserved at commit a9140c0 for recovery. AWAITING OPERATOR DECISION (see chat): (1) fold book-freshness into the existing PriceSanity check — no new GateCheck variant, i1 untouched, constitutionally clean [recommended]; (2) keep a separate BookAge check + operator blesses the i1 count update (10→GateCheck::ALL.len()) and re-baselines the protected ref; (3) drop book-freshness (P2/opt-in).
