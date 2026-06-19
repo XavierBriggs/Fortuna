@@ -3149,14 +3149,36 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                         // Ledger rows -> the orchestrator's cognition-native input. An
                         // unparseable received_at SKIPS that row (filter_map), never a
                         // panic — the signal is untrusted data.
+                        //
+                        // D3: also build a signal_id-keyed lookup of
+                        // EventSourceEvidenceInput so the persona path can write
+                        // evidence links (mirror of the discovery path). The lookup is
+                        // built in the SAME pass so we never re-read; only envelopes
+                        // that parse cleanly enter both the signals vec and the map.
+                        let mut persona_evidence_by_id: std::collections::BTreeMap<
+                            String,
+                            fortuna_ledger::EventSourceEvidenceInput,
+                        > = std::collections::BTreeMap::new();
                         let signals: Vec<fortuna_cognition::signals::SignalEnvelope> = rows
                             .into_iter()
                             .filter_map(|r| {
+                                let received_at = fortuna_core::clock::UtcTimestamp::parse_iso8601(
+                                    &r.received_at,
+                                )
+                                .ok()?;
+                                // Populate evidence map in the same pass.
+                                persona_evidence_by_id.insert(
+                                    r.signal_id.clone(),
+                                    fortuna_ledger::EventSourceEvidenceInput {
+                                        signal_id: r.signal_id.clone(),
+                                        signal_received_at: r.received_at.clone(),
+                                        source: r.source.clone(),
+                                        signal_type: r.kind.clone(),
+                                        content_hash: r.content_hash.clone(),
+                                    },
+                                );
                                 Some(fortuna_cognition::signals::SignalEnvelope {
-                                    received_at: fortuna_core::clock::UtcTimestamp::parse_iso8601(
-                                        &r.received_at,
-                                    )
-                                    .ok()?,
+                                    received_at,
                                     signal_id: r.signal_id,
                                     source: r.source,
                                     kind: r.kind,
@@ -3296,6 +3318,55 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                         "persona belief persist FAILED — {n} belief(s) lost (analysis={analysis_id}): {e}"
                                     ),
                                 )),
+                            }
+                            // D3 (thesis): write event_source_evidence links — one
+                            // row per (belief event_id × input signal) — so the
+                            // replay chain is: belief → provenance.analysis_id →
+                            // domain_analyses.signal_manifest → event_source_evidence
+                            // → concrete signal ids/hashes. This mirrors the
+                            // discovery path (daemon:3527-3546 below).
+                            //
+                            // Build the evidence inputs from the manifest: look up
+                            // each manifest entry in persona_evidence_by_id (the
+                            // parallel-built map from the signal read above). A
+                            // signal_id absent from the map (unparseable received_at
+                            // → was filter_map'd out of signals) is simply skipped
+                            // — the manifest hash is still valid; we just lack the
+                            // evidence row for that one signal.
+                            let evidence_inputs: Vec<fortuna_ledger::EventSourceEvidenceInput> = r
+                                .outcome
+                                .signal_manifest
+                                .iter()
+                                .filter_map(|sr| persona_evidence_by_id.get(&sr.signal_id).cloned())
+                                .collect();
+                            // Write evidence for EACH belief's event_id (one row per
+                            // signal per belief event_id). The ON CONFLICT DO NOTHING
+                            // dedup in insert_many is harmless for re-runs. Degrade
+                            // on failure: alert + continue (analysis + beliefs already
+                            // persisted; the loop must never crash here — I5 is about
+                            // the append-only guarantee, not evidence blocking beliefs).
+                            if !evidence_inputs.is_empty() {
+                                for (_, draft) in &pairs {
+                                    if let Err(e) = fortuna_ledger::EventSourceEvidenceRepo::new(
+                                        pw.pool.clone(),
+                                    )
+                                    .insert_many(
+                                        &draft.event_id,
+                                        "model_context",
+                                        &now_iso,
+                                        &evidence_inputs,
+                                    )
+                                    .await
+                                    {
+                                        alerts.push((
+                                            fortuna_ops::MessageKind::Ops,
+                                            format!(
+                                                "persona evidence-link persist FAILED (analysis={analysis_id}, event={}): {e}",
+                                                draft.event_id
+                                            ),
+                                        ));
+                                    }
+                                }
                             }
                         }
                     }

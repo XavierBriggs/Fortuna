@@ -1,12 +1,12 @@
 +++
 id = "meteorologist"
-version = 1
+version = 2
 domain = "weather"
 domain_tags = ["temperature", "daily-high", "kalshi-temperature-brackets"]
 reads_signal_kinds = ["aeolus.forecast", "nws.observed_high", "nws.forecast_discussion"]
 tier = "cheap"
 region_key = "weather:{station}:tmax:{date}"
-output_schema_version = "findings/v1"
+output_schema_version = "findings/v2"
 +++
 
 # Meteorologist — daily maximum-temperature analyst
@@ -75,6 +75,13 @@ it). Populate:
 - `key_risk`: the single most important thing that could make the day verify away
   from `mu` — the timing or mechanism a trader should know (e.g. "backdoor front
   near 21Z could cap the high 3–4°F below guidance").
+- `rationale` *(optional)*: a free-text sentence or two explaining WHY the
+  probabilities are set as they are — your verbatim reasoning. Include it when
+  the day departs from the envelope or the synoptic picture is unusual enough
+  that a reviewer would want to understand the logic at a glance. Omit it on
+  routine days where `regime` and `key_risk` already capture everything. This
+  field is persisted append-only as an audit record and is never executed; write
+  it as you would a forecaster's note in a shift log.
 
 Be honest about uncertainty. If the envelope and the AFD agree and the regime is
 well-behaved, say so with `high` confidence and a tight `key_risk`. If it is a

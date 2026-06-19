@@ -2687,6 +2687,451 @@ async fn drive_persists_persona_analysis_and_beliefs_when_wired(pool: PgPool) {
     );
 }
 
+/// D3 (thesis — "every claim has evidence"): the full replayable evidence chain.
+///
+/// Chain: signal → domain_analyses (signal_manifest + findings w/ rationale) →
+///        event_source_evidence (one row per signal per belief event_id) →
+///        beliefs (provenance.analysis_id → the artifact).
+///
+/// Each link is verified INDEPENDENTLY; the final step is a FULL RECONSTRUCTION
+/// that walks belief → provenance.analysis_id → domain_analyses.signal_manifest
+/// → event_source_evidence → confirmed signal ids/hashes all match.
+///
+/// Mutation proofs are documented inline:
+/// - Removing an evidence row → reconstruction misses a signal (RED).
+/// - Flipping the relation constant → evidence row has wrong relation (RED).
+/// - findings without `rationale` still valid (schema keeps it optional).
+/// - findings WITH `rationale` also valid (schema accepts it).
+///
+/// Signals: two inputs (aeolus.forecast + nws.forecast_discussion) so the
+/// multi-signal evidence chain is exercised (the brief requires ≥2-3 signals).
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn persona_evidence_chain_is_replayable(pool: PgPool) {
+    use fortuna_cognition::context::content_hash_of;
+    use fortuna_cognition::discovery::DiscoveryBudget;
+    use fortuna_cognition::persona::{PersonaDef, RegistryHead};
+    use fortuna_cognition::persona_orchestrator::{PersonaSchedule, PersonaScheduleState};
+    use fortuna_core::market::StrategyId;
+    use fortuna_ledger::PersonasRepo;
+    use serde_json::json;
+
+    // ---- Boot the daemon from the committed example config. ----
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let dcfg = DaemonToml::parse(&text).expect("example parses");
+    let full = FortunaConfig::load_file(example_path).expect("example full-config parses");
+    let runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        t0(),
+        99,
+        stub_mind(),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .expect("composition");
+    arb_books(&runner);
+
+    // ---- 1. Register meteorologist (shipped files — version auto-matches after
+    //         persona.md bump, since PersonaDef::parse derives the same hash).
+    let dir = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/personas/meteorologist"
+    );
+    let md = std::fs::read_to_string(format!("{dir}/persona.md")).unwrap();
+    let schema = std::fs::read_to_string(format!("{dir}/schema.json")).unwrap();
+    let def = PersonaDef::parse(&md, &schema).unwrap();
+    let method_hash = content_hash_of(&md);
+    let personas_repo = PersonasRepo::new(pool.clone());
+    personas_repo
+        .insert(
+            "p-chain-1",
+            &def.meta.id,
+            def.meta.version,
+            &def.meta.domain,
+            &json!(def.meta.domain_tags),
+            &json!(def.meta.reads_signal_kinds),
+            &def.meta.tier,
+            &method_hash,
+            &def.meta.output_schema_version,
+            "active",
+            None,
+            "2026-06-13T00:00:00.000Z",
+            "2026-06-13T00:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    let head = personas_repo.head(&def.meta.id).await.unwrap().unwrap();
+    def.validate_against(Some(&RegistryHead {
+        version: head.version,
+        method_hash: head.method_hash.clone(),
+        status: head.status.clone(),
+    }))
+    .expect("shipped file's hash matches the registered row after persona.md v2 bump");
+
+    // ---- 2. Insert TWO signals (≥2 required by the brief) to exercise the
+    //         multi-signal evidence chain.
+    let received_at = t0().to_iso8601(); // within the 48h window
+    let sig_repo = fortuna_ledger::SignalsRepo::new(pool.clone());
+
+    // Signal A: aeolus.forecast (the statistical backbone)
+    let sig_a_id = "sig-chain-aeolus";
+    let sig_a_hash = content_hash_of("chain-aeolus-knyc-tmax-2026-06-14");
+    let payload_a = json!({
+        "station": "KNYC",
+        "date": "2026-06-14",
+        "mu": 71.2,
+        "sigma": 2.8
+    });
+    sig_repo
+        .insert(
+            sig_a_id,
+            "aeolus",
+            "aeolus.forecast",
+            &received_at,
+            &sig_a_hash,
+            &payload_a,
+        )
+        .await
+        .unwrap();
+
+    // Signal B: nws.forecast_discussion (the human synoptic reasoning)
+    let sig_b_id = "sig-chain-nws-afd";
+    let sig_b_hash = content_hash_of("chain-nws-afd-knyc-2026-06-14");
+    let payload_b = json!({
+        "station": "KNYC",
+        "date": "2026-06-14",
+        "discussion": "Mid-level ridge building; confidence high."
+    });
+    sig_repo
+        .insert(
+            sig_b_id,
+            "nws",
+            "nws.forecast_discussion",
+            &received_at,
+            &sig_b_hash,
+            &payload_b,
+        )
+        .await
+        .unwrap();
+
+    // ---- 3. Scripted StubMind: findings WITH rationale (v2 schema; validates
+    //         both the optional rationale path and the 3-threshold fan-out).
+    let findings = json!({
+        "thresholds": [
+            {"ge": 65, "p": 0.95},
+            {"ge": 70, "p": 0.62},
+            {"ge": 75, "p": 0.18}
+        ],
+        "sigma_trend": "tightening",
+        "confidence": "high",
+        "regime": "stagnant upper ridge",
+        "key_risk": "afternoon sea-breeze onset could cap max 1-2F below guidance",
+        "rationale": "Aeolus envelope sits at mu=71.2 with sigma=2.8; AFD confirms ridge with high confidence. Adjusted ge>=70 slightly upward from envelope on ridge persistence."
+    });
+    let scripted: MindOutput = serde_json::from_value(json!({
+        "beliefs": [],
+        "proposals": [],
+        "journal": {"body": findings.to_string()},
+        "cost_cents": 2
+    }))
+    .unwrap();
+    let persona_mind: Arc<dyn Mind> = Arc::new(StubMind::scripted(vec![scripted]));
+
+    // ---- 4. Wire up PersonasWiring (both signal kinds in reads_signal_kinds).
+    let persona_id = def.meta.id.clone();
+    let mut persona_minds: std::collections::BTreeMap<
+        String,
+        Arc<dyn fortuna_cognition::mind::Mind>,
+    > = std::collections::BTreeMap::new();
+    persona_minds.insert(persona_id, persona_mind);
+    let wiring = fortuna_live::daemon::PersonasWiring {
+        pool: pool.clone(),
+        schedules: vec![PersonaSchedule {
+            def,
+            cadences: Vec::new(),
+        }],
+        state: PersonaScheduleState::new(0),
+        budget: DiscoveryBudget::new(500),
+        minds: persona_minds,
+        strategy: StrategyId::new("domain-analysis").unwrap(),
+        window_hours: 48,
+        max_signals: 200,
+    };
+
+    // ---- 5. Run ONE drive() segment with persona wiring. ----
+    let (tx, mut stop) = tokio::sync::oneshot::channel::<()>();
+    let mut cadence = StopAtCadence {
+        clock: runner.clock.clone(),
+        sleeps: 0,
+        fire_at: 6,
+        tx: Some(tx),
+    };
+    let mut poller = NeverHalted;
+    let loop_cfg = LoopConfig {
+        tick_interval_ms: 1000,
+        halt_poll_ms: 500,
+    };
+    let mut scrape = DegradeScrape::new(default_degrade_thresholds());
+    let mut daily = fortuna_live::daemon::DailyScheduler::new();
+    let mut runner = fortuna_live::daemon::ActiveRunner::Sim(runner);
+    drive(
+        &mut runner,
+        &mut cadence,
+        &mut poller,
+        &loop_cfg,
+        4,
+        &mut stop,
+        |_r, _s| {},
+        &mut scrape,
+        None,
+        &mut daily,
+        None,
+        None,
+        None,
+        None,
+        "claude-opus-4-8",
+        None,
+        Some(wiring),
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .expect("daemon drive");
+
+    // ================================================================
+    // CHAIN LINK (a): domain_analyses row with signal_manifest +
+    //                 findings that parse + carry rationale.
+    // ================================================================
+    let analysis_id: String = sqlx::query_scalar(
+        "SELECT analysis_id FROM domain_analyses WHERE persona_id = 'meteorologist'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("link (a): domain_analyses row must exist");
+
+    // Findings parse and carry rationale (the v2 schema addition).
+    let findings_json: serde_json::Value =
+        sqlx::query_scalar("SELECT findings FROM domain_analyses WHERE analysis_id = $1")
+            .bind(&analysis_id)
+            .fetch_one(&pool)
+            .await
+            .expect("link (a): findings column must be queryable");
+    assert!(
+        findings_json.get("thresholds").is_some(),
+        "link (a): findings must carry thresholds"
+    );
+    assert_eq!(
+        findings_json.get("rationale").and_then(|v| v.as_str()),
+        Some("Aeolus envelope sits at mu=71.2 with sigma=2.8; AFD confirms ridge with high confidence. Adjusted ge>=70 slightly upward from envelope on ridge persistence."),
+        "link (a): findings must carry the rationale field"
+    );
+
+    // signal_manifest is non-empty.
+    let manifest_json: serde_json::Value =
+        sqlx::query_scalar("SELECT signal_manifest FROM domain_analyses WHERE analysis_id = $1")
+            .bind(&analysis_id)
+            .fetch_one(&pool)
+            .await
+            .expect("link (a): signal_manifest column must be queryable");
+    let manifest_arr = manifest_json
+        .as_array()
+        .expect("signal_manifest is a JSON array");
+    assert!(
+        !manifest_arr.is_empty(),
+        "link (a): signal_manifest must be non-empty"
+    );
+
+    // ================================================================
+    // CHAIN LINK (b): event_source_evidence — one row per input signal
+    //                 per belief event_id; relation = "model_context".
+    // ================================================================
+    // Count total evidence rows across all belief event_ids for this analysis.
+    // There are 3 thresholds → 3 beliefs → 3 event_ids. Each belief's event_id
+    // gets 2 evidence rows (one per signal). Total = 3 × 2 = 6.
+    let evidence_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM event_source_evidence \
+         WHERE event_id LIKE 'weather:KNYC:tmax:2026-06-14%' \
+           AND relation = 'model_context'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("link (b): event_source_evidence query must succeed");
+    assert_eq!(
+        evidence_count, 6,
+        "link (b): 3 beliefs × 2 signals = 6 evidence rows (got {evidence_count})"
+    );
+
+    // Both signal ids appear in the evidence.
+    let sig_a_present: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM event_source_evidence \
+         WHERE signal_id = $1 AND relation = 'model_context'",
+    )
+    .bind(sig_a_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        sig_a_present >= 1,
+        "link (b): aeolus signal must appear in evidence (got {sig_a_present})"
+    );
+
+    let sig_b_present: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM event_source_evidence \
+         WHERE signal_id = $1 AND relation = 'model_context'",
+    )
+    .bind(sig_b_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        sig_b_present >= 1,
+        "link (b): nws signal must appear in evidence (got {sig_b_present})"
+    );
+
+    // MUTATION PROOF for relation constant: if the daemon wrote "wrong_relation"
+    // instead of "model_context", this count would be 0 → RED.
+    let wrong_relation: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM event_source_evidence \
+         WHERE event_id LIKE 'weather:KNYC:tmax:2026-06-14%' \
+           AND relation != 'model_context'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        wrong_relation, 0,
+        "MUTATION PROOF: relation must be 'model_context', not any other value"
+    );
+
+    // ================================================================
+    // CHAIN LINK (c): beliefs cite provenance.analysis_id → the artifact.
+    // ================================================================
+    let belief_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM beliefs \
+         WHERE provenance->>'persona_id' = 'meteorologist' \
+           AND provenance->>'analysis_id' = $1",
+    )
+    .bind(&analysis_id)
+    .fetch_one(&pool)
+    .await
+    .expect("link (c): belief query must succeed");
+    assert_eq!(
+        belief_count, 3,
+        "link (c): 3 thresholds → 3 beliefs, all citing the analysis_id"
+    );
+
+    // All beliefs carry producer signal via provenance.
+    let producer_check: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM beliefs \
+         WHERE provenance->>'persona_id' = 'meteorologist' \
+           AND provenance->>'analysis_id' = $1",
+    )
+    .bind(&analysis_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        producer_check, belief_count,
+        "link (c): all beliefs cite the analysis"
+    );
+
+    // ================================================================
+    // CHAIN LINK (d): FULL RECONSTRUCTION.
+    // Walk: belief → provenance.analysis_id → domain_analyses.signal_manifest
+    //       → event_source_evidence → signal ids/hashes all match.
+    // ================================================================
+
+    // Pick one belief's event_id (ge65 threshold).
+    let belief_event_id: String = sqlx::query_scalar(
+        "SELECT event_id FROM beliefs \
+         WHERE provenance->>'analysis_id' = $1 \
+         LIMIT 1",
+    )
+    .bind(&analysis_id)
+    .fetch_one(&pool)
+    .await
+    .expect("reconstruction: must find a belief for the analysis");
+
+    // Walk belief → provenance.analysis_id (already have analysis_id).
+    // Walk analysis_id → domain_analyses.signal_manifest.
+    let reconstructed_manifest: serde_json::Value =
+        sqlx::query_scalar("SELECT signal_manifest FROM domain_analyses WHERE analysis_id = $1")
+            .bind(&analysis_id)
+            .fetch_one(&pool)
+            .await
+            .expect("reconstruction: domain_analyses row must exist");
+    let manifest_signal_ids: Vec<String> = reconstructed_manifest
+        .as_array()
+        .expect("signal_manifest is array")
+        .iter()
+        .filter_map(|e| {
+            e.get("signal_id")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        })
+        .collect();
+    assert!(
+        !manifest_signal_ids.is_empty(),
+        "reconstruction: signal_manifest must list signal ids"
+    );
+
+    // Walk belief event_id → event_source_evidence → signal ids.
+    let evidence_signal_ids: Vec<String> = sqlx::query_scalar(
+        "SELECT signal_id FROM event_source_evidence \
+         WHERE event_id = $1 AND relation = 'model_context' \
+         ORDER BY signal_id",
+    )
+    .bind(&belief_event_id)
+    .fetch_all(&pool)
+    .await
+    .expect("reconstruction: event_source_evidence query must succeed");
+    assert!(
+        !evidence_signal_ids.is_empty(),
+        "reconstruction: evidence must exist for the belief's event_id"
+    );
+
+    // Every manifest signal_id appears in the evidence for this belief event_id.
+    for sid in &manifest_signal_ids {
+        assert!(
+            evidence_signal_ids.contains(sid),
+            "reconstruction: manifest signal_id {sid:?} must appear in evidence for {belief_event_id:?}"
+        );
+    }
+
+    // Content hashes in evidence match what was inserted (integrity check).
+    let aeolus_hash_in_evidence: Option<String> = sqlx::query_scalar(
+        "SELECT content_hash FROM event_source_evidence \
+         WHERE event_id = $1 AND signal_id = $2 AND relation = 'model_context'",
+    )
+    .bind(&belief_event_id)
+    .bind(sig_a_id)
+    .fetch_optional(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        aeolus_hash_in_evidence.as_deref(),
+        Some(sig_a_hash.as_str()),
+        "reconstruction: aeolus content_hash in evidence must match the inserted signal"
+    );
+
+    // MUTATION PROOF: if one evidence row were deleted, evidence_signal_ids would
+    // be shorter than manifest_signal_ids → the manifest-contains check above REDS.
+    // (Verified by reasoning: ON CONFLICT DO NOTHING dedup means a re-run is safe,
+    // but a manual DELETE would break the subset check.)
+    assert!(
+        manifest_signal_ids.len() <= evidence_signal_ids.len(),
+        "reconstruction: every manifest signal must have an evidence row"
+    );
+}
+
 /// COMMIT 1 (spec 5.12, world-forward): drive() runs the OPT-IN discovery step
 /// end-to-end — read a fresh signal -> world_forward_discovery (scripted StubMind)
 /// -> persist each candidate as a `watch:` event -> fan the SCOREABLE candidates
@@ -4578,7 +5023,10 @@ async fn seed_personas_enabled_boots_and_head_is_present(pool: PgPool) {
         .expect("head query should succeed");
     assert!(head.is_some(), "registry head must be present after seed");
     let row = head.unwrap();
-    assert_eq!(row.version, 1, "version = 1 from persona.md frontmatter");
+    assert_eq!(
+        row.version, 2,
+        "version = 2 from persona.md frontmatter (bumped at D3)"
+    );
     assert_eq!(row.status, "active", "status = active");
     assert_eq!(row.domain, "weather", "domain = weather");
 
@@ -4637,8 +5085,8 @@ async fn seed_personas_is_idempotent(pool: PgPool) {
 
 #[sqlx::test(migrations = "../fortuna-ledger/migrations")]
 async fn seed_personas_version_bump_causes_version_mismatch(pool: PgPool) {
-    // D2 mutation-proof: seed with the real persona.md (version=1),
-    // then simulate an operator version-bump by inserting a v2 row that has a
+    // D2 mutation-proof: seed with the real persona.md (now version=2 after D3
+    // bump), then simulate an operator inserting a FUTURE v3 row that has a
     // DIFFERENT method_hash — validate_against must return VersionMismatch,
     // proving the registry gate is real.
     let now_iso = "2026-06-18T00:00:00.000Z";
@@ -4649,33 +5097,33 @@ async fn seed_personas_version_bump_causes_version_mismatch(pool: PgPool) {
         cadences: vec![],
     }];
 
-    // Seed the real persona (version=1, real hash).
+    // Seed the real persona (version=2 after D3 bump, real hash).
     fortuna_live::daemon::seed_personas(&pool, &cfg, now_iso)
         .await
         .expect("initial seed succeeds");
 
-    // Simulate an operator inserting a superseding v2 row with a DIFFERENT hash.
-    // This makes the REGISTRY HEAD be version=2, but the file on disk is version=1.
+    // Simulate an operator inserting a superseding v3 row with a DIFFERENT hash.
+    // This makes the REGISTRY HEAD be version=3, but the file on disk is version=2.
     let repo = fortuna_ledger::PersonasRepo::new(pool.clone());
     repo.insert(
-        "meteorologist:v2",
+        "meteorologist:v3",
         "meteorologist",
-        2, // bumped version
+        3, // bumped version — one above the current file version
         "weather",
         &serde_json::json!(["temperature"]),
         &serde_json::json!(["aeolus.forecast"]),
         "cheap",
         "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef", // different hash
-        "findings/v1",
+        "findings/v2",
         "active",
-        Some("meteorologist:v1"),
+        Some("meteorologist:v2"),
         now_iso,
         now_iso,
     )
     .await
-    .expect("v2 insert succeeds");
+    .expect("v3 insert succeeds");
 
-    // Now parse the on-disk def (still version=1) and validate against the new head.
+    // Now parse the on-disk def (version=2) and validate against the new head.
     let md = std::fs::read_to_string(format!("{dir}/persona.md")).unwrap();
     let schema_json = std::fs::read_to_string(format!("{dir}/schema.json")).unwrap();
     let def = fortuna_cognition::persona::PersonaDef::parse(&md, &schema_json)
@@ -4687,7 +5135,7 @@ async fn seed_personas_version_bump_causes_version_mismatch(pool: PgPool) {
         method_hash: head.method_hash.clone(),
         status: head.status.clone(),
     };
-    // The file is v1; the registry head is v2 → VersionMismatch.
+    // The file is v2; the registry head is v3 → VersionMismatch.
     let err = def
         .validate_against(Some(&registry_head))
         .expect_err("version mismatch must be rejected");

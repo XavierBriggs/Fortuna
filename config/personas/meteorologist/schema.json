@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "meteorologist findings/v1",
-  "description": "Structured daily-tmax analysis emitted by the meteorologist persona. The artifact is persisted append-only; each threshold fans out onto one binary belief (design §9).",
+  "title": "meteorologist findings/v2",
+  "description": "Structured daily-tmax analysis emitted by the meteorologist persona. The artifact is persisted append-only; each threshold fans out onto one binary belief (design §9). v2 adds optional free-text rationale for replayable reasoning audit (D3 thesis).",
   "type": "object",
   "additionalProperties": false,
   "required": ["thresholds", "sigma_trend", "confidence", "regime", "key_risk"],
@@ -45,6 +45,10 @@
     "key_risk": {
       "type": "string",
       "description": "The single most important mechanism or timing risk that could make the day verify away from mu."
+    },
+    "rationale": {
+      "type": "string",
+      "description": "Optional free-text explanation of WHY the probabilities were set as they are — the verbatim meteorologist reasoning that produced this read. Persisted append-only as part of the findings blob; never executed. Present when the forecast departs from the envelope or the synoptic picture is unusual. Omit when the analysis is routine and key_risk + regime fully capture the reasoning."
     }
   }
 }

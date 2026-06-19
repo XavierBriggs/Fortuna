@@ -359,5 +359,5 @@ async fn the_shipped_meteorologist_runs_against_a_scripted_finding() {
     assert!(outcome.produced_artifact());
     assert_eq!(outcome.findings.as_ref().unwrap(), &findings);
     assert_eq!(outcome.persona_id, "meteorologist");
-    assert_eq!(outcome.persona_version, 1);
+    assert_eq!(outcome.persona_version, 2); // v2 after D3 persona.md bump
 }
