@@ -121,13 +121,18 @@ Every number is computed by live, on-cadence code — the same functions that sc
 
 **Part 5 — Promote & grow.** The seeded history proves the machinery; the **live forward window** drives promotion. The §11 gate reads `INSUFFICIENT_DATA (accruing)` until the forward clock clears, then flips to **GO**; the operator (never the model) promotes Paper→Live-minimum. A future producer plugs into the same keyed scoring + the same backtest harness (one new `HistoricalSource`). That is the "grow."
 
-## 8. Testing
+## 8. Testing (every slice carries three layers)
 
-TDD per task (failing test from this spec first). Property tests for scoring logic; DST corpus for anything touching orders/state/recovery; the full invariant suite (esp. i4 dep-graph + the A7 decoupling guard) on any task touching crate deps or moving types. Backtest: golden replay (same input → byte-identical scores), idempotency (re-run is a no-op), import-honesty (every row source-stamped). Each task: implementer→verifier loop; the milestone ends with the multi-lens V&V workflow + a final whole-branch review. `cargo fmt`, `clippy -D warnings`, full suite, DST all green before any checkbox ticks.
+TDD per slice (failing test from this spec first). **Each slice ships all three test layers where applicable — a slice is not done with only unit tests:**
+- **Unit / property:** scoring logic (Brier/RPS/Log/CRPS/Murphy/PIT), the resolver-queue selection, Kelly/calibration math, the backtest mapping — property tests where the logic is total.
+- **Integration:** the slice wired through its real neighbors against Postgres — e.g. a persona belief flows author→resolve→score→`resolved_stats_for_producer`; the CLV capturer writes `price_snapshots` and the resolver reads them back; `go_nogo` consumes real scored rows. Uses the `#[sqlx::test]` ledger harness.
+- **Live-smoke / data:** the slice exercised against the live/daemon path or real data — the daemon smoke test (`daemon_smoke.rs`) extended per slice; `fortuna backtest` over a SMALL real archive slice produces non-empty scored rows; `fortuna start paper-demo` boots and the `i_paper_live_no_real_order` wall holds; the scorecard endpoint returns real serialized data.
 
-## 9. Open questions (for the spec V&V + operator)
+Cross-cutting: DST corpus for anything touching orders/state/recovery; the full invariant suite (esp. i4 dep-graph + the A7 decoupling guard) on any task touching crate deps or moving types. Backtest also: golden replay (same input → byte-identical scores), idempotency (re-run is a no-op), import-honesty (every row source-stamped). Each slice runs the **implementer→verifier loop**; the milestone ends with a **final whole-branch review** (a single reviewer, not a fan-out workflow — token-disciplined). `cargo fmt`, `clippy -D warnings`, full suite, DST all green before any checkbox ticks.
 
-1. **Backtest counts toward promotion?** Default: seeds calibration + proves surfaces; promotion clock is forward-live unless the replay provably meets §11's no-lookahead/paired-context bar. Confirm.
+## 9. Open questions (for the operator)
+
+1. **Backtest counts toward promotion? — RESOLVED (conservative default, operator may override).** The historical replay is **evidence + calibration seed only**; the §11 promotion verdict runs on the **live-forward clock**. Backtest-scored beliefs are stamped `source="historical-import"` and are **excluded from the promotion volume/metric count by default** (a `forward_only` filter on the go_nogo inputs). They may be opted IN to the count later only if the replay provably meets §11's no-lookahead / paired-context bar — an explicit operator action, not the default. This keeps a green GO from ever resting on backtested data.
 2. **Synthesis binary beliefs:** do they need their own resolution path, or is the meteorologist head-to-head the only binary-producer comparison the demo needs? (Investigation: synthesis provenance shape is currently undefined.) Scope WS1's "synthesis resolution" accordingly.
 3. **Data cleaning rules:** the exact `aeolus_kalshi.db` → FORTUNA mapping (station-code normalization, bracket-threshold parsing, de-vig for single-contract Kalshi) is firmed up in the WS3 plan against the real schemas.
 4. **E3 render split:** confirm the boundary — built-in ROTA text view (ours) vs the UI session's rich frontend — to avoid double-build.
