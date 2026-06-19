@@ -384,3 +384,140 @@ fn stale_exactly_at_threshold_boundary() {
         "CLI 1s past the 36h boundary IS stale"
     );
 }
+
+// ── Test 5 (WS1 Task 3): meteorologist belief is RESOLVED (not skipped) ──────
+//
+// Before this slice the daemon.rs:4723 `strip_prefix("aeolus:")` line SKIPPED any
+// belief whose event_id lacked the "aeolus:" prefix — specifically the meteorologist
+// persona's `weather:KNYC:tmax:DATE#ge87` format. This test seeds ONE meteorologist
+// belief and ONE Aeolus belief for the SAME bracket + grading station, runs the
+// resolver, and asserts BOTH are scored.
+//
+// Mutation proof: reverting daemon.rs:4723 to `strip_prefix("aeolus:")` leaves the
+// meteorologist belief OPEN (resolved count drops to 1) → RED.
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn meteorologist_belief_is_resolved_not_skipped(pool: PgPool) {
+    // Shared setup: the Troutdale CLI (CLITTD, realized high 91°F) is the grader.
+    insert_cli_signal(&pool, "cli-ttd-meteo", &product_text(TROUTDALE_CLI)).await;
+
+    // --- Seed an Aeolus binary belief (event_id = "aeolus:knyc-2026-06-13-tmax-ge87") ---
+    // p = 0.6719… (the recorded knyc forecast's ge87 probability).
+    let p_ge87 = 0.6719055375922601_f64;
+    let prov_aeolus = json!({
+        "model_id": "aeolus",
+        "station": "KNYC",
+        "nws_station_id": "TTD",   // routes to Troutdale (CLITTD)
+        "variable": "tmax",
+        "target_date": TARGET_DATE,
+        "run_at": "2026-06-13T00:00:00.000Z",
+        "model_version": "sar-semos-v1",
+    });
+    EventsRepo::new(pool.clone())
+        .create(
+            "aeolus:knyc-2026-06-13-tmax-ge87",
+            "aeolus weather bracket",
+            "official NWS daily maximum",
+            "nws_observed_high",
+            Some(HORIZON),
+            HORIZON,
+            "weather",
+            "2026-06-13T01:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    BeliefsRepo::new(pool.clone())
+        .insert(
+            "ws13-aeolus-ge87",
+            "2026-06-13T01:00:00.000Z",
+            "aeolus:knyc-2026-06-13-tmax-ge87",
+            p_ge87,
+            p_ge87,
+            HORIZON,
+            &json!([{"source": "aeolus", "ref": "sig-knyc"}]),
+            &prov_aeolus,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // --- Seed a meteorologist belief for the SAME bracket ---
+    // event_id uses the persona grammar: `weather:KNYC:tmax:DATE#ge87`
+    // The provenance carries the same grading keys so open_weather_bracket_due picks it up.
+    let prov_meteo = json!({
+        "producer": "meteorologist",
+        "persona_id": "meteorologist",
+        "persona_version": 1,
+        "analysis_id": "01METEOANALYSIS",
+        "analysis_content_hash": "ch-meteo-1",
+        "nws_station_id": "TTD",   // same grading station
+        "variable": "tmax",
+        "target_date": TARGET_DATE,
+    });
+    // The persona grammar event_id: `{region_key}#{bracket_token}`.
+    // region_key = "weather:KNYC:tmax:2026-06-13", bracket = "ge87".
+    let meteo_event_id = "weather:KNYC:tmax:2026-06-13#ge87";
+    EventsRepo::new(pool.clone())
+        .create(
+            meteo_event_id,
+            "meteorologist weather bracket",
+            "official NWS daily maximum",
+            "nws_observed_high",
+            Some(HORIZON),
+            HORIZON,
+            "weather",
+            "2026-06-13T01:30:00.000Z",
+        )
+        .await
+        .unwrap();
+    BeliefsRepo::new(pool.clone())
+        .insert(
+            "ws13-meteo-ge87",
+            "2026-06-13T01:30:00.000Z",
+            meteo_event_id,
+            p_ge87, // same p — both should score identically
+            p_ge87,
+            HORIZON,
+            &json!([{"source": "persona:meteorologist@1", "ref": "01METEOANALYSIS"}]),
+            &prov_meteo,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // --- Run the resolver ---
+    let resolved = resolve_and_score_weather_beliefs(&pool, now(), 0)
+        .await
+        .expect("resolve_and_score_weather_beliefs");
+
+    // BOTH beliefs must be resolved. Before this slice, only 1 resolved (Aeolus)
+    // and the meteorologist was silently skipped.
+    assert_eq!(
+        resolved, 2,
+        "BOTH Aeolus + meteorologist bracket beliefs must be resolved; \
+         if this is 1 the strip_prefix(\"aeolus:\") skip bug is back"
+    );
+
+    let beliefs_repo = BeliefsRepo::new(pool.clone());
+
+    // Aeolus belief: resolved, outcome=true (91 >= 87).
+    let aeolus_row = beliefs_repo.get("ws13-aeolus-ge87").await.unwrap();
+    assert_eq!(aeolus_row.status, "resolved", "Aeolus belief resolved");
+    assert_eq!(aeolus_row.outcome, Some(1), "91 >= 87 => true");
+
+    // Meteorologist belief: also resolved, same outcome + brier.
+    let meteo_row = beliefs_repo.get("ws13-meteo-ge87").await.unwrap();
+    assert_eq!(
+        meteo_row.status, "resolved",
+        "meteorologist belief must be resolved — this is the thesis of the slice"
+    );
+    assert_eq!(meteo_row.outcome, Some(1), "91 >= 87 => true");
+
+    // Both briors must be identical (same p, same outcome).
+    let aeolus_brier = aeolus_row.brier.expect("Aeolus brier set");
+    let meteo_brier = meteo_row.brier.expect("meteorologist brier set");
+    assert!(
+        (aeolus_brier - meteo_brier).abs() < 1e-12,
+        "brier must be identical for same p+outcome: aeolus={aeolus_brier}, meteo={meteo_brier}"
+    );
+}

@@ -4720,10 +4720,10 @@ pub async fn resolve_and_score_weather_beliefs(
             _ => continue, // unknown variable ⇒ skip (never grade on a guess)
         };
         let realized_f = realized_f_for(variable, re.high_f, re.low_f);
-        let Some(event_hint) = b.event_id.strip_prefix("aeolus:") else {
-            continue; // a belief whose event_id lacks the namespace ⇒ skip
-        };
-        let Some((outcome, brier)) = score_bracket(event_hint, b.p, realized_f) else {
+        // Grammar-agnostic: pass the full event_id to score_bracket.
+        // parse_bracket_hint extracts the bracket token via rsplit on [-:#],
+        // handling both "aeolus:…-ge87" and "weather:…#ge87" without naming either.
+        let Some((outcome, brier)) = score_bracket(&b.event_id, b.p, realized_f) else {
             continue; // unparseable/in_bracket hint ⇒ skip, never mis-grade
         };
         match beliefs
