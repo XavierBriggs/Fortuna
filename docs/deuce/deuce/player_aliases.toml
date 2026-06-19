@@ -1,0 +1,33 @@
+# Hand-curated player aliases — these WIN over player_aliases_generated.toml.
+#
+# Each [player."<canonical_id>"] unifies divergent name-key forms onto one id.
+#   canonical_id = heuristic key of the "Lastname I." form (full surname + initial),
+#                  which is what tennis-data and DEUCE's rating book already use.
+#   keys         = the OTHER heuristic forms that should resolve to it — usually the
+#                  "First Last" form that truncates a particle/compound surname.
+#
+# To regenerate the bulk map from Sackmann: `deuce build-aliases` (needs get_sackmann.sh).
+
+[player."de-minaur_a"]
+display = "Alex de Minaur"
+keys = ["minaur_a"]
+
+[player."davidovich-fokina_a"]
+display = "Alejandro Davidovich Fokina"
+keys = ["fokina_a"]
+
+[player."bautista-agut_r"]
+display = "Roberto Bautista Agut"
+keys = ["agut_r"]
+
+[player."carreno-busta_p"]
+display = "Pablo Carreno Busta"
+keys = ["busta_p"]
+
+[player."ramos-vinolas_a"]
+display = "Albert Ramos Vinolas"
+keys = ["vinolas_a"]
+
+[player."van-de-zandschulp_b"]
+display = "Botic van de Zandschulp"
+keys = ["zandschulp_b"]

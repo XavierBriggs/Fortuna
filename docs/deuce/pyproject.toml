@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deuce"
+version = "0.0.1"
+description = "Tennis win-probability research harness for FORTUNA"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "requests>=2.31",
+    "python-dotenv>=1.0",
+    "openpyxl>=3.1",   # tennis-data.co.uk newer years are .xlsx
+    "xlrd>=2.0.1",     # tennis-data.co.uk older years are old-format .xls
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4", "ruff>=0.4"]
+
+[project.scripts]
+deuce = "deuce.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["deuce*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
