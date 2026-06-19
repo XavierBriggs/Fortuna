@@ -94,6 +94,10 @@ fn variable_str(v: Variable) -> &'static str {
 /// as DATA (§4). The harness may still augment this downstream.
 fn provenance(fc: &AeolusForecast) -> serde_json::Value {
     json!({
+        // WS1.1: uniform producer tag — decoupling-clean instance name (the
+        // resolution bridge and scoring jobs can route by producer without
+        // re-parsing the source).
+        "producer": "aeolus",
         "model_id": "aeolus",
         "station": fc.station(),
         // The OFFICIAL grading station (may differ from `station`: Aeolus forecasts

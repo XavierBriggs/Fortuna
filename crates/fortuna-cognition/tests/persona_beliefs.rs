@@ -191,6 +191,135 @@ fn duplicate_entries_are_rejected_not_silently_emitted() {
     assert!(matches!(err, PersonaBeliefError::DuplicateEvent { .. }));
 }
 
+// ---- WS1.1: uniform provenance.producer + weather grading keys (D4 Part 0/1) ----
+
+/// T2 — persona weather (`ge` threshold) belief carries `producer == persona_id`
+/// AND the three weather grading keys parsed from the `region_key`.
+#[test]
+fn persona_weather_belief_carries_producer_and_grading_keys() {
+    let drafts = map_persona_analysis(
+        "meteorologist",
+        3,
+        "01JANALYSIS",
+        "ch-abc",
+        "weather:KNYC:tmax:2026-06-12",
+        &weather_findings(),
+        h(),
+    )
+    .unwrap();
+    assert!(!drafts.is_empty(), "need at least one draft");
+    for draft in &drafts {
+        let p = &draft.provenance;
+        // producer must be the persona_id
+        assert_eq!(
+            p["producer"], "meteorologist",
+            "provenance must carry producer == persona_id"
+        );
+        // weather grading keys parsed from region_key
+        assert_eq!(
+            p["nws_station_id"], "KNYC",
+            "nws_station_id must be the station segment"
+        );
+        assert_eq!(
+            p["variable"], "tmax",
+            "variable must be the variable segment"
+        );
+        assert_eq!(
+            p["target_date"], "2026-06-12",
+            "target_date must be the date segment"
+        );
+        // Pre-existing keys still present (non-regression)
+        assert_eq!(p["persona_id"], "meteorologist");
+        assert_eq!(p["persona_version"], 3);
+        assert_eq!(p["analysis_id"], "01JANALYSIS");
+        assert_eq!(p["analysis_content_hash"], "ch-abc");
+    }
+}
+
+/// T3 — persona macro (`out:` label) belief carries `producer` but NO weather
+/// grading keys (nws_station_id / variable / target_date).
+#[test]
+fn persona_macro_belief_carries_producer_but_no_weather_grading_keys() {
+    let findings = serde_json::json!({
+        "outcomes": [{"label": "MoM >= 0.3%", "p": 0.55}, {"label": "MoM >= 0.4%", "p": 0.20}],
+        "regime": "disinflation stalling"
+    });
+    let drafts = map_persona_analysis(
+        "macro-economist",
+        1,
+        "01JMACRO",
+        "ch-m",
+        "macro:US-CPI-MoM:2026-06-12",
+        &findings,
+        h(),
+    )
+    .unwrap();
+    assert!(!drafts.is_empty(), "need at least one macro draft");
+    for draft in &drafts {
+        let p = &draft.provenance;
+        // producer must be set to the persona_id
+        assert_eq!(
+            p["producer"], "macro-economist",
+            "macro belief must carry producer == persona_id"
+        );
+        // weather grading keys must NOT appear on macro beliefs
+        assert!(
+            p.get("nws_station_id").is_none(),
+            "macro belief must NOT carry nws_station_id"
+        );
+        assert!(
+            p.get("variable").is_none(),
+            "macro belief must NOT carry variable"
+        );
+        assert!(
+            p.get("target_date").is_none(),
+            "macro belief must NOT carry target_date"
+        );
+    }
+}
+
+/// T4 — a malformed region_key (fewer than 4 colon-separated segments) must
+/// not panic, must not stamp a wrong key, and the drafts are still produced.
+#[test]
+fn malformed_weather_region_key_does_not_panic_and_omits_grading_keys() {
+    // Only 2 segments: "weather:KNYC" — missing variable and date.
+    let findings = serde_json::json!({
+        "thresholds": [{"ge": 60, "p": 0.75}]
+    });
+    let drafts = map_persona_analysis(
+        "meteorologist",
+        1,
+        "01JBAD",
+        "ch-bad",
+        "weather:KNYC", // malformed: no variable, no date
+        &findings,
+        h(),
+    )
+    .unwrap();
+    assert!(
+        !drafts.is_empty(),
+        "malformed key must not prevent draft production"
+    );
+    for draft in &drafts {
+        let p = &draft.provenance;
+        // producer must still be stamped
+        assert_eq!(p["producer"], "meteorologist");
+        // grading keys must NOT be stamped (cannot parse correctly)
+        assert!(
+            p.get("nws_station_id").is_none(),
+            "malformed key must not stamp nws_station_id"
+        );
+        assert!(
+            p.get("variable").is_none(),
+            "malformed key must not stamp variable"
+        );
+        assert!(
+            p.get("target_date").is_none(),
+            "malformed key must not stamp target_date"
+        );
+    }
+}
+
 // ---- E.4b: the artifact as a high-priority context item (design §9) ----
 
 #[test]

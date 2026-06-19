@@ -63,6 +63,32 @@ pub fn prob_at_least(threshold: f64, mu: f64, sigma: f64) -> Option<f64> {
     }
 }
 
+/// Parse weather grading keys from a `weather:STATION:variable:date` region_key.
+///
+/// Returns `(nws_station_id, variable, target_date)` if and only if:
+/// - the key has exactly 4+ colon-separated segments
+/// - segment 0 is "weather"
+/// - segment 1 is the station (non-empty)
+/// - segment 2 is the variable (non-empty)
+/// - segment 3 passes `is_iso_date` (YYYY-MM-DD shaped and parseable)
+///
+/// Any parse shortfall returns `None` — the caller omits the keys silently.
+/// Never panics (positional split only, no indexing past `.get()`).
+fn parse_weather_grading_keys(region_key: &str) -> Option<(String, String, String)> {
+    let mut segs = region_key.splitn(5, ':');
+    let domain = segs.next()?;
+    if domain != "weather" {
+        return None;
+    }
+    let station = segs.next().filter(|s| !s.is_empty())?;
+    let variable = segs.next().filter(|s| !s.is_empty())?;
+    let date = segs.next().filter(|s| is_iso_date(s))?;
+    // Reuse is_iso_date's shape check; validate calendar range via timestamp parse.
+    UtcTimestamp::parse_iso8601(&format!("{date}T00:00:00.000Z"))
+        .ok()
+        .map(|_| (station.to_string(), variable.to_string(), date.to_string()))
+}
+
 /// Fan a persisted analysis's `findings` onto BINARY `BeliefDraft`s — one per
 /// `thresholds[]` entry (weather: `{ge, p}`) and/or `outcomes[]` entry (macro:
 /// `{label, p}`). The belief's `p` is the persona's stated probability (the
@@ -83,16 +109,44 @@ pub fn map_persona_analysis(
     horizon: UtcTimestamp,
 ) -> Result<Vec<BeliefDraft>, PersonaBeliefError> {
     let source = format!("persona:{persona_id}@{persona_version}");
-    let provenance = json!({
+    // WS1.1: producer is always stamped so downstream jobs can route without
+    // re-parsing the source.  Weather grading keys (nws_station_id / variable /
+    // target_date) are added ONLY on the weather-threshold path, parsed from the
+    // region_key by positional `:` split — never on the macro outcomes path.
+    let base_provenance = json!({
+        "producer": persona_id,
         "persona_id": persona_id,
         "persona_version": persona_version,
         "analysis_id": analysis_id,
         "analysis_content_hash": content_hash,
     });
+
+    // Try to parse weather grading keys up front; `None` → thresholds use
+    // base_provenance, never a partial / wrong key.
+    let weather_grading_keys = parse_weather_grading_keys(region_key);
+
+    // Provenance with weather grading keys appended — built lazily only when
+    // needed and only when the parse succeeded.
+    let weather_provenance: Option<Value> =
+        weather_grading_keys
+            .as_ref()
+            .map(|(station, variable, date)| {
+                let mut prov = base_provenance.clone();
+                if let Some(obj) = prov.as_object_mut() {
+                    obj.insert("nws_station_id".to_string(), json!(station));
+                    obj.insert("variable".to_string(), json!(variable));
+                    obj.insert("target_date".to_string(), json!(date));
+                }
+                prov
+            });
+
     let mut drafts = Vec::new();
     let mut seen = BTreeSet::new();
 
     if let Some(thresholds) = findings.get("thresholds").and_then(Value::as_array) {
+        // Weather grading keys ride on the threshold path only; if the region_key
+        // didn't parse (malformed / macro-shaped), fall back to base_provenance.
+        let threshold_prov = weather_provenance.as_ref().unwrap_or(&base_provenance);
         for (index, entry) in thresholds.iter().enumerate() {
             let ge = entry.get("ge").and_then(Value::as_f64).ok_or_else(|| {
                 PersonaBeliefError::BadEntry {
@@ -110,7 +164,7 @@ pub fn map_persona_analysis(
                 horizon,
                 &source,
                 analysis_id,
-                &provenance,
+                threshold_prov,
             )?;
         }
     }
@@ -125,7 +179,8 @@ pub fn map_persona_analysis(
             })?;
             let p = number_p(entry, index)?;
             // Raw label (injective; distinct labels -> distinct ids), `out:`-prefixed
-            // so it can never collide with a `ge…` threshold id.
+            // so it can never collide with a `ge…` threshold id. Macro outcomes path
+            // never receives weather grading keys (base_provenance only).
             push_draft(
                 &mut drafts,
                 &mut seen,
@@ -135,7 +190,7 @@ pub fn map_persona_analysis(
                 horizon,
                 &source,
                 analysis_id,
-                &provenance,
+                &base_provenance,
             )?;
         }
     }
