@@ -4,7 +4,7 @@
 - **Driver:** synchronous captain loop. Charter (re-read every iteration): `docs/superpowers/loop-close-captain-charter.md`.
 - **Goal/design:** `docs/superpowers/specs/2026-06-19-loop-close-and-provable-demo-design.md` · **North-star:** `…/2026-06-19-scoring-and-validation-architecture.md`.
 - **Workstreams:** WS1 live spine (`plans/2026-06-19-ws1-live-spine.md`, 8 slices) → WS2 proof layer → WS3 generic backtest → WS4 demo surface (E1–E6).
-- **Status:** WS1 kicked off. Slices sealed: none yet. **Next:** WS1 Task 1 (uniform `provenance.producer` + persona weather grading keys).
+- **Status:** WS1 kicked off. Slices sealed: 1 of 9 (slice 1 cd2b03d — QA-sealed + mutation-proven). Next: WS1 slice 2 (open_weather_bracket_due).
 - **UI session** (`.claude/worktrees/operator-ui/`): the scorecard serialization contract is pulled forward (early WS2); UI-relevant landings flagged here + in commit subjects.
 - **Gate discipline:** evidence-before-verdict · mutation-proof · gate-vs-pre-slice-base · fixtures-real · surface-real-scope. Protected invariants additions-only, baseline `dadd28a`.
 
