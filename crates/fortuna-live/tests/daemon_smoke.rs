@@ -2564,6 +2564,13 @@ async fn drive_persists_persona_analysis_and_beliefs_when_wired(pool: PgPool) {
 
     // ---- 4. Build the PersonasWiring with ONE loaded schedule (the shipped files),
     //         cadences=[] so it triggers on the in-window signal (not a cadence).
+    //         D1: minds map persona_id -> its own Mind (one entry here).
+    let persona_id = def.meta.id.clone();
+    let mut persona_minds: std::collections::BTreeMap<
+        String,
+        Arc<dyn fortuna_cognition::mind::Mind>,
+    > = std::collections::BTreeMap::new();
+    persona_minds.insert(persona_id, persona_mind);
     let wiring = fortuna_live::daemon::PersonasWiring {
         pool: pool.clone(),
         schedules: vec![PersonaSchedule {
@@ -2572,7 +2579,7 @@ async fn drive_persists_persona_analysis_and_beliefs_when_wired(pool: PgPool) {
         }],
         state: PersonaScheduleState::new(0),
         budget: DiscoveryBudget::new(500),
-        mind: persona_mind,
+        minds: persona_minds,
         strategy: StrategyId::new("domain-analysis").unwrap(), // TEST code: unwrap fine
         window_hours: 48,
         max_signals: 200,

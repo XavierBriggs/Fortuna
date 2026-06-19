@@ -53,6 +53,8 @@ use crate::persona_trigger::{
 use crate::signals::{SignalEnvelope, TriggerDecision};
 use fortuna_core::clock::UtcTimestamp;
 use serde_json::Value;
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
 /// One persona's live-loop input bundle: the loaded definition plus the
 /// operator's cadence config (a persona does not carry its own cadences — they
@@ -194,12 +196,18 @@ impl<'a> RegionGroups<'a> {
 /// are DUE this tick (by fresh signal OR cadence), execute each exactly once, and
 /// return the results for the daemon to persist. DB-free; deterministic; never
 /// panics.
+///
+/// `minds` is the per-persona resolver: each key is a persona id, each value is
+/// the `Arc<dyn Mind>` built with THAT persona's `system_charter` (its
+/// `persona.method`). A persona whose id has no entry in `minds` is SKIPPED with
+/// a defect — fail-closed, never a fallback to any other charter (D1 / audit
+/// Area 8). Zero changes to `AnthropicMind`/`decide()`/the §4 firewall.
 pub async fn run_due_personas(
     now: UtcTimestamp,
     schedules: &[PersonaSchedule],
     signals: &[SignalEnvelope],
     state: &mut PersonaScheduleState,
-    mind: &dyn Mind,
+    minds: &BTreeMap<String, Arc<dyn Mind>>,
     budget: &mut DiscoveryBudget,
 ) -> Vec<PersonaRunResult> {
     let mut results = Vec::new();
@@ -251,7 +259,7 @@ pub async fn run_due_personas(
                 state.gate.begin(&def.meta.id, region);
             }
             let items = items_for_group(group_signals);
-            let result = run_one(def, region, &items, mind, budget, now).await;
+            let result = run_one(def, region, &items, minds, budget, now).await;
             if signal_fresh {
                 // The gate reports a coalesced-trigger count. In this serial,
                 // one-request-per-(persona,region)-group tick model it is always
@@ -278,18 +286,50 @@ pub async fn run_due_personas(
     results
 }
 
-/// Execute one `(persona, region)` run, degrading a context-assembly error to a
-/// counted defect on an empty outcome (never a panic; the runner's only hard
-/// error is assembly, which cannot happen when bodies are hashed correctly).
+/// Execute one `(persona, region)` run using the persona's OWN mapped Mind (D1).
+/// Fail-closed on a missing mind: a persona with no entry in `minds` gets a
+/// defect and no artifact — never a fallback to any other charter. Degrades a
+/// context-assembly error to a counted defect on an empty outcome (never a
+/// panic; the runner's only hard error is assembly, which cannot happen when
+/// bodies are hashed correctly).
 async fn run_one(
     def: &PersonaDef,
     region: &str,
     items: &[ContextItem],
-    mind: &dyn Mind,
+    minds: &BTreeMap<String, Arc<dyn Mind>>,
     budget: &mut DiscoveryBudget,
     now: UtcTimestamp,
 ) -> PersonaRunResult {
-    let outcome = match run_persona_analysis(def, region, items, mind, budget, now).await {
+    // D1 (audit Area 8): look up THIS persona's own Mind by id.
+    // Fail-closed: no mapped mind → skip with a defect, never fall back.
+    let Some(mind) = minds.get(&def.meta.id) else {
+        let mut degraded = PersonaOutcome {
+            persona_id: def.meta.id.clone(),
+            persona_version: def.meta.version,
+            region_key: region.to_string(),
+            produced_at: now,
+            signal_manifest: Vec::new(),
+            findings: None,
+            content_hash: None,
+            manifest_hash: None,
+            cost_cents: 0,
+            throttled: false,
+            skipped_no_signals: false,
+            defects: Vec::new(),
+        };
+        degraded.defects.push(format!(
+            "no mind mapped for persona {:?} (unmapped persona skipped; D1 fail-closed)",
+            def.meta.id
+        ));
+        return PersonaRunResult {
+            persona_id: def.meta.id.clone(),
+            persona_version: def.meta.version,
+            region_key: region.to_string(),
+            outcome: degraded,
+        };
+    };
+
+    let outcome = match run_persona_analysis(def, region, items, mind.as_ref(), budget, now).await {
         Ok(outcome) => outcome,
         Err(e) => {
             // Should be unreachable (we hash bodies correctly), but degrade

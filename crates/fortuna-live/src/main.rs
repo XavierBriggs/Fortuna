@@ -19,8 +19,8 @@ use fortuna_live::compose::DegradeScrape;
 use fortuna_live::daemon::{
     build_kalshi_demo_transport, build_kalshi_prod_transport, compose_kalshi_runner_with_transport,
     compose_paper_live_runner_with_transport, compose_runner, default_degrade_thresholds, drive,
-    mind_from_env, resolve_kalshi_demo_creds, resolve_kalshi_prod_creds, triage_from_env,
-    ActiveRunner, PgHaltPoller, SYNTH_MIND_TIMEOUT_SECS,
+    mind_from_env, persona_mind_from_env, resolve_kalshi_demo_creds, resolve_kalshi_prod_creds,
+    triage_from_env, ActiveRunner, PgHaltPoller, SYNTH_MIND_TIMEOUT_SECS,
 };
 use fortuna_live::run_loop::{HaltPoller, LoopConfig, RealCadence, RevocationHaltPoller};
 use fortuna_ops::dashboard::{serve_dashboard, DashboardSnapshot};
@@ -428,6 +428,11 @@ async fn main() -> Result<()> {
     let personas_wiring = match dcfg.personas.as_ref() {
         Some(sec) if sec.enabled => {
             let mut schedules = Vec::new();
+            // D1 (audit Area 8): build one Mind per persona, each with ITS OWN
+            // charter (the persona's `method` body). Each persona gets a fresh
+            // transport (per-persona API call isolation); no charter sharing.
+            let mut persona_minds: BTreeMap<String, Arc<dyn fortuna_cognition::mind::Mind>> =
+                BTreeMap::new();
             for entry in &sec.personas {
                 let md = std::fs::read_to_string(format!("{}/persona.md", entry.dir))
                     .with_context(|| format!("reading persona.md for {:?}", entry.id))?;
@@ -451,6 +456,32 @@ async fn main() -> Result<()> {
                     .with_context(|| {
                         format!("persona {:?} failed registry validation", entry.id)
                     })?;
+
+                // D1: build a Mind for this persona using ITS method as the
+                // system_charter. Fresh transport per persona (persona API call
+                // isolation); None transport => inert StubMind (no-key path).
+                let persona_charter =
+                    fortuna_cognition::persona_runner::persona_system_charter(&def).to_string();
+                let persona_transport = match validated.anthropic_api_key.as_ref() {
+                    Some(_) => Some(
+                        ReqwestMindTransport::from_env(std::time::Duration::from_secs(
+                            SYNTH_MIND_TIMEOUT_SECS,
+                        ))
+                        .with_context(|| {
+                            format!("anthropic transport for persona {:?}", entry.id)
+                        })?,
+                    ),
+                    None => None,
+                };
+                let persona_mind = persona_mind_from_env(
+                    &dcfg.cognition,
+                    model_registry.model(ModelTier::Synthesis),
+                    persona_transport,
+                    Arc::new(RealClock),
+                    &persona_charter,
+                );
+                persona_minds.insert(def.meta.id.clone(), persona_mind);
+
                 schedules.push(fortuna_cognition::persona_orchestrator::PersonaSchedule {
                     def,
                     cadences: entry.cadences.clone(),
@@ -469,7 +500,7 @@ async fn main() -> Result<()> {
                 budget: fortuna_cognition::discovery::DiscoveryBudget::new(
                     sec.budget_cents_per_day,
                 ),
-                mind: synthesis_mind.clone(),
+                minds: persona_minds,
                 strategy: persona_strategy,
                 window_hours: sec.window_hours,
                 max_signals: sec.max_signals,

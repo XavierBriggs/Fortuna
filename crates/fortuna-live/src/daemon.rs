@@ -226,6 +226,41 @@ pub fn mind_from_env<T: MindTransport + 'static>(
     }
 }
 
+/// Build a per-persona Mind with a CALLER-SUPPLIED `system_charter` (D1, audit
+/// Area 8). Mirrors `mind_from_env` exactly — same transport/budget/clock infra
+/// — but takes the persona's own `method` body as the charter instead of the
+/// synthesis charter constant. This is the ONLY difference: the routing fix (which
+/// Mind serves which persona) without touching AnthropicMind/decide()/the firewall.
+///
+/// `transport` Some => Claude-backed AnthropicMind on `model` with `system_charter`;
+/// `transport` None => inert StubMind (no ANTHROPIC_API_KEY path, byte-unchanged).
+pub fn persona_mind_from_env<T: MindTransport + 'static>(
+    cognition: &CognitionSection,
+    model: &str,
+    transport: Option<T>,
+    clock: Arc<dyn Clock>,
+    system_charter: &str,
+) -> Arc<dyn Mind> {
+    match transport {
+        Some(transport) => Arc::new(AnthropicMind::new(
+            AnthropicMindConfig {
+                model: model.to_string(),
+                max_tokens: SYNTH_MIND_MAX_TOKENS,
+                input_price_cents_per_mtok: SYNTH_MIND_INPUT_PRICE_CENTS_PER_MTOK,
+                output_price_cents_per_mtok: SYNTH_MIND_OUTPUT_PRICE_CENTS_PER_MTOK,
+                system_charter: system_charter.to_string(),
+            },
+            transport,
+            CostBudget::new(
+                cognition.per_cycle_budget_cents,
+                cognition.daily_budget_cents,
+            ),
+            clock,
+        )),
+        None => Arc::new(StubMind::scripted(Vec::new())),
+    }
+}
+
 /// Triage-tier (Haiku) AnthropicMindConfig defaults: a small max_tokens (the
 /// verdict is a yes/no) + Haiku 4.5 prices ($1/$5 per Mtok -> cents per Mtok).
 /// Prices "are config" (AnthropicMindConfig) — promoting them is a ledgered
@@ -1572,12 +1607,21 @@ pub struct ReviewWiring {
 /// `persist_beliefs` path. Default-off: `None` => the step never runs (the daemon
 /// is byte-identical). A persist failure ALERTS and continues (beliefs are the
 /// calibration substrate, not the money path), mirroring the scalar-drain posture.
+///
+/// D1 (audit Area 8): `minds` is a per-persona resolver — each key is a persona id,
+/// each value is the `Arc<dyn Mind>` built with THAT persona's own `method` charter
+/// (via `persona_mind_from_env`). `run_due_personas` looks up the persona's own Mind
+/// by id; a persona with no entry FAILS-CLOSED (defect, no artifact). Replaces the
+/// previous single `mind: Arc<dyn Mind>` which erroneously shared the synthesis
+/// charter across all personas.
 pub struct PersonasWiring {
     pub pool: PgPool,
     pub schedules: Vec<fortuna_cognition::persona_orchestrator::PersonaSchedule>,
     pub state: fortuna_cognition::persona_orchestrator::PersonaScheduleState,
     pub budget: fortuna_cognition::discovery::DiscoveryBudget,
-    pub mind: std::sync::Arc<dyn fortuna_cognition::mind::Mind>,
+    /// Per-persona Mind resolver (D1): key = persona_id, value = Mind built with
+    /// that persona's own `system_charter` (`persona.method`).
+    pub minds: BTreeMap<String, std::sync::Arc<dyn fortuna_cognition::mind::Mind>>,
     pub strategy: fortuna_core::market::StrategyId,
     pub window_hours: u32,
     pub max_signals: i64,
@@ -3123,12 +3167,14 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                             .collect();
                         // One call decides what is DUE and runs it (async; returns a
                         // Vec, no `?`). The budget + gate state mutate in place.
+                        // D1: pass the per-persona mind resolver so each persona
+                        // runs with ITS OWN charter (audit Area 8 fix).
                         let results = fortuna_cognition::persona_orchestrator::run_due_personas(
                             now,
                             &pw.schedules,
                             &signals,
                             &mut pw.state,
-                            pw.mind.as_ref(),
+                            &pw.minds,
                             &mut pw.budget,
                         )
                         .await;
