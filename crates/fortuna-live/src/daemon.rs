@@ -5378,7 +5378,20 @@ pub async fn run_weekly_review<
             Some(r.clv_bps.iter().sum::<f64>() / r.clv_bps.len() as f64)
         }
     });
-    let synth_resolved = records.first().map(|r| r.samples.len()).unwrap_or(0);
+    // §9.1 forward-only count: backtest rows (source='historical-import', WS3)
+    // are excluded from the GO/NO-GO volume gate. Calibration training (samples
+    // above) is UNCHANGED — backtest will seed it when WS3 lands.
+    // No-op today: no historical-import rows exist yet.
+    let synth_resolved: usize = if let Some(category) = synth_category {
+        BeliefsRepo::new(pool.clone())
+            .resolved_count_forward(None, category)
+            .await
+            .map_err(|e| DaemonError::Compose {
+                reason: format!("weekly review resolved_count_forward: {e}"),
+            })? as usize
+    } else {
+        0
+    };
     let strategies: Vec<StrategyRecord> = snap
         .strategies
         .iter()

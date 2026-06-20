@@ -2301,3 +2301,132 @@ async fn bus_recordings_append_only(pool: PgPool) {
         "DELETE on bus_recordings must be refused"
     );
 }
+
+// ---- WS1-8a: forward-only promotion count (§9.1) ----
+
+/// Helper: insert a belief with a given provenance JSON, then resolve+score it.
+async fn seed_resolved_belief(
+    pool: &PgPool,
+    belief_id: &str,
+    event_id: &str,
+    provenance: serde_json::Value,
+) {
+    let repo = fortuna_ledger::BeliefsRepo::new(pool.clone());
+    repo.insert(
+        belief_id,
+        "2026-06-10T12:00:00.000Z",
+        event_id,
+        0.7,
+        0.7,
+        "2026-06-20T18:00:00.000Z",
+        &serde_json::json!([]),
+        &provenance,
+        None,
+    )
+    .await
+    .unwrap();
+    repo.resolve_and_score(belief_id, true, 0.09, None)
+        .await
+        .unwrap();
+}
+
+#[sqlx::test(migrations = "./migrations")]
+/// T8a-1: forward-only count excludes `source='historical-import'` rows (§9.1).
+/// N forward beliefs + M import beliefs → count returns N (not N+M).
+async fn resolved_count_forward_excludes_historical_import_rows(pool: PgPool) {
+    seed_event(&pool, "evt-fwd-1").await;
+    seed_event(&pool, "evt-fwd-2").await;
+    seed_event(&pool, "evt-fwd-3").await;
+    seed_event(&pool, "evt-imp-1").await;
+    seed_event(&pool, "evt-imp-2").await;
+
+    // N=3 forward resolved beliefs (no source key → NULL source → forward)
+    seed_resolved_belief(
+        &pool,
+        "b-fwd-1",
+        "evt-fwd-1",
+        serde_json::json!({"producer": "aeolus"}),
+    )
+    .await;
+    seed_resolved_belief(
+        &pool,
+        "b-fwd-2",
+        "evt-fwd-2",
+        serde_json::json!({"producer": "aeolus"}),
+    )
+    .await;
+    seed_resolved_belief(
+        &pool,
+        "b-fwd-3",
+        "evt-fwd-3",
+        serde_json::json!({"producer": "aeolus"}),
+    )
+    .await;
+
+    // M=2 historical-import resolved beliefs (same producer, same category)
+    seed_resolved_belief(
+        &pool,
+        "b-imp-1",
+        "evt-imp-1",
+        serde_json::json!({"producer": "aeolus", "source": "historical-import"}),
+    )
+    .await;
+    seed_resolved_belief(
+        &pool,
+        "b-imp-2",
+        "evt-imp-2",
+        serde_json::json!({"producer": "aeolus", "source": "historical-import"}),
+    )
+    .await;
+
+    let repo = fortuna_ledger::BeliefsRepo::new(pool);
+
+    // Merged scope (producer=None): forward count = 3, not 5.
+    let fwd = repo.resolved_count_forward(None, "weather").await.unwrap();
+    assert_eq!(
+        fwd, 3,
+        "forward count must exclude historical-import rows (got {fwd}, want 3)"
+    );
+
+    // Per-producer scope: same exclusion applies.
+    let fwd_prod = repo
+        .resolved_count_forward(Some("aeolus"), "weather")
+        .await
+        .unwrap();
+    assert_eq!(
+        fwd_prod, 3,
+        "per-producer forward count must exclude historical-import rows (got {fwd_prod}, want 3)"
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+/// T8a-2 (byte-identical-today guarantee): with NO import rows,
+/// `resolved_count_forward` equals the count `resolved_stats` would return.
+async fn resolved_count_forward_equals_resolved_stats_count_when_no_import_rows(pool: PgPool) {
+    seed_event(&pool, "evt-r-1").await;
+    seed_event(&pool, "evt-r-2").await;
+
+    seed_resolved_belief(
+        &pool,
+        "b-r-1",
+        "evt-r-1",
+        serde_json::json!({"producer": "aeolus"}),
+    )
+    .await;
+    seed_resolved_belief(
+        &pool,
+        "b-r-2",
+        "evt-r-2",
+        serde_json::json!({"producer": "aeolus"}),
+    )
+    .await;
+
+    let repo = fortuna_ledger::BeliefsRepo::new(pool);
+
+    let stats_count = repo.resolved_stats("weather").await.unwrap().len() as i64;
+    let fwd = repo.resolved_count_forward(None, "weather").await.unwrap();
+    assert_eq!(
+        fwd, stats_count,
+        "forward count must equal resolved_stats count when no import rows exist (today guarantee)"
+    );
+}

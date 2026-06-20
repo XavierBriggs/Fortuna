@@ -1406,6 +1406,55 @@ impl BeliefsRepo {
             .collect())
     }
 
+    /// §9.1 forward-only resolved count for the GO/NO-GO volume gate (WS1 slice 8a).
+    ///
+    /// Counts resolved, scored, scoreable beliefs in `category` whose
+    /// `provenance->>'source'` IS DISTINCT FROM `'historical-import'` — i.e.
+    /// NULL source (forward live beliefs) and any non-import source are counted,
+    /// but WS3 backtest seeds are excluded.
+    ///
+    /// When `producer` is `Some(p)`, restricts to beliefs whose
+    /// `provenance->>'producer'` equals `p` (mirrors `resolved_stats_for_producer`).
+    /// When `producer` is `None`, counts the merged scope (mirrors `resolved_stats`).
+    ///
+    /// **No-op today**: no `source='historical-import'` rows exist until WS3
+    /// lands, so this returns the same value as `resolved_stats(_for_producer).len()`
+    /// until then (byte-identical-today guarantee).
+    pub async fn resolved_count_forward(
+        &self,
+        producer: Option<&str>,
+        category: &str,
+    ) -> Result<i64, LedgerError> {
+        let count = if let Some(prod) = producer {
+            sqlx::query_scalar!(
+                r#"SELECT COUNT(*) AS "count!"
+                   FROM beliefs b JOIN events e ON e.event_id = b.event_id
+                   WHERE b.status = 'resolved' AND b.outcome IS NOT NULL
+                     AND b.brier IS NOT NULL AND e.category = $2
+                     AND NOT e.unscoreable
+                     AND b.provenance->>'producer' = $1
+                     AND b.provenance->>'source' IS DISTINCT FROM 'historical-import'"#,
+                prod,
+                category
+            )
+            .fetch_one(&self.pool)
+            .await?
+        } else {
+            sqlx::query_scalar!(
+                r#"SELECT COUNT(*) AS "count!"
+                   FROM beliefs b JOIN events e ON e.event_id = b.event_id
+                   WHERE b.status = 'resolved' AND b.outcome IS NOT NULL
+                     AND b.brier IS NOT NULL AND e.category = $1
+                     AND NOT e.unscoreable
+                     AND b.provenance->>'source' IS DISTINCT FROM 'historical-import'"#,
+                category
+            )
+            .fetch_one(&self.pool)
+            .await?
+        };
+        Ok(count)
+    }
+
     /// DATA-driven candidate-producer set for a category (WS1 slice 7): the
     /// DISTINCT `provenance->>'producer'` values from resolved, scored, scoreable
     /// beliefs in the given category. Ordered `producer ASC` so the caller's
