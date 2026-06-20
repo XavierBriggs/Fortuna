@@ -6,7 +6,8 @@
 //! the signal path end-to-end minus the OS delivery (operator amendment:
 //! SIGTERM -> cancel working orders + final audit row).
 
-use fortuna_cognition::cycle::TriageDecision;
+use fortuna_cognition::cycle::{EdgeView, TriageDecision};
+use fortuna_cognition::events::{EdgeTier, MappingType};
 use fortuna_cognition::mind::{Mind, MindError, MindOutput, StubMind};
 use fortuna_core::clock::SimClock;
 use fortuna_core::market::{Contracts, MarketId};
@@ -5188,9 +5189,16 @@ async fn seed_personas_no_op_when_personas_disabled(pool: PgPool) {
 //
 // After a poll/segment cycle with `snapshots_pool = Some(pool)`, the
 // `price_snapshots` table must be non-empty for at least one of the sim
-// markets AND every row that has a mapped event carries a non-null event_id.
-// This is the real-path proof that the capturer runs end-to-end through the
-// daemon.
+// markets AND rows for markets that have a wired event mapping carry a
+// non-null event_id equal to the mapped event (WS1.4 follow-up). This is
+// the real-path proof that the runner→daemon event_id threading works:
+//   runner.market_events[market] → MarketQuoteCapture.event_id →
+//   SnapshotsRepo.insert → price_snapshots.event_id (non-null, FK-valid).
+
+/// A 26-character Crockford-base32 ULID used as the canonical event id for
+/// the mapped market (SIM-BKT-LO) in the price_snapshots live-smoke. Must
+/// exist in the `events` table before the snapshot insert (FK constraint).
+const MAPPED_EVENT_ID: &str = "01JWXQ0000000000000000ABQ1";
 
 #[sqlx::test(migrations = "../fortuna-ledger/migrations")]
 async fn price_snapshots_written_after_segment(pool: PgPool) {
@@ -5204,7 +5212,23 @@ async fn price_snapshots_written_after_segment(pool: PgPool) {
     dcfg.validate_bootable().expect("example boots sim");
     let full = FortunaConfig::load_file(example_path).expect("example full-config parses");
 
-    let runner = compose_runner(
+    // Seed the canonical event so the FK on price_snapshots.event_id is
+    // satisfied when the daemon writes the mapped market's snapshot row.
+    fortuna_ledger::EventsRepo::new(pool.clone())
+        .create(
+            MAPPED_EVENT_ID,
+            "smoke test event",
+            "resolves at benchmark_at",
+            "test",
+            None,
+            "2026-07-01T00:00:00.000Z",
+            "test",
+            "2026-06-19T00:00:00.000Z",
+        )
+        .await
+        .expect("seed event for price_snapshots smoke");
+
+    let mut runner = compose_runner(
         pool.clone(),
         &full,
         &dcfg,
@@ -5215,6 +5239,17 @@ async fn price_snapshots_written_after_segment(pool: PgPool) {
     )
     .await
     .expect("composition");
+
+    // Wire SIM-BKT-LO → MAPPED_EVENT_ID so the runner populates
+    // market_events and the snapshot capture emits a non-null event_id.
+    // This exercises the runner→daemon mapping-extraction path (WS1.4).
+    runner.refresh_synthesis_edges(&[EdgeView {
+        market: "SIM-BKT-LO".to_string(),
+        event_id: MAPPED_EVENT_ID.to_string(),
+        mapping: MappingType::Direct,
+        tier: EdgeTier::Confirmed,
+    }]);
+
     // Set up books so the runner captures real quotes.
     arb_books(&runner);
 
@@ -5285,26 +5320,40 @@ async fn price_snapshots_written_after_segment(pool: PgPool) {
     .unwrap();
     assert_eq!(bad_kind, 0, "all snapshot rows must use a valid kind");
 
-    // All rows for mapped markets must carry their event_id (non-null).
-    // In the sim smoke the runner has NO synthesis edges wired (no synthesis_refresh),
-    // so market_events is empty → all event_id values will be NULL.
-    // The meaningful assertion is that the table has rows and no constraint
-    // was violated — the event_id=non-null path is covered by the ledger test.
-    let null_event_rows: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM price_snapshots WHERE event_id IS NULL AND liquidity_ok",
+    // WS1.4 non-null path: the mapped market (SIM-BKT-LO) must have a
+    // snapshot row carrying exactly MAPPED_EVENT_ID. This proves the full
+    // runner→daemon event_id threading path is exercised end-to-end.
+    let mapped_rows: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM price_snapshots \
+         WHERE market_id = 'SIM-BKT-LO' AND event_id = $1",
+    )
+    .bind(MAPPED_EVENT_ID)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        mapped_rows >= 1,
+        "SIM-BKT-LO snapshot must carry event_id={MAPPED_EVENT_ID} (non-null path) — got {mapped_rows} row(s)"
+    );
+
+    // Unmapped markets (SIM-BKT-MID, SIM-BKT-HI) must still have
+    // event_id=NULL — both the null and non-null paths are valid.
+    let unmapped_null_rows: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM price_snapshots \
+         WHERE market_id != 'SIM-BKT-LO' AND event_id IS NULL AND liquidity_ok",
     )
     .fetch_one(&pool)
     .await
     .unwrap();
-    // liquidity_ok=true + event_id=NULL means unmapped markets captured OK.
-    // This is the expected case in a simple smoke (no synthesis edges wired).
-    let liquid_rows: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM price_snapshots WHERE liquidity_ok")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let unmapped_liquid_rows: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM price_snapshots \
+         WHERE market_id != 'SIM-BKT-LO' AND liquidity_ok",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert_eq!(
-        null_event_rows, liquid_rows,
-        "all liquid rows in unmapped-market smoke have event_id=NULL"
+        unmapped_null_rows, unmapped_liquid_rows,
+        "unmapped liquid markets (SIM-BKT-MID, SIM-BKT-HI) must have event_id=NULL"
     );
 }
