@@ -4712,12 +4712,34 @@ pub async fn resolve_and_score_weather_beliefs(
 ) -> Result<usize, DaemonError> {
     use fortuna_cognition::aeolus_forecast::Variable;
     use fortuna_cognition::aeolus_resolve::{cli_serves_station, realized_f_for, score_bracket};
+    use fortuna_cognition::events::{clv_bps as compute_clv_bps, LiquidityPolicy, SnapshotPoint};
     use fortuna_cognition::scoring::{
         CrpsPinballRule, PredictiveDistribution, Quantile, RealizedOutcome, ScoringRule,
     };
-    use fortuna_ledger::{BeliefScoresRepo, BeliefsRepo, ScalarBeliefsRepo, SignalsRepo};
+    use fortuna_core::market::Side as CoreSide;
+    use fortuna_core::money::Cents;
+    use fortuna_ledger::{
+        BeliefScoresRepo, BeliefsRepo, EdgesRepo, EventsRepo, ScalarBeliefsRepo, SignalsRepo,
+        SnapshotsRepo,
+    };
     use fortuna_sources::nws_climate::{nws_cli_realized, RealizedExtreme, NWS_CLI_KIND};
     use std::collections::HashMap;
+
+    // WS1 slice 5: LiquidityPolicy constants.
+    // min_touch_qty matches the book-gate touch (1 contract minimum).
+    // max_spread_cents ≤ 10c keeps the CLV signal tight.
+    // GAPS: these will be promoted to config once a config key is confirmed.
+    const CLV_MIN_TOUCH_QTY: i64 = 1;
+    const CLV_MAX_SPREAD_CENTS: i64 = 10;
+
+    let clv_policy = LiquidityPolicy {
+        min_touch_qty: CLV_MIN_TOUCH_QTY,
+        max_spread_cents: CLV_MAX_SPREAD_CENTS,
+    };
+
+    let events_repo = EventsRepo::new(pool.clone());
+    let edges_repo = EdgesRepo::new(pool.clone());
+    let snapshots_repo = SnapshotsRepo::new(pool.clone());
 
     let beliefs = BeliefsRepo::new(pool.clone());
     let scalars = ScalarBeliefsRepo::new(pool.clone());
@@ -4781,6 +4803,8 @@ pub async fn resolve_and_score_weather_beliefs(
     let mut score_offset = 0u64;
 
     // (d) Binary bracket beliefs: Brier the persisted `p` vs the realized outcome.
+    // WS1 slice 5: also compute `clv_bps` for each TRADED belief at resolution.
+    let fills_repo = fortuna_ledger::FillsRepo::new(pool.clone());
     for b in &due_binary {
         let Some(re) = grade(&b.nws_station_id, &b.target_date) else {
             continue; // no clean grade ⇒ leave OPEN for a later run
@@ -4797,8 +4821,102 @@ pub async fn resolve_and_score_weather_beliefs(
         let Some((outcome, brier)) = score_bracket(&b.event_id, b.p, realized_f) else {
             continue; // unparseable/in_bracket hint ⇒ skip, never mis-grade
         };
+
+        // WS1 slice 5: belief→event→edges→market→earliest fill → snapshots → clv_bps.
+        // Failures are non-fatal: CLV is calibration substrate (not the money path).
+        // No panic on timestamp/side parse: defensive skip = None CLV.
+        let clv: Option<f64> = async {
+            // 1. benchmark_at from the event.
+            let event = events_repo.get(&b.event_id).await.ok()?;
+            let benchmark_at =
+                fortuna_core::clock::UtcTimestamp::parse_iso8601(&event.benchmark_at).ok()?;
+
+            // 2. edges → market_ids for this event.
+            let edges = edges_repo.current_edges_for_event(&b.event_id).await.ok()?;
+            if edges.is_empty() {
+                return None;
+            }
+
+            // 3. Earliest fill across all edge-markets (deterministic entry).
+            // Track: (price_cents, side_str, fill_at, market_id).
+            let mut entry: Option<(i64, String, fortuna_core::clock::UtcTimestamp, String)> = None;
+            for edge in &edges {
+                let Some(fill) = fills_repo
+                    .first_fill_for_market(&edge.market_id)
+                    .await
+                    .ok()
+                    .flatten()
+                else {
+                    continue; // no fill on this edge-market
+                };
+                let Ok(fill_at) = fortuna_core::clock::UtcTimestamp::parse_iso8601(&fill.at) else {
+                    continue; // defensive: skip unparseable timestamp
+                };
+                let earlier = entry
+                    .as_ref()
+                    .map(|(_, _, t, _)| fill_at.epoch_millis() < t.epoch_millis())
+                    .unwrap_or(true);
+                if earlier {
+                    entry = Some((
+                        fill.price_cents,
+                        fill.side.clone(),
+                        fill_at,
+                        edge.market_id.clone(),
+                    ));
+                }
+            }
+            // No fill on ANY edge-market → CLV = None (proposed but not traded).
+            let (entry_price_cents, entry_side_str, _fill_at, market_id) = entry?;
+
+            // 4. Side conversion — defensive, never panic.
+            let side = match entry_side_str.as_str() {
+                "yes" => CoreSide::Yes,
+                "no" => CoreSide::No,
+                _ => return None, // unknown side string: skip
+            };
+
+            // 5. Pre-benchmark liquid snapshots for that market.
+            let benchmark_iso = benchmark_at.to_iso8601();
+            let snap_rows = snapshots_repo
+                .snapshots_for_market_before(&market_id, &b.event_id, &benchmark_iso)
+                .await
+                .ok()?;
+
+            // Convert SnapshotRow → SnapshotPoint (defensive on at-parse).
+            let points: Vec<SnapshotPoint> = snap_rows
+                .into_iter()
+                .filter_map(|r| {
+                    let at = fortuna_core::clock::UtcTimestamp::parse_iso8601(&r.at).ok()?;
+                    Some(SnapshotPoint {
+                        at,
+                        best_bid: r.best_bid_cents.map(Cents::new),
+                        best_ask: r.best_ask_cents.map(Cents::new),
+                        bid_qty: r.bid_qty.unwrap_or(0),
+                        ask_qty: r.ask_qty.unwrap_or(0),
+                    })
+                })
+                .collect();
+
+            if points.is_empty() {
+                return None;
+            }
+
+            // 6. Compute CLV — returns None when no liquid pre-benchmark snap exists.
+            let bps_i64 = compute_clv_bps(
+                Cents::new(entry_price_cents),
+                side,
+                benchmark_at,
+                &points,
+                &clv_policy,
+            )?;
+
+            // Persist as bps-as-f64 (e.g. 83.0 for +83 bps). NEVER /10000.
+            Some(bps_i64 as f64)
+        }
+        .await;
+
         match beliefs
-            .resolve_and_score(&b.belief_id, outcome, brier, None)
+            .resolve_and_score(&b.belief_id, outcome, brier, clv)
             .await
         {
             Ok(()) => resolved += 1,

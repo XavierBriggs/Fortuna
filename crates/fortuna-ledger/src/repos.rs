@@ -95,6 +95,29 @@ impl FillsRepo {
             .await?;
         Ok(row.n)
     }
+
+    /// The earliest fill for a market (the entry for CLV computation).
+    /// Returns None when no fills exist (belief proposed but not traded —
+    /// CLV stays None, correct).
+    pub async fn first_fill_for_market(
+        &self,
+        market_id: &str,
+    ) -> Result<Option<FirstFillRow>, LedgerError> {
+        let row = sqlx::query!(
+            r#"SELECT side, price_cents, at
+               FROM fills
+               WHERE market_id = $1
+               ORDER BY at ASC LIMIT 1"#,
+            market_id
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| FirstFillRow {
+            side: r.side,
+            price_cents: r.price_cents,
+            at: r.at,
+        }))
+    }
 }
 
 /// Halt persistence (I2 must survive restarts): set/rearm events, folded to
@@ -775,6 +798,17 @@ pub struct SnapshotRow {
     pub snapshot_id: String,
     pub best_bid_cents: Option<i64>,
     pub best_ask_cents: Option<i64>,
+    /// Book depth at the touch (NULL on legacy rows predating Phase C).
+    pub bid_qty: Option<i64>,
+    pub ask_qty: Option<i64>,
+    pub at: String,
+}
+
+/// Minimal fill summary returned by `FillsRepo::first_fill_for_market`.
+#[derive(Debug, Clone)]
+pub struct FirstFillRow {
+    pub side: String,
+    pub price_cents: i64,
     pub at: String,
 }
 
@@ -835,7 +869,7 @@ impl SnapshotsRepo {
         cutoff_iso: &str,
     ) -> Result<Option<SnapshotRow>, LedgerError> {
         let row = sqlx::query!(
-            r#"SELECT snapshot_id, best_bid_cents, best_ask_cents, at
+            r#"SELECT snapshot_id, best_bid_cents, best_ask_cents, bid_qty, ask_qty, at
                FROM price_snapshots
                WHERE market_id = $1 AND event_id = $2
                  AND liquidity_ok AND at < $3
@@ -850,8 +884,44 @@ impl SnapshotsRepo {
             snapshot_id: r.snapshot_id,
             best_bid_cents: r.best_bid_cents,
             best_ask_cents: r.best_ask_cents,
+            bid_qty: r.bid_qty,
+            ask_qty: r.ask_qty,
             at: r.at,
         }))
+    }
+
+    /// All liquid snapshots for a market strictly before the cutoff, ordered
+    /// by time ASC — used to find the latest pre-benchmark snapshot for CLV.
+    /// Defensive: callers skip/None on any parse error (never panic on `at`).
+    pub async fn snapshots_for_market_before(
+        &self,
+        market_id: &str,
+        event_id: &str,
+        cutoff_iso: &str,
+    ) -> Result<Vec<SnapshotRow>, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT snapshot_id, best_bid_cents, best_ask_cents, bid_qty, ask_qty, at
+               FROM price_snapshots
+               WHERE market_id = $1 AND event_id = $2
+                 AND liquidity_ok AND at < $3
+               ORDER BY at ASC"#,
+            market_id,
+            event_id,
+            cutoff_iso
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| SnapshotRow {
+                snapshot_id: r.snapshot_id,
+                best_bid_cents: r.best_bid_cents,
+                best_ask_cents: r.best_ask_cents,
+                bid_qty: r.bid_qty,
+                ask_qty: r.ask_qty,
+                at: r.at,
+            })
+            .collect())
     }
 }
 

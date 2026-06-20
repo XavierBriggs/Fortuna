@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT side, price_cents, at\n               FROM fills\n               WHERE market_id = $1\n               ORDER BY at ASC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "side",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "price_cents",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "at",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "cbf7c457f66611ebe465fee69350cac300a56fe86d940c03dd76b9979d5dbefa"
+}

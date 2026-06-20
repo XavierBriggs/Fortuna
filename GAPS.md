@@ -94,6 +94,15 @@ thesis payoff, spec/demo §0) accrues ZERO scored persona data today. Unblock = 
 scoring architecture doc: build resolution for persona + synthesis binary beliefs (not just unify
 the two existing forks). This is a hard prerequisite for the demo's head-to-head, scheduled P1.
 
+## WS1 slice 5: LiquidityPolicy constants not in config (2026-06-19)
+`resolve_and_score_weather_beliefs` uses hardcoded `CLV_MIN_TOUCH_QTY = 1` and
+`CLV_MAX_SPREAD_CENTS = 10` to construct the `LiquidityPolicy` for CLV computation.
+These are sensible defaults (1-contract touch minimum; ≤10c spread is tight)
+but should be promoted to operator config (e.g., `[clv]` table in `fortuna.toml`)
+once field data from the live paper soak validates the right thresholds.
+No existing config key covers this; the constants are documented at the site.
+Unblock: add `[clv]` TOML section, update `FortunaConfig`, thread to resolver.
+
 ## Disputed invariant tests
 ### C5 BookAge gate vs i1_universal_gate hardcoded check-count (2026-06-18, Phase C)
 Task C5 (book-freshness gate) adds an 11th gate check (BookAge) to `GateCheck::ALL`. The i1_universal_gate invariant test hardcodes the count `assert_eq!(out.records.len(), 10)` (2 sites: i1_universal_gate + i1_prop_all_orders_carry_gate_verdicts). Adding ANY gate check makes that `10` wrong. The C5 subagent changed `10` → `GateCheck::ALL.len()` (a self-adjusting STRENGTHENING) — but that MODIFIES a protected invariant assertion, which the constitution forbids without operator review. **RESOLVED 2026-06-18 (operator-approved, see chat):** chose the SEPARATE BookAge check (cleaner: single-responsibility + distinct `gate_rejections{check="book_age"}` telemetry + explicit ordering before price-sanity + spec-faithful). The i1 count update `10 → GateCheck::ALL.len()` is a genuine STRENGTHENING (verifies EVERY check produces a verdict regardless of count, not a fixed N) and is operator-blessed. The change was re-applied (cherry-pick of a9140c0). **Protected-invariant baseline re-based past this commit:** future `check-protected-invariants.sh` runs in this session compare against the post-C5 commit so this approved change is grandfathered while any NEW invariant modification is still caught. The hardcoded-`10` brittleness is the root cause; using `GateCheck::ALL.len()` makes i1 self-adjusting for future checks.
