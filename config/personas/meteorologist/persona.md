@@ -1,11 +1,11 @@
 +++
 id = "meteorologist"
-version = 2
+version = 3
 domain = "weather"
 domain_tags = ["temperature", "daily-high", "kalshi-temperature-brackets"]
 reads_signal_kinds = ["aeolus.forecast", "nws.observed_high", "nws.forecast_discussion"]
 tier = "cheap"
-region_key = "weather:{station}:tmax:{date}"
+region_key = "weather:{nws_station_id}:tmax:{target_date}"
 output_schema_version = "findings/v2"
 +++
 

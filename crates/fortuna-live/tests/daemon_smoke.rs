@@ -2455,9 +2455,10 @@ async fn drive_runs_the_monthly_review_at_the_month_boundary(pool: PgPool) {
 /// proof standing.
 ///
 /// Region derivation: the meteorologist's region_key template is
-/// `weather:{station}:tmax:{date}`, so the signal PAYLOAD carries `station` +
-/// `date` fields; run_due_personas' fill_region_key renders them into
-/// `weather:KNYC:tmax:2026-06-12`, a date-bearing region belief_horizon parses
+/// `weather:{nws_station_id}:tmax:{target_date}`, so the signal PAYLOAD carries
+/// `nws_station_id` (the authoritative grading station, e.g. "NYC") + `target_date`
+/// fields; run_due_personas' fill_region_key renders them into
+/// `weather:NYC:tmax:2026-06-12`, a date-bearing region belief_horizon parses
 /// (-> 2026-06-12T23:59:59.999Z). The signal `kind` is `aeolus.forecast` (one of
 /// the persona's reads_signal_kinds) and `received_at` is the SimClock start (well
 /// within the 48h window), so recent_by_kind finds it and the trigger fires.
@@ -2537,7 +2538,8 @@ async fn drive_persists_persona_analysis_and_beliefs_when_wired(pool: PgPool) {
     //         a date-bearing region belief_horizon can parse.
     let signal_payload = json!({
         "station": "KNYC",
-        "date": "2026-06-12",
+        "nws_station_id": "NYC",
+        "target_date": "2026-06-12",
         "mu": 64.3,
         "sigma": 3.1
     });
@@ -2795,7 +2797,8 @@ async fn persona_evidence_chain_is_replayable(pool: PgPool) {
     let sig_a_hash = content_hash_of("chain-aeolus-knyc-tmax-2026-06-14");
     let payload_a = json!({
         "station": "KNYC",
-        "date": "2026-06-14",
+        "nws_station_id": "NYC",
+        "target_date": "2026-06-14",
         "mu": 71.2,
         "sigma": 2.8
     });
@@ -2816,7 +2819,8 @@ async fn persona_evidence_chain_is_replayable(pool: PgPool) {
     let sig_b_hash = content_hash_of("chain-nws-afd-knyc-2026-06-14");
     let payload_b = json!({
         "station": "KNYC",
-        "date": "2026-06-14",
+        "nws_station_id": "NYC",
+        "target_date": "2026-06-14",
         "discussion": "Mid-level ridge building; confidence high."
     });
     sig_repo
@@ -2971,7 +2975,7 @@ async fn persona_evidence_chain_is_replayable(pool: PgPool) {
     // gets 2 evidence rows (one per signal). Total = 3 × 2 = 6.
     let evidence_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM event_source_evidence \
-         WHERE event_id LIKE 'weather:KNYC:tmax:2026-06-14%' \
+         WHERE event_id LIKE 'weather:NYC:tmax:2026-06-14%' \
            AND relation = 'model_context'",
     )
     .fetch_one(&pool)
@@ -3013,7 +3017,7 @@ async fn persona_evidence_chain_is_replayable(pool: PgPool) {
     // instead of "model_context", this count would be 0 → RED.
     let wrong_relation: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM event_source_evidence \
-         WHERE event_id LIKE 'weather:KNYC:tmax:2026-06-14%' \
+         WHERE event_id LIKE 'weather:NYC:tmax:2026-06-14%' \
            AND relation != 'model_context'",
     )
     .fetch_one(&pool)
@@ -5042,8 +5046,8 @@ async fn seed_personas_enabled_boots_and_head_is_present(pool: PgPool) {
     assert!(head.is_some(), "registry head must be present after seed");
     let row = head.unwrap();
     assert_eq!(
-        row.version, 2,
-        "version = 2 from persona.md frontmatter (bumped at D3)"
+        row.version, 3,
+        "version = 3 from persona.md frontmatter (bumped at WS1 boundary: grading-station fix)"
     );
     assert_eq!(row.status, "active", "status = active");
     assert_eq!(row.domain, "weather", "domain = weather");
@@ -5103,10 +5107,10 @@ async fn seed_personas_is_idempotent(pool: PgPool) {
 
 #[sqlx::test(migrations = "../fortuna-ledger/migrations")]
 async fn seed_personas_version_bump_causes_version_mismatch(pool: PgPool) {
-    // D2 mutation-proof: seed with the real persona.md (now version=2 after D3
-    // bump), then simulate an operator inserting a FUTURE v3 row that has a
-    // DIFFERENT method_hash — validate_against must return VersionMismatch,
-    // proving the registry gate is real.
+    // D2 mutation-proof: seed with the real persona.md (now version=3 after
+    // WS1 boundary grading-station fix), then simulate an operator inserting a
+    // FUTURE v4 row that has a DIFFERENT method_hash — validate_against must
+    // return VersionMismatch, proving the registry gate is real.
     let now_iso = "2026-06-18T00:00:00.000Z";
     let dir = meteorologist_dir();
     let cfg = vec![fortuna_live::boot::PersonaEntryConfig {
@@ -5115,18 +5119,18 @@ async fn seed_personas_version_bump_causes_version_mismatch(pool: PgPool) {
         cadences: vec![],
     }];
 
-    // Seed the real persona (version=2 after D3 bump, real hash).
+    // Seed the real persona (version=3 after WS1 boundary fix, real hash).
     fortuna_live::daemon::seed_personas(&pool, &cfg, now_iso)
         .await
         .expect("initial seed succeeds");
 
-    // Simulate an operator inserting a superseding v3 row with a DIFFERENT hash.
-    // This makes the REGISTRY HEAD be version=3, but the file on disk is version=2.
+    // Simulate an operator inserting a superseding v4 row with a DIFFERENT hash.
+    // This makes the REGISTRY HEAD be version=4, but the file on disk is version=3.
     let repo = fortuna_ledger::PersonasRepo::new(pool.clone());
     repo.insert(
-        "meteorologist:v3",
+        "meteorologist:v4",
         "meteorologist",
-        3, // bumped version — one above the current file version
+        4, // bumped version — one above the current file version
         "weather",
         &serde_json::json!(["temperature"]),
         &serde_json::json!(["aeolus.forecast"]),
@@ -5134,14 +5138,14 @@ async fn seed_personas_version_bump_causes_version_mismatch(pool: PgPool) {
         "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef", // different hash
         "findings/v2",
         "active",
-        Some("meteorologist:v2"),
+        Some("meteorologist:v3"),
         now_iso,
         now_iso,
     )
     .await
-    .expect("v3 insert succeeds");
+    .expect("v4 insert succeeds");
 
-    // Now parse the on-disk def (version=2) and validate against the new head.
+    // Now parse the on-disk def (version=3) and validate against the new head.
     let md = std::fs::read_to_string(format!("{dir}/persona.md")).unwrap();
     let schema_json = std::fs::read_to_string(format!("{dir}/schema.json")).unwrap();
     let def = fortuna_cognition::persona::PersonaDef::parse(&md, &schema_json)
@@ -5153,7 +5157,7 @@ async fn seed_personas_version_bump_causes_version_mismatch(pool: PgPool) {
         method_hash: head.method_hash.clone(),
         status: head.status.clone(),
     };
-    // The file is v2; the registry head is v3 → VersionMismatch.
+    // The file is v3; the registry head is v4 → VersionMismatch.
     let err = def
         .validate_against(Some(&registry_head))
         .expect_err("version mismatch must be rejected");

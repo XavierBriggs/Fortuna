@@ -25,6 +25,9 @@
 
 use fortuna_cognition::aeolus_beliefs::emit_aeolus_beliefs;
 use fortuna_cognition::aeolus_forecast::parse_response;
+use fortuna_cognition::persona::PersonaDef;
+use fortuna_cognition::persona_beliefs::{belief_horizon, map_persona_analysis};
+use fortuna_cognition::persona_orchestrator::fill_region_key;
 use fortuna_cognition::scoring::PredictiveDistribution;
 use fortuna_core::clock::UtcTimestamp;
 use fortuna_ledger::{BeliefScoresRepo, BeliefsRepo, EventsRepo, ScalarBeliefsRepo, SignalsRepo};
@@ -43,6 +46,28 @@ const TROUTDALE_CLI: &str = include_str!(concat!(
 const JAMMED_CLI: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../fixtures/sources/nws_climate/cli_product.json"
+));
+/// The recorded CLINYC (Central Park) NWS daily climate product.
+/// AWIPS product id: CLINYC (CDUS41 KOKX). Realized MAXIMUM 91°F on 2026-06-13.
+/// Provenance: realistic NWS-CLI-format product capturing the real NYC grading
+/// station for 2026-06-13; MAXIMUM 91 is consistent with the knyc_tmax μ≈87.3
+/// (91 >= 87 is TRUE for the ge87 bracket; Brier = (0.6719 − 1)² ≈ 0.1073).
+const CLINYC_CLI: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../fixtures/sources/nws_climate/cli_product_clinyc.json"
+));
+/// The SHIPPED meteorologist persona definition (persona.md).
+/// Loaded at compile-time so ANY revert of the region_key template in that file
+/// causes the production-path test (Test 6) to RED — the mutation proof is live,
+/// not just described in a comment.
+const METEOROLOGIST_PERSONA_MD: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../config/personas/meteorologist/persona.md"
+));
+/// The companion output schema for the meteorologist persona (required by PersonaDef::parse).
+const METEOROLOGIST_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../config/personas/meteorologist/schema.json"
 ));
 
 /// The recorded Troutdale daily high (`MAXIMUM 91`) the grader extracts.
@@ -519,5 +544,230 @@ async fn meteorologist_belief_is_resolved_not_skipped(pool: PgPool) {
     assert!(
         (aeolus_brier - meteo_brier).abs() < 1e-12,
         "brier must be identical for same p+outcome: aeolus={aeolus_brier}, meteo={meteo_brier}"
+    );
+}
+
+// ── Test 6 (WS1 Critical boundary fix): production-path authoring → CLINYC grader ─
+//
+// This is the MISSING cross-slice coverage that allowed the grading-station mismatch
+// to hide in production. Previous tests hand-set `nws_station_id` directly in the
+// belief provenance (bypassing the real authoring path). This test drives the
+// PRODUCTION AUTHORING PATH end-to-end:
+//
+//   1. Real `aeolus.forecast` signal (knyc_tmax.json) — station=KNYC, nws_station_id=NYC
+//   2. fill_region_key with the SHIPPED persona.md template
+//      ("weather:{nws_station_id}:tmax:{target_date}") → "weather:NYC:tmax:2026-06-13"
+//   3. map_persona_analysis on that region_key → belief with nws_station_id="NYC" in provenance
+//   4. resolve_and_score_weather_beliefs + the real CLINYC fixture (MAXIMUM 91)
+//   5. Both the Aeolus belief AND the meteorologist belief RESOLVE + Brier-score
+//      (the head-to-head both produce scores)
+//
+// MUTATION PROOF: reverting the persona.md region_key template to
+// "weather:{station}:tmax:{target_date}" (old station field) causes fill_region_key
+// to produce "weather:KNYC:tmax:2026-06-13" → map_persona_analysis stamps
+// nws_station_id="KNYC" → the resolver looks for CLIKNYC (no match in CLINYC) →
+// the meteorologist belief stays OPEN → resolved count drops from 2 to 1 (the Aeolus
+// belief still scores because it carries nws_station_id="NYC" from its own provenance).
+// If the template is reverted to "weather:{station}:tmax:{date}" (missing {date} field),
+// fill_region_key returns None (the real payload has target_date, not date) → no
+// meteorologist belief is created → 0 meteorologist beliefs resolved → count stays 1.
+// Either mutation → RED.
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn production_authoring_path_meteorologist_resolves_against_clinyc(pool: PgPool) {
+    // Load the real Aeolus knyc forecast and the real CLINYC CLI product.
+    let payload: serde_json::Value = {
+        let root: serde_json::Value = serde_json::from_str(KNYC_TMAX).expect("knyc_tmax parses");
+        root["forecasts"][0].clone()
+    };
+    // Verify the fixture carries the production fields (honesty check).
+    assert_eq!(
+        payload["station"].as_str().unwrap_or(""),
+        "KNYC",
+        "fixture station field"
+    );
+    assert_eq!(
+        payload["nws_station_id"].as_str().unwrap_or(""),
+        "NYC",
+        "fixture nws_station_id field"
+    );
+    assert_eq!(
+        payload["target_date"].as_str().unwrap_or(""),
+        TARGET_DATE,
+        "fixture target_date field"
+    );
+
+    // 1. Drive the PRODUCTION region_key derivation (the shipped persona.md template).
+    //    We load the template from the ACTUAL FILE (METEOROLOGIST_PERSONA_MD, baked in
+    //    at compile-time). If the template in that file is wrong (e.g. reverted to
+    //    {station} or {date}), fill_region_key returns None or "weather:KNYC:..." →
+    //    the assertion below REDs. This is the LIVE mutation proof: reverting persona.md
+    //    breaks this test, not just the comment.
+    let persona_def = PersonaDef::parse(METEOROLOGIST_PERSONA_MD, METEOROLOGIST_SCHEMA)
+        .expect("shipped meteorologist persona.md must parse");
+    assert_eq!(
+        persona_def.meta.region_key, "weather:{nws_station_id}:tmax:{target_date}",
+        "MUTATION PROOF (persona.md): the shipped region_key template must use \
+         {{nws_station_id}} (NWS-CLI grading station) and {{target_date}} (real field name). \
+         Reverting to {{station}} or {{date}} here causes this assertion to RED."
+    );
+    let region_key = fill_region_key(&persona_def.meta.region_key, &payload)
+        .expect("real Aeolus payload must fill the shipped template");
+    assert_eq!(
+        region_key, "weather:NYC:tmax:2026-06-13",
+        "production region_key must use the NWS-CLI grading station (NYC), \
+         not the forecast station (KNYC)"
+    );
+
+    // 2. Drive map_persona_analysis on the production region_key → belief provenance
+    //    must carry nws_station_id="NYC" (the resolver routes via this field).
+    let horizon = belief_horizon(&region_key).expect("date-bearing region_key has a horizon");
+    let findings = json!({
+        "thresholds": [{"ge": 87, "p": 0.6719055375922601}],
+        "sigma_trend": "steady",
+        "confidence": "high",
+        "regime": "stagnant upper ridge",
+        "key_risk": "none significant"
+    });
+    let drafts = map_persona_analysis(
+        "meteorologist",
+        3,
+        "01PRODPATHANALYSIS00000001",
+        "prod-path-content-hash",
+        &region_key,
+        &findings,
+        horizon,
+    )
+    .expect("map_persona_analysis must succeed on the production region_key");
+    assert_eq!(drafts.len(), 1, "one threshold → one belief draft");
+    let meteo_draft = &drafts[0];
+    // Verify the grading station in provenance — THE CORE OF THE BUG FIX.
+    // Mutation proof: reverting region_key template to {station} → provenance
+    // nws_station_id becomes "KNYC" → this assertion REDs.
+    assert_eq!(
+        meteo_draft.provenance["nws_station_id"]
+            .as_str()
+            .unwrap_or(""),
+        "NYC",
+        "MUTATION PROOF: production-path meteorologist belief must carry \
+         nws_station_id='NYC' (the NWS-CLI grading station), not 'KNYC' \
+         (the forecast station). If this is 'KNYC', the region_key template \
+         is wrong — revert to Option A fix."
+    );
+    let meteo_event_id = &meteo_draft.event_id;
+    assert_eq!(
+        meteo_event_id, "weather:NYC:tmax:2026-06-13#ge87",
+        "production event_id must use NYC grading station"
+    );
+
+    // 3. Seed the CLINYC CLI signal (the real NYC grader, MAXIMUM 91°F).
+    insert_cli_signal(&pool, "cli-nyc-prod", &product_text(CLINYC_CLI)).await;
+
+    // 4. Seed the Aeolus belief for the SAME bracket (for the head-to-head).
+    let p_ge87 = 0.6719055375922601_f64;
+    let prov_aeolus = json!({
+        "model_id": "aeolus",
+        "station": "KNYC",
+        "nws_station_id": "NYC",
+        "variable": "tmax",
+        "target_date": TARGET_DATE,
+        "run_at": "2026-06-13T00:00:00.000Z",
+        "model_version": "sar-semos-v1",
+    });
+    EventsRepo::new(pool.clone())
+        .create(
+            "aeolus:knyc-2026-06-13-tmax-ge87",
+            "aeolus weather bracket",
+            "official NWS daily maximum",
+            "nws_observed_high",
+            Some(HORIZON),
+            HORIZON,
+            "weather",
+            "2026-06-13T01:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    BeliefsRepo::new(pool.clone())
+        .insert(
+            "prod-path-aeolus-ge87",
+            "2026-06-13T01:00:00.000Z",
+            "aeolus:knyc-2026-06-13-tmax-ge87",
+            p_ge87,
+            p_ge87,
+            HORIZON,
+            &json!([{"source": "aeolus", "ref": "knyc-tmax"}]),
+            &prov_aeolus,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // 5. Seed the meteorologist belief (from the production-path draft above).
+    EventsRepo::new(pool.clone())
+        .create(
+            meteo_event_id,
+            "meteorologist weather bracket",
+            "official NWS daily maximum",
+            "nws_observed_high",
+            Some(HORIZON),
+            HORIZON,
+            "weather",
+            "2026-06-13T01:30:00.000Z",
+        )
+        .await
+        .unwrap();
+    BeliefsRepo::new(pool.clone())
+        .insert(
+            "prod-path-meteo-ge87",
+            "2026-06-13T01:30:00.000Z",
+            meteo_event_id,
+            meteo_draft.p,
+            meteo_draft.p_raw,
+            HORIZON,
+            &meteo_draft.evidence,
+            &meteo_draft.provenance,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // 6. Run the resolver. BOTH beliefs must resolve.
+    let resolved = resolve_and_score_weather_beliefs(&pool, now(), 0)
+        .await
+        .expect("resolve_and_score_weather_beliefs");
+    assert_eq!(
+        resolved, 2,
+        "BOTH Aeolus AND meteorologist beliefs must resolve against CLINYC; \
+         if this is 1, the meteorologist's nws_station_id is wrong (bug is back). \
+         If 0, the CLINYC fixture is not being found."
+    );
+
+    let beliefs_repo = BeliefsRepo::new(pool.clone());
+
+    // Aeolus belief: resolved, outcome=true (91 >= 87).
+    let aeolus_row = beliefs_repo.get("prod-path-aeolus-ge87").await.unwrap();
+    assert_eq!(aeolus_row.status, "resolved", "Aeolus belief resolved");
+    assert_eq!(aeolus_row.outcome, Some(1), "91 >= 87 → true");
+
+    // Meteorologist belief: also resolved, same outcome.
+    let meteo_row = beliefs_repo.get("prod-path-meteo-ge87").await.unwrap();
+    assert_eq!(
+        meteo_row.status, "resolved",
+        "METEOROLOGIST BELIEF MUST RESOLVE — this is the thesis of WS1 and the \
+         exact bug this fix addresses. If 'open', nws_station_id='KNYC' is still \
+         stamped (template reverted) and the resolver hunts CLIKNYC not CLINYC."
+    );
+    assert_eq!(meteo_row.outcome, Some(1), "91 >= 87 → true");
+
+    // Both Briers must be set and equal (same p, same realized high, same bracket).
+    let aeolus_brier = aeolus_row
+        .brier
+        .expect("Aeolus belief brier must be set at resolution");
+    let meteo_brier = meteo_row
+        .brier
+        .expect("meteorologist belief brier must be set at resolution");
+    assert!(
+        (aeolus_brier - meteo_brier).abs() < 1e-12,
+        "both producers use same p+outcome → identical Brier; \
+         aeolus={aeolus_brier}, meteo={meteo_brier}"
     );
 }
