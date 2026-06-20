@@ -21,3 +21,6 @@ _(none yet)_
 
 ## Moved to WS2 (captain, 2026-06-19T14:49Z)
 - **Unified PredictiveKind->BrierRule trait dispatch (D-4 refactor)** moved from WS1 slice 3 to WS2/G5 — it is a no-op until a 2nd ScoringRule (RPS/Log) exists; G5 is its natural home.
+
+## Open during the loop (WS1.4, 2026-06-20T02:23Z)
+- **Unbounded `pending_market_quotes` buffer when `snapshots_pool=None`** (runner.rs:216): the daemon gates the drain on `Some(pool)` (daemon.rs:3085), so in DST/no-persist mode the buffer fills each tick and is never drained — bounded only by short runs. Mirrors the gate-accepted `pending_fills` pattern (also drained only under `Some`); production `main.rs` always wires `Some`. No fix now; revisit if a long no-persist run is ever needed.
