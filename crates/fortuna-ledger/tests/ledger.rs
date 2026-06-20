@@ -2453,11 +2453,10 @@ async fn seed_brier_event(pool: &PgPool, event_id: &str, benchmark_at: &str) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
-/// T8b-1: `forward_resolved_for_brier_baseline` returns correct rows for forward
-/// beliefs and EXCLUDES `source='historical-import'` rows (§9.1).
-///
-/// Also verifies beliefs with no snapshot-mapped market are unaffected (the query
-/// returns the belief row; the caller skips if no snapshot is found).
+/// T8b-1: `forward_resolved_for_brier_baseline` returns exactly the forward
+/// resolved rows and EXCLUDES `source='historical-import'` beliefs (§9.1).
+/// Covers: historical-import exclusion filter, field mapping (p, outcome,
+/// event_id, benchmark_at), and forward-only row count.
 async fn forward_resolved_for_brier_baseline_excludes_historical_import(pool: PgPool) {
     // Three forward beliefs on two events.
     seed_brier_event(&pool, "evtb-fwd-1", "2026-06-20T18:00:00.000Z").await;

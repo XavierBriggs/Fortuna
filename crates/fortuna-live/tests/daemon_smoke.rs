@@ -5943,3 +5943,395 @@ async fn weekly_review_threads_brier_and_baseline_onto_synthesis_strategy_record
         "producer brier {computed_producer:.3} must beat baseline {computed_baseline:.3}"
     );
 }
+
+/// WS1 boundary Minor #1 — de-vig observation gap.
+///
+/// The daemon computes `market_p = (bid + ask) / 200.0` and threads
+/// `(synth_brier, synth_market_baseline_brier)` onto the synthesis
+/// `StrategyRecord` inside `run_weekly_review`. The prior test
+/// (`weekly_review_threads_brier_and_baseline_onto_synthesis_strategy_record`)
+/// REPLICATED the daemon's `/200.0` inline in the test body — meaning a
+/// `/200.0`→`/100.0` mutation in daemon.rs would survive undetected.
+///
+/// This test OBSERVES the daemon's ACTUAL threaded value via the reason string
+/// of the synthesis strategy's `GoNoGoRecommendation`. The `go_nogo` function
+/// encodes the exact computed values as `"Brier {b:.3} beats baseline {mb:.3}"`
+/// (or the equivalent NoGo variant), so the mutation changes the string.
+///
+/// Hand-computation (the two beliefs seeded below):
+///   Belief A: p=0.70, outcome=true  (1.0)
+///     producer_brier_A = (0.70 - 1.0)² = 0.09
+///     market_p_A = (30 + 40) / 200.0 = 0.35    ← /200.0 is the load-bearing value
+///     market_brier_A  = (0.35 - 1.0)² = 0.4225
+///   Belief B: p=0.40, outcome=false (0.0)
+///     producer_brier_B = (0.40 - 0.0)² = 0.16
+///     market_p_B = (50 + 70) / 200.0 = 0.60
+///     market_brier_B  = (0.60 - 0.0)² = 0.36
+///
+///   avg producer Brier  = (0.09 + 0.16) / 2 = 0.125  →  "0.125"
+///   avg market baseline = (0.4225 + 0.36) / 2 = 0.39125  →  "0.391"
+///
+/// MUTATION-PROOF: with /100.0 market_p_A=0.70 and market_p_B=1.20, giving
+/// avg baseline = (0.09 + 1.44)/2 = 0.765 → reason would say "0.765" → RED.
+/// Reverting to /200.0 → reason says "0.391" → GREEN. (Both verified in dev.)
+///
+/// NON-VACUOUS: the synthesis strategy only enters `snap.strategies` when it
+/// has a filled order (`cum_filled > 0`). If the tick produces no fill (e.g.
+/// no book set, arm not calibrated, zero sizing) the synthesis strategy does
+/// not appear in `recommendations` at all and the assertion fails.
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn daemon_devig_brier_observation_is_exact(pool: PgPool) {
+    use fortuna_core::clock::UtcTimestamp;
+
+    let example_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/fortuna.example.toml"
+    );
+    let text = std::fs::read_to_string(example_path).unwrap();
+    let mut full = fortuna_ops::FortunaConfig::load_file(example_path).unwrap();
+
+    // Grant synthesis capital + gate (same as synthesis_arm_trades... test).
+    full.envelopes.insert("synthesis".to_string(), 200_000);
+    full.gates.per_strategy.insert(
+        "synthesis".to_string(),
+        fortuna_gates::StrategyLimits {
+            max_exposure_cents: 200_000,
+            max_order_notional_cents: 10_000,
+            min_net_edge_bps: 100,
+        },
+    );
+
+    // (1) Calibration params so the synth arm boots warm.
+    fortuna_ledger::CalibrationParamsRepo::new(pool.clone())
+        .insert(
+            "01DVGPARAM000000000000001",
+            "claude-fable-5",
+            "synth_events",
+            "weather",
+            "platt",
+            &serde_json::json!({
+                "version": 1,
+                "method": { "Platt": { "a": 0.0, "b": 1.0 } },
+                "extremization_k": 1.0,
+                "fitted_on_n": 50
+            }),
+            1,
+            "2026-06-10T00:00:00.000Z",
+            "2026-06-10T00:00:00.000Z",
+        )
+        .await
+        .unwrap();
+
+    // (2) History event + 50 resolved beliefs with source='historical-import'
+    // and clv_bps=200. These appear in resolved_stats (for CLV + calibration)
+    // but are EXCLUDED from forward_resolved_for_brier_baseline (§9.1).
+    // Marking them historical-import isolates the 2 brier beliefs below as the
+    // ONLY forward-resolved rows for the baseline computation.
+    fortuna_ledger::EventsRepo::new(pool.clone())
+        .create(
+            "dvg-evt-hist",
+            "s",
+            "c",
+            "nws",
+            None,
+            "2026-06-12T00:00:00.000Z",
+            "weather",
+            "2026-06-10T00:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    for i in 0..50_i32 {
+        let outcome: i32 = if (i % 10) < 7 { 1 } else { 0 };
+        let brier = if outcome == 1 {
+            (1.0_f64 - 0.7).powi(2)
+        } else {
+            0.7_f64.powi(2)
+        };
+        // provenance includes BOTH producer='aeolus' (so producers_for_resolved_category
+        // returns "aeolus" → calibration_for_scope uses resolved_stats_for_producer →
+        // 50 samples → quality > 0 → synthesis arm is warm) AND source='historical-import'
+        // (→ forward_resolved_for_brier_baseline excludes these, so only the 2 brier
+        // beliefs below drive the baseline computation).
+        // clv_bps=200 → gives measurable positive CLV in the weekly review.
+        sqlx::query(
+            "INSERT INTO beliefs (belief_id, event_id, p, p_raw, horizon, status,
+                                  outcome, brier, clv_bps, evidence, provenance, created_at)
+             VALUES ($1, 'dvg-evt-hist', 0.7, 0.7, '2026-06-12T00:00:00.000Z',
+                     'resolved', $2, $3, 200.0, '[]'::jsonb,
+                     '{\"producer\": \"aeolus\", \"source\": \"historical-import\"}'::jsonb, $4)",
+        )
+        .bind(format!("01DVGHIST{i:020}"))
+        .bind(outcome)
+        .bind(brier)
+        .bind(format!("2026-06-10T01:{i:02}:00.000Z"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    // (3) Live synthesis event + confirmed direct edge SIM-BKT-LO → dvg-evt-live.
+    fortuna_ledger::EventsRepo::new(pool.clone())
+        .create(
+            "dvg-evt-live",
+            "s",
+            "c",
+            "nws",
+            None,
+            "2026-06-20T18:00:00.000Z",
+            "weather",
+            "2026-06-10T12:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    fortuna_ledger::EdgesRepo::new(pool.clone())
+        .insert_edge(
+            "dvg-edge-live",
+            "SIM-BKT-LO",
+            "sim",
+            "dvg-evt-live",
+            "direct",
+            0.9,
+            "model:stub",
+            Some("op"),
+            None,
+            "2026-06-10T12:01:00.000Z",
+        )
+        .await
+        .unwrap();
+
+    // (4) Brier test events A + B (the ONLY forward-resolved beliefs; not
+    // historical-import so they appear in forward_resolved_for_brier_baseline).
+    fortuna_ledger::EventsRepo::new(pool.clone())
+        .create(
+            "dvg-brier-A",
+            "Will A happen?",
+            "official",
+            "nws",
+            Some("2026-06-14T10:00:00.000Z"),
+            "2026-06-14T10:00:00.000Z",
+            "weather",
+            "2026-06-13T00:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    fortuna_ledger::EventsRepo::new(pool.clone())
+        .create(
+            "dvg-brier-B",
+            "Will B happen?",
+            "official",
+            "nws",
+            Some("2026-06-14T10:00:00.000Z"),
+            "2026-06-14T10:00:00.000Z",
+            "weather",
+            "2026-06-13T00:00:00.000Z",
+        )
+        .await
+        .unwrap();
+
+    // (5) Brier beliefs: A p=0.70/outcome=true/brier=0.09, B p=0.40/outcome=false/brier=0.16.
+    let beliefs_repo = fortuna_ledger::BeliefsRepo::new(pool.clone());
+    beliefs_repo
+        .insert(
+            "dvg-belief-A",
+            "2026-06-13T01:00:00.000Z",
+            "dvg-brier-A",
+            0.70,
+            0.70,
+            "2026-06-14T10:00:00.000Z",
+            &serde_json::json!([]),
+            &serde_json::json!({"producer": "aeolus"}),
+            None,
+        )
+        .await
+        .unwrap();
+    beliefs_repo
+        .resolve_and_score("dvg-belief-A", true, 0.09, None)
+        .await
+        .unwrap();
+
+    beliefs_repo
+        .insert(
+            "dvg-belief-B",
+            "2026-06-13T02:00:00.000Z",
+            "dvg-brier-B",
+            0.40,
+            0.40,
+            "2026-06-14T10:00:00.000Z",
+            &serde_json::json!([]),
+            &serde_json::json!({"producer": "aeolus"}),
+            None,
+        )
+        .await
+        .unwrap();
+    beliefs_repo
+        .resolve_and_score("dvg-belief-B", false, 0.16, None)
+        .await
+        .unwrap();
+
+    // (6) Confirmed direct edges for each brier event (distinct sim markets
+    // so the snapshot lookup finds the correct bid/ask).
+    fortuna_ledger::EdgesRepo::new(pool.clone())
+        .insert_edge(
+            "dvg-edge-A",
+            "SIM-BKT-MID",
+            "sim",
+            "dvg-brier-A",
+            "direct",
+            0.9,
+            "model:stub",
+            Some("op"),
+            None,
+            "2026-06-13T00:01:00.000Z",
+        )
+        .await
+        .unwrap();
+    fortuna_ledger::EdgesRepo::new(pool.clone())
+        .insert_edge(
+            "dvg-edge-B",
+            "SIM-BKT-HI",
+            "sim",
+            "dvg-brier-B",
+            "direct",
+            0.9,
+            "model:stub",
+            Some("op"),
+            None,
+            "2026-06-13T00:02:00.000Z",
+        )
+        .await
+        .unwrap();
+
+    // (7) Benchmark snapshots (before benchmark_at = 2026-06-14T10:00:00Z).
+    // A: bid=30, ask=40 → /200.0 → market_p=0.35 → market_brier=(0.35-1)²=0.4225
+    // B: bid=50, ask=70 → /200.0 → market_p=0.60 → market_brier=(0.60-0)²=0.36
+    // avg producer_brier = (0.09+0.16)/2 = 0.125  → "0.125"
+    // avg market_baseline = (0.4225+0.36)/2 = 0.39125 → "0.391"
+    // MUTATION: with /100.0 → avg_baseline = (0.09+1.44)/2 = 0.765 → "0.765" (RED)
+    fortuna_ledger::SnapshotsRepo::new(pool.clone())
+        .insert(
+            "dvg-snap-A",
+            "SIM-BKT-MID",
+            "sim",
+            Some("dvg-brier-A"),
+            "t24h",
+            Some(30),
+            Some(40),
+            Some(50),
+            Some(50),
+            true,
+            "2026-06-14T09:00:00.000Z",
+        )
+        .await
+        .unwrap();
+    fortuna_ledger::SnapshotsRepo::new(pool.clone())
+        .insert(
+            "dvg-snap-B",
+            "SIM-BKT-HI",
+            "sim",
+            Some("dvg-brier-B"),
+            "t24h",
+            Some(50),
+            Some(70),
+            Some(50),
+            Some(50),
+            true,
+            "2026-06-14T09:30:00.000Z",
+        )
+        .await
+        .unwrap();
+
+    // (8) Compose runner with synthesis arm + believing mind.
+    let mut dcfg = fortuna_live::boot::DaemonToml::parse(&format!(
+        "{text}\n[synthesis]\nvenue = \"sim\"\ncategory = \"weather\"\n"
+    ))
+    .unwrap();
+    dcfg.cognition.synthesis_model = "claude-fable-5".to_string();
+
+    let mut runner = compose_runner(
+        pool.clone(),
+        &full,
+        &dcfg,
+        t0(),
+        77,
+        believing_mind("dvg-evt-live", 0.70),
+        TriageDecision::AlwaysAccept,
+    )
+    .await
+    .expect("composition with synthesis arm");
+
+    // SIM-BKT-LO book: ask=60 < fair p=70 → synthesis arm buys → gets filled
+    // → "synthesis" appears in snap.strategies → brier values get threaded.
+    let lvl = |p: i64, q: i64| PriceLevel {
+        price: Cents::new(p),
+        qty: Contracts::new(q),
+    };
+    runner
+        .venue()
+        .set_book(
+            &MarketId::new("SIM-BKT-LO").unwrap(),
+            vec![lvl(58, 80)],
+            vec![lvl(60, 80)],
+        )
+        .unwrap();
+
+    // One tick: synthesis arm submits + sim venue fills the buy → cum_filled > 0.
+    let report = runner.tick().await.unwrap();
+    assert!(
+        report.orders_submitted >= 1,
+        "synthesis arm must have submitted an order for the test to be non-vacuous: {report:?}"
+    );
+
+    // (9) Weekly review with a LOWERED volume threshold (2 = the number of
+    // forward-resolved brier beliefs seeded) so the volume gate passes and
+    // the Brier check is actually reached inside go_nogo.
+    let review = fortuna_live::compose::ReviewSection {
+        min_paper_days_mechanical: 0,
+        min_resolved_beliefs_synthesis: 2,
+        max_fee_pnl_ratio: 0.9,
+    };
+    let now = UtcTimestamp::parse_iso8601("2026-06-18T00:00:00.000Z").unwrap();
+    let sm = stub_mind();
+    let wr = fortuna_live::daemon::run_weekly_review(
+        &mut runner,
+        &pool,
+        sm.as_ref(),
+        &review,
+        Some("weather"),
+        "claude-fable-5",
+        t0(),
+        now,
+    )
+    .await
+    .expect("run_weekly_review must succeed");
+
+    // (10) The synthesis recommendation must exist and contain the EXACT brier
+    // reason string produced by the daemon's /200.0 formula. If the daemon used
+    // /100.0 instead, market_baseline would be 0.765 and this assertion fails.
+    let synth_rec = wr
+        .recommendations
+        .iter()
+        .find(|r| r.strategy == "synthesis")
+        .expect(
+            "synthesis must appear in recommendations — if it doesn't, \
+             the synthesis strategy never filled (check: arm calibrated? book set? capital?)",
+        );
+    let brier_reason = synth_rec
+        .reasons
+        .iter()
+        .find(|r| r.starts_with("Brier "))
+        .cloned()
+        .expect(
+            "synthesis recommendation must have a Brier reason; \
+             if missing, the go_nogo path returned early before the Brier check \
+             (check: volume gate? CLV check?)",
+        );
+
+    // The exact string the daemon's /200.0 formula produces:
+    //   producer brier 0.125, market baseline 0.39125 → "Brier 0.125 beats baseline 0.391"
+    // With /100.0 this would be "Brier 0.125 beats baseline 0.765" → assertion RED.
+    assert_eq!(
+        brier_reason, "Brier 0.125 beats baseline 0.391",
+        "daemon's de-vig formula must be /200.0 (Kalshi YES mid); \
+         a /100.0 mutation would produce a different baseline value here"
+    );
+}
