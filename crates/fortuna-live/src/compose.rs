@@ -110,8 +110,13 @@ pub async fn calibration_for_scope(
 /// Returns `(Option<String>, Option<CalibrationContext>, Option<f64>)`:
 /// - `(Some(winner), ctx, Some(quality))` when at least one candidate has resolved
 ///   beliefs and a quality score;
+/// - `(None, Some(ctx), Some(quality))` when no producer-tagged resolved beliefs
+///   exist BUT the merged (producer=None) calibration has a warm params row — the
+///   fallback preserves the pre-slice-7 behaviour: synthesis warms from the merged
+///   calibration when producers are not yet tagged (never silently cold);
 /// - `(None, None, None)` when no candidate has resolved, producer-stamped beliefs
-///   (the B3 cold-start gate: synthesis stays cold, no fallback).
+///   AND the merged calibration has no params row either (the B3 cold-start gate:
+///   synthesis stays cold, fail closed).
 ///
 /// **No producer literal** ("aeolus", "meteorologist", etc.) appears here or in
 /// any caller — producers are DATA from the query (A7 decoupling principle).
@@ -127,8 +132,17 @@ pub async fn best_calibrated_producer(
     let candidates = beliefs.producers_for_resolved_category(category).await?;
 
     if candidates.is_empty() {
-        // Cold-start: no producer has resolved beliefs → synthesis stays cold.
-        return Ok((None, None, None));
+        // No producer-tagged resolved beliefs. Fall back to the merged path
+        // (producer=None) so synthesis stays warm when resolved beliefs exist but
+        // carry no producer tag — the pre-slice-7 behaviour. Synthesis goes cold
+        // only when the merged calibration itself has no warm params row.
+        let (ctx, quality) =
+            calibration_for_scope(params, beliefs, model_id, strategy, category, kind, None)
+                .await?;
+        return match ctx {
+            Some(warm_ctx) => Ok((None, Some(warm_ctx), Some(quality))),
+            None => Ok((None, None, None)),
+        };
     }
 
     // Score each candidate and find the one with the highest quality.

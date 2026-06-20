@@ -10,8 +10,11 @@
 //!   1. Better-producer wins: producer A calibrated better than B → A is chosen.
 //!   2. Flip: make B better → B wins. (Proves data-driven, not hardcoded.)
 //!   3. Tie (equal quality) → producer-id ASC.
-//!   4. Cold-start (no resolved beliefs) → (None, None, None).
+//!   4. Cold-start (no resolved beliefs AND no params row) → (None, None, None).
 //!   5. Regression: calibration_for_scope(None) is back-compat.
+//!   6. Merged fallback: no producer-tagged beliefs BUT params row exists +
+//!      untagged resolved history → (None, Some(ctx), Some(quality)) so synthesis
+//!      warms. Regression guard for the slice-7 cold-on-empty-candidates bug.
 //!
 //! All DB-backed (sqlx::test with the ledger migrations).
 
@@ -232,11 +235,12 @@ async fn tie_in_quality_breaks_by_producer_id_asc(pool: PgPool) {
     );
 }
 
-// ─── Test 4: cold-start — no resolved beliefs → (None, None, None) ───────────
+// ─── Test 4: cold-start — no resolved beliefs AND no params row → (None, None, None) ─
 
 #[sqlx::test(migrations = "../fortuna-ledger/migrations")]
 async fn cold_start_no_resolved_beliefs_returns_none(pool: PgPool) {
-    // No beliefs at all in the DB.
+    // No beliefs at all in the DB AND no calibration_params row.
+    // The merged fallback also finds nothing → (None, None, None).
     let params = CalibrationParamsRepo::new(pool.clone());
     let beliefs = BeliefsRepo::new(pool.clone());
     let (producer, ctx, quality) = best_calibrated_producer(
@@ -283,4 +287,107 @@ async fn calibration_for_scope_with_none_producer_is_back_compat(pool: PgPool) {
     .unwrap();
     assert!(ctx.is_none(), "no params → None (fail-closed)");
     assert_eq!(quality, 0.0, "no resolved history → zero quality");
+}
+
+// ─── Test 6: merged fallback warms synthesis when beliefs are untagged ────────
+// Regression guard for the slice-7 cold-on-empty-candidates bug: when resolved
+// beliefs exist but carry no producer tag (producers_for_resolved_category
+// returns empty), best_calibrated_producer MUST fall back to the merged path
+// and return a warm (None, Some(ctx), Some(quality)) rather than (None,None,None).
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn untagged_resolved_beliefs_with_params_warms_via_merged_fallback(pool: PgPool) {
+    // Seed a calibration_params row for the scope under test.
+    CalibrationParamsRepo::new(pool.clone())
+        .insert(
+            "01PARAMMERGE000000000000001",
+            "test-model",
+            "synth_events",
+            CATEGORY,
+            "platt",
+            &json!({
+                "version": 1,
+                "method": { "Platt": { "a": 0.0, "b": 1.0 } },
+                "extremization_k": 1.0,
+                "fitted_on_n": 10
+            }),
+            1,
+            "2026-06-19T00:00:00.000Z",
+            "2026-06-19T00:00:00.000Z",
+        )
+        .await
+        .unwrap();
+
+    // Seed a parent event for the beliefs.
+    sqlx::query(
+        "INSERT INTO events (event_id, statement, resolution_criteria,
+                             resolution_source, benchmark_at, category,
+                             unscoreable, created_at)
+         VALUES ($1, 'stmt', 'crit', 'nws',
+                 '2026-06-20T00:00:00.000Z', 'weather', FALSE,
+                 '2026-06-19T00:00:00.000Z')",
+    )
+    .bind("01EVTMERGE00000000000000001")
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Seed untagged resolved beliefs (provenance = empty object, no "producer"
+    // field) — these contribute to merged resolved_stats but NOT to
+    // producers_for_resolved_category (which filters for a non-null producer tag).
+    for i in 0..15_i32 {
+        let outcome: i32 = if i % 10 < 7 { 1 } else { 0 };
+        let p = 0.7_f64;
+        let brier: f64 = if outcome == 1 {
+            (1.0 - p).powi(2)
+        } else {
+            p.powi(2)
+        };
+        sqlx::query(
+            "INSERT INTO beliefs (belief_id, event_id, p, p_raw, horizon, status,
+                                  outcome, brier, evidence, provenance, created_at)
+             VALUES ($1, '01EVTMERGE00000000000000001', $2, $2,
+                     '2026-06-20T00:00:00.000Z', 'resolved', $3, $4,
+                     '[]'::jsonb, '{}'::jsonb, $5)",
+        )
+        .bind(format!("01BELIEFMERGE{i:020}"))
+        .bind(p)
+        .bind(outcome)
+        .bind(brier)
+        .bind(format!("2026-06-19T10:00:{i:02}.000Z"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    let params_repo = CalibrationParamsRepo::new(pool.clone());
+    let beliefs_repo = BeliefsRepo::new(pool.clone());
+    let (producer, ctx, quality) = best_calibrated_producer(
+        &params_repo,
+        &beliefs_repo,
+        "test-model",
+        "synth_events",
+        CATEGORY,
+        "platt",
+    )
+    .await
+    .unwrap();
+
+    // No per-producer candidate → producer=None (merged fallback, not a winner).
+    assert!(
+        producer.is_none(),
+        "merged fallback: no per-producer winner; got {:?}",
+        producer
+    );
+    // The merged calibration has a warm params row → ctx must be Some.
+    assert!(
+        ctx.is_some(),
+        "merged fallback: params row + untagged history must warm synthesis (ctx=Some); got None"
+    );
+    // Quality > 0: well-calibrated untagged history drives non-zero sizing.
+    assert!(
+        quality.map(|q| q > 0.0).unwrap_or(false),
+        "merged fallback: untagged calibrated history → quality > 0; got {:?}",
+        quality
+    );
 }
