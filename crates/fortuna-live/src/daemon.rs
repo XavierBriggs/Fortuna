@@ -55,7 +55,7 @@
 
 use crate::audit_bridge::PgAuditSink;
 use crate::boot::{BootError, CognitionSection, DaemonToml, Secret};
-use crate::compose::{calibration_for_scope, synthesis_edges, DegradeScrape, SynthesisSection};
+use crate::compose::{best_calibrated_producer, synthesis_edges, DegradeScrape, SynthesisSection};
 use crate::run_loop::{run_loop, CadenceDriver, HaltPoller, LoopConfig, LoopStats};
 use fortuna_cognition::context::{content_hash_of, ContextItem, SectionKind};
 use fortuna_cognition::cycle::{
@@ -389,12 +389,18 @@ pub async fn compose_runner(
                 reason: format!("synthesis edge load: {e}"),
             })?;
         let calibration = if let Some(category) = &syn.category {
-            let (ctx, quality) = calibration_for_scope(
+            // WS1 slice 7 — thesis payoff: price the BEST-CALIBRATED producer.
+            // `best_calibrated_producer` fetches the DATA-driven candidate set
+            // (DISTINCT resolved producers, ORDER BY producer ASC), scores each
+            // independently, and returns the winner by quality DESC / producer ASC.
+            // NO producer literal appears here or in the helper — producers are DATA.
+            // Cold-start (no candidate has resolved beliefs) → (None, None, None)
+            // which hits the B3 gate: synthesis stays cold (fail closed).
+            let (_winner, ctx, quality) = best_calibrated_producer(
                 &CalibrationParamsRepo::new(pool.clone()),
                 &BeliefsRepo::new(pool.clone()),
-                // S5b: key on the CONFIGURED synthesis model (spec 5.10) — the
-                // same id model_registry().model(ModelTier::Synthesis) resolves.
-                // A model swap then finds no stale params (=> None => fail closed).
+                // S5b: key on the CONFIGURED synthesis model (spec 5.10).
+                // A model swap finds no stale params (=> None => fail closed).
                 &dcfg.cognition.synthesis_model,
                 SYNTH_CALIBRATION_STRATEGY,
                 category,
@@ -404,7 +410,7 @@ pub async fn compose_runner(
             .map_err(|e| DaemonError::Compose {
                 reason: format!("synthesis calibration load: {e}"),
             })?;
-            synth_calibration_quality = Some(quality);
+            synth_calibration_quality = quality;
             ctx
         } else {
             None
@@ -909,7 +915,10 @@ async fn compose_kalshi_family_runner_with_venue<V: Venue + 'static>(
                 reason: format!("synthesis edge load: {e}"),
             })?;
         let calibration = if let Some(category) = &syn.category {
-            let (ctx, quality) = calibration_for_scope(
+            // WS1 slice 7 — thesis payoff: price the BEST-CALIBRATED producer.
+            // Shared helper with compose_runner: no producer literal, DATA-driven.
+            // Cold-start → (None, None, None) → B3 gate: synthesis stays cold.
+            let (_winner, ctx, quality) = best_calibrated_producer(
                 &CalibrationParamsRepo::new(pool.clone()),
                 &BeliefsRepo::new(pool.clone()),
                 // S5b: key on the CONFIGURED synthesis model (spec 5.10) — same as
@@ -923,7 +932,7 @@ async fn compose_kalshi_family_runner_with_venue<V: Venue + 'static>(
             .map_err(|e| DaemonError::Compose {
                 reason: format!("synthesis calibration load: {e}"),
             })?;
-            synth_calibration_quality = Some(quality);
+            synth_calibration_quality = quality;
             ctx
         } else {
             None
@@ -2802,14 +2811,14 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                 }
             }
 
-            // B3 Part 1: per-segment calibration refresh. Re-fetch the scope's
-            // fitted params + resolved stats from the ledger and push into the
-            // synthesis arm so B1's persisted calibration_params takes effect
-            // within one segment (not a restart). A fetch FAILURE keeps the
-            // LAST-KNOWN calibration (arm stays warm/cold as-is — never crash),
-            // alerts ONCE per outage (mirrors the edge-refresh failure posture).
+            // B3 Part 1: per-segment calibration refresh. Re-fetch via the
+            // best-producer selection (same helper as compose-time) so the
+            // per-segment refresh also reflects any change in which producer is
+            // best-calibrated — DATA-driven, no producer literal. A fetch
+            // FAILURE keeps the LAST-KNOWN calibration (arm stays warm/cold
+            // as-is — never crash), alerts ONCE per outage.
             if let Some(category) = syn.category.as_deref() {
-                let fetch = calibration_for_scope(
+                let fetch = best_calibrated_producer(
                     &CalibrationParamsRepo::new(pool.clone()),
                     &BeliefsRepo::new(pool.clone()),
                     synth_model,
@@ -2819,8 +2828,10 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                 )
                 .await;
                 match fetch {
-                    Ok((ctx, quality)) => {
-                        runner.refresh_synthesis_calibration(ctx, quality);
+                    Ok((_winner, ctx, quality)) => {
+                        // Cold-start (quality=None) → refresh to cold; otherwise
+                        // unwrap_or(0.0) gives zero quality (sizes nothing).
+                        runner.refresh_synthesis_calibration(ctx, quality.unwrap_or(0.0));
                         calib_refresh_failing = false;
                     }
                     Err(e) => {

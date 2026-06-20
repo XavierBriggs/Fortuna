@@ -1406,6 +1406,32 @@ impl BeliefsRepo {
             .collect())
     }
 
+    /// DATA-driven candidate-producer set for a category (WS1 slice 7): the
+    /// DISTINCT `provenance->>'producer'` values from resolved, scored, scoreable
+    /// beliefs in the given category. Ordered `producer ASC` so the caller's
+    /// stable-max over quality gives deterministic tie-breaking without
+    /// inspecting producer names (producers are DATA, never literals).
+    /// Beliefs with no `producer` key in provenance are excluded (`IS NOT NULL`).
+    /// An empty result means no resolved, producer-stamped beliefs exist (cold-start).
+    pub async fn producers_for_resolved_category(
+        &self,
+        category: &str,
+    ) -> Result<Vec<String>, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT DISTINCT b.provenance->>'producer' AS "producer!"
+               FROM beliefs b JOIN events e ON e.event_id = b.event_id
+               WHERE b.status = 'resolved' AND b.outcome IS NOT NULL
+                 AND b.brier IS NOT NULL AND e.category = $1
+                 AND NOT e.unscoreable
+                 AND b.provenance->>'producer' IS NOT NULL
+               ORDER BY b.provenance->>'producer'"#,
+            category
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|r| r.producer).collect())
+    }
+
     /// Resolved beliefs attributed to one persona scope, keyed by the fan-out
     /// provenance `{persona_id, persona_version}` (`map_persona_analysis` stamps it).
     /// Shaped for `persona_scoring::score_persona` / `propose_promotion` (§10/§11) and

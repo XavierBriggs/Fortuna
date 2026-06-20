@@ -55,6 +55,14 @@ const QUALITY_BUCKETS: usize = 10;
 /// Fetch the synthesis scope's calibration state from the ledger.
 /// Returns the context for `SynthesisConfig.calibration` and the quality
 /// for `SimRunner::set_calibration_quality` (both fail-closed shapes).
+///
+/// `producer` scopes the QUALITY computation only:
+/// - `Some(p)` → uses `resolved_stats_for_producer(p, category)` (per-producer quality)
+/// - `None`    → uses `resolved_stats(category)` (merged, the back-compat default)
+///
+/// Calibration PARAMS stay `model_id`-keyed regardless of `producer` (per-producer
+/// params persistence is DEFERRED, out of scope for slice 7). `None` is the
+/// legacy path; existing non-daemon callers pass `None`.
 pub async fn calibration_for_scope(
     params: &CalibrationParamsRepo,
     beliefs: &BeliefsRepo,
@@ -62,9 +70,13 @@ pub async fn calibration_for_scope(
     strategy: &str,
     category: &str,
     kind: &str,
+    producer: Option<&str>,
 ) -> Result<(Option<CalibrationContext>, f64), ComposeError> {
     let row = params.latest(model_id, strategy, category, kind).await?;
-    let stats = beliefs.resolved_stats(category).await?;
+    let stats = match producer {
+        Some(p) => beliefs.resolved_stats_for_producer(p, category).await?,
+        None => beliefs.resolved_stats(category).await?,
+    };
     let resolved_n = stats.len();
     let samples: Vec<(f64, bool)> = stats.iter().map(|s| (s.p, s.outcome)).collect();
     let curve = calibration_curve(&samples, QUALITY_BUCKETS);
@@ -85,6 +97,73 @@ pub async fn calibration_for_scope(
         }
     };
     Ok((ctx, quality))
+}
+
+/// Select the best-calibrated producer for a synthesis scope: the THESIS PAYOFF.
+///
+/// Fetches the DATA-driven candidate set via `BeliefsRepo::producers_for_resolved_category`
+/// (DISTINCT resolved producers, ORDER BY producer ASC), then scores each candidate
+/// independently via `calibration_for_scope(…, Some(producer))`. The winner is chosen
+/// by **quality DESC, producer ASC** — the ASC is provided for FREE because the
+/// candidates arrive ORDER BY producer, so a stable iterator max keeps ASC on ties.
+///
+/// Returns `(Option<String>, Option<CalibrationContext>, Option<f64>)`:
+/// - `(Some(winner), ctx, Some(quality))` when at least one candidate has resolved
+///   beliefs and a quality score;
+/// - `(None, None, None)` when no candidate has resolved, producer-stamped beliefs
+///   (the B3 cold-start gate: synthesis stays cold, no fallback).
+///
+/// **No producer literal** ("aeolus", "meteorologist", etc.) appears here or in
+/// any caller — producers are DATA from the query (A7 decoupling principle).
+pub async fn best_calibrated_producer(
+    params: &CalibrationParamsRepo,
+    beliefs: &BeliefsRepo,
+    model_id: &str,
+    strategy: &str,
+    category: &str,
+    kind: &str,
+) -> Result<(Option<String>, Option<CalibrationContext>, Option<f64>), ComposeError> {
+    // Candidate set from DATA: DISTINCT resolved producers, ORDER BY producer ASC.
+    let candidates = beliefs.producers_for_resolved_category(category).await?;
+
+    if candidates.is_empty() {
+        // Cold-start: no producer has resolved beliefs → synthesis stays cold.
+        return Ok((None, None, None));
+    }
+
+    // Score each candidate and find the one with the highest quality.
+    // Tie-break is producer ASC (guaranteed because `candidates` arrives ASC from the query
+    // and we use a `>=` comparison that retains the first-seen — i.e. ASC — winner on ties).
+    let mut best_producer: Option<String> = None;
+    let mut best_ctx: Option<CalibrationContext> = None;
+    let mut best_quality: f64 = -1.0; // sentinel; quality is in [0,1]
+
+    for candidate in candidates {
+        let (ctx, quality) = calibration_for_scope(
+            params,
+            beliefs,
+            model_id,
+            strategy,
+            category,
+            kind,
+            Some(&candidate),
+        )
+        .await?;
+        // Strictly greater: ties keep the FIRST candidate (ASC order = smallest id wins).
+        if quality > best_quality {
+            best_quality = quality;
+            best_ctx = ctx;
+            best_producer = Some(candidate);
+        }
+    }
+
+    if best_producer.is_none() || best_quality <= 0.0 {
+        // All candidates had zero quality (empty resolved history for each).
+        // Treat as cold-start.
+        return Ok((None, None, None));
+    }
+
+    Ok((best_producer, best_ctx, Some(best_quality)))
 }
 
 /// `[synthesis]` config FILTERS for the daemon's confirmed-edge load (the
