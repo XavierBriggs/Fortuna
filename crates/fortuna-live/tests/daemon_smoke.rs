@@ -5358,35 +5358,59 @@ async fn price_snapshots_written_after_segment(pool: PgPool) {
     );
 }
 
-/// WS1 slice 5 live-smoke: a resolved weather belief on SIM-BKT-LO that has
-/// an entry FILL and a pre-benchmark liquid snapshot gets a non-null `clv_bps`.
+/// WS1 slice 5 live-smoke (non-vacuous): a resolved weather belief on SIM-BKT-LO
+/// that has an entry FILL and a pre-benchmark liquid snapshot gets the exact
+/// expected `clv_bps`.
 ///
-/// This proves the full chain end-to-end:
-///   open belief (weather bracket) → event (benchmark_at) → edge (→SIM-BKT-LO) →
-///   fills (entry at price 20) → snapshots (bid=18,ask=22 before benchmark) →
-///   clv_bps = ((18+22) - 2*20) * 10000 / (2*20) = 0 bps
+/// **Why the previous version was vacuous:** it used event_id
+/// `01JWXQ0000000000000000CLV1` which has no `ge`/`lt` bracket token, so
+/// `score_bracket` returned None → the resolver loop `continue`d → `resolved`
+/// stayed 0 → the `if resolved == 0 { return; }` guard bailed before the
+/// `assert_eq!(clv, 2000.0)` ran.  A `/10000` mutation in the persist path
+/// would NOT have been caught.
 ///
-/// For a non-zero, unambiguous value: entry=20, bid=22, ask=26 →
-///   yes_mid_x2=48, entry*2=40, clv=(48-40)*10000/(40)=2000 bps.
+/// **This version uses a REAL Troutdale fixture** (CLITTD, realized high 91°F on
+/// 2026-06-13) and a parseable event_id `aeolus:knyc-2026-06-13-tmax-ge25`
+/// (ge25 threshold → 91 ≥ 25 → outcome=true).  The `if resolved == 0 { return; }`
+/// escape hatch is replaced by `assert!(resolved >= 1)` so a resolver no-op
+/// fails loudly instead of passing vacuously.
+///
+/// CLV math: entry=20 YES, bid=22, ask=26 →
+///   yes_mid_x2 = 22+26 = 48, entry×2 = 40
+///   clv_bps = (48−40)×10000 / 40 = 80000/40 = **2000 bps**
+///
+/// A `/10000` mutation in the daemon persist line would produce `0.2` (not 2000)
+/// → the `assert_eq!(clv, 2000.0)` fires RED.
 #[sqlx::test(migrations = "../fortuna-ledger/migrations")]
 async fn clv_live_smoke_resolved_belief_has_non_null_clv_bps(pool: PgPool) {
     use fortuna_core::clock::UtcTimestamp;
     use fortuna_live::daemon::resolve_and_score_weather_beliefs;
 
-    // t_now is after the belief's horizon so it appears in the due queue.
-    let t_now = UtcTimestamp::parse_iso8601("2026-06-21T12:00:00.000Z").unwrap();
+    // Recorded Troutdale CLI fixture: station TTD, date 2026-06-13, max=91, min=50.
+    // Mirrors what weather_resolve.rs uses for its happy-path tests.
+    const TROUTDALE_CLI: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/sources/nws_climate/cli_product_troutdale.json"
+    ));
 
-    // 1. Seed the event with benchmark_at = 2026-06-20T18:00:00.000Z.
+    // t_now is after the belief's horizon so the belief appears in the due queue.
+    let t_now = UtcTimestamp::parse_iso8601("2026-06-15T00:00:00.000Z").unwrap();
+
+    // Event id is parseable: rsplit on [-:#] → last segment = "ge25"
+    // → score_bracket returns (outcome=true, brier) for realized 91 ≥ 25.
+    let event_id = "aeolus:knyc-2026-06-13-tmax-ge25";
+
+    // 1. Seed the event.  benchmark_at is the CLV cutoff; snapshot must precede it.
     fortuna_ledger::EventsRepo::new(pool.clone())
         .create(
-            "01JWXQ0000000000000000CLV1",
-            "Will SIM-BKT-LO close ≥ 25?",
-            "resolves at settlement",
-            "nws",
-            Some("2026-06-20T18:00:00.000Z"),
-            "2026-06-20T18:00:00.000Z",
+            event_id,
+            "Will KNYC tmax ≥ 25°F on 2026-06-13?",
+            "official NWS daily maximum",
+            "nws_observed_high",
+            Some("2026-06-14T10:00:00.000Z"),
+            "2026-06-14T10:00:00.000Z",
             "weather",
-            "2026-06-19T00:00:00.000Z",
+            "2026-06-13T01:00:00.000Z",
         )
         .await
         .expect("seed event");
@@ -5397,13 +5421,13 @@ async fn clv_live_smoke_resolved_belief_has_non_null_clv_bps(pool: PgPool) {
             "edge-clv-smoke-1",
             "SIM-BKT-LO",
             "sim",
-            "01JWXQ0000000000000000CLV1",
+            event_id,
             "direct",
             0.9,
             "model:stub",
             Some("op"),
             None,
-            "2026-06-19T00:01:00.000Z",
+            "2026-06-13T01:01:00.000Z",
         )
         .await
         .expect("seed edge");
@@ -5425,47 +5449,48 @@ async fn clv_live_smoke_resolved_belief_has_non_null_clv_bps(pool: PgPool) {
     .bind(5_i64)
     .bind(0_i64)
     .bind(true)
-    .bind("2026-06-19T10:00:00.000Z")
+    .bind("2026-06-13T10:00:00.000Z")
     .execute(&pool)
     .await
     .expect("seed fill");
 
-    // 4. Liquid snapshot before benchmark_at: bid=22, ask=26, qty=50 each.
-    //    yes_mid_x2=48, entry*2=40 → clv = (48-40)*10000/40 = 2000 bps.
+    // 4. Liquid snapshot BEFORE benchmark_at (2026-06-14T10:00:00Z):
+    //    bid=22, ask=26, qty=50 each, spread=4 ≤ 10 → liquidity_ok=true.
+    //    yes_mid_x2 = 48, entry×2 = 40 → clv = (48−40)×10000/40 = 2000 bps.
     fortuna_ledger::SnapshotsRepo::new(pool.clone())
         .insert(
             "snap-clv-smoke",
             "SIM-BKT-LO",
             "sim",
-            Some("01JWXQ0000000000000000CLV1"),
+            Some(event_id),
             "t24h",
             Some(22),
             Some(26),
             Some(50),
             Some(50),
             true,
-            "2026-06-20T17:00:00.000Z",
+            "2026-06-14T09:00:00.000Z",
         )
         .await
         .expect("seed snapshot");
 
-    // 5. Open weather belief for this event with required grading provenance.
-    //    nws_station_id + variable + target_date + horizon <= t_now.
-    //    The event_id suffix must parse as a bracket hint (rsplit on [-:#])
-    //    so score_bracket can derive the outcome. Use "ge25" (≥25 bracket).
+    // 5. Open weather belief routed to TTD (Troutdale), target 2026-06-13 tmax.
+    //    nws_station_id/variable/target_date in provenance → open_weather_bracket_due
+    //    picks it up; horizon (2026-06-14T10:00:00Z) <= t_now (2026-06-15) → due.
     fortuna_ledger::BeliefsRepo::new(pool.clone())
         .insert(
             "belief-clv-smoke-01",
-            "2026-06-19T00:00:00.000Z",
-            "01JWXQ0000000000000000CLV1",
+            "2026-06-13T01:00:00.000Z",
+            event_id,
             0.65,
             0.65,
-            "2026-06-20T18:00:00.000Z",
+            "2026-06-14T10:00:00.000Z",
             &serde_json::json!([{"source": "stub", "ref": "sig-1"}]),
             &serde_json::json!({
+                "model_id": "aeolus",
                 "variable": "tmax",
-                "nws_station_id": "KNYC",
-                "target_date": "2026-06-20",
+                "nws_station_id": "TTD",
+                "target_date": "2026-06-13",
                 "producer": "aeolus"
             }),
             None,
@@ -5473,53 +5498,50 @@ async fn clv_live_smoke_resolved_belief_has_non_null_clv_bps(pool: PgPool) {
         .await
         .expect("seed belief");
 
-    // 6. Seed a NWS-CLI signal so the grader has something to parse.
-    //    The resolve fn looks for `nws.cli` signals. A signal with the
-    //    KNYC station data for 2026-06-20 covering tmax will grade the belief.
-    //    Use a minimal CLI product text that `cli_serves_station` and
-    //    `nws_cli_realized` can parse. We use raw SQL so we don't need a
-    //    fixture — the text just needs to satisfy the two parsers.
-    //    The NWS CLI format: station header then TEMPERATURE block.
-    let cli_product = r#"
-CLIMATE REPORT FOR NEW YORK (CENTRAL PARK)  NY
-NATIONAL WEATHER SERVICE NEW YORK NY
-610 PM EDT THU JUN 20 2026
-
-..CITY FORECAST/OBSERVED DATA..
-
-TEMPERATURE (F)
-MAXIMUM         : 90
-MINIMUM         : 68
-
-KNYC
-"#;
+    // 6. Seed the REAL Troutdale CLI signal (CLITTD, 2026-06-13, max=91, min=50).
+    //    cli_serves_station(text, "TTD") → true (CLITTD token present).
+    //    nws_cli_realized → report_date="2026-06-13", high_f=91, low_f=50.
+    //    realized_f_for(tmax, 91, 50) = 91.0; score_bracket("...ge25", 0.65, 91.0)
+    //    → (true, brier) → resolves.
+    let troutdale_text = {
+        let v: serde_json::Value =
+            serde_json::from_str(TROUTDALE_CLI).expect("Troutdale fixture is valid JSON");
+        v["productText"]
+            .as_str()
+            .expect("productText present")
+            .to_string()
+    };
     fortuna_ledger::SignalsRepo::new(pool.clone())
         .insert(
             "sig-clv-smoke",
-            "nws",
+            "nws_cli",
             "nws.cli",
-            "2026-06-20T18:05:00.000Z",
-            "hash-cli-clv-smoke",
-            &serde_json::json!({ "productText": cli_product }),
+            "2026-06-14T11:00:00.000Z",
+            "hash-clv-smoke-ttd",
+            &serde_json::json!({ "productText": troutdale_text }),
         )
         .await
         .expect("seed CLI signal");
 
-    // 7. Run the resolver against t_now (belief's horizon <= t_now → due).
+    // 7. Run the resolver.  belief's horizon <= t_now → appears in due queue.
     let resolved = resolve_and_score_weather_beliefs(&pool, t_now, 0)
         .await
         .expect("resolver must not error");
 
-    // The resolver might grade 0 if the CLI text doesn't parse — but even in that
-    // case, the test still validates the CLV path: if resolved==0, skip the CLV
-    // assertion (the grading path is proven by a separate CLI-fixture test).
-    if resolved == 0 {
-        // Resolver found no gradeable beliefs (CLI text didn't parse for KNYC).
-        // The CLV path is still exercised by the ledger integration tests above.
-        return;
-    }
+    // ASSERT (not escape): the resolver MUST have graded exactly 1 belief.
+    // If this fires, the routing or bracket-parse path is broken — NOT a
+    // vacuous pass.  Before this fix, `if resolved == 0 { return; }` here
+    // allowed the test to pass silently even when the resolver no-opped.
+    assert!(
+        resolved >= 1,
+        "resolver resolved 0 beliefs — expected ≥1 (TTD CLI + ge25 bracket must grade); \
+         check that nws_station_id='TTD', target_date='2026-06-13', and the Troutdale \
+         fixture is present at fixtures/sources/nws_climate/cli_product_troutdale.json"
+    );
 
     // 8. Check that the resolved belief has non-null clv_bps = 2000.
+    //    A `/10000` mutation in daemon.rs (`bps_i64 as f64 / 10000.0`) would
+    //    yield 0.2 here → RED.  A sign flip would yield -2000.0 → RED.
     let row = fortuna_ledger::BeliefsRepo::new(pool)
         .get("belief-clv-smoke-01")
         .await
@@ -5527,9 +5549,11 @@ KNYC
     assert_eq!(row.status, "resolved", "belief must be resolved");
     let clv = row
         .clv_bps
-        .expect("CLV must be non-null for a traded belief with snapshots");
+        .expect("CLV must be non-null for a traded belief with a pre-benchmark liquid snapshot");
     assert_eq!(
         clv, 2000.0,
-        "CLV must be 2000 bps (entry=20, bid=22, ask=26, yes side)"
+        "CLV must be 2000 bps (entry=20 YES, bid=22, ask=26): \
+         yes_mid_x2=48, entry×2=40, (48-40)×10000/40=2000; \
+         a /10000 persist mutation produces 0.2 (RED) not 2000"
     );
 }
