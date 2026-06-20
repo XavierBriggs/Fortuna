@@ -806,7 +806,8 @@ impl SnapshotsRepo {
             r#"INSERT INTO price_snapshots
                (snapshot_id, market_id, venue, event_id, kind, best_bid_cents,
                 best_ask_cents, bid_qty, ask_qty, liquidity_ok, at)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)"#,
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+               ON CONFLICT (market_id, at) DO NOTHING"#,
             snapshot_id,
             market_id,
             venue,

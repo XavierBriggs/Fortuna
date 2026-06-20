@@ -1257,6 +1257,17 @@ impl ActiveRunner {
         }
     }
 
+    /// Drain per-market price quotes buffered since the last drain (WS1 slice
+    /// 4). The daemon persists them via `SnapshotsRepo::insert`; draining
+    /// empties the buffer so each quote is persisted exactly once per segment.
+    pub fn drain_market_quotes(&mut self) -> Vec<fortuna_runner::MarketQuoteCapture> {
+        match self {
+            ActiveRunner::Sim(r) => r.drain_market_quotes(),
+            ActiveRunner::Kalshi(r) => r.drain_market_quotes(),
+            ActiveRunner::PaperLive(r) => r.drain_market_quotes(),
+        }
+    }
+
     /// The cumulative bus recording for this run (A6, F4). Mirrors the inner
     /// `SimRunner::recording()` getter — read-only, no side effects. The
     /// recording grows monotonically: every dispatched event appends to it, so
@@ -1934,6 +1945,15 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     // A persist failure ALERTS and continues (the recording is the audit
     // substrate, not the money path).
     recordings_pool: Option<PgPool>,
+    // WS1 slice 4 (CLV capture): OPT-IN price-snapshot persist pool. `Some`
+    // => the per-market quote captured from the book the runner ALREADY
+    // fetched each tick is drained and persisted to `price_snapshots` via
+    // `SnapshotsRepo::insert` with `ON CONFLICT (market_id, at) DO NOTHING`
+    // (idempotency). Liquidity-gated: one-sided/empty books persist as
+    // `liquidity_ok=false, kind='other'`. `None` => no capture (byte-identical
+    // daemon — fail closed). A persist failure ALERTS and continues (CLV
+    // substrate, not the money path).
+    snapshots_pool: Option<PgPool>,
 ) -> Result<(LoopStats, fortuna_runner::ShutdownReport), DaemonError> {
     let mut total = LoopStats::default();
     // Dedup state OWNED ACROSS SEGMENTS (gate finding 2026-06-11: keeping
@@ -1991,6 +2011,12 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     // OWN counter ("01TSC" prefix). The UNIQUE (market_id, strategy) index is the
     // idempotency key — the PK is only for audit identity.
     let mut trade_score_id_base = belief_id_base;
+    // WS1 slice 4 (CLV capture): snapshot-id monotonic base. Same seeding
+    // pattern as the other id bases; OWN counter ("01SNP" prefix). The
+    // UNIQUE (market_id, at) index is the idempotency key — ON CONFLICT DO
+    // NOTHING means a second attempt for the same (market_id, at) is a
+    // silent skip, so the id itself need not be idempotency-stable.
+    let mut snapshot_id_base = belief_id_base;
     // A6 (F4): bus-recording high-water mark.
     // `last_recorded_idx` is the event count at the PREVIOUS segment boundary;
     // each segment serializes only events[last_recorded_idx..] (incremental —
@@ -3042,6 +3068,51 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                 ),
                             )),
                         }
+                    }
+                }
+            }
+        }
+
+        // WS1 slice 4 (CLV capture): drain + persist per-market price quotes.
+        // Runs EVERY segment regardless of synthesis — mechanical strategies do
+        // not produce beliefs but the daemon still tracks their markets' books.
+        // The quotes were captured from the book the runner ALREADY fetched this
+        // tick (no second poll). `ON CONFLICT (market_id, at) DO NOTHING` in
+        // `SnapshotsRepo::insert` makes this idempotent (a daemon restart that
+        // re-drains the same tick timestamp is a silent skip). Failure posture:
+        // alert + continue (CLV substrate, not the money path). `None` => no
+        // capture (byte-identical daemon — fail closed).
+        if let Some(snap_pool) = &snapshots_pool {
+            let quotes = runner.drain_market_quotes();
+            if !quotes.is_empty() {
+                let repo = fortuna_ledger::SnapshotsRepo::new(snap_pool.clone());
+                for q in &quotes {
+                    let snapshot_id = format!("01SNP{snapshot_id_base:021}");
+                    snapshot_id_base += 1;
+                    match repo
+                        .insert(
+                            &snapshot_id,
+                            q.market.as_str(),
+                            q.venue.as_str(),
+                            q.event_id.as_deref(),
+                            "other",
+                            q.best_bid_cents,
+                            q.best_ask_cents,
+                            q.bid_qty,
+                            q.ask_qty,
+                            q.liquidity_ok,
+                            &q.at,
+                        )
+                        .await
+                    {
+                        Ok(()) => {}
+                        Err(e) => alerts.push((
+                            fortuna_ops::MessageKind::Ops,
+                            format!(
+                                "price_snapshot persist FAILED for market={} at={} — snapshot lost this segment: {e}",
+                                q.market, q.at
+                            ),
+                        )),
                     }
                 }
             }

@@ -981,6 +981,10 @@ async fn main() -> Result<()> {
         // `RecordingsRepo::append`). Always wire the ledger pool so every
         // segment's decision event-stream is replayable (I5 / F4).
         Some(pool.clone()),
+        // WS1 slice 4: persist per-market price quotes per segment (CLV
+        // capture substrate). Always wire the ledger pool so every tracked
+        // market's book snapshot lands in `price_snapshots`.
+        Some(pool.clone()),
     )
     .await
     .context("daemon loop")?;

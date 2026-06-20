@@ -124,6 +124,32 @@ pub struct SettlementApplied {
     pub at: UtcTimestamp,
 }
 
+/// One per-market price quote captured from the book the runner already
+/// fetched this tick. Buffered in `pending_market_quotes` and drained by the
+/// daemon per segment for persistence to `price_snapshots` (WS1 slice 4).
+/// The runner never writes Postgres; the daemon drains via
+/// `drain_market_quotes()` and persists each row via `SnapshotsRepo::insert`.
+/// Carrying `event_id` here so the daemon need not re-derive the mapping
+/// (it comes from `market_events`, which the runner already maintains via
+/// `refresh_synthesis_edges`).
+#[derive(Debug, Clone)]
+pub struct MarketQuoteCapture {
+    pub market: MarketId,
+    pub venue: VenueId,
+    /// Non-null when the market is mapped to a canonical event via
+    /// `refresh_synthesis_edges`; None for unmapped markets (still captured
+    /// with event_id=NULL so CLV slice 5 can skip them gracefully).
+    pub event_id: Option<String>,
+    pub best_bid_cents: Option<i64>,
+    pub best_ask_cents: Option<i64>,
+    pub bid_qty: Option<i64>,
+    pub ask_qty: Option<i64>,
+    /// True when both bid and ask are present (two-sided liquid book).
+    pub liquidity_ok: bool,
+    /// ISO8601 timestamp from the injected `Clock` at capture time.
+    pub at: String,
+}
+
 /// The Phase 0 composition over a venue. Journal-generic since T4.1: the
 /// daemon composes the SAME runner over `PgIntentJournal` (durable intents in
 /// Postgres). Venue-generic since the demo-flip (Phase 1): `V` defaults to
@@ -181,6 +207,13 @@ pub struct SimRunner<V: Venue = SimVenue, J: IntentJournal + Send = MemoryJourna
     /// `amount_cents = realized_pnl_cents` (NET delta) and `intent_id =
     /// notice_id`. Buffered only when we HELD the market or the PnL changed.
     pending_settlements: Vec<SettlementApplied>,
+    /// Per-market price quotes captured from live books each tick, awaiting
+    /// composition-side persistence to `price_snapshots` (WS1 slice 4). The
+    /// runner never writes Postgres; the daemon drains via
+    /// `drain_market_quotes` and persists each row via `SnapshotsRepo::insert`.
+    /// The buffer accumulates one entry per non-terminal market per tick and is
+    /// emptied by each drain, so the daemon persists once per segment.
+    pending_market_quotes: Vec<MarketQuoteCapture>,
     veto_mind: Option<Arc<dyn VetoMind>>,
     veto_strategies: std::collections::BTreeSet<StrategyId>,
     /// Vetoed-away quantity awaiting its market's settlement for
@@ -581,6 +614,7 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
             pending_scalar_beliefs: Vec::new(),
             pending_fills: Vec::new(),
             pending_settlements: Vec::new(),
+            pending_market_quotes: Vec::new(),
             veto_mind: config.veto_mind,
             veto_strategies: config.veto_strategies.into_iter().collect(),
             open_vetoes: Vec::new(),
@@ -735,6 +769,17 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
         std::mem::take(&mut self.pending_settlements)
     }
 
+    /// Take the per-market price quotes buffered since the last drain (WS1
+    /// slice 4). Each entry carries the bid/ask/qty observed from the book the
+    /// runner ALREADY fetched this cycle — no second venue poll. The daemon
+    /// persists them via `SnapshotsRepo::insert` with `kind='other'` (cadence
+    /// samples) and the `ON CONFLICT (market_id, at) DO NOTHING` idempotency
+    /// guard. Draining empties the buffer so each quote is persisted exactly
+    /// once per segment.
+    pub fn drain_market_quotes(&mut self) -> Vec<MarketQuoteCapture> {
+        std::mem::take(&mut self.pending_market_quotes)
+    }
+
     /// Inject an external `PerpTick` onto the bus for the NEXT `tick()` to
     /// dispatch — the perp INGESTION seam (perp-strategies design §2.1/§3.2;
     /// slice 4b). The two perp strategies (`funding_forecast`, `perp_event_basis`)
@@ -886,6 +931,33 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
             }
             match self.venue.book(&market).await {
                 Ok(book) => {
+                    // WS1 slice 4: capture a price quote from the book we
+                    // already fetched (reuse the existing read — no second
+                    // poll). Buffered in `pending_market_quotes`; the daemon
+                    // drains and persists per segment via `SnapshotsRepo`.
+                    // `event_id` comes from `market_events` (runner already
+                    // maintains this via `refresh_synthesis_edges`).
+                    {
+                        let bid = book.yes_bids.first();
+                        let ask = book.yes_asks.first();
+                        let liquidity_ok = bid.is_some() && ask.is_some();
+                        let capture_at = self.clock.now().to_iso8601();
+                        let event_id = self
+                            .market_events
+                            .get(&market)
+                            .map(|eid| eid.to_string());
+                        self.pending_market_quotes.push(MarketQuoteCapture {
+                            market: market.clone(),
+                            venue: self.venue.id(),
+                            event_id,
+                            best_bid_cents: bid.map(|l| l.price.raw()),
+                            best_ask_cents: ask.map(|l| l.price.raw()),
+                            bid_qty: bid.map(|l| l.qty.raw()),
+                            ask_qty: ask.map(|l| l.qty.raw()),
+                            liquidity_ok,
+                            at: capture_at,
+                        });
+                    }
                     self.books.insert(market.clone(), book.clone());
                     self.bus.publish_external(EventPayload::BookSnapshot {
                         venue: self.venue.id(),
