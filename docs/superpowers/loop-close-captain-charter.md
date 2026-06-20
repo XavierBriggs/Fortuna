@@ -54,8 +54,14 @@ On ambiguity: **(1) resolve with best judgment**, grounded in priority order —
 - **Token discipline:** per slice = **ONE builder + ONE verifier**. No fan-out workflows. The final gate is a **focused verifier set (≤3)**, not a swarm.
 - **After ANY compaction:** trust the ledger + git, NOT your summary. Re-read before acting.
 
+## Verification cost discipline (per-slice = FAST/scoped; full suite = boundary only)
+The full gate suite — `clippy --workspace --all-targets`, the full workspace tests, and **DST 2000 seeds** — costs HOURS of cargo wall-clock on this repo. Running it on every slice (builder AND verifier) is the main time sink. So:
+- **Per-slice builder** runs: the slice's targeted tests + `fmt` + `clippy` on the TOUCHED crates. Full DST (`run-dst.sh`) ONLY if the slice touches orders/state/recovery (the DST-relevant paths, per CLAUDE.md); otherwise defer it to the boundary.
+- **Per-slice verifier** re-runs ONLY: the slice's TARGETED tests (independent evidence) + the slice-relevant invariant/decoupling check + a mutation-spot. Do NOT re-run full DST 2000 or `clippy --all-targets` per slice.
+- **WS-boundary hard verify** runs the FULL expensive suite ONCE: full workspace tests + full invariant suite + DST 2000 + `clippy --all-targets` + cross-slice adversarial.
+
 ## Workstream boundary = the HARD, deep verify gate (ALWAYS RALPH-STOP here)
-Two tiers of verification: **per-slice** = a scoped QA gate (one verifier, that slice). **WS boundary** = the *hard, full, deeper* verify — cross-slice, integrated, adversarial. **Final** (milestone end) = the deepest, end-to-end + demo smoke. When a workstream's slices are all sealed, run the deep gate — do NOT roll into the next workstream:
+Two tiers of verification: **per-slice** = a scoped QA gate (one verifier, that slice — targeted tests only). **WS boundary** = the *hard, full, deeper* verify — the full expensive suite + cross-slice, integrated, adversarial. **Final** (milestone end) = the deepest, end-to-end + demo smoke. When a workstream's slices are all sealed, run the deep gate — do NOT roll into the next workstream:
 1. **Deep adversarial re-verify (harder than any per-slice gate)** — a dedicated `verifier` (QA) re-reviews the WHOLE workstream **cross-slice** against the spec + architecture doc + invariants + decoupling: hunts integration bugs the per-slice gates structurally could not see (a slice gate only sees its own diff), and **mutation-proofs the workstream's key end-to-end properties**. Token-disciplined: 1–2 focused verifiers, not a swarm.
 2. **Integration gate** — full workspace + the invariant suite + DST, the WS's slices together, all green.
 3. **Alignment check** — does the integrated work still match **(a)** the architecture doc, **(b)** the goals (honest close · decoupled · repeatable · hardened · forward-collecting), **(c)** the §7 worked example / the demo? List any drift explicitly; if found → it's not done, fix before sealing the WS.
