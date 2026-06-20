@@ -24,3 +24,6 @@ _(none yet)_
 
 ## Open during the loop (WS1.4, 2026-06-20T02:23Z)
 - **Unbounded `pending_market_quotes` buffer when `snapshots_pool=None`** (runner.rs:216): the daemon gates the drain on `Some(pool)` (daemon.rs:3085), so in DST/no-persist mode the buffer fills each tick and is never drained — bounded only by short runs. Mirrors the gate-accepted `pending_fills` pattern (also drained only under `Some`); production `main.rs` always wires `Some`. No fix now; revisit if a long no-persist run is ever needed.
+
+## Deferred (WS1.7, 2026-06-20T05:43Z)
+- **Per-producer calibration PARAMS persistence** (keying the Platt/calibration fit by producer, not just the quality): runner.rs:757 persists producer=None. Slice 7 delivers per-producer QUALITY selection (the thesis payoff); per-producer PARAMS is a follow-on persist/schema change, deferred (YAGNI for the demo).
