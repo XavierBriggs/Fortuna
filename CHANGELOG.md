@@ -8,6 +8,14 @@ concise bullet per logical change; newest-relevant first.
 
 ## [Unreleased]
 
+### Loop-Close WS1 — Live Spine (feature/paper-on-live-data, 2026-06-20)
+- Weather-belief resolution is now producer-agnostic and fractional-bracket aware: the meteorologist persona's beliefs resolve and Brier-score alongside Aeolus on the same brackets (the head-to-head), via a decoupled `open_weather_bracket_due` (selects by grading-keys present, no producer literal) + a grammar-agnostic bracket-hint parse.
+- CLV computed live at resolution: a price-snapshot capturer (`price_snapshots`, idempotent `UNIQUE(market_id, at)` + `ON CONFLICT`) + `events::clv_bps` wired into the resolver (entry vs de-vigged pre-benchmark line, persisted as integer bps in f64).
+- Per-producer scoring: `resolved_stats_for_producer` / `scores_for_producer`; synthesis prices the best-calibrated producer (data-driven quality selection, quality DESC / producer-id ASC tie-break, no producer literal).
+- `go_nogo` now enforces the calibration half of spec §11: a synthesis-only Brier-beats-de-vigged-market-baseline gate + a forward-only promotion count (backtest rows excluded — defensive for the WS3 historical ingest).
+- Fixed during the boundary verify: the `meteorologist/persona.md` region_key template (`weather:{nws_station_id}:tmax:{target_date}`) so the persona resolves against the real `CLINYC` product (was `{station}`→`KNYC`→`CLIKNYC`, head-to-head silently dark); and a synthesis-cold regression (merged-calibration fallback when no per-producer candidate).
+- Verification: each slice built→independently QA-verified→mutation-proven; WS1-boundary hard verify green (full workspace, invariants 15/15 integration files, DST 2000 seeds × 6 planes, `clippy --all-targets`, fmt). Deferred + ledgered: meteorologist CLV linkage (WS2/G5), synthesis-binary resolution, per-producer calibration params.
+
 ### Ground-truth audit + Phase B consolidation (repo-wide, 2026-06-18)
 
 #### Added
