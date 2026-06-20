@@ -139,6 +139,8 @@ fn go_nogo_recommends_with_reasons_and_never_promotes() {
             fees_cents: 20_000,
             clv_mean_bps: None,
             invariant_violations: 0,
+            brier: None,
+            market_baseline_brier: None,
         },
         // Synthesis, too few resolved beliefs: INSUFFICIENT DATA.
         StrategyRecord {
@@ -150,6 +152,8 @@ fn go_nogo_recommends_with_reasons_and_never_promotes() {
             fees_cents: 1_000,
             clv_mean_bps: Some(80.0),
             invariant_violations: 0,
+            brier: None,
+            market_baseline_brier: None,
         },
         // Mechanical, fee ratio breach: NO-GO with the reason named.
         StrategyRecord {
@@ -161,6 +165,8 @@ fn go_nogo_recommends_with_reasons_and_never_promotes() {
             fees_cents: 9_000,
             clv_mean_bps: None,
             invariant_violations: 0,
+            brier: None,
+            market_baseline_brier: None,
         },
         // Any invariant violation is an unconditional NO-GO.
         StrategyRecord {
@@ -172,6 +178,8 @@ fn go_nogo_recommends_with_reasons_and_never_promotes() {
             fees_cents: 1_000,
             clv_mean_bps: None,
             invariant_violations: 1,
+            brier: None,
+            market_baseline_brier: None,
         },
     ];
 
@@ -200,6 +208,9 @@ fn synthesis_needs_positive_clv_for_go() {
         fees_cents: 5_000,
         clv_mean_bps: Some(45.0),
         invariant_violations: 0,
+        // Brier gate: provide passing values (0.15 < 0.20 → passes).
+        brier: Some(0.15),
+        market_baseline_brier: Some(0.20),
     };
     let go = go_nogo(std::slice::from_ref(&record), &thresholds());
     assert_eq!(go[0].verdict, Verdict::Go);
@@ -212,6 +223,175 @@ fn synthesis_needs_positive_clv_for_go() {
     record.clv_mean_bps = None;
     let insufficient = go_nogo(std::slice::from_ref(&record), &thresholds());
     assert_eq!(insufficient[0].verdict, Verdict::InsufficientData);
+}
+
+// -------------------------------------------------- Brier-beats-baseline gate
+// Tests for WS1 slice 8b: synthesis-only Brier gate (spec §11).
+// Lower Brier = better; gate passes only when producer Brier < market baseline.
+
+/// A synthesis record with both Brier values present and producer Brier WORSE
+/// than the market baseline must be NO-GO with "does not beat" in the reason.
+/// MUTATION sentinel: removing the Brier branch would wrongly return GO.
+#[test]
+fn brier_gate_nogo_when_producer_brier_worse_than_baseline() {
+    let record = StrategyRecord {
+        strategy: "synth_events".to_string(),
+        kind: StrategyKindView::Synthesis,
+        paper_days: 90,
+        resolved_beliefs: 80,
+        realized_pnl_cents: 50_000,
+        fees_cents: 5_000,
+        clv_mean_bps: Some(45.0),
+        invariant_violations: 0,
+        brier: Some(0.30),
+        market_baseline_brier: Some(0.20), // producer 0.30 > baseline 0.20 → NO-GO
+    };
+    let recs = go_nogo(std::slice::from_ref(&record), &thresholds());
+    assert_eq!(
+        recs[0].verdict,
+        Verdict::NoGo,
+        "producer Brier 0.30 >= market baseline 0.20 must NO-GO"
+    );
+    assert!(
+        recs[0].reasons.iter().any(|r| r.contains("does not beat")),
+        "NO-GO reason must say 'does not beat', got: {:?}",
+        recs[0].reasons
+    );
+}
+
+/// Brier equal to baseline is also a NO-GO (strictly LESS required).
+#[test]
+fn brier_gate_nogo_when_producer_brier_equals_baseline() {
+    let record = StrategyRecord {
+        strategy: "synth_events".to_string(),
+        kind: StrategyKindView::Synthesis,
+        paper_days: 90,
+        resolved_beliefs: 80,
+        realized_pnl_cents: 50_000,
+        fees_cents: 5_000,
+        clv_mean_bps: Some(45.0),
+        invariant_violations: 0,
+        brier: Some(0.20),
+        market_baseline_brier: Some(0.20), // equal → NO-GO (strictly less required)
+    };
+    let recs = go_nogo(std::slice::from_ref(&record), &thresholds());
+    assert_eq!(
+        recs[0].verdict,
+        Verdict::NoGo,
+        "producer Brier 0.20 == baseline 0.20 must NO-GO (strictly less required)"
+    );
+}
+
+/// A synthesis record where producer Brier BEATS the baseline (strictly less)
+/// must pass the Brier gate. If all other gates also pass the verdict is GO.
+#[test]
+fn brier_gate_passes_when_producer_brier_beats_baseline() {
+    let record = StrategyRecord {
+        strategy: "synth_events".to_string(),
+        kind: StrategyKindView::Synthesis,
+        paper_days: 90,
+        resolved_beliefs: 80,
+        realized_pnl_cents: 50_000,
+        fees_cents: 5_000,
+        clv_mean_bps: Some(45.0),
+        invariant_violations: 0,
+        brier: Some(0.15),
+        market_baseline_brier: Some(0.20), // 0.15 < 0.20 → passes
+    };
+    let recs = go_nogo(std::slice::from_ref(&record), &thresholds());
+    assert_eq!(
+        recs[0].verdict,
+        Verdict::Go,
+        "producer Brier 0.15 < baseline 0.20 must pass gate and result in GO"
+    );
+    // The reason must mention the beat so the audit is informative.
+    assert!(
+        recs[0].reasons.iter().any(|r| r.contains("beats")),
+        "GO reasons must mention Brier beats baseline, got: {:?}",
+        recs[0].reasons
+    );
+}
+
+/// When brier is None (no producer samples), go_nogo must return InsufficientData.
+/// Must NOT spuriously NO-GO.
+#[test]
+fn brier_gate_insufficient_data_when_producer_brier_none() {
+    let record = StrategyRecord {
+        strategy: "synth_events".to_string(),
+        kind: StrategyKindView::Synthesis,
+        paper_days: 90,
+        resolved_beliefs: 80,
+        realized_pnl_cents: 50_000,
+        fees_cents: 5_000,
+        clv_mean_bps: Some(45.0),
+        invariant_violations: 0,
+        brier: None,
+        market_baseline_brier: Some(0.20),
+    };
+    let recs = go_nogo(std::slice::from_ref(&record), &thresholds());
+    assert_eq!(
+        recs[0].verdict,
+        Verdict::InsufficientData,
+        "no producer brier → InsufficientData (do not GO without the check)"
+    );
+    assert!(
+        recs[0]
+            .reasons
+            .iter()
+            .any(|r| r.contains("Brier baseline unavailable")),
+        "InsufficientData reason must say 'Brier baseline unavailable', got: {:?}",
+        recs[0].reasons
+    );
+}
+
+/// When market_baseline_brier is None (no benchmark snapshots), go_nogo must
+/// return InsufficientData. Must NOT spuriously NO-GO.
+#[test]
+fn brier_gate_insufficient_data_when_baseline_none() {
+    let record = StrategyRecord {
+        strategy: "synth_events".to_string(),
+        kind: StrategyKindView::Synthesis,
+        paper_days: 90,
+        resolved_beliefs: 80,
+        realized_pnl_cents: 50_000,
+        fees_cents: 5_000,
+        clv_mean_bps: Some(45.0),
+        invariant_violations: 0,
+        brier: Some(0.15),
+        market_baseline_brier: None,
+    };
+    let recs = go_nogo(std::slice::from_ref(&record), &thresholds());
+    assert_eq!(
+        recs[0].verdict,
+        Verdict::InsufficientData,
+        "no market baseline brier → InsufficientData (do not GO without the check)"
+    );
+}
+
+/// A MECHANICAL record with a worse-than-baseline Brier must NOT be Brier-graded
+/// (spec §11/§2.2: mechanical scopes are never Brier-graded).
+/// A bad brier on a mechanical record must NOT cause NO-GO via the Brier gate.
+#[test]
+fn brier_gate_skipped_for_mechanical_records() {
+    let record = StrategyRecord {
+        strategy: "mech_structural".to_string(),
+        kind: StrategyKindView::Mechanical,
+        paper_days: 45,
+        resolved_beliefs: 0,
+        realized_pnl_cents: 90_000,
+        fees_cents: 20_000,
+        clv_mean_bps: None,
+        invariant_violations: 0,
+        brier: Some(0.99), // terrible Brier — must be ignored for mechanical
+        market_baseline_brier: Some(0.10),
+    };
+    let recs = go_nogo(std::slice::from_ref(&record), &thresholds());
+    // Mechanical with enough days + positive net expectancy + acceptable fee ratio → GO
+    assert_eq!(
+        recs[0].verdict,
+        Verdict::Go,
+        "Brier gate must be skipped for mechanical records regardless of brier values"
+    );
 }
 
 // ----------------------------------------------------------- weekly review
@@ -253,6 +433,8 @@ async fn weekly_review_layers_commentary_over_a_deterministic_core() {
         fees_cents: 2_000,
         clv_mean_bps: Some(100.0),
         invariant_violations: 0,
+        brier: Some(0.15),
+        market_baseline_brier: Some(0.20),
     }];
 
     let mind = StubMind::scripted(vec![commentary_output(true)]);

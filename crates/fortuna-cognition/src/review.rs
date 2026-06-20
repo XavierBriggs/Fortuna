@@ -166,6 +166,17 @@ pub struct StrategyRecord {
     pub fees_cents: i64,
     pub clv_mean_bps: Option<f64>,
     pub invariant_violations: u64,
+    /// Mean producer Brier score over forward-resolved beliefs in the synthesis
+    /// category. `None` when no forward-resolved samples exist. Synthesis only;
+    /// always `None` for mechanical records (mechanical scopes are not Brier-graded,
+    /// spec §11/§2.2).
+    pub brier: Option<f64>,
+    /// Mean market baseline Brier: `avg((market_p - outcome)²)` where
+    /// `market_p = (yes_bid + yes_ask) / 200.0` (de-vigged Kalshi YES mid).
+    /// Computed over the same forward-resolved belief set that has a liquid
+    /// pre-benchmark snapshot. `None` when no such samples exist.
+    /// Synthesis only; always `None` for mechanical records.
+    pub market_baseline_brier: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -258,6 +269,36 @@ pub fn go_nogo(
                             };
                         }
                         Some(clv) => reasons.push(format!("CLV +{clv:.1} bps")),
+                    }
+
+                    // Brier-beats-baseline gate (spec §11): the synthesis scope's
+                    // calibration must beat the de-vigged market-price baseline.
+                    // Lower Brier = better; gate passes only when brier < market_baseline_brier.
+                    // Mechanical scopes are never Brier-graded (spec §11/§2.2).
+                    match (r.brier, r.market_baseline_brier) {
+                        (Some(b), Some(mb)) if b >= mb => {
+                            reasons.push(format!(
+                                "Brier {b:.3} does not beat market baseline {mb:.3}"
+                            ));
+                            return GoNoGoRecommendation {
+                                strategy: r.strategy.clone(),
+                                verdict: Verdict::NoGo,
+                                reasons,
+                            };
+                        }
+                        (Some(b), Some(mb)) => {
+                            // b < mb: gate passes
+                            reasons.push(format!("Brier {b:.3} beats baseline {mb:.3}"));
+                        }
+                        _ => {
+                            // Either brier or baseline is None — can't evaluate
+                            reasons.push("Brier baseline unavailable".to_string());
+                            return GoNoGoRecommendation {
+                                strategy: r.strategy.clone(),
+                                verdict: Verdict::InsufficientData,
+                                reasons,
+                            };
+                        }
                     }
                 }
             }

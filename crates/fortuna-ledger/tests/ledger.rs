@@ -2430,3 +2430,138 @@ async fn resolved_count_forward_equals_resolved_stats_count_when_no_import_rows(
         "forward count must equal resolved_stats count when no import rows exist (today guarantee)"
     );
 }
+
+// ----------------------------------------------------------------------- T8b
+// Tests for WS1 slice 8b: forward_resolved_for_brier_baseline query.
+
+/// Helper: insert a benchmark event (benchmark_at set so snapshots can precede it)
+/// and return the event_id.
+async fn seed_brier_event(pool: &PgPool, event_id: &str, benchmark_at: &str) {
+    fortuna_ledger::EventsRepo::new(pool.clone())
+        .create(
+            event_id,
+            "Will it happen?",
+            "official source",
+            "nws",
+            None,
+            benchmark_at,
+            "weather",
+            "2026-06-10T12:00:00.000Z",
+        )
+        .await
+        .unwrap();
+}
+
+#[sqlx::test(migrations = "./migrations")]
+/// T8b-1: `forward_resolved_for_brier_baseline` returns correct rows for forward
+/// beliefs and EXCLUDES `source='historical-import'` rows (§9.1).
+///
+/// Also verifies beliefs with no snapshot-mapped market are unaffected (the query
+/// returns the belief row; the caller skips if no snapshot is found).
+async fn forward_resolved_for_brier_baseline_excludes_historical_import(pool: PgPool) {
+    // Three forward beliefs on two events.
+    seed_brier_event(&pool, "evtb-fwd-1", "2026-06-20T18:00:00.000Z").await;
+    seed_brier_event(&pool, "evtb-fwd-2", "2026-06-21T18:00:00.000Z").await;
+    seed_brier_event(&pool, "evtb-imp-1", "2026-06-22T18:00:00.000Z").await;
+
+    let beliefs_repo = fortuna_ledger::BeliefsRepo::new(pool.clone());
+
+    // Forward: two beliefs on evtb-fwd-1 (one superseded) and one on evtb-fwd-2.
+    beliefs_repo
+        .insert(
+            "bb-fwd-1",
+            "2026-06-10T12:00:00.000Z",
+            "evtb-fwd-1",
+            0.70,
+            0.70,
+            "2026-06-20T18:00:00.000Z",
+            &serde_json::json!([]),
+            &serde_json::json!({"producer": "aeolus"}),
+            None,
+        )
+        .await
+        .unwrap();
+    beliefs_repo
+        .resolve_and_score("bb-fwd-1", true, 0.09, None)
+        .await
+        .unwrap();
+
+    beliefs_repo
+        .insert(
+            "bb-fwd-2",
+            "2026-06-10T13:00:00.000Z",
+            "evtb-fwd-2",
+            0.60,
+            0.60,
+            "2026-06-21T18:00:00.000Z",
+            &serde_json::json!([]),
+            &serde_json::json!({"producer": "aeolus"}),
+            None,
+        )
+        .await
+        .unwrap();
+    beliefs_repo
+        .resolve_and_score("bb-fwd-2", false, 0.36, None)
+        .await
+        .unwrap();
+
+    // Historical import: same category, must be excluded.
+    beliefs_repo
+        .insert(
+            "bb-imp-1",
+            "2026-06-10T14:00:00.000Z",
+            "evtb-imp-1",
+            0.55,
+            0.55,
+            "2026-06-22T18:00:00.000Z",
+            &serde_json::json!([]),
+            &serde_json::json!({"producer": "aeolus", "source": "historical-import"}),
+            None,
+        )
+        .await
+        .unwrap();
+    beliefs_repo
+        .resolve_and_score("bb-imp-1", true, 0.2025, None)
+        .await
+        .unwrap();
+
+    let rows = beliefs_repo
+        .forward_resolved_for_brier_baseline("weather")
+        .await
+        .unwrap();
+
+    // Only 2 forward rows returned; the historical-import row is excluded.
+    assert_eq!(
+        rows.len(),
+        2,
+        "historical-import row must be excluded (got {} rows, want 2)",
+        rows.len()
+    );
+
+    // Verify the two forward rows have correct values.
+    let row1 = rows.iter().find(|r| r.belief_id == "bb-fwd-1").unwrap();
+    assert!(
+        (row1.p - 0.70).abs() < 1e-9,
+        "p must be 0.70, got {}",
+        row1.p
+    );
+    assert!(row1.outcome, "outcome for bb-fwd-1 must be true");
+    assert_eq!(row1.event_id, "evtb-fwd-1");
+    assert_eq!(row1.benchmark_at, "2026-06-20T18:00:00.000Z");
+
+    let row2 = rows.iter().find(|r| r.belief_id == "bb-fwd-2").unwrap();
+    assert!(
+        (row2.p - 0.60).abs() < 1e-9,
+        "p must be 0.60, got {}",
+        row2.p
+    );
+    assert!(!row2.outcome, "outcome for bb-fwd-2 must be false");
+    assert_eq!(row2.event_id, "evtb-fwd-2");
+    assert_eq!(row2.benchmark_at, "2026-06-21T18:00:00.000Z");
+
+    // None of the returned rows is the import row.
+    assert!(
+        rows.iter().all(|r| r.belief_id != "bb-imp-1"),
+        "bb-imp-1 (historical-import) must not appear in results"
+    );
+}

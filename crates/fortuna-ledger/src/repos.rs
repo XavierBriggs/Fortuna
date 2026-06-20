@@ -1149,6 +1149,20 @@ pub struct BeliefPanelRow {
     pub provenance: serde_json::Value,
 }
 
+/// Minimal resolved belief row for the Brier-beats-baseline gate (WS1 slice 8b).
+/// One row per forward-resolved, scoreable belief: enough to compute the
+/// producer Brier score and (with a snapshot lookup) the market baseline Brier.
+#[derive(Debug, Clone)]
+pub struct ForwardResolvedBeliefRow {
+    pub belief_id: String,
+    pub p: f64,
+    /// `true` = YES outcome, `false` = NO outcome.
+    pub outcome: bool,
+    pub event_id: String,
+    /// ISO8601 UTC: the benchmark window cutoff — snapshot must precede this.
+    pub benchmark_at: String,
+}
+
 /// One open Aeolus weather belief that is DUE for resolution (the weather
 /// "close-the-loop" bridge, source contract §5 Layer 3). The grading-relevant
 /// fields are lifted out of the belief's `provenance` JSONB (`model_id='aeolus'`
@@ -1572,6 +1586,48 @@ impl BeliefsRepo {
                     horizon: r.horizon,
                     producer: r.producer,
                 })
+            })
+            .collect())
+    }
+
+    /// Forward-only resolved belief rows for the Brier-beats-baseline gate
+    /// (WS1 slice 8b; spec §11 + §9.1).
+    ///
+    /// Returns `(belief_id, p, outcome, event_id, benchmark_at)` for every
+    /// resolved, scoreable, forward belief in `category`. "Forward" means
+    /// `provenance->>'source' IS DISTINCT FROM 'historical-import'` — this
+    /// excludes WS3 backtest rows and is consistent with `resolved_count_forward`.
+    ///
+    /// The caller is responsible for fetching the benchmark snapshot per belief
+    /// (via `SnapshotsRepo::latest_liquid_before`) and computing the per-belief
+    /// de-vigged market probability and market baseline Brier contribution.
+    /// Beliefs with no mapped market or no pre-benchmark snapshot are SKIPPED
+    /// by the caller — they do not contribute to the baseline.
+    pub async fn forward_resolved_for_brier_baseline(
+        &self,
+        category: &str,
+    ) -> Result<Vec<ForwardResolvedBeliefRow>, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT b.belief_id, b.p, b.outcome AS "outcome!", b.event_id,
+                      e.benchmark_at
+               FROM beliefs b JOIN events e ON e.event_id = b.event_id
+               WHERE b.status = 'resolved' AND b.outcome IS NOT NULL
+                 AND b.brier IS NOT NULL AND e.category = $1
+                 AND NOT e.unscoreable
+                 AND b.provenance->>'source' IS DISTINCT FROM 'historical-import'
+               ORDER BY b.created_at"#,
+            category
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| ForwardResolvedBeliefRow {
+                belief_id: r.belief_id,
+                p: r.p,
+                outcome: r.outcome == 1,
+                event_id: r.event_id,
+                benchmark_at: r.benchmark_at,
             })
             .collect())
     }

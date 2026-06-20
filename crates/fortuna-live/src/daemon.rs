@@ -5392,6 +5392,87 @@ pub async fn run_weekly_review<
     } else {
         0
     };
+
+    // §11 Brier-beats-baseline gate (WS1 slice 8b): compute the producer Brier
+    // and de-vigged market baseline Brier from forward-resolved beliefs.
+    // N+1 snapshot lookup (infrequent weekly path; reuses tested SnapshotsRepo).
+    // market_p = (yes_bid + yes_ask) / 200.0 (de-vigged Kalshi YES mid).
+    // Beliefs with no mapped market OR no pre-benchmark liquid snapshot are SKIPPED.
+    let (synth_brier, synth_market_baseline_brier): (Option<f64>, Option<f64>) =
+        if let Some(category) = synth_category {
+            let fwd_beliefs = BeliefsRepo::new(pool.clone())
+                .forward_resolved_for_brier_baseline(category)
+                .await
+                .map_err(|e| DaemonError::Compose {
+                    reason: format!("weekly review forward_resolved_for_brier_baseline: {e}"),
+                })?;
+
+            let mut producer_brier_sum = 0.0_f64;
+            let mut market_baseline_sum = 0.0_f64;
+            let mut count = 0usize;
+
+            for belief in &fwd_beliefs {
+                let outcome_f = if belief.outcome { 1.0_f64 } else { 0.0_f64 };
+                // Producer Brier contribution (always computable from the belief row).
+                let pb = (belief.p - outcome_f).powi(2);
+
+                // Find the mapped market for this belief's event (N+1 edge lookup).
+                let edges = fortuna_ledger::EdgesRepo::new(pool.clone())
+                    .current_edges_for_event(&belief.event_id)
+                    .await
+                    .map_err(|e| DaemonError::Compose {
+                        reason: format!(
+                            "weekly review brier baseline: edges for {}: {e}",
+                            belief.event_id
+                        ),
+                    })?;
+
+                // Use only direct-mapped, confirmed edges (same tier as CLV).
+                let Some(edge) = edges
+                    .iter()
+                    .find(|e| e.confirmed_by.is_some() && e.mapping_type == "direct")
+                else {
+                    continue; // no confirmed direct edge → skip for baseline
+                };
+
+                // Snapshot: latest liquid before benchmark_at.
+                let Some(snap) = fortuna_ledger::SnapshotsRepo::new(pool.clone())
+                    .latest_liquid_before(&edge.market_id, &belief.event_id, &belief.benchmark_at)
+                    .await
+                    .map_err(|e| DaemonError::Compose {
+                        reason: format!(
+                            "weekly review brier baseline snapshot for {}: {e}",
+                            belief.belief_id
+                        ),
+                    })?
+                else {
+                    continue; // no pre-benchmark liquid snapshot → skip
+                };
+
+                let (Some(bid), Some(ask)) = (snap.best_bid_cents, snap.best_ask_cents) else {
+                    continue; // missing bid/ask → skip
+                };
+                if bid <= 0 || ask <= 0 {
+                    continue; // illiquid → skip
+                }
+                let market_p = (bid + ask) as f64 / 200.0;
+                let mb = (market_p - outcome_f).powi(2);
+
+                producer_brier_sum += pb;
+                market_baseline_sum += mb;
+                count += 1;
+            }
+
+            if count == 0 {
+                (None, None)
+            } else {
+                let n = count as f64;
+                (Some(producer_brier_sum / n), Some(market_baseline_sum / n))
+            }
+        } else {
+            (None, None)
+        };
+
     let strategies: Vec<StrategyRecord> = snap
         .strategies
         .iter()
@@ -5410,6 +5491,12 @@ pub async fn run_weekly_review<
                 fees_cents: row.fees_cents,
                 clv_mean_bps: if is_synth { synth_clv } else { None },
                 invariant_violations: 0,
+                brier: if is_synth { synth_brier } else { None },
+                market_baseline_brier: if is_synth {
+                    synth_market_baseline_brier
+                } else {
+                    None
+                },
             }
         })
         .collect();
