@@ -133,7 +133,8 @@ pub async fn best_calibrated_producer(
 
     // Score each candidate and find the one with the highest quality.
     // Tie-break is producer ASC (guaranteed because `candidates` arrives ASC from the query
-    // and we use a `>=` comparison that retains the first-seen — i.e. ASC — winner on ties).
+    // and we use a strictly-greater (`>`) comparison, so a later equal-quality candidate does
+    // NOT replace the first-seen — i.e. the ASC winner is retained on ties).
     let mut best_producer: Option<String> = None;
     let mut best_ctx: Option<CalibrationContext> = None;
     let mut best_quality: f64 = -1.0; // sentinel; quality is in [0,1]
