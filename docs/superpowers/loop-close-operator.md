@@ -20,3 +20,11 @@ _(none open)_
   _None escalated — all resolvable from spec/code/invariants._
 
 - **2026-06-19T14:49Z** — **WS1 slice 3 scope refinement (captain, YAGNI):** slice 3 = producer-agnostic + FRACTIONAL resolution via a **grammar-agnostic** bracket-hint extraction (rsplit on `[-:#]` → the trailing `ge<n>`/`lt<n>` token; works for both `aeolus:…-ge87` and `weather:…#ge87.5`; removes the daemon.rs:4723 `aeolus:` literal entirely). The unified `PredictiveKind`→`BrierRule` **trait dispatch is DEFERRED to WS2/G5** — with only one rule it equals the existing `brier_score` (no behavior change; verified identical), so building it now is a YAGNI no-op; G5 (RPS/Log) is where a 2nd rule makes the trait dispatch non-vacuous. Head-to-head (the thesis) is fully delivered by slice 3 regardless. Grounds: YAGNI + de-risk the meatiest slice + trait-dispatch is G5's natural prerequisite. _No escalation._
+
+- **2026-06-20T02:31Z** — **WS1 slice 5 (CLV compute) — captain design decisions** (from the Explore map; `fills` have no belief link, so the chain is belief→event→edges→market→fill):
+  1. **Entry = the EARLIEST fill** on the belief's event→edge market(s) (`FillsRepo::first_fill_for_market`, ORDER BY at ASC → side+price_cents). No fill on any edge-market → `clv_bps=None` (belief proposed, not traded). Multiple traded markets → earliest fill is the entry, that market's snapshots = the series. Grounds: a bracket belief is ~1 traded market; simplest correct.
+  2. **benchmark_at = the event's `benchmark_at` column as-is** (no pre-benchmark offset yet); `clv_bps` picks the last liquid snapshot before it. A pre-benchmark window offset is a future refinement (GAPS).
+  3. **Persist `clv_bps` as the BPS value in f64** (e.g. 83.0 for +83bps) — do NOT divide by 10000 (the Explore agent's draft did  → would store 0.0083, misrepresenting the bps column). The column is basis points.
+  4. **Market-implied p for slice 8b = computed ON-DEMAND in 8b** from the benchmark snapshot (de-vig: YES→mid, NO→1−mid) — slice 5 does NOT thread/persist it (deterministic from bid/ask; YAGNI). Drops that sub-task from slice 5.
+  5. **LiquidityPolicy** (min_touch_qty, max_spread_cents): use an existing config value if one exists; else a documented default + GAPS note.
+  _No escalation — all resolvable from the code map + spec 5.5._
