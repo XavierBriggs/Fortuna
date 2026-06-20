@@ -27,3 +27,7 @@ _(none yet)_
 
 ## Deferred (WS1.7, 2026-06-20T05:43Z)
 - **Per-producer calibration PARAMS persistence** (keying the Platt/calibration fit by producer, not just the quality): runner.rs:757 persists producer=None. Slice 7 delivers per-producer QUALITY selection (the thesis payoff); per-producer PARAMS is a follow-on persist/schema change, deferred (YAGNI for the demo).
+
+## WS1 boundary follow-ups (from slice-8b QA, 2026-06-20T10:49Z)
+- **[Minor] daemon de-vig observation gap** — the daemon's  (daemon.rs:~5443) is asserted in the daemon_smoke test by a PARALLEL re-implementation, not by observing the daemon's threaded /. A  mutation in the daemon would survive the suite (go_nogo + the baseline query ARE mutation-tested; only the daemon numeric wiring lacks an observation assertion). Close at the WS1-boundary hard verify: seed a synthesis trade so the synthesis StrategyRecord enters , or expose the computed values, and assert the expected de-vigged value.
+- **[Minor] ledger.rs:2447-2455 test comment overclaim** — comment says the query test covers snapshot-skip, but that logic is daemon-side. Trim the comment.
