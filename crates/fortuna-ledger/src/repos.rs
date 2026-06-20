@@ -1371,6 +1371,41 @@ impl BeliefsRepo {
             .collect())
     }
 
+    /// Per-producer variant of `resolved_stats`: same shape (`p, outcome, brier,
+    /// clv_bps`) but restricted to beliefs whose `provenance->>'producer'` equals
+    /// `producer`. Enables independent head-to-head calibration audit between
+    /// Aeolus and the meteorologist baseline (WS1 slice 6; used by slice 7 to
+    /// select the best-calibrated producer per category). The `$producer` param
+    /// is never inlined in the SQL — no producer literal appears in the query.
+    pub async fn resolved_stats_for_producer(
+        &self,
+        producer: &str,
+        category: &str,
+    ) -> Result<Vec<ResolvedStat>, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT b.p, b.outcome as "outcome!", b.brier as "brier!", b.clv_bps
+               FROM beliefs b JOIN events e ON e.event_id = b.event_id
+               WHERE b.status = 'resolved' AND b.outcome IS NOT NULL
+                 AND b.brier IS NOT NULL AND e.category = $2
+                 AND NOT e.unscoreable
+                 AND b.provenance->>'producer' = $1
+               ORDER BY b.created_at"#,
+            producer,
+            category
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| ResolvedStat {
+                p: r.p,
+                outcome: r.outcome == 1,
+                brier: r.brier,
+                clv_bps: r.clv_bps,
+            })
+            .collect())
+    }
+
     /// Resolved beliefs attributed to one persona scope, keyed by the fan-out
     /// provenance `{persona_id, persona_version}` (`map_persona_analysis` stamps it).
     /// Shaped for `persona_scoring::score_persona` / `propose_promotion` (§10/§11) and
@@ -2483,6 +2518,43 @@ impl BeliefScoresRepo {
             r#"SELECT score_id, belief_id, rule_id, score, scored_at
                FROM belief_scores WHERE rule_id = $1
                ORDER BY scored_at DESC, score_id DESC LIMIT $2"#,
+            rule_id,
+            limit
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| BeliefScoreRow {
+                score_id: r.score_id,
+                belief_id: r.belief_id,
+                rule_id: r.rule_id,
+                score: r.score,
+                scored_at: r.scored_at,
+            })
+            .collect())
+    }
+
+    /// The newest `limit` scores for one `(producer, rule_id)` pair, joining
+    /// `belief_scores` → `scalar_beliefs` on `belief_id` so the scalar
+    /// belief's first-class `producer` column acts as the filter. Enables the
+    /// ROTA §9.1 per-producer scorecard: Aeolus vs any other producer measured
+    /// independently under the same scoring rule. `$producer` is always a param
+    /// — no producer literal in the SQL. `limit` clamps to [1, 500].
+    pub async fn scores_for_producer(
+        &self,
+        producer: &str,
+        rule_id: &str,
+        limit: i64,
+    ) -> Result<Vec<BeliefScoreRow>, LedgerError> {
+        let limit = limit.clamp(1, 500);
+        let rows = sqlx::query!(
+            r#"SELECT bs.score_id, bs.belief_id, bs.rule_id, bs.score, bs.scored_at
+               FROM belief_scores bs
+               JOIN scalar_beliefs sb ON sb.belief_id = bs.belief_id
+               WHERE sb.producer = $1 AND bs.rule_id = $2
+               ORDER BY bs.scored_at DESC, bs.score_id DESC LIMIT $3"#,
+            producer,
             rule_id,
             limit
         )
