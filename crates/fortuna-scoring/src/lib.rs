@@ -10,8 +10,12 @@
 //! `scope`, `producer`, and `source` are strings handled only at the
 //! aggregation/scorecard layer in other crates; no metric here ever sees them.
 
+pub mod corp;
+pub mod pav;
 pub mod rules;
 pub mod samples;
 
+pub use corp::*;
+pub use pav::*;
 pub use rules::*;
 pub use samples::*;
