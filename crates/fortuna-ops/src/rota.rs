@@ -23,7 +23,7 @@ use axum::response::{Html, IntoResponse};
 use axum::routing::get;
 use axum::{Json, Router};
 use fortuna_core::clock::UtcTimestamp;
-use fortuna_ledger::{BeliefsRepo, CalibrationParamsRepo, ScalarBeliefsRepo};
+use fortuna_ledger::{BeliefsRepo, CalibrationParamsRepo, ScalarBeliefsRepo, ScorecardsRepo};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -89,6 +89,7 @@ pub fn rota_router(state: RotaState) -> Router {
         .route("/api/rota/v1/perps", get(view_perps))
         .route("/api/rota/v1/db", get(view_db))
         .route("/api/rota/v1/telemetry", get(view_telemetry))
+        .route("/api/rota/v1/scorecard", get(view_scorecard))
         .route("/api/rota/v1/audit", get(audit_tail))
         .with_state(state)
 }
@@ -1765,6 +1766,69 @@ async fn view_streams(State(s): State<RotaState>) -> impl IntoResponse {
         }
     }
     Json(view)
+}
+
+/// Query for the proof-layer scorecard surface (WS2 S6b): which
+/// `(scope, producer, window)` Scorecard to serve. ALL fields are optional so a
+/// bare `GET /api/rota/v1/scorecard` (e.g. the route-table probe, or a poll
+/// before the operator picks a scope) is a well-formed request that degrades to
+/// HTTP 200 + `unavailable`, never a 400/404 — `scope`/`window` are REQUIRED to
+/// identify a card, so their absence is treated as "no card selected", not a
+/// client error. `producer` absent selects the merged-scope bucket (NULL).
+#[derive(Debug, Deserialize)]
+pub struct ScorecardQuery {
+    pub scope: Option<String>,
+    pub producer: Option<String>,
+    pub window: Option<String>,
+}
+
+/// GET /api/rota/v1/scorecard (WS2 S6b): the latest persisted
+/// `fortuna_scoring::Scorecard` for a `(scope, producer, window)`, served
+/// read-only. The proof-layer surface — the GO/NO-GO verdict + the whole metric
+/// suite (Brier vs baseline, Log + tail count, CORP, DM) the daemon recomputes
+/// and `ScorecardsRepo` snapshots.
+///
+/// Read-only doctrine (R1): an absent Postgres capability OR an absent scorecard
+/// degrades to HTTP 200 with an explicit `{"status":"unavailable"}` body — NEVER
+/// a 404/500 (the route-table test pins GET=200 + 405-on-mutation for this path,
+/// exactly like every other ROTA data surface). The Scorecard is the model's own
+/// scoring output (no untrusted free text), serialized verbatim by serde.
+async fn view_scorecard(
+    State(s): State<RotaState>,
+    Query(q): Query<ScorecardQuery>,
+) -> impl IntoResponse {
+    let Some(pool) = s.pool.clone() else {
+        return Json(json!({
+            "status": "unavailable",
+            "detail": "postgres capability absent (standalone ROTA)",
+        }));
+    };
+    // scope + window are required to identify a card; absent => no card selected
+    // (HTTP 200 + unavailable, never a 400 — the route-table probe sends none).
+    let (Some(scope), Some(window)) = (q.scope.as_deref(), q.window.as_deref()) else {
+        return Json(json!({
+            "status": "unavailable",
+            "detail": "scope and window query params are required to select a scorecard",
+        }));
+    };
+    match ScorecardsRepo::new(pool)
+        .latest_scorecard(scope, q.producer.as_deref(), window)
+        .await
+    {
+        Ok(Some(card)) => Json(json!(card)),
+        Ok(None) => Json(json!({
+            "status": "unavailable",
+            "detail": "no scorecard for this (scope, producer, window) yet",
+        })),
+        Err(e) => {
+            // Degrade like every other ROTA surface — never leak raw sqlx text.
+            eprintln!("rota: scorecard read degraded: {e}");
+            Json(json!({
+                "status": "unavailable",
+                "detail": "scorecard read unavailable (dashboard pool degraded)",
+            }))
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]

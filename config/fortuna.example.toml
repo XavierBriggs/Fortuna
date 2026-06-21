@@ -1,5 +1,18 @@
 # Copy to config/fortuna.toml (gitignored). Secrets come from env, never this file.
 
+# Check 11 (book-age freshness, P2 safety): reject orders priced on a stale
+# order book. Opt-in — absent (or commented out) means the check is disabled
+# (always passes), preserving byte-identical behaviour for existing configs.
+# Set to a value appropriate for your venue's book-update cadence; Kalshi's
+# WebSocket books typically update within a few hundred ms, so 5_000 ms is
+# already conservative. A value of 0 rejects any book older than 0 ms; a
+# negative value rejects every book backed order (use None/absent to disable).
+# IMPORTANT: this key lives on the [gates] table (NOT the file root) — it must
+# sit under the [gates] header below, BEFORE the [gates.*] sub-tables, or serde
+# silently ignores it and the check stays disabled.
+[gates]
+# max_book_age_ms = 5_000
+
 [gates.global]
 max_total_exposure_cents = 800_000   # 80% of a $10k account
 max_daily_loss_cents     = 50_000    # drawdown halt: realized + conservative-mark unrealized, day = 00:00 UTC

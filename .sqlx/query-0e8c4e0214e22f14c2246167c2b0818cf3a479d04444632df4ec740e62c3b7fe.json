@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT payload AS \"payload!: serde_json::Value\"\n               FROM scorecards\n               WHERE scope = $1\n                 AND producer IS NOT DISTINCT FROM $2\n                 AND \"window\" = $3\n               ORDER BY computed_at DESC\n               LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "payload!: serde_json::Value",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0e8c4e0214e22f14c2246167c2b0818cf3a479d04444632df4ec740e62c3b7fe"
+}

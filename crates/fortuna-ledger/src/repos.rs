@@ -8,6 +8,7 @@ use fortuna_core::clock::UtcTimestamp;
 use fortuna_core::ids::IntentId;
 use fortuna_core::money::Cents;
 use fortuna_gates::HaltScope;
+use fortuna_scoring::Scorecard;
 use fortuna_venues::Fill;
 use sqlx::PgPool;
 use std::collections::BTreeMap;
@@ -45,8 +46,15 @@ impl FillsRepo {
     }
 
     /// Insert one fill; `Ok(false)` when the fill id was already recorded
-    /// (at-least-once delivery upstream).
-    pub async fn insert(&self, venue: &str, fill: &Fill) -> Result<bool, LedgerError> {
+    /// (at-least-once delivery upstream). `producer` and `strategy` are
+    /// nullable — legacy fills keep NULL; Phase-C forward populates them.
+    pub async fn insert(
+        &self,
+        venue: &str,
+        fill: &Fill,
+        producer: Option<&str>,
+        strategy: Option<&str>,
+    ) -> Result<bool, LedgerError> {
         let side = match fill.side {
             fortuna_core::market::Side::Yes => "yes",
             fortuna_core::market::Side::No => "no",
@@ -58,8 +66,9 @@ impl FillsRepo {
         let result = sqlx::query!(
             r#"INSERT INTO fills
                (fill_id, venue, venue_order_id, client_order_id, market_id,
-                side, action, price_cents, qty, fee_cents, is_maker, at)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+                side, action, price_cents, qty, fee_cents, is_maker, at,
+                producer, strategy)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
                ON CONFLICT (fill_id) DO NOTHING"#,
             fill.fill_id,
             venue,
@@ -72,7 +81,9 @@ impl FillsRepo {
             fill.qty.raw(),
             fill.fee.raw(),
             fill.is_maker,
-            fill.at.to_iso8601()
+            fill.at.to_iso8601(),
+            producer,
+            strategy
         )
         .execute(&self.pool)
         .await?;
@@ -84,6 +95,29 @@ impl FillsRepo {
             .fetch_one(&self.pool)
             .await?;
         Ok(row.n)
+    }
+
+    /// The earliest fill for a market (the entry for CLV computation).
+    /// Returns None when no fills exist (belief proposed but not traded —
+    /// CLV stays None, correct).
+    pub async fn first_fill_for_market(
+        &self,
+        market_id: &str,
+    ) -> Result<Option<FirstFillRow>, LedgerError> {
+        let row = sqlx::query!(
+            r#"SELECT side, price_cents, at
+               FROM fills
+               WHERE market_id = $1
+               ORDER BY at ASC LIMIT 1"#,
+            market_id
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| FirstFillRow {
+            side: r.side,
+            price_cents: r.price_cents,
+            at: r.at,
+        }))
     }
 }
 
@@ -271,6 +305,9 @@ pub struct SettlementEntryRow {
     pub amount_cents: i64,
     pub status: String,
     pub supersedes: Option<String>,
+    /// The intent that generated this settlement (nullable; NULL for legacy/
+    /// non-intent settlements). Used by the partial unique index for dedup.
+    pub intent_id: Option<String>,
     pub detail: serde_json::Value,
     pub at: String,
 }
@@ -286,6 +323,13 @@ impl SettlementsRepo {
         SettlementsRepo { pool }
     }
 
+    /// Insert one settlement entry. Returns `Ok(true)` when inserted,
+    /// `Ok(false)` when a conflicting initial entry for the same
+    /// `(market_id, intent_id)` already exists (idempotent under retry).
+    ///
+    /// The partial-unique-index `settlement_entries_intent_uniq` covers
+    /// only rows where `supersedes IS NULL AND intent_id IS NOT NULL`;
+    /// correction rows (`supersedes = Some(...)`) always insert.
     #[allow(clippy::too_many_arguments)]
     pub async fn insert_entry(
         &self,
@@ -295,33 +339,38 @@ impl SettlementsRepo {
         amount_cents: i64,
         status: &str,
         supersedes: Option<&str>,
+        intent_id: Option<&str>,
         detail: &serde_json::Value,
         at: &str,
-    ) -> Result<(), LedgerError> {
-        sqlx::query!(
+    ) -> Result<bool, LedgerError> {
+        let result = sqlx::query!(
             r#"INSERT INTO settlement_entries
                (settlement_id, market_id, venue, amount_cents, status,
-                supersedes, detail, at)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8)"#,
+                supersedes, intent_id, detail, at)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+               ON CONFLICT (market_id, intent_id)
+               WHERE supersedes IS NULL AND intent_id IS NOT NULL
+               DO NOTHING"#,
             settlement_id,
             market_id,
             venue,
             amount_cents,
             status,
             supersedes,
+            intent_id,
             detail,
             at
         )
         .execute(&self.pool)
         .await?;
-        Ok(())
+        Ok(result.rows_affected() == 1)
     }
 
     /// Full chain for a market, oldest first.
     pub async fn chain(&self, market_id: &str) -> Result<Vec<SettlementEntryRow>, LedgerError> {
         let rows = sqlx::query!(
             r#"SELECT settlement_id, market_id, venue, amount_cents, status,
-                      supersedes, detail, at
+                      supersedes, intent_id, detail, at
                FROM settlement_entries WHERE market_id = $1 ORDER BY at, settlement_id"#,
             market_id
         )
@@ -336,6 +385,7 @@ impl SettlementsRepo {
                 amount_cents: r.amount_cents,
                 status: r.status,
                 supersedes: r.supersedes,
+                intent_id: r.intent_id,
                 detail: r.detail,
                 at: r.at,
             })
@@ -749,6 +799,17 @@ pub struct SnapshotRow {
     pub snapshot_id: String,
     pub best_bid_cents: Option<i64>,
     pub best_ask_cents: Option<i64>,
+    /// Book depth at the touch (NULL on legacy rows predating Phase C).
+    pub bid_qty: Option<i64>,
+    pub ask_qty: Option<i64>,
+    pub at: String,
+}
+
+/// Minimal fill summary returned by `FillsRepo::first_fill_for_market`.
+#[derive(Debug, Clone)]
+pub struct FirstFillRow {
+    pub side: String,
+    pub price_cents: i64,
     pub at: String,
 }
 
@@ -780,7 +841,8 @@ impl SnapshotsRepo {
             r#"INSERT INTO price_snapshots
                (snapshot_id, market_id, venue, event_id, kind, best_bid_cents,
                 best_ask_cents, bid_qty, ask_qty, liquidity_ok, at)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)"#,
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+               ON CONFLICT (market_id, at) DO NOTHING"#,
             snapshot_id,
             market_id,
             venue,
@@ -808,7 +870,7 @@ impl SnapshotsRepo {
         cutoff_iso: &str,
     ) -> Result<Option<SnapshotRow>, LedgerError> {
         let row = sqlx::query!(
-            r#"SELECT snapshot_id, best_bid_cents, best_ask_cents, at
+            r#"SELECT snapshot_id, best_bid_cents, best_ask_cents, bid_qty, ask_qty, at
                FROM price_snapshots
                WHERE market_id = $1 AND event_id = $2
                  AND liquidity_ok AND at < $3
@@ -823,8 +885,44 @@ impl SnapshotsRepo {
             snapshot_id: r.snapshot_id,
             best_bid_cents: r.best_bid_cents,
             best_ask_cents: r.best_ask_cents,
+            bid_qty: r.bid_qty,
+            ask_qty: r.ask_qty,
             at: r.at,
         }))
+    }
+
+    /// All liquid snapshots for a market strictly before the cutoff, ordered
+    /// by time ASC — used to find the latest pre-benchmark snapshot for CLV.
+    /// Defensive: callers skip/None on any parse error (never panic on `at`).
+    pub async fn snapshots_for_market_before(
+        &self,
+        market_id: &str,
+        event_id: &str,
+        cutoff_iso: &str,
+    ) -> Result<Vec<SnapshotRow>, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT snapshot_id, best_bid_cents, best_ask_cents, bid_qty, ask_qty, at
+               FROM price_snapshots
+               WHERE market_id = $1 AND event_id = $2
+                 AND liquidity_ok AND at < $3
+               ORDER BY at ASC"#,
+            market_id,
+            event_id,
+            cutoff_iso
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| SnapshotRow {
+                snapshot_id: r.snapshot_id,
+                best_bid_cents: r.best_bid_cents,
+                best_ask_cents: r.best_ask_cents,
+                bid_qty: r.bid_qty,
+                ask_qty: r.ask_qty,
+                at: r.at,
+            })
+            .collect())
     }
 }
 
@@ -1052,6 +1150,25 @@ pub struct BeliefPanelRow {
     pub provenance: serde_json::Value,
 }
 
+/// Minimal resolved belief row for the Brier-beats-baseline gate (WS1 slice 8b).
+/// One row per forward-resolved, scoreable belief: enough to compute the
+/// producer Brier score and (with a snapshot lookup) the market baseline Brier.
+#[derive(Debug, Clone)]
+pub struct ForwardResolvedBeliefRow {
+    pub belief_id: String,
+    pub p: f64,
+    /// `true` = YES outcome, `false` = NO outcome.
+    pub outcome: bool,
+    pub event_id: String,
+    /// ISO8601 UTC: the benchmark window cutoff — snapshot must precede this.
+    pub benchmark_at: String,
+    /// Closing-line value in basis points, when CLV linkage was measurable;
+    /// `None` for beliefs with no liquid benchmark snapshot. Carried so the
+    /// cadence scorecard driver can collect a forward-only CLV series without a
+    /// second query (CLV is a transparency metric — never a gate input).
+    pub clv_bps: Option<f64>,
+}
+
 /// One open Aeolus weather belief that is DUE for resolution (the weather
 /// "close-the-loop" bridge, source contract §5 Layer 3). The grading-relevant
 /// fields are lifted out of the belief's `provenance` JSONB (`model_id='aeolus'`
@@ -1068,6 +1185,10 @@ pub struct OpenWeatherBelief {
     pub nws_station_id: String,
     pub target_date: String,
     pub horizon: String,
+    /// Which pipeline stamped this belief (`provenance->>'producer'`).
+    /// `None` only for pre-normalisation rows that predate the producer field;
+    /// all beliefs written since Slice 1 carry it.
+    pub producer: Option<String>,
 }
 
 /// Belief ledger ops (spec 5.5): rows are immutable (DB content guard);
@@ -1270,6 +1391,116 @@ impl BeliefsRepo {
             .collect())
     }
 
+    /// Per-producer variant of `resolved_stats`: same shape (`p, outcome, brier,
+    /// clv_bps`) but restricted to beliefs whose `provenance->>'producer'` equals
+    /// `producer`. Enables independent head-to-head calibration audit between
+    /// Aeolus and the meteorologist baseline (WS1 slice 6; used by slice 7 to
+    /// select the best-calibrated producer per category). The `$producer` param
+    /// is never inlined in the SQL — no producer literal appears in the query.
+    pub async fn resolved_stats_for_producer(
+        &self,
+        producer: &str,
+        category: &str,
+    ) -> Result<Vec<ResolvedStat>, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT b.p, b.outcome as "outcome!", b.brier as "brier!", b.clv_bps
+               FROM beliefs b JOIN events e ON e.event_id = b.event_id
+               WHERE b.status = 'resolved' AND b.outcome IS NOT NULL
+                 AND b.brier IS NOT NULL AND e.category = $2
+                 AND NOT e.unscoreable
+                 AND b.provenance->>'producer' = $1
+               ORDER BY b.created_at"#,
+            producer,
+            category
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| ResolvedStat {
+                p: r.p,
+                outcome: r.outcome == 1,
+                brier: r.brier,
+                clv_bps: r.clv_bps,
+            })
+            .collect())
+    }
+
+    /// §9.1 forward-only resolved count for the GO/NO-GO volume gate (WS1 slice 8a).
+    ///
+    /// Counts resolved, scored, scoreable beliefs in `category` whose
+    /// `provenance->>'source'` IS DISTINCT FROM `'historical-import'` — i.e.
+    /// NULL source (forward live beliefs) and any non-import source are counted,
+    /// but WS3 backtest seeds are excluded.
+    ///
+    /// When `producer` is `Some(p)`, restricts to beliefs whose
+    /// `provenance->>'producer'` equals `p` (mirrors `resolved_stats_for_producer`).
+    /// When `producer` is `None`, counts the merged scope (mirrors `resolved_stats`).
+    ///
+    /// **No-op today**: no `source='historical-import'` rows exist until WS3
+    /// lands, so this returns the same value as `resolved_stats(_for_producer).len()`
+    /// until then (byte-identical-today guarantee).
+    pub async fn resolved_count_forward(
+        &self,
+        producer: Option<&str>,
+        category: &str,
+    ) -> Result<i64, LedgerError> {
+        let count = if let Some(prod) = producer {
+            sqlx::query_scalar!(
+                r#"SELECT COUNT(*) AS "count!"
+                   FROM beliefs b JOIN events e ON e.event_id = b.event_id
+                   WHERE b.status = 'resolved' AND b.outcome IS NOT NULL
+                     AND b.brier IS NOT NULL AND e.category = $2
+                     AND NOT e.unscoreable
+                     AND b.provenance->>'producer' = $1
+                     AND b.provenance->>'source' IS DISTINCT FROM 'historical-import'"#,
+                prod,
+                category
+            )
+            .fetch_one(&self.pool)
+            .await?
+        } else {
+            sqlx::query_scalar!(
+                r#"SELECT COUNT(*) AS "count!"
+                   FROM beliefs b JOIN events e ON e.event_id = b.event_id
+                   WHERE b.status = 'resolved' AND b.outcome IS NOT NULL
+                     AND b.brier IS NOT NULL AND e.category = $1
+                     AND NOT e.unscoreable
+                     AND b.provenance->>'source' IS DISTINCT FROM 'historical-import'"#,
+                category
+            )
+            .fetch_one(&self.pool)
+            .await?
+        };
+        Ok(count)
+    }
+
+    /// DATA-driven candidate-producer set for a category (WS1 slice 7): the
+    /// DISTINCT `provenance->>'producer'` values from resolved, scored, scoreable
+    /// beliefs in the given category. Ordered `producer ASC` so the caller's
+    /// stable-max over quality gives deterministic tie-breaking without
+    /// inspecting producer names (producers are DATA, never literals).
+    /// Beliefs with no `producer` key in provenance are excluded (`IS NOT NULL`).
+    /// An empty result means no resolved, producer-stamped beliefs exist (cold-start).
+    pub async fn producers_for_resolved_category(
+        &self,
+        category: &str,
+    ) -> Result<Vec<String>, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT DISTINCT b.provenance->>'producer' AS "producer!"
+               FROM beliefs b JOIN events e ON e.event_id = b.event_id
+               WHERE b.status = 'resolved' AND b.outcome IS NOT NULL
+                 AND b.brier IS NOT NULL AND e.category = $1
+                 AND NOT e.unscoreable
+                 AND b.provenance->>'producer' IS NOT NULL
+               ORDER BY b.provenance->>'producer'"#,
+            category
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|r| r.producer).collect())
+    }
+
     /// Resolved beliefs attributed to one persona scope, keyed by the fan-out
     /// provenance `{persona_id, persona_version}` (`map_persona_analysis` stamps it).
     /// Shaped for `persona_scoring::score_persona` / `propose_promotion` (§10/§11) and
@@ -1310,17 +1541,20 @@ impl BeliefsRepo {
         })
     }
 
-    /// Open Aeolus weather beliefs whose window has CLOSED at `now_iso` — the
+    /// Open weather-bracket beliefs whose window has CLOSED at `now_iso` — the
     /// `resolve_and_score_weather_beliefs` work queue (source contract §5 Layer
     /// 3; mirrors `ScalarBeliefsRepo::unresolved_due`). A row qualifies iff it is
-    /// still `open`, was produced by Aeolus (`provenance->>'model_id' = 'aeolus'`),
-    /// and is due (`horizon <= $1`). `horizon` is ISO8601 TEXT with fixed-ms
-    /// precision (sorts lexically == chronologically), so `<=` is a correct
-    /// chronological gate and `ORDER BY horizon ASC` is oldest-due-first. `limit`
-    /// caps the batch (the loop drains in bounded chunks; a later run takes the
-    /// rest). A belief whose grading provenance keys are absent (impossible for an
-    /// Aeolus belief, which always stamps them) is skipped, never grades on NULLs.
-    pub async fn open_aeolus_weather_due(
+    /// still `open`, carries all three grading keys (`nws_station_id`, `variable`,
+    /// `target_date` in its provenance JSON), and is due (`horizon <= $1`).
+    /// Selection is **producer-agnostic**: any belief carrying the weather grading
+    /// keys qualifies, regardless of which pipeline produced it (Aeolus,
+    /// meteorologist, or any future producer). Persona MACRO beliefs and synthesis
+    /// beliefs lack the grading keys and are therefore excluded automatically.
+    /// `horizon` is ISO8601 TEXT with fixed-ms precision (sorts lexically ==
+    /// chronologically), so `<=` is a correct chronological gate and
+    /// `ORDER BY horizon ASC` is oldest-due-first. `limit` caps the batch (the
+    /// loop drains in bounded chunks; a later run takes the rest).
+    pub async fn open_weather_bracket_due(
         &self,
         now_iso: &str,
         limit: i64,
@@ -1330,10 +1564,13 @@ impl BeliefsRepo {
                       provenance->>'variable'       AS variable,
                       provenance->>'nws_station_id' AS nws_station_id,
                       provenance->>'target_date'    AS target_date,
+                      provenance->>'producer'       AS producer,
                       horizon
                FROM beliefs
                WHERE status = 'open'
-                 AND provenance->>'model_id' = 'aeolus'
+                 AND provenance->>'nws_station_id' IS NOT NULL
+                 AND provenance->>'variable'       IS NOT NULL
+                 AND provenance->>'target_date'    IS NOT NULL
                  AND horizon <= $1
                ORDER BY horizon ASC, belief_id ASC
                LIMIT $2"#,
@@ -1353,7 +1590,51 @@ impl BeliefsRepo {
                     nws_station_id: r.nws_station_id?,
                     target_date: r.target_date?,
                     horizon: r.horizon,
+                    producer: r.producer,
                 })
+            })
+            .collect())
+    }
+
+    /// Forward-only resolved belief rows for the Brier-beats-baseline gate
+    /// (WS1 slice 8b; spec §11 + §9.1).
+    ///
+    /// Returns `(belief_id, p, outcome, event_id, benchmark_at)` for every
+    /// resolved, scoreable, forward belief in `category`. "Forward" means
+    /// `provenance->>'source' IS DISTINCT FROM 'historical-import'` — this
+    /// excludes WS3 backtest rows and is consistent with `resolved_count_forward`.
+    ///
+    /// The caller is responsible for fetching the benchmark snapshot per belief
+    /// (via `SnapshotsRepo::latest_liquid_before`) and computing the per-belief
+    /// de-vigged market probability and market baseline Brier contribution.
+    /// Beliefs with no mapped market or no pre-benchmark snapshot are SKIPPED
+    /// by the caller — they do not contribute to the baseline.
+    pub async fn forward_resolved_for_brier_baseline(
+        &self,
+        category: &str,
+    ) -> Result<Vec<ForwardResolvedBeliefRow>, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT b.belief_id, b.p, b.outcome AS "outcome!", b.event_id,
+                      e.benchmark_at, b.clv_bps
+               FROM beliefs b JOIN events e ON e.event_id = b.event_id
+               WHERE b.status = 'resolved' AND b.outcome IS NOT NULL
+                 AND b.brier IS NOT NULL AND e.category = $1
+                 AND NOT e.unscoreable
+                 AND b.provenance->>'source' IS DISTINCT FROM 'historical-import'
+               ORDER BY b.created_at"#,
+            category
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| ForwardResolvedBeliefRow {
+                belief_id: r.belief_id,
+                p: r.p,
+                outcome: r.outcome == 1,
+                event_id: r.event_id,
+                benchmark_at: r.benchmark_at,
+                clv_bps: r.clv_bps,
             })
             .collect())
     }
@@ -2112,8 +2393,10 @@ impl ScalarBeliefsRepo {
     }
 
     /// Insert one scalar belief. The belief is unresolved on insert
-    /// (`realized_value`/`resolved_at` NULL). Append-only: the trigger refuses
-    /// any later content mutation.
+    /// (`realized_value`/`resolved_at` NULL). Returns `Ok(true)` when
+    /// inserted, `Ok(false)` when a belief with the same `(producer,
+    /// event_key)` already exists (idempotent under at-least-once delivery).
+    /// Append-only: the trigger refuses any later content mutation.
     #[allow(clippy::too_many_arguments)]
     pub async fn insert(
         &self,
@@ -2125,12 +2408,13 @@ impl ScalarBeliefsRepo {
         horizon: &str,
         provenance: &serde_json::Value,
         created_at: &str,
-    ) -> Result<(), LedgerError> {
-        sqlx::query!(
+    ) -> Result<bool, LedgerError> {
+        let result = sqlx::query!(
             r#"INSERT INTO scalar_beliefs
                (belief_id, producer, event_key, quantiles, unit, horizon,
                 provenance, created_at)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8)"#,
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+               ON CONFLICT (producer, event_key) DO NOTHING"#,
             belief_id,
             producer,
             event_key,
@@ -2142,7 +2426,7 @@ impl ScalarBeliefsRepo {
         )
         .execute(&self.pool)
         .await?;
-        Ok(())
+        Ok(result.rows_affected() == 1)
     }
 
     pub async fn get(&self, belief_id: &str) -> Result<ScalarBeliefRow, LedgerError> {
@@ -2388,6 +2672,43 @@ impl BeliefScoresRepo {
             })
             .collect())
     }
+
+    /// The newest `limit` scores for one `(producer, rule_id)` pair, joining
+    /// `belief_scores` → `scalar_beliefs` on `belief_id` so the scalar
+    /// belief's first-class `producer` column acts as the filter. Enables the
+    /// ROTA §9.1 per-producer scorecard: Aeolus vs any other producer measured
+    /// independently under the same scoring rule. `$producer` is always a param
+    /// — no producer literal in the SQL. `limit` clamps to [1, 500].
+    pub async fn scores_for_producer(
+        &self,
+        producer: &str,
+        rule_id: &str,
+        limit: i64,
+    ) -> Result<Vec<BeliefScoreRow>, LedgerError> {
+        let limit = limit.clamp(1, 500);
+        let rows = sqlx::query!(
+            r#"SELECT bs.score_id, bs.belief_id, bs.rule_id, bs.score, bs.scored_at
+               FROM belief_scores bs
+               JOIN scalar_beliefs sb ON sb.belief_id = bs.belief_id
+               WHERE sb.producer = $1 AND bs.rule_id = $2
+               ORDER BY bs.scored_at DESC, bs.score_id DESC LIMIT $3"#,
+            producer,
+            rule_id,
+            limit
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| BeliefScoreRow {
+                score_id: r.score_id,
+                belief_id: r.belief_id,
+                rule_id: r.rule_id,
+                score: r.score,
+                scored_at: r.scored_at,
+            })
+            .collect())
+    }
 }
 
 /// Realized-funding ledger ops (design §9.1): the durable record of FINALIZED
@@ -2475,5 +2796,215 @@ impl FundingRatesHistoricalRepo {
         .fetch_one(&self.pool)
         .await?;
         Ok(row.latest)
+    }
+}
+
+/// Append-only binary-bus event recorder (I5). Stores JSONL segments that
+/// can be replayed for audit. The DB trigger refuses UPDATE and DELETE.
+pub struct RecordingsRepo {
+    pool: PgPool,
+}
+
+impl RecordingsRepo {
+    pub fn new(pool: PgPool) -> RecordingsRepo {
+        RecordingsRepo { pool }
+    }
+
+    /// Append one bus-segment row. `recording_id` is a caller-supplied ULID
+    /// (unique per segment); `segment_seq` orders segments within a logical
+    /// recording session.
+    pub async fn append(
+        &self,
+        recording_id: &str,
+        segment_seq: i64,
+        jsonl: &str,
+        created_at: &str,
+    ) -> Result<(), LedgerError> {
+        sqlx::query!(
+            r#"INSERT INTO bus_recordings (recording_id, segment_seq, jsonl, created_at)
+               VALUES ($1,$2,$3,$4)"#,
+            recording_id,
+            segment_seq,
+            jsonl,
+            created_at
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+}
+
+// ---------- A4: trade scores per (market, strategy) from settled fills ----------
+
+/// Aggregate of a market's fills, consumed by `TradeScoresRepo::insert` to
+/// compute `pnl_after_fees_cents`.
+#[derive(Debug, Clone)]
+pub struct FillAggregate {
+    pub strategy: Option<String>,
+    pub fees_cents: i64,
+    pub n_fills: i64,
+    pub maker_fills: i64,
+}
+
+/// Per-(market, strategy) trade score: realized PnL NET of basis + fill
+/// realism (maker/taker ratio). Append-only (the DB trigger refuses
+/// UPDATE/DELETE). One row per settled market+strategy (UNIQUE constraint
+/// enforces idempotency under restart/replay).
+pub struct TradeScoresRepo {
+    pool: PgPool,
+}
+
+impl TradeScoresRepo {
+    pub fn new(pool: PgPool) -> TradeScoresRepo {
+        TradeScoresRepo { pool }
+    }
+
+    /// Aggregate fill stats for a market from the `fills` table. Returns a
+    /// zero-count aggregate (strategy=None, all counts 0) when no fills exist
+    /// for the market — the daemon skips insert when n_fills is 0.
+    pub async fn fills_aggregate(&self, market_id: &str) -> Result<FillAggregate, LedgerError> {
+        let row = sqlx::query!(
+            r#"SELECT MAX(strategy)                                                   AS "strategy?",
+                      COALESCE(SUM(fee_cents), 0)::BIGINT                            AS "fees_cents!: i64",
+                      COUNT(*)::BIGINT                                               AS "n_fills!: i64",
+                      COALESCE(SUM(CASE WHEN is_maker THEN 1 ELSE 0 END), 0)::BIGINT AS "maker_fills!: i64"
+               FROM fills WHERE market_id = $1"#,
+            market_id
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(FillAggregate {
+            strategy: row.strategy,
+            fees_cents: row.fees_cents,
+            n_fills: row.n_fills,
+            maker_fills: row.maker_fills,
+        })
+    }
+
+    /// Insert one trade score. Returns `Ok(true)` when inserted, `Ok(false)`
+    /// when the UNIQUE (market_id, strategy) constraint fires — idempotent
+    /// under restart/replay (mirrors `FillsRepo::insert`). The DB trigger
+    /// refuses UPDATE/DELETE (append-only I5).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn insert(
+        &self,
+        trade_score_id: &str,
+        market_id: &str,
+        venue: &str,
+        strategy: Option<&str>,
+        producer: Option<&str>,
+        realized_pnl_cents: i64,
+        fees_cents: i64,
+        pnl_after_fees_cents: i64,
+        n_fills: i64,
+        maker_fills: i64,
+        settled_at: &str,
+        scored_at: &str,
+    ) -> Result<bool, LedgerError> {
+        let result = sqlx::query!(
+            r#"INSERT INTO trade_scores
+               (trade_score_id, market_id, venue, strategy, producer,
+                realized_pnl_cents, fees_cents, pnl_after_fees_cents,
+                n_fills, maker_fills, settled_at, scored_at)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+               ON CONFLICT (market_id, strategy) DO NOTHING"#,
+            trade_score_id,
+            market_id,
+            venue,
+            strategy,
+            producer,
+            realized_pnl_cents,
+            fees_cents,
+            pnl_after_fees_cents,
+            n_fills,
+            maker_fills,
+            settled_at,
+            scored_at
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
+    }
+}
+
+/// Append-only snapshot store for the pure `fortuna_scoring::Scorecard` (WS2 S6b;
+/// plan Task 6 Step 5). One IMMUTABLE row per recompute — a recompute is a NEW
+/// row, never an edit (the DB trigger refuses UPDATE/DELETE, I5). The whole
+/// Scorecard rides in the JSONB `payload`, so the schema is source-agnostic and
+/// WS3 reuses it unchanged.
+pub struct ScorecardsRepo {
+    pool: PgPool,
+}
+
+impl ScorecardsRepo {
+    pub fn new(pool: PgPool) -> ScorecardsRepo {
+        ScorecardsRepo { pool }
+    }
+
+    /// Insert one Scorecard snapshot at `computed_at`. INSERT-only; idempotent on
+    /// the `(scope, producer, window, computed_at)` UNIQUE key (a duplicate
+    /// recompute at the same instant is a no-op, not an error). `scope`,
+    /// `producer`, and `window` are read off the card itself so the row's columns
+    /// always agree with the persisted payload.
+    pub async fn insert_scorecard(
+        &self,
+        id: &str,
+        card: &Scorecard,
+        computed_at: &str,
+    ) -> Result<(), LedgerError> {
+        let payload = serde_json::to_value(card)?;
+        sqlx::query!(
+            r#"INSERT INTO scorecards (id, scope, producer, "window", computed_at, payload)
+               VALUES ($1, $2, $3, $4, $5, $6)
+               ON CONFLICT (scope, producer, "window", computed_at) DO NOTHING"#,
+            id,
+            card.scope,
+            card.producer.as_deref(),
+            card.window,
+            computed_at,
+            payload,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// The newest Scorecard for a `(scope, producer, window)` triple (by
+    /// `computed_at` DESC), or `None` when none exists. `producer = None` selects
+    /// the merged-scope bucket (the persisted NULL), distinct from any
+    /// producer-attributed row — `IS NOT DISTINCT FROM` matches NULL to NULL and a
+    /// value to that value. The JSONB payload deserializes back to the exact
+    /// Scorecard (a corrupt payload surfaces as `CorruptRow`, never a panic).
+    pub async fn latest_scorecard(
+        &self,
+        scope: &str,
+        producer: Option<&str>,
+        window: &str,
+    ) -> Result<Option<Scorecard>, LedgerError> {
+        let row = sqlx::query!(
+            r#"SELECT payload AS "payload!: serde_json::Value"
+               FROM scorecards
+               WHERE scope = $1
+                 AND producer IS NOT DISTINCT FROM $2
+                 AND "window" = $3
+               ORDER BY computed_at DESC
+               LIMIT 1"#,
+            scope,
+            producer,
+            window,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        match row {
+            None => Ok(None),
+            Some(r) => {
+                let card: Scorecard =
+                    serde_json::from_value(r.payload).map_err(|e| LedgerError::CorruptRow {
+                        table: "scorecards",
+                        reason: format!("payload is not a Scorecard: {e}"),
+                    })?;
+                Ok(Some(card))
+            }
+        }
     }
 }

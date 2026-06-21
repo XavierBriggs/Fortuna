@@ -30,6 +30,9 @@ pub mod redact;
 pub mod sim;
 pub mod stream;
 mod types;
+pub mod weather_source;
+
+pub use weather_source::WeatherMarketSource;
 
 use async_trait::async_trait;
 use fortuna_core::market::{MarketId, VenueId, VenueOrderId};

@@ -16,4 +16,5 @@ pub mod ingestion;
 pub mod perp_feed;
 pub mod perp_tick_producer;
 pub mod run_loop;
+pub mod telemetry;
 pub mod views;

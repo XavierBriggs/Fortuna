@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT journal_id, day, body FROM journal WHERE day = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "journal_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "day",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "body",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ebd8b28e119c8b6a9f17978cc6b49d909426cb808cf65306b3b0f5adaa3f94c0"
+}

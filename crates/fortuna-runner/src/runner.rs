@@ -103,6 +103,53 @@ pub struct RunnerReport {
     pub fees_paid: Cents,
 }
 
+/// One settlement the processor applied to a HELD market, buffered for
+/// composition-side persistence to `settlement_entries` (A3/F1). The runner is
+/// Postgres-free (deterministic core); the daemon drains via
+/// `drain_applied_settlements` and persists each row with
+/// `amount_cents = realized_pnl_cents` (the NET delta — so
+/// `SUM(amount_cents)` reconstructs realized PnL from the DB) and
+/// `intent_id = notice_id` (set-once idempotency via the A1 partial-unique
+/// index on `(market_id, intent_id)`). Captured uniformly across fresh
+/// settlement, correction, and void.
+#[derive(Debug, Clone)]
+pub struct SettlementApplied {
+    pub market: MarketId,
+    pub venue: VenueId,
+    pub notice_id: String,
+    /// e.g. "Winner(Yes)" / "Voided" — the venue outcome, for the `detail` blob.
+    pub outcome: String,
+    /// NET realized-PnL delta this settlement produced on our position.
+    pub realized_pnl_cents: i64,
+    pub at: UtcTimestamp,
+}
+
+/// One per-market price quote captured from the book the runner already
+/// fetched this tick. Buffered in `pending_market_quotes` and drained by the
+/// daemon per segment for persistence to `price_snapshots` (WS1 slice 4).
+/// The runner never writes Postgres; the daemon drains via
+/// `drain_market_quotes()` and persists each row via `SnapshotsRepo::insert`.
+/// Carrying `event_id` here so the daemon need not re-derive the mapping
+/// (it comes from `market_events`, which the runner already maintains via
+/// `refresh_synthesis_edges`).
+#[derive(Debug, Clone)]
+pub struct MarketQuoteCapture {
+    pub market: MarketId,
+    pub venue: VenueId,
+    /// Non-null when the market is mapped to a canonical event via
+    /// `refresh_synthesis_edges`; None for unmapped markets (still captured
+    /// with event_id=NULL so CLV slice 5 can skip them gracefully).
+    pub event_id: Option<String>,
+    pub best_bid_cents: Option<i64>,
+    pub best_ask_cents: Option<i64>,
+    pub bid_qty: Option<i64>,
+    pub ask_qty: Option<i64>,
+    /// True when both bid and ask are present (two-sided liquid book).
+    pub liquidity_ok: bool,
+    /// ISO8601 timestamp from the injected `Clock` at capture time.
+    pub at: String,
+}
+
 /// The Phase 0 composition over a venue. Journal-generic since T4.1: the
 /// daemon composes the SAME runner over `PgIntentJournal` (durable intents in
 /// Postgres). Venue-generic since the demo-flip (Phase 1): `V` defaults to
@@ -147,6 +194,26 @@ pub struct SimRunner<V: Venue = SimVenue, J: IntentJournal + Send = MemoryJourna
         StrategyId,
         fortuna_cognition::scalar_beliefs::ScalarBeliefDraft,
     )>,
+    /// Applied fills awaiting composition-side persistence to the `fills`
+    /// table (A2 / F12). The runner never writes Postgres; the daemon drains
+    /// via `drain_applied_fills` and persists each via `FillsRepo::insert`.
+    /// Strategy is resolved BEFORE `release_if_terminal` so the intent record
+    /// is still live at capture time. `None` for orphan fills (no owning
+    /// intent — these are already tracked as discrepancies).
+    pending_fills: Vec<(fortuna_core::book::Fill, Option<StrategyId>)>,
+    /// Applied settlements awaiting composition-side persistence to
+    /// `settlement_entries` (A3 / F1). The runner never writes Postgres; the
+    /// daemon drains via `drain_applied_settlements` and persists each with
+    /// `amount_cents = realized_pnl_cents` (NET delta) and `intent_id =
+    /// notice_id`. Buffered only when we HELD the market or the PnL changed.
+    pending_settlements: Vec<SettlementApplied>,
+    /// Per-market price quotes captured from live books each tick, awaiting
+    /// composition-side persistence to `price_snapshots` (WS1 slice 4). The
+    /// runner never writes Postgres; the daemon drains via
+    /// `drain_market_quotes` and persists each row via `SnapshotsRepo::insert`.
+    /// The buffer accumulates one entry per non-terminal market per tick and is
+    /// emptied by each drain, so the daemon persists once per segment.
+    pending_market_quotes: Vec<MarketQuoteCapture>,
     veto_mind: Option<Arc<dyn VetoMind>>,
     veto_strategies: std::collections::BTreeSet<StrategyId>,
     /// Vetoed-away quantity awaiting its market's settlement for
@@ -315,6 +382,10 @@ pub struct RunCounters {
     /// synthesis strategy owns its mind; a shared-mind composition would
     /// double-count and must export per-strategy instead).
     pub mind_spend_today_cents: i64,
+    /// B3 Part 2 (F5): on_event calls skipped because the synthesis arm held
+    /// no calibration (cold). Aggregated from strategy metrics. A7 exports it
+    /// as a named Prometheus family; for now it surfaces here for ops.
+    pub cold_calibration_skips: u64,
 }
 
 /// One strategy's day in numbers for the rich daily digest (S6b). Plain data;
@@ -541,6 +612,9 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
             audit_dead: false,
             pending_beliefs: Vec::new(),
             pending_scalar_beliefs: Vec::new(),
+            pending_fills: Vec::new(),
+            pending_settlements: Vec::new(),
+            pending_market_quotes: Vec::new(),
             veto_mind: config.veto_mind,
             veto_strategies: config.veto_strategies.into_iter().collect(),
             open_vetoes: Vec::new(),
@@ -673,6 +747,37 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
         fortuna_cognition::scalar_beliefs::ScalarBeliefDraft,
     )> {
         std::mem::take(&mut self.pending_scalar_beliefs)
+    }
+
+    /// Take the applied fills buffered since the last drain (A2 / F12). Each
+    /// entry carries the fill and the strategy that owned the intent at the
+    /// time of application (resolved before `release_if_terminal` so the
+    /// IntentRecord is still live). The daemon persists them via
+    /// `FillsRepo::insert`; draining empties the buffer so a fill is
+    /// persisted once. `producer` is deferred to D4 — passed as `None`.
+    pub fn drain_applied_fills(&mut self) -> Vec<(fortuna_core::book::Fill, Option<StrategyId>)> {
+        std::mem::take(&mut self.pending_fills)
+    }
+
+    /// Take the applied settlements buffered since the last drain (A3 / F1).
+    /// Each entry carries the NET realized-PnL delta and the venue notice id;
+    /// the daemon persists them via `SettlementsRepo::insert_entry` with
+    /// `amount_cents = realized_pnl_cents` and `intent_id = notice_id` (set-once
+    /// idempotency). Draining empties the buffer so a settlement is persisted
+    /// once per segment.
+    pub fn drain_applied_settlements(&mut self) -> Vec<SettlementApplied> {
+        std::mem::take(&mut self.pending_settlements)
+    }
+
+    /// Take the per-market price quotes buffered since the last drain (WS1
+    /// slice 4). Each entry carries the bid/ask/qty observed from the book the
+    /// runner ALREADY fetched this cycle — no second venue poll. The daemon
+    /// persists them via `SnapshotsRepo::insert` with `kind='other'` (cadence
+    /// samples) and the `ON CONFLICT (market_id, at) DO NOTHING` idempotency
+    /// guard. Draining empties the buffer so each quote is persisted exactly
+    /// once per segment.
+    pub fn drain_market_quotes(&mut self) -> Vec<MarketQuoteCapture> {
+        std::mem::take(&mut self.pending_market_quotes)
     }
 
     /// Inject an external `PerpTick` onto the bus for the NEXT `tick()` to
@@ -826,6 +931,33 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
             }
             match self.venue.book(&market).await {
                 Ok(book) => {
+                    // WS1 slice 4: capture a price quote from the book we
+                    // already fetched (reuse the existing read — no second
+                    // poll). Buffered in `pending_market_quotes`; the daemon
+                    // drains and persists per segment via `SnapshotsRepo`.
+                    // `event_id` comes from `market_events` (runner already
+                    // maintains this via `refresh_synthesis_edges`).
+                    {
+                        let bid = book.yes_bids.first();
+                        let ask = book.yes_asks.first();
+                        let liquidity_ok = bid.is_some() && ask.is_some();
+                        let capture_at = self.clock.now().to_iso8601();
+                        let event_id = self
+                            .market_events
+                            .get(&market)
+                            .map(|eid| eid.to_string());
+                        self.pending_market_quotes.push(MarketQuoteCapture {
+                            market: market.clone(),
+                            venue: self.venue.id(),
+                            event_id,
+                            best_bid_cents: bid.map(|l| l.price.raw()),
+                            best_ask_cents: ask.map(|l| l.price.raw()),
+                            bid_qty: bid.map(|l| l.qty.raw()),
+                            ask_qty: ask.map(|l| l.qty.raw()),
+                            liquidity_ok,
+                            at: capture_at,
+                        });
+                    }
                     self.books.insert(market.clone(), book.clone());
                     self.bus.publish_external(EventPayload::BookSnapshot {
                         venue: self.venue.id(),
@@ -1495,6 +1627,17 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
                         Some(&fill.fill_id),
                         serde_json::to_value(fill).unwrap_or_default(),
                     );
+                    // A2 (F12): resolve strategy BEFORE release_if_terminal
+                    // (which may drop the IntentRecord) and buffer for
+                    // daemon-side persistence. Pure in-memory; runner stays
+                    // Pg-agnostic. `None` strategy means the intent was not
+                    // found (shouldn't happen for an applied fill, but handled
+                    // defensively rather than panicking).
+                    let fill_strategy = self
+                        .manager
+                        .intent(app.intent)
+                        .map(|r| r.order.strategy.clone());
+                    self.pending_fills.push((fill.clone(), fill_strategy));
                     self.release_if_terminal(app.intent)?;
                 }
             }
@@ -1850,7 +1993,40 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
                     continue; // at-least-once dedup
                 }
                 self.counters.settlement_notices += 1;
+                // A3/F1: capture the NET realized-PnL delta this notice produces
+                // on our position. This is uniform across fresh settlement,
+                // correction, and void (a void leaves realized_pnl untouched =>
+                // delta 0, but we still record it when we HELD the market so the
+                // settlement_entries chain reflects the resolution). The daemon
+                // drains + persists these; the runner stays Postgres-free.
+                let m = &notice.market;
+                let before = self
+                    .positions
+                    .position(m)
+                    .map(|p| p.realized_pnl)
+                    .unwrap_or(Cents::ZERO);
+                let held_before = self
+                    .positions
+                    .position(m)
+                    .map(|p| p.yes.qty != 0 || p.no.qty != 0)
+                    .unwrap_or(false);
                 self.apply_notice(notice).await?;
+                let after = self
+                    .positions
+                    .position(m)
+                    .map(|p| p.realized_pnl)
+                    .unwrap_or(Cents::ZERO);
+                let delta = after.raw() - before.raw();
+                if held_before || delta != 0 {
+                    self.pending_settlements.push(SettlementApplied {
+                        market: m.clone(),
+                        venue: self.venue.id(),
+                        notice_id: notice.notice_id.clone(),
+                        outcome: format!("{:?}", notice.outcome),
+                        realized_pnl_cents: delta,
+                        at: self.clock.now(),
+                    });
+                }
             }
             self.settle_cursor = page.next_cursor;
             if !advanced {
@@ -2691,6 +2867,14 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
             labels: Vec::new(),
             value: i64::from(self.gates.halts().global_halted().is_some()),
         });
+        // A7: synthesis-arm cold-calibration skip counter.
+        samples.push(MetricSample {
+            name: "fortuna_mind_skips_total",
+            help: "Events skipped by the synthesis arm due to cold calibration (no fitted Platt)",
+            counter: true,
+            labels: vec![("reason".to_string(), "cold_calibration".to_string())],
+            value: self.counters.cold_calibration_skips as i64,
+        });
         // T5.B8: per-strategy diagnostic gauges (e.g. perp basis-v2's A10
         // numbers). Appended AFTER the runner's own samples, in strategy
         // REGISTRATION order, so the export stays deterministic. Default-empty
@@ -2786,6 +2970,7 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
             counters.model_proposals_discarded += m.model_proposals_discarded;
             counters.cognition_cost_cents += m.cognition_cost_cents;
             counters.mind_spend_today_cents += m.mind_spend_today_cents;
+            counters.cold_calibration_skips += m.cold_calibration_skips;
         }
         counters
     }
@@ -2853,6 +3038,38 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
         count
     }
 
+    /// Push a freshly fetched calibration context into the synthesis arm (B3
+    /// Part 1 per-segment refresh). Mirrors `refresh_synthesis_edges`: finds
+    /// every edge-trading arm and calls `set_calibration` on it, then updates
+    /// the arm's calibration quality (the Kelly sizing scalar). A `None` ctx
+    /// reverts the arm to the cold fail-closed state until a future segment
+    /// delivers a fitted row. Returns `true` when at least one synthesis arm
+    /// was found and refreshed, `false` for a mechanically-only daemon.
+    pub fn refresh_synthesis_calibration(
+        &mut self,
+        calibration: Option<fortuna_cognition::cycle::CalibrationContext>,
+        quality: f64,
+    ) -> bool {
+        let mut found = false;
+        for s in self.strategies.iter_mut() {
+            if s.set_calibration(calibration.clone()) {
+                found = true;
+            }
+        }
+        if found {
+            // Mirror `set_calibration_quality` — the Kelly sizing scalar must
+            // track the live quality so sizing reflects the same epoch as the
+            // context. The arm's `set_calibration_quality` key is its strategy
+            // id string; iterate over the map to update any synthesis arm.
+            for s in &self.strategies {
+                if s.edge_count().is_some() {
+                    self.calibration_quality.insert(s.id().to_string(), quality);
+                }
+            }
+        }
+        found
+    }
+
     /// The live catalog as discovery `MarketView`s (T4.2): the all-status catalog
     /// the venue last returned (`market_meta`), projected for the market-back
     /// discovery prefilter. Empty until the first successful catalog poll.
@@ -2867,6 +3084,10 @@ impl<V: Venue + 'static, J: IntentJournal + Send> SimRunner<V, J> {
                 volume_contracts: m.volume_contracts,
                 resolution_source: m.settlement.resolution_source.clone(),
                 close_at: m.close_at,
+                strike_type: None,
+                floor_strike: None,
+                cap_strike: None,
+                status: String::new(),
             })
             .collect()
     }
@@ -3595,6 +3816,16 @@ mod a3_type_level {
         );
         mock.push_ok(200, kalshi_markets_body());
         mock.push_ok(200, kalshi_book_body());
+        // A3/F1: a paper-live tick now polls REAL Kalshi settlements
+        // (PaperLiveVenue::settlements_since -> self.read). Script one empty
+        // settlement page so process_settlements has a response to read.
+        mock.push_ok(
+            200,
+            serde_json::json!({
+                "settlements": [],
+                "cursor": ""
+            }),
+        );
 
         let clock = Arc::new(SimClock::new(start));
         let mut config = minimal_config();
@@ -3644,6 +3875,8 @@ mod a3_type_level {
         assert_eq!(calls[3].path, "/markets/trades");
         assert_eq!(calls[4].path, "/markets");
         assert_eq!(calls[5].path, "/markets/KXTEST-26JUN16-T50/orderbook");
+        // A3/F1: process_settlements polls real Kalshi settlements at tick end.
+        assert_eq!(calls[6].path, "/portfolio/settlements");
         assert!(
             calls.iter().all(|call| call.method == "GET"),
             "paper-live tick must only issue live data reads: {calls:?}"

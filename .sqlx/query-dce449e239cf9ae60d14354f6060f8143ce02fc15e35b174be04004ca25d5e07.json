@@ -1,0 +1,70 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT settlement_id, market_id, venue, amount_cents, status,\n                      supersedes, intent_id, detail, at\n               FROM settlement_entries WHERE market_id = $1 ORDER BY at, settlement_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "settlement_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "market_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "venue",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "amount_cents",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "supersedes",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "intent_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "detail",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "at",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "dce449e239cf9ae60d14354f6060f8143ce02fc15e35b174be04004ca25d5e07"
+}

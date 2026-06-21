@@ -9,15 +9,15 @@
 //!   constructor, and no Deserialize impl).
 //! - The runtime half below: `Venue::place` accepts only `GatedOrder` (the
 //!   place call type-checks ONLY with a pipeline-produced order), every
-//!   order that reaches a venue carries a complete 10-check pass audit
-//!   trail, and every rejection carries a trail ending in the failing check.
+//!   order that reaches a venue carries a complete GateCheck::ALL-check pass
+//!   audit trail, and every rejection carries a trail ending in the failing check.
 
 use fortuna_core::book::{FeeError, FeeModel, FillRole, OrderBook, PriceLevel};
 use fortuna_core::clock::{SimClock, UtcTimestamp};
 use fortuna_core::ids::{IdGen, IntentId};
 use fortuna_core::market::{Action, ClientOrderId, Contracts, MarketId, Side, StrategyId, VenueId};
 use fortuna_core::money::Cents;
-use fortuna_gates::{CandidateOrder, GateConfig, GateInputs, GatePipeline, Verdict};
+use fortuna_gates::{CandidateOrder, GateCheck, GateConfig, GateInputs, GatePipeline, Verdict};
 use fortuna_venues::sim::{FaultConfig, SimVenue};
 use fortuna_venues::{Market, MarketStatus, SettlementMeta, Venue};
 use proptest::prelude::*;
@@ -185,8 +185,8 @@ fn i1_universal_gate() {
         match out.gated {
             Ok(gated) => {
                 // Venue-acceptable orders exist ONLY with a complete pass
-                // trail: all ten checks, in order, every verdict Pass.
-                assert_eq!(out.records.len(), 10);
+                // trail: ALL checks, in order, every verdict Pass.
+                assert_eq!(out.records.len(), GateCheck::ALL.len());
                 assert!(out.records.iter().all(|r| r.verdict == Verdict::Pass));
                 for (idx, r) in out.records.iter().enumerate() {
                     assert_eq!(r.check.index(), idx + 1);
@@ -209,8 +209,9 @@ fn i1_universal_gate() {
 
 proptest! {
     /// For ALL candidate orders: a venue-acceptable order implies a complete
-    /// 10-pass verdict trail; a rejection implies a trail ending at the
-    /// failing check. (Added alongside the implemented stub; spec I1.)
+    /// ALL-pass verdict trail (GateCheck::ALL.len() records, all Pass); a
+    /// rejection implies a trail ending at the failing check.
+    /// (Added alongside the implemented stub; spec I1.)
     #[test]
     fn i1_prop_all_orders_carry_gate_verdicts(
         price in -10i64..120,
@@ -227,7 +228,7 @@ proptest! {
         let out = pipeline.evaluate(&candidate(seed, price, qty, fair), &i);
         match &out.gated {
             Ok(_) => {
-                prop_assert_eq!(out.records.len(), 10);
+                prop_assert_eq!(out.records.len(), GateCheck::ALL.len());
                 prop_assert!(out.records.iter().all(|r| r.verdict == Verdict::Pass));
             }
             Err(rejection) => {

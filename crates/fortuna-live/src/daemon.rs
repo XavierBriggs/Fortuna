@@ -55,7 +55,7 @@
 
 use crate::audit_bridge::PgAuditSink;
 use crate::boot::{BootError, CognitionSection, DaemonToml, Secret};
-use crate::compose::{calibration_for_scope, synthesis_edges, DegradeScrape, SynthesisSection};
+use crate::compose::{best_calibrated_producer, synthesis_edges, DegradeScrape, SynthesisSection};
 use crate::run_loop::{run_loop, CadenceDriver, HaltPoller, LoopConfig, LoopStats};
 use fortuna_cognition::context::{content_hash_of, ContextItem, SectionKind};
 use fortuna_cognition::cycle::{
@@ -67,8 +67,9 @@ use fortuna_cognition::mind::{
 };
 use fortuna_cognition::reconciliation::{run_reconciliation, ReconError};
 use fortuna_cognition::review::{
-    monthly_review, weekly_review, AllocationInput, LessonStatusView, MonthlyReview, ScopeKey,
-    ScopeRecord, StrategyKindView, StrategyRecord, WeeklyReview,
+    calibration_report, monthly_review, weekly_review, AllocationInput, LessonStatusView,
+    MonthlyReview, ScopeCalibration, ScopeKey, ScopeRecord, StrategyKindView, StrategyRecord,
+    WeeklyReview,
 };
 use fortuna_cognition::veto::{StubVetoMind, VetoMind};
 use fortuna_core::clock::{Clock, UtcTimestamp};
@@ -225,6 +226,41 @@ pub fn mind_from_env<T: MindTransport + 'static>(
     }
 }
 
+/// Build a per-persona Mind with a CALLER-SUPPLIED `system_charter` (D1, audit
+/// Area 8). Mirrors `mind_from_env` exactly — same transport/budget/clock infra
+/// — but takes the persona's own `method` body as the charter instead of the
+/// synthesis charter constant. This is the ONLY difference: the routing fix (which
+/// Mind serves which persona) without touching AnthropicMind/decide()/the firewall.
+///
+/// `transport` Some => Claude-backed AnthropicMind on `model` with `system_charter`;
+/// `transport` None => inert StubMind (no ANTHROPIC_API_KEY path, byte-unchanged).
+pub fn persona_mind_from_env<T: MindTransport + 'static>(
+    cognition: &CognitionSection,
+    model: &str,
+    transport: Option<T>,
+    clock: Arc<dyn Clock>,
+    system_charter: &str,
+) -> Arc<dyn Mind> {
+    match transport {
+        Some(transport) => Arc::new(AnthropicMind::new(
+            AnthropicMindConfig {
+                model: model.to_string(),
+                max_tokens: SYNTH_MIND_MAX_TOKENS,
+                input_price_cents_per_mtok: SYNTH_MIND_INPUT_PRICE_CENTS_PER_MTOK,
+                output_price_cents_per_mtok: SYNTH_MIND_OUTPUT_PRICE_CENTS_PER_MTOK,
+                system_charter: system_charter.to_string(),
+            },
+            transport,
+            CostBudget::new(
+                cognition.per_cycle_budget_cents,
+                cognition.daily_budget_cents,
+            ),
+            clock,
+        )),
+        None => Arc::new(StubMind::scripted(Vec::new())),
+    }
+}
+
 /// Triage-tier (Haiku) AnthropicMindConfig defaults: a small max_tokens (the
 /// verdict is a yes/no) + Haiku 4.5 prices ($1/$5 per Mtok -> cents per Mtok).
 /// Prices "are config" (AnthropicMindConfig) — promoting them is a ledgered
@@ -353,12 +389,18 @@ pub async fn compose_runner(
                 reason: format!("synthesis edge load: {e}"),
             })?;
         let calibration = if let Some(category) = &syn.category {
-            let (ctx, quality) = calibration_for_scope(
+            // WS1 slice 7 — thesis payoff: price the BEST-CALIBRATED producer.
+            // `best_calibrated_producer` fetches the DATA-driven candidate set
+            // (DISTINCT resolved producers, ORDER BY producer ASC), scores each
+            // independently, and returns the winner by quality DESC / producer ASC.
+            // NO producer literal appears here or in the helper — producers are DATA.
+            // Cold-start (no candidate has resolved beliefs) → (None, None, None)
+            // which hits the B3 gate: synthesis stays cold (fail closed).
+            let (_winner, ctx, quality) = best_calibrated_producer(
                 &CalibrationParamsRepo::new(pool.clone()),
                 &BeliefsRepo::new(pool.clone()),
-                // S5b: key on the CONFIGURED synthesis model (spec 5.10) — the
-                // same id model_registry().model(ModelTier::Synthesis) resolves.
-                // A model swap then finds no stale params (=> None => fail closed).
+                // S5b: key on the CONFIGURED synthesis model (spec 5.10).
+                // A model swap finds no stale params (=> None => fail closed).
                 &dcfg.cognition.synthesis_model,
                 SYNTH_CALIBRATION_STRATEGY,
                 category,
@@ -368,7 +410,7 @@ pub async fn compose_runner(
             .map_err(|e| DaemonError::Compose {
                 reason: format!("synthesis calibration load: {e}"),
             })?;
-            synth_calibration_quality = Some(quality);
+            synth_calibration_quality = quality;
             ctx
         } else {
             None
@@ -873,7 +915,10 @@ async fn compose_kalshi_family_runner_with_venue<V: Venue + 'static>(
                 reason: format!("synthesis edge load: {e}"),
             })?;
         let calibration = if let Some(category) = &syn.category {
-            let (ctx, quality) = calibration_for_scope(
+            // WS1 slice 7 — thesis payoff: price the BEST-CALIBRATED producer.
+            // Shared helper with compose_runner: no producer literal, DATA-driven.
+            // Cold-start → (None, None, None) → B3 gate: synthesis stays cold.
+            let (_winner, ctx, quality) = best_calibrated_producer(
                 &CalibrationParamsRepo::new(pool.clone()),
                 &BeliefsRepo::new(pool.clone()),
                 // S5b: key on the CONFIGURED synthesis model (spec 5.10) — same as
@@ -887,7 +932,7 @@ async fn compose_kalshi_family_runner_with_venue<V: Venue + 'static>(
             .map_err(|e| DaemonError::Compose {
                 reason: format!("synthesis calibration load: {e}"),
             })?;
-            synth_calibration_quality = Some(quality);
+            synth_calibration_quality = quality;
             ctx
         } else {
             None
@@ -1154,6 +1199,21 @@ impl ActiveRunner {
         }
     }
 
+    /// B3 Part 1: push a freshly fetched calibration context into the synthesis
+    /// arm (per-segment daemon refresh so B1's persisted params reach synthesis
+    /// without a restart). Mirrors `refresh_synthesis_edges` delegation.
+    pub fn refresh_synthesis_calibration(
+        &mut self,
+        calibration: Option<fortuna_cognition::cycle::CalibrationContext>,
+        quality: f64,
+    ) -> bool {
+        match self {
+            ActiveRunner::Sim(r) => r.refresh_synthesis_calibration(calibration, quality),
+            ActiveRunner::Kalshi(r) => r.refresh_synthesis_calibration(calibration, quality),
+            ActiveRunner::PaperLive(r) => r.refresh_synthesis_calibration(calibration, quality),
+        }
+    }
+
     /// Drain buffered binary belief drafts for composition-side persistence.
     pub fn drain_pending_beliefs(
         &mut self,
@@ -1177,6 +1237,64 @@ impl ActiveRunner {
             ActiveRunner::Kalshi(r) => r.drain_pending_scalar_beliefs(),
             ActiveRunner::PaperLive(r) => r.drain_pending_scalar_beliefs(),
         }
+    }
+
+    /// Drain applied fills buffered since the last drain (A2 / F12). The
+    /// daemon persists them via `FillsRepo::insert`; draining empties the
+    /// buffer so a fill is persisted exactly once per segment. `producer` is
+    /// deferred to D4; each entry carries the owning strategy (or `None` for
+    /// fills whose intent was not found — handled defensively).
+    pub fn drain_applied_fills(&mut self) -> Vec<(fortuna_core::book::Fill, Option<StrategyId>)> {
+        match self {
+            ActiveRunner::Sim(r) => r.drain_applied_fills(),
+            ActiveRunner::Kalshi(r) => r.drain_applied_fills(),
+            ActiveRunner::PaperLive(r) => r.drain_applied_fills(),
+        }
+    }
+
+    /// Drain applied settlements buffered since the last drain (A3 / F1). The
+    /// daemon persists each via `SettlementsRepo::insert_entry` with
+    /// `amount_cents = realized_pnl_cents` (NET delta) and `intent_id =
+    /// notice_id` (set-once idempotency), so `SUM(amount_cents)` reconstructs
+    /// realized PnL from the DB. Draining empties the buffer so a settlement is
+    /// persisted once per segment.
+    pub fn drain_applied_settlements(&mut self) -> Vec<fortuna_runner::SettlementApplied> {
+        match self {
+            ActiveRunner::Sim(r) => r.drain_applied_settlements(),
+            ActiveRunner::Kalshi(r) => r.drain_applied_settlements(),
+            ActiveRunner::PaperLive(r) => r.drain_applied_settlements(),
+        }
+    }
+
+    /// Drain per-market price quotes buffered since the last drain (WS1 slice
+    /// 4). The daemon persists them via `SnapshotsRepo::insert`; draining
+    /// empties the buffer so each quote is persisted exactly once per segment.
+    pub fn drain_market_quotes(&mut self) -> Vec<fortuna_runner::MarketQuoteCapture> {
+        match self {
+            ActiveRunner::Sim(r) => r.drain_market_quotes(),
+            ActiveRunner::Kalshi(r) => r.drain_market_quotes(),
+            ActiveRunner::PaperLive(r) => r.drain_market_quotes(),
+        }
+    }
+
+    /// The cumulative bus recording for this run (A6, F4). Mirrors the inner
+    /// `SimRunner::recording()` getter — read-only, no side effects. The
+    /// recording grows monotonically: every dispatched event appends to it, so
+    /// `recorded_len()` at segment end minus `recorded_len()` at segment start
+    /// equals the number of new events this segment produced.
+    pub fn recording(&self) -> &fortuna_core::bus::Recording {
+        match self {
+            ActiveRunner::Sim(r) => r.recording(),
+            ActiveRunner::Kalshi(r) => r.recording(),
+            ActiveRunner::PaperLive(r) => r.recording(),
+        }
+    }
+
+    /// The total number of events recorded so far (A6). Used by `drive()` to
+    /// track the high-water mark across segments and serialize only new events
+    /// per segment (incremental persist — no event persisted twice).
+    pub fn recorded_len(&self) -> usize {
+        self.recording().events().len()
     }
 
     /// Record an externally-raised alert on the audit trail.
@@ -1481,6 +1599,12 @@ pub struct ReviewWiring {
     /// The [synthesis].category whose calibration scope the audit reads (None =>
     /// no calibrated scope; GO/NO-GO over the strategies still runs).
     pub synth_category: Option<String>,
+    /// I7 stage gate (Task B1 / F0): whether the daemon may AUTO-PERSIST a fitted
+    /// calibration set (the daily count-trigger + the weekly path). True ONLY in
+    /// ExecutionMode::PaperLedger; every other mode leaves it false and the daemon
+    /// persists no calibration version on its own (calibration there is an
+    /// operator action). main sets it from the runtime mode.
+    pub auto_persist_calibration: bool,
     /// Daemon boot time, for the paper_days approximation.
     pub start: UtcTimestamp,
     pub weekly: WeeklyScheduler,
@@ -1503,12 +1627,21 @@ pub struct ReviewWiring {
 /// `persist_beliefs` path. Default-off: `None` => the step never runs (the daemon
 /// is byte-identical). A persist failure ALERTS and continues (beliefs are the
 /// calibration substrate, not the money path), mirroring the scalar-drain posture.
+///
+/// D1 (audit Area 8): `minds` is a per-persona resolver — each key is a persona id,
+/// each value is the `Arc<dyn Mind>` built with THAT persona's own `method` charter
+/// (via `persona_mind_from_env`). `run_due_personas` looks up the persona's own Mind
+/// by id; a persona with no entry FAILS-CLOSED (defect, no artifact). Replaces the
+/// previous single `mind: Arc<dyn Mind>` which erroneously shared the synthesis
+/// charter across all personas.
 pub struct PersonasWiring {
     pub pool: PgPool,
     pub schedules: Vec<fortuna_cognition::persona_orchestrator::PersonaSchedule>,
     pub state: fortuna_cognition::persona_orchestrator::PersonaScheduleState,
     pub budget: fortuna_cognition::discovery::DiscoveryBudget,
-    pub mind: std::sync::Arc<dyn fortuna_cognition::mind::Mind>,
+    /// Per-persona Mind resolver (D1): key = persona_id, value = Mind built with
+    /// that persona's own `system_charter` (`persona.method`).
+    pub minds: BTreeMap<String, std::sync::Arc<dyn fortuna_cognition::mind::Mind>>,
     pub strategy: fortuna_core::market::StrategyId,
     pub window_hours: u32,
     pub max_signals: i64,
@@ -1578,7 +1711,7 @@ pub struct DiscoveryWiring {
     /// discovery: default-off, alert-and-continue, never panics. The edges are
     /// idempotent across segments (a market that already carries a current edge is
     /// skipped, mirroring the market-back dedup).
-    pub weather_source: Option<std::sync::Arc<dyn fortuna_venues::kalshi::WeatherMarketSource>>,
+    pub weather_source: Option<std::sync::Arc<dyn fortuna_venues::WeatherMarketSource>>,
 }
 
 fn event_text_tokens(s: &str) -> BTreeSet<String> {
@@ -1802,6 +1935,34 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
             fortuna_core::perp::FundingObservation,
         )>,
     >,
+    // A2 (F12): OPT-IN fill persistence pool. `Some(pool)` => applied fills
+    // are drained each segment and persisted to the `fills` table via
+    // `FillsRepo::insert` with `producer = None` (D4 wires producer) and the
+    // captured strategy id. NOT gated on `[synthesis]` — mechanical
+    // strategies produce fills too. `None` => no persist (byte-identical
+    // daemon — fail closed). A persist failure ALERTS and continues; fills
+    // are the PnL substrate, not the money path.
+    fills_pool: Option<PgPool>,
+    // A6 (F4): OPT-IN bus-recording persist pool. `Some(pool)` => after each
+    // segment's fill/settlement persist, the daemon appends the NEW bus events
+    // (events since the previous segment boundary) to `bus_recordings` via
+    // `RecordingsRepo::append`. The recording is CUMULATIVE across the whole
+    // run; only the SLICE since `last_recorded_idx` is serialized per segment,
+    // so no event is ever persisted twice. `recording_id` is a ULID minted
+    // once at drive-start (time-ordered across restarts; replay orders rows by
+    // recording_id). `None` => no persist (byte-identical daemon — fail closed).
+    // A persist failure ALERTS and continues (the recording is the audit
+    // substrate, not the money path).
+    recordings_pool: Option<PgPool>,
+    // WS1 slice 4 (CLV capture): OPT-IN price-snapshot persist pool. `Some`
+    // => the per-market quote captured from the book the runner ALREADY
+    // fetched each tick is drained and persisted to `price_snapshots` via
+    // `SnapshotsRepo::insert` with `ON CONFLICT (market_id, at) DO NOTHING`
+    // (idempotency). Liquidity-gated: one-sided/empty books persist as
+    // `liquidity_ok=false, kind='other'`. `None` => no capture (byte-identical
+    // daemon — fail closed). A persist failure ALERTS and continues (CLV
+    // substrate, not the money path).
+    snapshots_pool: Option<PgPool>,
 ) -> Result<(LoopStats, fortuna_runner::ShutdownReport), DaemonError> {
     let mut total = LoopStats::default();
     // Dedup state OWNED ACROSS SEGMENTS (gate finding 2026-06-11: keeping
@@ -1817,6 +1978,11 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     // the latch on the next success, and counts every failure.
     let mut refresh_failing = false;
     let mut edge_refresh_failures = 0u64;
+    // B3 Part 1: calibration-refresh failure latch — mirrors the edge-refresh
+    // latch. A DB failure keeps the last-known calibration (the arm stays warm
+    // or stays cold — whichever it already was); alerts ONCE per outage; never
+    // crashes the loop.
+    let mut calib_refresh_failing = false;
     // S6 belief-id monotonic base: seed from the drive-start epoch so ids never
     // collide ACROSS runs (a later restart starts at a larger epoch), and the
     // per-persist increment keeps them unique WITHIN a run. (A full ULID is the
@@ -1842,6 +2008,33 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     // independently of the belief id spaces. Like the others, this is a sortable
     // TEXT PK from a caller-monotonic base, NOT a full ULID (ledgered).
     let mut persona_analysis_id_base = belief_id_base;
+    // A3/F1: the settlement-entry id monotonic base, seeded identically
+    // (drive-start epoch — unique across runs; the per-insert increment keeps
+    // them unique within a run). Its OWN counter ("01STL" prefix) so the
+    // settlement-id space advances independently of the others. Sortable TEXT PK
+    // from a caller-monotonic base, NOT a full ULID (ledgered, like the rest).
+    // The (market_id, notice_id) partial-unique index — NOT this PK — is the
+    // set-once idempotency key.
+    let mut settlement_id_base = belief_id_base;
+    // A4: trade-score id monotonic base. Same seeding pattern as settlement_id_base;
+    // OWN counter ("01TSC" prefix). The UNIQUE (market_id, strategy) index is the
+    // idempotency key — the PK is only for audit identity.
+    let mut trade_score_id_base = belief_id_base;
+    // WS1 slice 4 (CLV capture): snapshot-id monotonic base. Same seeding
+    // pattern as the other id bases; OWN counter ("01SNP" prefix). The
+    // UNIQUE (market_id, at) index is the idempotency key — ON CONFLICT DO
+    // NOTHING means a second attempt for the same (market_id, at) is a
+    // silent skip, so the id itself need not be idempotency-stable.
+    let mut snapshot_id_base = belief_id_base;
+    // A6 (F4): bus-recording high-water mark.
+    // `last_recorded_idx` is the event count at the PREVIOUS segment boundary;
+    // each segment serializes only events[last_recorded_idx..] (incremental —
+    // no event persisted twice). `recording_seq` orders segments within this
+    // run; each segment gets its OWN ULID `recording_id` so
+    // ORDER BY recording_id across restarts produces wall-clock order.
+    // (The bus_recordings PK is recording_id, so one unique ULID per row.)
+    let mut last_recorded_idx: usize = 0;
+    let mut recording_seq: i64 = 0;
     loop {
         // slice-4e: feed one recorded PerpTick at the head of the segment so the
         // perp producers fire during this segment's ticks (EventOrigin::External,
@@ -1981,6 +2174,13 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                             .collect();
                         // Deterministic prefilter (spec 5.12) — pure, no IO.
                         let pre = fortuna_cognition::discovery::prefilter(&catalog, &dw.prefilter);
+                        // C4 (F7): collect the full prefilter-survivor market IDs BEFORE the
+                        // edge-dedup loop (which moves out of pre.survivors). We need the
+                        // complete set — including markets WITH edges — to build the
+                        // existing_by_market map and populate existing_events for
+                        // match-before-create (spec 5.12).
+                        let all_survivor_ids: Vec<String> =
+                            pre.survivors.iter().map(|s| s.market_id.clone()).collect();
                         // Dedup already-edged listings (spec 5.12: a listing with a
                         // current edge is not re-normalized). A query failure ALERTS +
                         // SKIPS that listing (never crash, never re-edge blindly).
@@ -2004,12 +2204,98 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                 )),
                             }
                         }
-                        // The richer match-before-create events query is a follow-up
-                        // (ledgered): this rung passes an EMPTY existing-events set, so
-                        // every normalization is a NEW-event draft (a claimed match to
-                        // a nonexistent event is dropped with a defect by the callee).
+                        // C4 (F7): deterministic market→event map from the edge table.
+                        // Build `existing_by_market` for ALL survivors (including those
+                        // already excluded from `survivors_to_normalize`): any market that
+                        // already has an edge maps to its current event_id. This serves two
+                        // purposes:
+                        //   1. Populate `existing_events` so the model can claim a valid
+                        //      `matches_event_id` (match-before-create; spec 5.12).
+                        //   2. Guard the persist loop: if a draft somehow names a market
+                        //      that already has an event (race guard / defensive layer),
+                        //      reuse the existing event_id — never mint a duplicate.
+                        // A query failure is non-fatal: we fall back to an empty map
+                        // (same behaviour as before), log it, and proceed.
+                        let existing_by_market: std::collections::BTreeMap<String, String> =
+                            match sqlx::query!(
+                                r#"SELECT DISTINCT ON (market_id) market_id, event_id
+                                   FROM market_event_edges
+                                   WHERE market_id = ANY($1)
+                                   ORDER BY market_id, edge_id DESC"#,
+                                &all_survivor_ids as &[String]
+                            )
+                            .fetch_all(&dw.pool)
+                            .await
+                            {
+                                Ok(rows) => rows
+                                    .into_iter()
+                                    .map(|r| (r.market_id, r.event_id))
+                                    .collect(),
+                                Err(e) => {
+                                    alerts.push((
+                                        fortuna_ops::MessageKind::Ops,
+                                        format!(
+                                            "discovery existing-event map query FAILED — \
+                                             proceeding with empty map (match-before-create \
+                                             degraded): {e}"
+                                        ),
+                                    ));
+                                    std::collections::BTreeMap::new()
+                                }
+                            };
+                        // Populate `existing_events` from the events those edges
+                        // point to — gives the model a real validation set for any
+                        // claimed `matches_event_id`. An empty map → empty set (same
+                        // behaviour as before; degraded but non-fatal).
+                        let mapped_event_ids: Vec<String> = existing_by_market
+                            .values()
+                            .cloned()
+                            .collect::<std::collections::BTreeSet<_>>()
+                            .into_iter()
+                            .collect();
                         let existing_events: Vec<fortuna_cognition::discovery::ExistingEventView> =
-                            Vec::new();
+                            if mapped_event_ids.is_empty() {
+                                Vec::new()
+                            } else {
+                                match sqlx::query!(
+                                    r#"SELECT event_id, resolution_source, horizon
+                                       FROM events
+                                       WHERE event_id = ANY($1)"#,
+                                    &mapped_event_ids as &[String]
+                                )
+                                .fetch_all(&dw.pool)
+                                .await
+                                {
+                                    Ok(rows) => rows
+                                        .into_iter()
+                                        .map(|r| {
+                                            use fortuna_core::clock::UtcTimestamp;
+                                            fortuna_cognition::discovery::ExistingEventView {
+                                                event_id: r.event_id,
+                                                resolution_source: r.resolution_source,
+                                                horizon: r.horizon.as_deref().and_then(|h| {
+                                                    UtcTimestamp::parse_iso8601(h).ok()
+                                                }),
+                                                // A cheap `false` here is conservative:
+                                                // the model may still match; the belief-wake
+                                                // path is a nice-to-have, not load-bearing
+                                                // for the idempotency fix.
+                                                has_open_belief: false,
+                                            }
+                                        })
+                                        .collect(),
+                                    Err(e) => {
+                                        alerts.push((
+                                            fortuna_ops::MessageKind::Ops,
+                                            format!(
+                                                "discovery existing-events fetch FAILED — \
+                                                 proceeding with empty set: {e}"
+                                            ),
+                                        ));
+                                        Vec::new()
+                                    }
+                                }
+                            };
                         // One call normalizes survivors + scores edges (the budget
                         // mutates in place; returns an outcome, no `?`). On Err it
                         // ALERTS and falls through to route_alerts (no segment-level
@@ -2047,6 +2333,22 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                 let mut new_event_ids: std::collections::BTreeMap<String, String> =
                                     std::collections::BTreeMap::new();
                                 for draft in &outcome.new_events {
+                                    // C4 (F7) persist-loop guard: check the deterministic
+                                    // market→event map FIRST. If the market already has an
+                                    // event (via an edge in `existing_by_market`), reuse
+                                    // that event_id — never mint a duplicate. The edge-dedup
+                                    // loop above normally prevents a market with an edge from
+                                    // reaching `survivors_to_normalize`; this is a defensive
+                                    // second layer (idempotency in the face of races or
+                                    // future refactors).
+                                    let placeholder = format!("new:{}", draft.market_id);
+                                    if let Some(reuse_id) = existing_by_market.get(&draft.market_id)
+                                    {
+                                        // Market already has a canonical event — reuse it.
+                                        new_event_ids.insert(placeholder, reuse_id.clone());
+                                        // Do NOT advance event_id_base (no mint happened).
+                                        continue;
+                                    }
                                     let event_id = format!("01EVT{:021}", dw.event_id_base);
                                     let exists: bool = match sqlx::query_scalar(
                                         "SELECT EXISTS(SELECT 1 FROM events WHERE event_id = $1)",
@@ -2070,7 +2372,6 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                     // (the callee's placeholder) — map it to the minted
                                     // id whether or not we INSERT (an already-present row
                                     // is still the right target for this segment's edge).
-                                    let placeholder = format!("new:{}", draft.market_id);
                                     if exists {
                                         new_event_ids.insert(placeholder, event_id.clone());
                                         dw.event_id_base = dw.event_id_base.wrapping_add(1);
@@ -2274,7 +2575,7 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                         };
                         let mut day_sets: BTreeMap<
                             (String, String),
-                            Result<Vec<fortuna_venues::kalshi::dto::KalshiMarket>, String>,
+                            Result<Vec<fortuna_cognition::discovery::MarketView>, String>,
                         > = BTreeMap::new();
                         for r in rows {
                             // Untrusted payload: try the `{forecasts:[...]}` wrapper
@@ -2356,10 +2657,7 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                 // and does NOT filter status, so the filter is here).
                                 let buckets: Vec<_> = day
                                     .iter()
-                                    .filter(|m| {
-                                        m.status
-                                            == fortuna_venues::kalshi::dto::KalshiMarketStatus::Active
-                                    })
+                                    .filter(|m| m.status == "active")
                                     .filter_map(crate::aeolus_venue::market_to_bucket)
                                     .collect();
                                 if buckets.is_empty() {
@@ -2513,6 +2811,44 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                 }
             }
 
+            // B3 Part 1: per-segment calibration refresh. Re-fetch via the
+            // best-producer selection (same helper as compose-time) so the
+            // per-segment refresh also reflects any change in which producer is
+            // best-calibrated — DATA-driven, no producer literal. A fetch
+            // FAILURE keeps the LAST-KNOWN calibration (arm stays warm/cold
+            // as-is — never crash), alerts ONCE per outage.
+            if let Some(category) = syn.category.as_deref() {
+                let fetch = best_calibrated_producer(
+                    &CalibrationParamsRepo::new(pool.clone()),
+                    &BeliefsRepo::new(pool.clone()),
+                    synth_model,
+                    SYNTH_CALIBRATION_STRATEGY,
+                    category,
+                    SYNTH_CALIBRATION_KIND,
+                )
+                .await;
+                match fetch {
+                    Ok((_winner, ctx, quality)) => {
+                        // Cold-start (quality=None) → refresh to cold; otherwise
+                        // unwrap_or(0.0) gives zero quality (sizes nothing).
+                        runner.refresh_synthesis_calibration(ctx, quality.unwrap_or(0.0));
+                        calib_refresh_failing = false;
+                    }
+                    Err(e) => {
+                        if !calib_refresh_failing {
+                            calib_refresh_failing = true;
+                            alerts.push((
+                                fortuna_ops::MessageKind::Ops,
+                                format!(
+                                    "synthesis calibration refresh FAILING \
+                                     — arm holds last-known calibration: {e}"
+                                ),
+                            ));
+                        }
+                    }
+                }
+            }
+
             // S6: drain + persist the synthesis arm's belief drafts per segment
             // (the calibration substrate; ONLY the synth arm drafts beliefs, so
             // synthesis_refresh-Some is exactly when any exist). A persist
@@ -2531,6 +2867,264 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                             drained.len()
                         ),
                     )),
+                }
+            }
+        }
+
+        // A2 (F12): drain + persist applied fills per segment. Runs OUTSIDE
+        // the `synthesis_refresh` block on purpose — mechanical strategies
+        // (mech_structural, mech_extremes, etc.) produce fills without a
+        // [synthesis] section, so gating this on synthesis_refresh-Some would
+        // silently drop their fills. Mirrors the scalar-belief failure
+        // posture: a persist FAILURE alerts + counts but never crashes (fills
+        // are the PnL/calibration substrate, not the money path); the drained
+        // set is lost on failure (re-buffering is the ledgered refinement).
+        // `None` => no persist (byte-identical daemon — fail closed).
+        if let Some(fpool) = &fills_pool {
+            let applied_fills = runner.drain_applied_fills();
+            if !applied_fills.is_empty() {
+                let repo = fortuna_ledger::FillsRepo::new(fpool.clone());
+                // Derive a stable venue string from the runner's active venue.
+                // All three variants (Sim / Kalshi / PaperLive) carry a venue
+                // whose id() is the canonical string persisted alongside the fill.
+                let venue_str: String = match runner {
+                    ActiveRunner::Sim(r) => r.venue().id().as_str().to_string(),
+                    ActiveRunner::Kalshi(r) => r.venue().id().as_str().to_string(),
+                    ActiveRunner::PaperLive(r) => r.venue().id().as_str().to_string(),
+                };
+                for (fill, strategy) in &applied_fills {
+                    match repo
+                        .insert(
+                            &venue_str,
+                            fill,
+                            None,
+                            strategy.as_ref().map(|s| s.as_str()),
+                        )
+                        .await
+                    {
+                        Ok(_) => {}
+                        Err(e) => alerts.push((
+                            fortuna_ops::MessageKind::Ops,
+                            format!(
+                                "fill persist FAILED for fill_id={} — fill lost this segment: {e}",
+                                fill.fill_id
+                            ),
+                        )),
+                    }
+                }
+            }
+        }
+
+        // A3 (F1): drain + persist applied settlements per segment, REUSING the
+        // A2 ledger pool (`fills_pool`). Runs OUTSIDE `synthesis_refresh` for the
+        // same reason as fills — mechanical strategies settle positions too, so
+        // gating on a [synthesis] section would silently drop their realized PnL.
+        // `amount_cents = realized_pnl_cents` (the NET delta), so
+        // `SUM(amount_cents)` over settlement_entries reconstructs realized PnL
+        // (the plan's "DB-as-truth"). `intent_id = notice_id` makes
+        // (market_id, notice_id) the set-once dedup key (A1 partial-unique);
+        // a returned Ok(false) is a NORMAL idempotent skip (restart / cursor
+        // replay), not an error. Failure posture mirrors fills: a real persist
+        // FAILURE alerts + continues (settlements are the PnL substrate, not the
+        // money path); the drained set is lost on failure. `None` => no persist.
+        if let Some(spool) = &fills_pool {
+            let applied_settlements = runner.drain_applied_settlements();
+            if !applied_settlements.is_empty() {
+                let repo = fortuna_ledger::SettlementsRepo::new(spool.clone());
+                for s in &applied_settlements {
+                    let settlement_id = format!("01STL{settlement_id_base:021}");
+                    settlement_id_base += 1;
+                    let detail = serde_json::json!({
+                        "outcome": s.outcome,
+                        "kind": "settlement",
+                    });
+                    match repo
+                        .insert_entry(
+                            &settlement_id,
+                            s.market.as_str(),
+                            s.venue.as_str(),
+                            s.realized_pnl_cents,
+                            "confirmed",
+                            None,
+                            Some(&s.notice_id),
+                            &detail,
+                            &s.at.to_iso8601(),
+                        )
+                        .await
+                    {
+                        // Ok(true) = inserted; Ok(false) = idempotent skip (NORMAL).
+                        Ok(_) => {}
+                        Err(e) => alerts.push((
+                            fortuna_ops::MessageKind::Ops,
+                            format!(
+                                "settlement persist FAILED for market={} notice_id={} — settlement lost this segment: {e}",
+                                s.market, s.notice_id
+                            ),
+                        )),
+                    }
+
+                    // A4: compute + persist the trade score for this market.
+                    // Runs on EVERY settlement (not synthesis-gated), using the
+                    // same pool. `fills_aggregate` gives us strategy/fees/counts
+                    // from the `fills` table; `pnl_after_fees = realized_pnl -
+                    // fees`. `Ok(false)` is a normal idempotent skip. Alert +
+                    // continue on error (calibration substrate, not money path).
+                    // `producer = None` until D4 wires the belief attribution.
+                    {
+                        let ts_repo = fortuna_ledger::TradeScoresRepo::new(spool.clone());
+                        let scored_at = Clock::now(runner.clock().as_ref()).to_iso8601();
+                        match ts_repo.fills_aggregate(s.market.as_str()).await {
+                            // No fills for this market — nothing to score, and a NULL
+                            // strategy would defeat the UNIQUE(market_id, strategy)
+                            // dedup (NULL != NULL), so a replay could insert dup rows.
+                            // Skip: a settlement we held always has fills (A3 only
+                            // buffers held markets); this guards the contract anyway.
+                            Ok(agg) if agg.n_fills == 0 => {}
+                            Ok(agg) => {
+                                let pnl_after_fees = s.realized_pnl_cents - agg.fees_cents;
+                                let trade_score_id =
+                                    format!("01TSC{trade_score_id_base:021}");
+                                trade_score_id_base += 1;
+                                match ts_repo
+                                    .insert(
+                                        &trade_score_id,
+                                        s.market.as_str(),
+                                        s.venue.as_str(),
+                                        agg.strategy.as_deref(),
+                                        None, // producer: D4
+                                        s.realized_pnl_cents,
+                                        agg.fees_cents,
+                                        pnl_after_fees,
+                                        agg.n_fills,
+                                        agg.maker_fills,
+                                        &s.at.to_iso8601(),
+                                        &scored_at,
+                                    )
+                                    .await
+                                {
+                                    // Ok(true) = inserted; Ok(false) = idempotent skip (NORMAL).
+                                    Ok(_) => {}
+                                    Err(e) => alerts.push((
+                                        fortuna_ops::MessageKind::Ops,
+                                        format!(
+                                            "trade_score persist FAILED for market={} — score lost this segment: {e}",
+                                            s.market
+                                        ),
+                                    )),
+                                }
+                            }
+                            Err(e) => alerts.push((
+                                fortuna_ops::MessageKind::Ops,
+                                format!(
+                                    "trade_score fills_aggregate FAILED for market={} — score skipped: {e}",
+                                    s.market
+                                ),
+                            )),
+                        }
+                    }
+                }
+            }
+        }
+
+        // A6 (F4): persist the incremental bus-recording slice for this segment.
+        // Runs AFTER fills + settlements (so every order-related event this tick
+        // produced is already in the recording before we serialize it). Mirrors
+        // the fills/settlements failure posture: a persist FAILURE alerts +
+        // continues — the recording is the audit substrate (I5), not the money
+        // path; no failure here may crash the loop. ONLY new events (since
+        // `last_recorded_idx`) are serialized via `to_jsonl_from` — the
+        // recording is cumulative across the whole run but we only write the
+        // delta, so no event is ever persisted twice.
+        //
+        // Each segment gets its OWN ULID `recording_id` (the bus_recordings PK).
+        // ULIDs are time-ordered, so ORDER BY recording_id across restarts
+        // replays segments in wall-clock order even when segment_seq resets.
+        // The ULID is minted from the injected clock at segment persist time;
+        // `from_parts(ms, recording_seq)` uses the clock ms plus the segment
+        // counter as the low bits (no random) — sufficient uniqueness even if
+        // two segments complete in the same millisecond, and under the SimClock
+        // the clock also advances between segments; on real wall time the ms
+        // granularity plus the counter is fine.
+        //
+        // `None` => no persist (byte-identical daemon — fail closed).
+        if let Some(rpool) = &recordings_pool {
+            let total = runner.recorded_len();
+            if total > last_recorded_idx {
+                let now_ts = Clock::now(runner.clock().as_ref());
+                let now_iso = now_ts.to_iso8601();
+                let segment_recording_id = {
+                    let ms = now_ts.epoch_millis().max(0) as u64;
+                    fortuna_core::ids::Ulid::from_parts(ms, recording_seq as u128).to_string()
+                };
+                match runner.recording().to_jsonl_from(last_recorded_idx) {
+                    Err(e) => alerts.push((
+                        fortuna_ops::MessageKind::Ops,
+                        format!(
+                            "bus recording serialize FAILED segment={recording_seq} — recording segment lost: {e}"
+                        ),
+                    )),
+                    Ok(jsonl) => {
+                        match fortuna_ledger::RecordingsRepo::new(rpool.clone())
+                            .append(&segment_recording_id, recording_seq, &jsonl, &now_iso)
+                            .await
+                        {
+                            Ok(()) => {
+                                last_recorded_idx = total;
+                                recording_seq += 1;
+                            }
+                            Err(e) => alerts.push((
+                                fortuna_ops::MessageKind::Ops,
+                                format!(
+                                    "bus recording persist FAILED segment={recording_seq} — recording segment lost: {e}"
+                                ),
+                            )),
+                        }
+                    }
+                }
+            }
+        }
+
+        // WS1 slice 4 (CLV capture): drain + persist per-market price quotes.
+        // Runs EVERY segment regardless of synthesis — mechanical strategies do
+        // not produce beliefs but the daemon still tracks their markets' books.
+        // The quotes were captured from the book the runner ALREADY fetched this
+        // tick (no second poll). `ON CONFLICT (market_id, at) DO NOTHING` in
+        // `SnapshotsRepo::insert` makes this idempotent (a daemon restart that
+        // re-drains the same tick timestamp is a silent skip). Failure posture:
+        // alert + continue (CLV substrate, not the money path). `None` => no
+        // capture (byte-identical daemon — fail closed).
+        if let Some(snap_pool) = &snapshots_pool {
+            let quotes = runner.drain_market_quotes();
+            if !quotes.is_empty() {
+                let repo = fortuna_ledger::SnapshotsRepo::new(snap_pool.clone());
+                for q in &quotes {
+                    let snapshot_id = format!("01SNP{snapshot_id_base:021}");
+                    snapshot_id_base += 1;
+                    match repo
+                        .insert(
+                            &snapshot_id,
+                            q.market.as_str(),
+                            q.venue.as_str(),
+                            q.event_id.as_deref(),
+                            "other",
+                            q.best_bid_cents,
+                            q.best_ask_cents,
+                            q.bid_qty,
+                            q.ask_qty,
+                            q.liquidity_ok,
+                            &q.at,
+                        )
+                        .await
+                    {
+                        Ok(()) => {}
+                        Err(e) => alerts.push((
+                            fortuna_ops::MessageKind::Ops,
+                            format!(
+                                "price_snapshot persist FAILED for market={} at={} — snapshot lost this segment: {e}",
+                                q.market, q.at
+                            ),
+                        )),
+                    }
                 }
             }
         }
@@ -2637,14 +3231,40 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                         // Ledger rows -> the orchestrator's cognition-native input. An
                         // unparseable received_at SKIPS that row (filter_map), never a
                         // panic — the signal is untrusted data.
+                        //
+                        // D3: also build a signal_id-keyed lookup of
+                        // EventSourceEvidenceInput so the persona path can write
+                        // evidence links (same insert_many + "model_context" relation
+                        // as the discovery path). NOTE the ORDERING differs: discovery
+                        // writes evidence BEFORE its persist; the persona path must
+                        // write it AFTER persist_beliefs because event_source_evidence
+                        // .event_id FKs to events, which persist_beliefs creates. The
+                        // lookup is built in the SAME pass so we never re-read; only
+                        // envelopes that parse cleanly enter both the signals vec and the map.
+                        let mut persona_evidence_by_id: std::collections::BTreeMap<
+                            String,
+                            fortuna_ledger::EventSourceEvidenceInput,
+                        > = std::collections::BTreeMap::new();
                         let signals: Vec<fortuna_cognition::signals::SignalEnvelope> = rows
                             .into_iter()
                             .filter_map(|r| {
+                                let received_at = fortuna_core::clock::UtcTimestamp::parse_iso8601(
+                                    &r.received_at,
+                                )
+                                .ok()?;
+                                // Populate evidence map in the same pass.
+                                persona_evidence_by_id.insert(
+                                    r.signal_id.clone(),
+                                    fortuna_ledger::EventSourceEvidenceInput {
+                                        signal_id: r.signal_id.clone(),
+                                        signal_received_at: r.received_at.clone(),
+                                        source: r.source.clone(),
+                                        signal_type: r.kind.clone(),
+                                        content_hash: r.content_hash.clone(),
+                                    },
+                                );
                                 Some(fortuna_cognition::signals::SignalEnvelope {
-                                    received_at: fortuna_core::clock::UtcTimestamp::parse_iso8601(
-                                        &r.received_at,
-                                    )
-                                    .ok()?,
+                                    received_at,
                                     signal_id: r.signal_id,
                                     source: r.source,
                                     kind: r.kind,
@@ -2655,12 +3275,14 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                             .collect();
                         // One call decides what is DUE and runs it (async; returns a
                         // Vec, no `?`). The budget + gate state mutate in place.
+                        // D1: pass the per-persona mind resolver so each persona
+                        // runs with ITS OWN charter (audit Area 8 fix).
                         let results = fortuna_cognition::persona_orchestrator::run_due_personas(
                             now,
                             &pw.schedules,
                             &signals,
                             &mut pw.state,
-                            pw.mind.as_ref(),
+                            &pw.minds,
                             &mut pw.budget,
                         )
                         .await;
@@ -2783,6 +3405,55 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                     ),
                                 )),
                             }
+                            // D3 (thesis): write event_source_evidence links — one
+                            // row per (belief event_id × input signal) — so the
+                            // replay chain is: belief → provenance.analysis_id →
+                            // domain_analyses.signal_manifest → event_source_evidence
+                            // → concrete signal ids/hashes. This mirrors the
+                            // discovery path (daemon:3527-3546 below).
+                            //
+                            // Build the evidence inputs from the manifest: look up
+                            // each manifest entry in persona_evidence_by_id (the
+                            // parallel-built map from the signal read above). A
+                            // signal_id absent from the map (unparseable received_at
+                            // → was filter_map'd out of signals) is simply skipped
+                            // — the manifest hash is still valid; we just lack the
+                            // evidence row for that one signal.
+                            let evidence_inputs: Vec<fortuna_ledger::EventSourceEvidenceInput> = r
+                                .outcome
+                                .signal_manifest
+                                .iter()
+                                .filter_map(|sr| persona_evidence_by_id.get(&sr.signal_id).cloned())
+                                .collect();
+                            // Write evidence for EACH belief's event_id (one row per
+                            // signal per belief event_id). The ON CONFLICT DO NOTHING
+                            // dedup in insert_many is harmless for re-runs. Degrade
+                            // on failure: alert + continue (analysis + beliefs already
+                            // persisted; the loop must never crash here — I5 is about
+                            // the append-only guarantee, not evidence blocking beliefs).
+                            if !evidence_inputs.is_empty() {
+                                for (_, draft) in &pairs {
+                                    if let Err(e) = fortuna_ledger::EventSourceEvidenceRepo::new(
+                                        pw.pool.clone(),
+                                    )
+                                    .insert_many(
+                                        &draft.event_id,
+                                        "model_context",
+                                        &now_iso,
+                                        &evidence_inputs,
+                                    )
+                                    .await
+                                    {
+                                        alerts.push((
+                                            fortuna_ops::MessageKind::Ops,
+                                            format!(
+                                                "persona evidence-link persist FAILED (analysis={analysis_id}, event={}): {e}",
+                                                draft.event_id
+                                            ),
+                                        ));
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -2872,6 +3543,7 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                             dw.mind.as_ref(),
                             &ctx_items,
                             &dw.registry,
+                            &dw.prefilter.category_allowlist,
                             &mut dw.budget,
                             now,
                         )
@@ -3157,6 +3829,70 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                             .await;
                     }
                 }
+                // F3 / B2: nws.cli freshness check. If the newest CLI signal is
+                // absent or older than NWS_CLI_STALE_SECS (>36 h = ≥1 missed
+                // daily issue), the resolver will have returned Ok(0) — wholly
+                // INDISTINGUISHABLE from "nothing due". Route an Ops alert so
+                // the operator sees it and can triage. A7 will add the named
+                // metric; B2 owns the detection + alert. No new query: reuses
+                // recent_by_kind with cap=1.
+                {
+                    use fortuna_ledger::SignalsRepo as CliSignalsRepo;
+                    use fortuna_sources::nws_climate::NWS_CLI_KIND;
+                    match CliSignalsRepo::new(rpool.clone())
+                        .recent_by_kind(&[NWS_CLI_KIND.to_string()], "", 1)
+                        .await
+                    {
+                        Ok(rows) => {
+                            let freshest = rows.first().map(|s| s.received_at.as_str());
+                            if nws_cli_is_stale(freshest, now, NWS_CLI_STALE_SECS) {
+                                let age_msg = match freshest {
+                                    None => "absent (no nws.cli signal ever ingested)".to_string(),
+                                    // An unparseable timestamp is itself a staleness signal —
+                                    // say so rather than printing a misleading age=0h.
+                                    Some(ts) => {
+                                        match fortuna_core::clock::UtcTimestamp::parse_iso8601(ts) {
+                                            Ok(t) => {
+                                                let age_h = (now.epoch_millis() - t.epoch_millis())
+                                                    / 3_600_000;
+                                                format!("freshest={ts}, age={age_h}h")
+                                            }
+                                            Err(_) => {
+                                                format!("freshest={ts} (unparseable timestamp)")
+                                            }
+                                        }
+                                    }
+                                };
+                                total_send_failures += runner
+                                    .route_alerts(
+                                        slack,
+                                        &[(
+                                            fortuna_ops::MessageKind::Ops,
+                                            format!(
+                                                "nws.cli stale/absent ({age_msg}) \
+                                                 — weather grading will starve; \
+                                                 model arm cannot warm"
+                                            ),
+                                        )],
+                                    )
+                                    .await;
+                            }
+                        }
+                        Err(e) => {
+                            // Best-effort: the freshness check failed. Log via
+                            // the alert channel but do not abort the boundary.
+                            total_send_failures += runner
+                                .route_alerts(
+                                    slack,
+                                    &[(
+                                        fortuna_ops::MessageKind::Ops,
+                                        format!("nws.cli freshness check FAILED: {e}"),
+                                    )],
+                                )
+                                .await;
+                        }
+                    }
+                }
                 // Funding: settled funding_forecast beliefs vs realized funding.
                 match resolve_and_score_funding_beliefs(
                     rpool,
@@ -3191,6 +3927,57 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                             .await;
                     }
                 }
+                // Task B1 / F0: the DAILY count-trigger that WAKES the synthesis
+                // (model) arm. Right after the resolvers add today's resolved
+                // beliefs, refit + persist the synthesis scope's calibration the
+                // MOMENT its resolved record crosses FULL_AUTONOMY_N (50) — no need
+                // to wait for the weekly/Monday boundary (which a multi-day demo may
+                // never hit). Idempotent (the fitted_on_n guard makes a re-run on
+                // unchanged data a no-op) and STAGE-GATED (auto_persist =>
+                // PaperLedger only, I7). Reuses `reviews`'s synth scope; with no
+                // [review] wiring or no synth_category it is a clean no-op. A failure
+                // ALERTS and continues — never crashes the boundary.
+                if let Some(rw) = reviews.as_ref() {
+                    if let Some(category) = rw.synth_category.as_deref() {
+                        match persist_daily_calibration(
+                            rpool,
+                            synth_model,
+                            Some(category),
+                            rw.auto_persist_calibration,
+                            now,
+                            CALIBRATION_PERSIST_BASE_TAG + day_base,
+                        )
+                        .await
+                        {
+                            Ok(n) if n > 0 => {
+                                total_send_failures += runner
+                                    .route_alerts(
+                                        slack,
+                                        &[(
+                                            fortuna_ops::MessageKind::Digest,
+                                            format!(
+                                                "calibration fitted on the resolved record — \
+                                                 model arm warm ({n} scope(s) persisted)"
+                                            ),
+                                        )],
+                                    )
+                                    .await;
+                            }
+                            Ok(_) => {}
+                            Err(e) => {
+                                total_send_failures += runner
+                                    .route_alerts(
+                                        slack,
+                                        &[(
+                                            fortuna_ops::MessageKind::Ops,
+                                            format!("daily calibration persist FAILED: {e}"),
+                                        )],
+                                    )
+                                    .await;
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -3215,12 +4002,44 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                     .await
                 {
                     Ok(wr) => {
+                        // Task B1 / F0: persist the audit's fitted calibration set(s)
+                        // — STAGE-GATED (auto_persist => PaperLedger, I7) and
+                        // idempotent (the fitted_on_n guard, so this is a no-op when
+                        // the daily count-trigger already persisted the same resolved
+                        // record). The daemon never advances a version outside paper.
+                        let week_base =
+                            CALIBRATION_PERSIST_BASE_TAG + (now.epoch_millis().max(0) as u64);
+                        let persisted = match persist_fitted_calibration(
+                            &rw.pool,
+                            &wr.calibration,
+                            rw.auto_persist_calibration,
+                            now,
+                            week_base,
+                        )
+                        .await
+                        {
+                            Ok(n) => n,
+                            Err(e) => {
+                                total_send_failures += runner
+                                    .route_alerts(
+                                        slack,
+                                        &[(
+                                            fortuna_ops::MessageKind::Ops,
+                                            format!("weekly calibration persist FAILED: {e}"),
+                                        )],
+                                    )
+                                    .await;
+                                0
+                            }
+                        };
                         let summary = format!(
                             "FORTUNA weekly review — {} calibrated scope(s), {} GO/NO-GO \
-                             recommendation(s), {} lesson candidate(s) (operator action, I7)",
+                             recommendation(s), {} lesson candidate(s), {} calibration \
+                             version(s) persisted (operator action, I7)",
                             wr.calibration.len(),
                             wr.recommendations.len(),
-                            wr.lesson_candidates.len()
+                            wr.lesson_candidates.len(),
+                            persisted,
                         );
                         let mut msgs = vec![(fortuna_ops::MessageKind::Digest, summary)];
                         for cand in &wr.lesson_candidates {
@@ -3241,6 +4060,83 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                 )],
                             )
                             .await;
+                    }
+                }
+
+                // WS2 S6d (milestone D-E "recompute on cadence"): on the SAME
+                // week boundary, persist the append-only `scorecards` snapshot
+                // for the synthesis scope. THIN connecting wiring — the tested
+                // `recompute_scorecards` driver owns the sample-collection +
+                // scoring math; here we only enumerate the (scope, producer)
+                // buckets and hand each to the driver. The scope is the
+                // [synthesis].category the review already audits; the producers
+                // are the DATA-driven DISTINCT set (no producer literal) PLUS the
+                // merged `None` bucket (the dashboard reads both). Each persists
+                // ONE card stamped `now`. The verdict floor is the §11 forward
+                // gate (`SCORECARD_MIN_FORWARD_N`). A failure ALERTS and continues
+                // — a scorecard is a transparency snapshot, never a money path,
+                // and must never crash the boundary (mirrors the calibration
+                // persist posture above).
+                if let Some(scope) = rw.synth_category.as_deref() {
+                    // Deterministic, no wall-clock entropy: the week's epoch-ms
+                    // base + the disjoint scorecard tag, advanced per recompute so
+                    // the 01SCD row ids in this pass never collide.
+                    let mut scorecard_id_base =
+                        SCORECARD_RECOMPUTE_BASE_TAG + (now.epoch_millis().max(0) as u64);
+                    let producers = match BeliefsRepo::new(rw.pool.clone())
+                        .producers_for_resolved_category(scope)
+                        .await
+                    {
+                        Ok(p) => p,
+                        Err(e) => {
+                            total_send_failures += runner
+                                .route_alerts(
+                                    slack,
+                                    &[(
+                                        fortuna_ops::MessageKind::Ops,
+                                        format!("weekly scorecard producers FAILED: {e}"),
+                                    )],
+                                )
+                                .await;
+                            Vec::new()
+                        }
+                    };
+                    // The merged-scope bucket (producer = None) FIRST, then each
+                    // attributed producer — every bucket the §9.1 dashboard reads.
+                    let buckets: Vec<Option<&str>> = std::iter::once(None)
+                        .chain(producers.iter().map(|p| Some(p.as_str())))
+                        .collect();
+                    for producer in buckets {
+                        match recompute_scorecards(
+                            &rw.pool,
+                            scope,
+                            producer,
+                            SCORECARD_MIN_FORWARD_N,
+                            scorecard_id_base,
+                            now,
+                        )
+                        .await
+                        {
+                            Ok(_) => {
+                                // One id consumed per persisted card; advance so the
+                                // next bucket's 01SCD id is disjoint.
+                                scorecard_id_base = scorecard_id_base.wrapping_add(1);
+                            }
+                            Err(e) => {
+                                total_send_failures += runner
+                                    .route_alerts(
+                                        slack,
+                                        &[(
+                                            fortuna_ops::MessageKind::Ops,
+                                            format!(
+                                                "weekly scorecard recompute FAILED for \
+                                                 ({scope}, {producer:?}): {e}"
+                                            ),
+                                        )],
+                                    )
+                                    .await;
+                            }
+                        }
                     }
                 }
             }
@@ -3568,6 +4464,28 @@ const RESOLVE_BATCH_CAP: i64 = 256;
 const WEATHER_SCORE_BASE_TAG: u64 = 1 << 56;
 const FUNDING_SCORE_BASE_TAG: u64 = 1 << 57;
 
+/// Per-day base TAG for the daily calibration-persist `01CAL…` param-ids (Task B1
+/// / F0). A THIRD disjoint high tag on the UTC-day epoch-ms base, 2^58 — the same
+/// 2^56-gap rationale as the score tags, so a day's `01CAL` param-ids can never
+/// collide with that day's `01BSC` weather/funding score-ids (different id space
+/// anyway) nor with another day's `01CAL` run.
+const CALIBRATION_PERSIST_BASE_TAG: u64 = 1 << 58;
+
+/// Per-week base TAG for the weekly scorecard-recompute `01SCD…` row ids (WS2
+/// S6d). A FOURTH disjoint high tag on the week's epoch-ms base, 2^59 — the same
+/// 2^56-gap rationale as the score/calibration tags. The `01SCD` id space is
+/// distinct from `01BSC`/`01CAL` anyway; the gap simply guarantees the per-week
+/// per-(scope,producer) offset (a handful of recompute passes) can never wrap
+/// into another week's run.
+const SCORECARD_RECOMPUTE_BASE_TAG: u64 = 1 << 59;
+
+/// The forward-resolved volume floor below which a scorecard's GO/NO-GO verdict
+/// is `Insufficient` (spec Section 11: ">= 30 resolved beliefs per active
+/// category" — the same gate the weekly review's forward-volume recommendation
+/// uses). Passed to `recompute_scorecards` as `min_n` so the persisted snapshot's
+/// verdict matches the §11 gate.
+const SCORECARD_MIN_FORWARD_N: u32 = 30;
+
 /// Resolve + score every DUE, capturable `funding_forecast` scalar belief
 /// (design §2.6 A2d + §9.1; the SLICE-3-part-3 standalone — NOT yet wired into
 /// `drive()`, that one-line additive call is a separate follow-on). For each
@@ -3810,6 +4728,41 @@ pub const AEOLUS_PRODUCER: &str = "aeolus";
 /// bounded-scan assumptions).
 const CLI_SCAN_CAP: i64 = 512;
 
+/// Maximum age (seconds) for the freshest `nws.cli` signal before it is
+/// considered STALE. NWS CLI products are issued daily; >36 h means ≥1 missed
+/// day. When the freshest signal exceeds this age the daily-boundary block
+/// routes an `Ops` alert so the operator sees it — the resolver will have
+/// returned `Ok(0)` (indistinguishable from "nothing due") without this check.
+/// A7 will later add a named metric over this same detection; B2 owns the
+/// detection + alert. (F3)
+pub const NWS_CLI_STALE_SECS: i64 = 36 * 3600;
+
+/// Return `true` when the `nws.cli` signal stream appears stale or absent.
+///
+/// `freshest` is the ISO8601 `received_at` of the most-recent `nws.cli` row
+/// (the caller passes `recent_by_kind(&[NWS_CLI_KIND], "", 1).first().map(|s|
+/// s.received_at.as_str())`). `now` comes from the injected `Clock` (the
+/// daemon's `now` value at the daily boundary). `max_secs` is the staleness
+/// threshold in seconds (callers pass [`NWS_CLI_STALE_SECS`]).
+///
+/// Returns `true` when:
+/// - `freshest` is `None` (no `nws.cli` signal has ever been ingested), OR
+/// - the gap `(now − freshest) > max_secs` (at least one daily issue was missed).
+///
+/// The function is pure and unit-testable without a database or daemon loop.
+/// Staleness detection lives here; the caller routes the alert and counts it in
+/// `total_send_failures` (same pattern as the surrounding daily-boundary alerts).
+pub fn nws_cli_is_stale(freshest: Option<&str>, now: UtcTimestamp, max_secs: i64) -> bool {
+    let Some(ts_str) = freshest else {
+        return true; // absent → stale
+    };
+    let Ok(received) = fortuna_core::clock::UtcTimestamp::parse_iso8601(ts_str) else {
+        return true; // unparseable timestamp → treat as stale (defensive)
+    };
+    let age_secs = (now.epoch_millis() - received.epoch_millis()) / 1000;
+    age_secs > max_secs
+}
+
 /// Resolve + score every DUE, gradeable Aeolus WEATHER belief (source contract
 /// `docs/design/aeolus-fortuna-source-contract.md` §5 Layer 3 — "the loop"). The
 /// standalone resolver mirroring [`resolve_and_score_funding_beliefs`; NOT yet
@@ -3850,7 +4803,7 @@ const CLI_SCAN_CAP: i64 = 512;
 /// # Idempotency
 ///
 /// `resolve_and_score` / `ScalarBeliefsRepo::resolve` are set-once; a re-run never
-/// re-lists an already-resolved belief (`open_aeolus_weather_due` /
+/// re-lists an already-resolved belief (`open_weather_bracket_due` /
 /// `unresolved_due` exclude it), so a second call resolves 0. A `CorruptRow` from
 /// a concurrent double-resolve is treated as "already resolved, skip"; a UNIQUE
 /// `(belief_id, rule_id)` collision on the scalar score insert is treated as
@@ -3862,12 +4815,34 @@ pub async fn resolve_and_score_weather_beliefs(
 ) -> Result<usize, DaemonError> {
     use fortuna_cognition::aeolus_forecast::Variable;
     use fortuna_cognition::aeolus_resolve::{cli_serves_station, realized_f_for, score_bracket};
+    use fortuna_cognition::events::{clv_bps as compute_clv_bps, LiquidityPolicy, SnapshotPoint};
     use fortuna_cognition::scoring::{
         CrpsPinballRule, PredictiveDistribution, Quantile, RealizedOutcome, ScoringRule,
     };
-    use fortuna_ledger::{BeliefScoresRepo, BeliefsRepo, ScalarBeliefsRepo, SignalsRepo};
+    use fortuna_core::market::Side as CoreSide;
+    use fortuna_core::money::Cents;
+    use fortuna_ledger::{
+        BeliefScoresRepo, BeliefsRepo, EdgesRepo, EventsRepo, ScalarBeliefsRepo, SignalsRepo,
+        SnapshotsRepo,
+    };
     use fortuna_sources::nws_climate::{nws_cli_realized, RealizedExtreme, NWS_CLI_KIND};
     use std::collections::HashMap;
+
+    // WS1 slice 5: LiquidityPolicy constants.
+    // min_touch_qty matches the book-gate touch (1 contract minimum).
+    // max_spread_cents ≤ 10c keeps the CLV signal tight.
+    // GAPS: these will be promoted to config once a config key is confirmed.
+    const CLV_MIN_TOUCH_QTY: i64 = 1;
+    const CLV_MAX_SPREAD_CENTS: i64 = 10;
+
+    let clv_policy = LiquidityPolicy {
+        min_touch_qty: CLV_MIN_TOUCH_QTY,
+        max_spread_cents: CLV_MAX_SPREAD_CENTS,
+    };
+
+    let events_repo = EventsRepo::new(pool.clone());
+    let edges_repo = EdgesRepo::new(pool.clone());
+    let snapshots_repo = SnapshotsRepo::new(pool.clone());
 
     let beliefs = BeliefsRepo::new(pool.clone());
     let scalars = ScalarBeliefsRepo::new(pool.clone());
@@ -3876,10 +4851,10 @@ pub async fn resolve_and_score_weather_beliefs(
     // (a) The two work queues: open binary brackets + open scalar μ/σ beliefs,
     // both DUE (`horizon <= now`). If BOTH are empty, do no signal IO at all.
     let due_binary = beliefs
-        .open_aeolus_weather_due(&now_iso, RESOLVE_BATCH_CAP)
+        .open_weather_bracket_due(&now_iso, RESOLVE_BATCH_CAP)
         .await
         .map_err(|e| DaemonError::Compose {
-            reason: format!("open_aeolus_weather_due: {e}"),
+            reason: format!("open_weather_bracket_due: {e}"),
         })?;
     let due_scalar = scalars
         .unresolved_due(AEOLUS_PRODUCER, &now_iso, RESOLVE_BATCH_CAP)
@@ -3931,6 +4906,8 @@ pub async fn resolve_and_score_weather_beliefs(
     let mut score_offset = 0u64;
 
     // (d) Binary bracket beliefs: Brier the persisted `p` vs the realized outcome.
+    // WS1 slice 5: also compute `clv_bps` for each TRADED belief at resolution.
+    let fills_repo = fortuna_ledger::FillsRepo::new(pool.clone());
     for b in &due_binary {
         let Some(re) = grade(&b.nws_station_id, &b.target_date) else {
             continue; // no clean grade ⇒ leave OPEN for a later run
@@ -3941,14 +4918,108 @@ pub async fn resolve_and_score_weather_beliefs(
             _ => continue, // unknown variable ⇒ skip (never grade on a guess)
         };
         let realized_f = realized_f_for(variable, re.high_f, re.low_f);
-        let Some(event_hint) = b.event_id.strip_prefix("aeolus:") else {
-            continue; // a belief whose event_id lacks the namespace ⇒ skip
-        };
-        let Some((outcome, brier)) = score_bracket(event_hint, b.p, realized_f) else {
+        // Grammar-agnostic: pass the full event_id to score_bracket.
+        // parse_bracket_hint extracts the bracket token via rsplit on [-:#],
+        // handling both "aeolus:…-ge87" and "weather:…#ge87" without naming either.
+        let Some((outcome, brier)) = score_bracket(&b.event_id, b.p, realized_f) else {
             continue; // unparseable/in_bracket hint ⇒ skip, never mis-grade
         };
+
+        // WS1 slice 5: belief→event→edges→market→earliest fill → snapshots → clv_bps.
+        // Failures are non-fatal: CLV is calibration substrate (not the money path).
+        // No panic on timestamp/side parse: defensive skip = None CLV.
+        let clv: Option<f64> = async {
+            // 1. benchmark_at from the event.
+            let event = events_repo.get(&b.event_id).await.ok()?;
+            let benchmark_at =
+                fortuna_core::clock::UtcTimestamp::parse_iso8601(&event.benchmark_at).ok()?;
+
+            // 2. edges → market_ids for this event.
+            let edges = edges_repo.current_edges_for_event(&b.event_id).await.ok()?;
+            if edges.is_empty() {
+                return None;
+            }
+
+            // 3. Earliest fill across all edge-markets (deterministic entry).
+            // Track: (price_cents, side_str, fill_at, market_id).
+            let mut entry: Option<(i64, String, fortuna_core::clock::UtcTimestamp, String)> = None;
+            for edge in &edges {
+                let Some(fill) = fills_repo
+                    .first_fill_for_market(&edge.market_id)
+                    .await
+                    .ok()
+                    .flatten()
+                else {
+                    continue; // no fill on this edge-market
+                };
+                let Ok(fill_at) = fortuna_core::clock::UtcTimestamp::parse_iso8601(&fill.at) else {
+                    continue; // defensive: skip unparseable timestamp
+                };
+                let earlier = entry
+                    .as_ref()
+                    .map(|(_, _, t, _)| fill_at.epoch_millis() < t.epoch_millis())
+                    .unwrap_or(true);
+                if earlier {
+                    entry = Some((
+                        fill.price_cents,
+                        fill.side.clone(),
+                        fill_at,
+                        edge.market_id.clone(),
+                    ));
+                }
+            }
+            // No fill on ANY edge-market → CLV = None (proposed but not traded).
+            let (entry_price_cents, entry_side_str, _fill_at, market_id) = entry?;
+
+            // 4. Side conversion — defensive, never panic.
+            let side = match entry_side_str.as_str() {
+                "yes" => CoreSide::Yes,
+                "no" => CoreSide::No,
+                _ => return None, // unknown side string: skip
+            };
+
+            // 5. Pre-benchmark liquid snapshots for that market.
+            let benchmark_iso = benchmark_at.to_iso8601();
+            let snap_rows = snapshots_repo
+                .snapshots_for_market_before(&market_id, &b.event_id, &benchmark_iso)
+                .await
+                .ok()?;
+
+            // Convert SnapshotRow → SnapshotPoint (defensive on at-parse).
+            let points: Vec<SnapshotPoint> = snap_rows
+                .into_iter()
+                .filter_map(|r| {
+                    let at = fortuna_core::clock::UtcTimestamp::parse_iso8601(&r.at).ok()?;
+                    Some(SnapshotPoint {
+                        at,
+                        best_bid: r.best_bid_cents.map(Cents::new),
+                        best_ask: r.best_ask_cents.map(Cents::new),
+                        bid_qty: r.bid_qty.unwrap_or(0),
+                        ask_qty: r.ask_qty.unwrap_or(0),
+                    })
+                })
+                .collect();
+
+            if points.is_empty() {
+                return None;
+            }
+
+            // 6. Compute CLV — returns None when no liquid pre-benchmark snap exists.
+            let bps_i64 = compute_clv_bps(
+                Cents::new(entry_price_cents),
+                side,
+                benchmark_at,
+                &points,
+                &clv_policy,
+            )?;
+
+            // Persist as bps-as-f64 (e.g. 83.0 for +83 bps). NEVER /10000.
+            Some(bps_i64 as f64)
+        }
+        .await;
+
         match beliefs
-            .resolve_and_score(&b.belief_id, outcome, brier, None)
+            .resolve_and_score(&b.belief_id, outcome, brier, clv)
             .await
         {
             Ok(()) => resolved += 1,
@@ -4166,6 +5237,155 @@ fn reconciliation_context<
     }]
 }
 
+/// Persist the fitted calibration set(s) of a deterministic audit, idempotently
+/// and STAGE-GATED (Task B1 / F0 — this is what WAKES the synthesis arm: with no
+/// `calibration_params` row the synthesis pipeline sizes ZERO, so an unpersisted
+/// fit never trades). Shared by the daily count-trigger and the weekly path.
+///
+/// For each scope that carries a `fitted` set AND when `auto_persist` is true:
+///   - look up `latest()` for the scope (kind = "platt") and read its provenance
+///     `fitted_on_n` (0 if there is no prior row);
+///   - the IDEMPOTENCY guard: persist ONLY when there is no prior row OR the new
+///     fit was trained on STRICTLY MORE resolved samples (`fitted_on_n` advanced).
+///     Re-running a boundary on unchanged resolved data is therefore a clean
+///     no-op (no duplicate version); new resolved data advances the version.
+///   - INSERT one versioned row (`version` rides from the deterministic audit,
+///     which is `prior + 1`).
+///
+/// I7 WALL: `auto_persist = false` (every non-PaperLedger ExecutionMode) ⇒ this
+/// persists NOTHING and returns 0. Calibration in live/dry-run/demo/production is
+/// an operator action; the daemon never advances a version on its own there.
+///
+/// Returns the number of scopes persisted. `id_base` seeds the ULID `param_id`
+/// (the UTC-day epoch base at the call site); the per-scope index is mixed into
+/// the low bits so multiple scopes in one call never collide.
+pub async fn persist_fitted_calibration(
+    pool: &PgPool,
+    scopes: &[ScopeCalibration],
+    auto_persist: bool,
+    now: UtcTimestamp,
+    id_base: u64,
+) -> Result<usize, DaemonError> {
+    // The I7 wall: a non-paper mode persists nothing, regardless of the fit.
+    if !auto_persist {
+        return Ok(0);
+    }
+    let repo = CalibrationParamsRepo::new(pool.clone());
+    let now_iso = now.to_iso8601();
+    let mut persisted = 0usize;
+    for (idx, scope) in scopes.iter().enumerate() {
+        let Some(params) = scope.fitted.as_ref() else {
+            continue;
+        };
+        // The prior row's training count, if any, gates a re-issue.
+        let latest = repo
+            .latest(
+                &scope.key.model_id,
+                &scope.key.strategy,
+                &scope.key.category,
+                SYNTH_CALIBRATION_KIND,
+            )
+            .await
+            .map_err(|e| DaemonError::Compose {
+                reason: format!("calibration persist latest: {e}"),
+            })?;
+        let prior_fitted_on_n = latest
+            .as_ref()
+            .and_then(|row| row.params.get("fitted_on_n").and_then(|v| v.as_i64()))
+            .unwrap_or(0);
+        // Idempotency: only a strictly larger resolved record earns a new version.
+        if latest.is_some() && (params.fitted_on_n as i64) <= prior_fitted_on_n {
+            continue;
+        }
+        let value = serde_json::to_value(params).map_err(|e| DaemonError::Compose {
+            reason: format!("calibration params serialize: {e}"),
+        })?;
+        // `01CAL…` param-id from the caller's day base + the per-scope index (the
+        // same string-id idiom as the daily score resolvers; the per-day epoch base
+        // separates day-over-day, the index separates scopes within one call).
+        let param_id = format!("01CAL{:021}", id_base.wrapping_add(idx as u64));
+        repo.insert(
+            &param_id,
+            &scope.key.model_id,
+            &scope.key.strategy,
+            &scope.key.category,
+            SYNTH_CALIBRATION_KIND,
+            &value,
+            params.version as i32,
+            &now_iso,
+            &now_iso,
+        )
+        .await
+        .map_err(|e| DaemonError::Compose {
+            reason: format!("calibration params insert: {e}"),
+        })?;
+        persisted += 1;
+    }
+    Ok(persisted)
+}
+
+/// The DAILY count-trigger for the synthesis arm's calibration (Task B1 / F0).
+/// Unlike the weekly path it does NOT wait for a Monday boundary: on every UTC
+/// day, once the synthesis category has enough resolved beliefs, it fits and
+/// persists — so a multi-day demo warms the model arm as soon as the resolved
+/// record crosses `FULL_AUTONOMY_N` (50), instead of staying dark until the first
+/// weekly boundary. Deterministic end to end (it reuses `calibration_report`, the
+/// same fit the weekly audit uses) and STAGE-GATED via `auto_persist` (I7:
+/// PaperLedger only). Returns the number of scopes persisted.
+///
+/// With no `synth_category` there is no calibrated scope, so it is a no-op (Ok(0)).
+/// A degenerate or below-threshold record yields `fitted = None`, so nothing is
+/// persisted — the additive-and-inert property the daily boundary relies on.
+pub async fn persist_daily_calibration(
+    pool: &PgPool,
+    synth_model: &str,
+    synth_category: Option<&str>,
+    auto_persist: bool,
+    now: UtcTimestamp,
+    id_base: u64,
+) -> Result<usize, DaemonError> {
+    let Some(category) = synth_category else {
+        return Ok(0);
+    };
+    // The resolved (claimed-p, outcome) record + CLV for the scope (the SAME
+    // query the weekly audit reads).
+    let stats = BeliefsRepo::new(pool.clone())
+        .resolved_stats(category)
+        .await
+        .map_err(|e| DaemonError::Compose {
+            reason: format!("daily calibration resolved_stats: {e}"),
+        })?;
+    let key = ScopeKey {
+        model_id: synth_model.to_string(),
+        strategy: SYNTH_CALIBRATION_STRATEGY.to_string(),
+        category: category.to_string(),
+    };
+    let record = ScopeRecord {
+        key: key.clone(),
+        samples: stats.iter().map(|s| (s.p, s.outcome)).collect(),
+        clv_bps: stats.iter().filter_map(|s| s.clv_bps).collect(),
+    };
+    // The prior version per scope, so the fitted set's version is prior + 1.
+    let mut prior_versions: std::collections::BTreeMap<ScopeKey, u32> =
+        std::collections::BTreeMap::new();
+    if let Some(row) = CalibrationParamsRepo::new(pool.clone())
+        .latest(
+            synth_model,
+            SYNTH_CALIBRATION_STRATEGY,
+            category,
+            SYNTH_CALIBRATION_KIND,
+        )
+        .await
+        .map_err(|e| DaemonError::Compose {
+            reason: format!("daily calibration latest params: {e}"),
+        })?
+    {
+        prior_versions.insert(key, row.version.max(0) as u32);
+    }
+    let scopes = calibration_report(&[record], &prior_versions);
+    persist_fitted_calibration(pool, &scopes, auto_persist, now, id_base).await
+}
+
 /// The weekly review cycle (spec 5.8 weekly review; fires at the week boundary
 /// once slice B2 wires it into drive()): a DETERMINISTIC calibration audit (per
 /// calibrated scope) + GO/NO-GO recommendations against the [review] thresholds
@@ -4250,7 +5470,101 @@ pub async fn run_weekly_review<
             Some(r.clv_bps.iter().sum::<f64>() / r.clv_bps.len() as f64)
         }
     });
-    let synth_resolved = records.first().map(|r| r.samples.len()).unwrap_or(0);
+    // §9.1 forward-only count: backtest rows (source='historical-import', WS3)
+    // are excluded from the GO/NO-GO volume gate. Calibration training (samples
+    // above) is UNCHANGED — backtest will seed it when WS3 lands.
+    // No-op today: no historical-import rows exist yet.
+    let synth_resolved: usize = if let Some(category) = synth_category {
+        BeliefsRepo::new(pool.clone())
+            .resolved_count_forward(None, category)
+            .await
+            .map_err(|e| DaemonError::Compose {
+                reason: format!("weekly review resolved_count_forward: {e}"),
+            })? as usize
+    } else {
+        0
+    };
+
+    // §11 Brier-beats-baseline gate (WS1 slice 8b): compute the producer Brier
+    // and de-vigged market baseline Brier from forward-resolved beliefs.
+    // N+1 snapshot lookup (infrequent weekly path; reuses tested SnapshotsRepo).
+    // market_p = (yes_bid + yes_ask) / 200.0 (de-vigged Kalshi YES mid).
+    // Beliefs with no mapped market OR no pre-benchmark liquid snapshot are SKIPPED.
+    let (synth_brier, synth_market_baseline_brier): (Option<f64>, Option<f64>) =
+        if let Some(category) = synth_category {
+            let fwd_beliefs = BeliefsRepo::new(pool.clone())
+                .forward_resolved_for_brier_baseline(category)
+                .await
+                .map_err(|e| DaemonError::Compose {
+                    reason: format!("weekly review forward_resolved_for_brier_baseline: {e}"),
+                })?;
+
+            let mut producer_brier_sum = 0.0_f64;
+            let mut market_baseline_sum = 0.0_f64;
+            let mut count = 0usize;
+
+            for belief in &fwd_beliefs {
+                let outcome_f = if belief.outcome { 1.0_f64 } else { 0.0_f64 };
+                // Producer Brier contribution (always computable from the belief row).
+                let pb = (belief.p - outcome_f).powi(2);
+
+                // Find the mapped market for this belief's event (N+1 edge lookup).
+                let edges = fortuna_ledger::EdgesRepo::new(pool.clone())
+                    .current_edges_for_event(&belief.event_id)
+                    .await
+                    .map_err(|e| DaemonError::Compose {
+                        reason: format!(
+                            "weekly review brier baseline: edges for {}: {e}",
+                            belief.event_id
+                        ),
+                    })?;
+
+                // Use only direct-mapped, confirmed edges (same tier as CLV).
+                let Some(edge) = edges
+                    .iter()
+                    .find(|e| e.confirmed_by.is_some() && e.mapping_type == "direct")
+                else {
+                    continue; // no confirmed direct edge → skip for baseline
+                };
+
+                // Snapshot: latest liquid before benchmark_at.
+                let Some(snap) = fortuna_ledger::SnapshotsRepo::new(pool.clone())
+                    .latest_liquid_before(&edge.market_id, &belief.event_id, &belief.benchmark_at)
+                    .await
+                    .map_err(|e| DaemonError::Compose {
+                        reason: format!(
+                            "weekly review brier baseline snapshot for {}: {e}",
+                            belief.belief_id
+                        ),
+                    })?
+                else {
+                    continue; // no pre-benchmark liquid snapshot → skip
+                };
+
+                let (Some(bid), Some(ask)) = (snap.best_bid_cents, snap.best_ask_cents) else {
+                    continue; // missing bid/ask → skip
+                };
+                if bid <= 0 || ask <= 0 {
+                    continue; // illiquid → skip
+                }
+                let market_p = (bid + ask) as f64 / 200.0;
+                let mb = (market_p - outcome_f).powi(2);
+
+                producer_brier_sum += pb;
+                market_baseline_sum += mb;
+                count += 1;
+            }
+
+            if count == 0 {
+                (None, None)
+            } else {
+                let n = count as f64;
+                (Some(producer_brier_sum / n), Some(market_baseline_sum / n))
+            }
+        } else {
+            (None, None)
+        };
+
     let strategies: Vec<StrategyRecord> = snap
         .strategies
         .iter()
@@ -4269,6 +5583,12 @@ pub async fn run_weekly_review<
                 fees_cents: row.fees_cents,
                 clv_mean_bps: if is_synth { synth_clv } else { None },
                 invariant_violations: 0,
+                brier: if is_synth { synth_brier } else { None },
+                market_baseline_brier: if is_synth {
+                    synth_market_baseline_brier
+                } else {
+                    None
+                },
             }
         })
         .collect();
@@ -4307,6 +5627,135 @@ pub async fn run_weekly_review<
         ),
     );
     Ok(wr)
+}
+
+/// WS2 milestone D-E (cadence recompute): the daemon-cadence DRIVER that
+/// populates the append-only `scorecards` snapshot from the ledger.
+///
+/// This is THIN CONNECTING WIRING, not new scoring logic. It COLLECTS the exact
+/// per-sample vectors the weekly-review Brier-baseline path already computes
+/// (`run_weekly_review` step §11) — for each forward-resolved belief in `scope`:
+/// the binary sample `(p, outcome)`, the de-vigged market baseline loss
+/// `mb = (market_p − outcome)²` with `market_p = (best_bid + best_ask) / 200.0`
+/// from the latest liquid pre-`benchmark_at` snapshot of the belief's confirmed
+/// direct edge, and the per-belief CLV (transparency only). It then calls the
+/// PURE aggregator [`fortuna_cognition::scorecard_agg::assemble_from_samples`]
+/// (which owns Brier/Log/CORP/DM math — none of it duplicated here) and persists
+/// ONE scorecard for `(scope, producer, "forward")` via
+/// [`fortuna_ledger::ScorecardsRepo::insert_scorecard`], stamped `now`.
+///
+/// `window = "forward"` excludes `source='historical-import'` exactly as the
+/// baseline path does — `forward_resolved_for_brier_baseline` carries that
+/// filter, so the collected samples, baseline, and CLV are all forward-only.
+///
+/// Beliefs with no confirmed direct edge, or no liquid pre-benchmark snapshot,
+/// or a non-positive bid/ask, are SKIPPED for the baseline series (same tier as
+/// CLV) — identical to the weekly-review loop. An empty scope yields an
+/// `Insufficient` card (`n = 0 < min_n`), still persisted (the honest snapshot),
+/// never a panic.
+///
+/// Returns the assembled `Scorecard` (also persisted) so the cadence caller can
+/// log/route it. `id_base` mints the row ULID (`01SCD…`, the daemon id pattern).
+pub async fn recompute_scorecards(
+    pool: &PgPool,
+    scope: &str,
+    producer: Option<&str>,
+    min_n: u32,
+    id_base: u64,
+    now: UtcTimestamp,
+) -> Result<Option<fortuna_cognition::scoring::Scorecard>, DaemonError> {
+    // Forward-resolved beliefs for this scope (category); historical-import is
+    // already excluded by the query (the window="forward" contract).
+    let fwd_beliefs = BeliefsRepo::new(pool.clone())
+        .forward_resolved_for_brier_baseline(scope)
+        .await
+        .map_err(|e| DaemonError::Compose {
+            reason: format!("recompute_scorecards forward_resolved for {scope}: {e}"),
+        })?;
+
+    // COLLECT the per-sample vectors (the existing baseline path accumulates only
+    // sums; here we keep the vectors the pure aggregator needs). A sample joins
+    // the series ONLY when its de-vigged market baseline is computable — same
+    // tier as the weekly-review loop — so `samples` and `baseline_losses` stay
+    // index-aligned for the Diebold–Mariano comparison.
+    let mut samples: Vec<(f64, bool)> = Vec::with_capacity(fwd_beliefs.len());
+    let mut baseline_losses: Vec<f64> = Vec::with_capacity(fwd_beliefs.len());
+    let mut clv: Vec<f64> = Vec::new();
+
+    for belief in &fwd_beliefs {
+        let outcome_f = if belief.outcome { 1.0_f64 } else { 0.0_f64 };
+
+        // Find the mapped market for this belief's event (N+1 edge lookup; the
+        // infrequent cadence path reuses the tested EdgesRepo, like the review).
+        let edges = fortuna_ledger::EdgesRepo::new(pool.clone())
+            .current_edges_for_event(&belief.event_id)
+            .await
+            .map_err(|e| DaemonError::Compose {
+                reason: format!("recompute_scorecards: edges for {}: {e}", belief.event_id),
+            })?;
+        let Some(edge) = edges
+            .iter()
+            .find(|e| e.confirmed_by.is_some() && e.mapping_type == "direct")
+        else {
+            continue; // no confirmed direct edge → skip for the baseline series
+        };
+
+        // Snapshot: latest liquid before benchmark_at.
+        let Some(snap) = fortuna_ledger::SnapshotsRepo::new(pool.clone())
+            .latest_liquid_before(&edge.market_id, &belief.event_id, &belief.benchmark_at)
+            .await
+            .map_err(|e| DaemonError::Compose {
+                reason: format!(
+                    "recompute_scorecards snapshot for {}: {e}",
+                    belief.belief_id
+                ),
+            })?
+        else {
+            continue; // no pre-benchmark liquid snapshot → skip
+        };
+        let (Some(bid), Some(ask)) = (snap.best_bid_cents, snap.best_ask_cents) else {
+            continue; // missing bid/ask → skip
+        };
+        if bid <= 0 || ask <= 0 {
+            continue; // illiquid → skip
+        }
+
+        let market_p = (bid + ask) as f64 / 200.0;
+        let mb = (market_p - outcome_f).powi(2);
+
+        samples.push((belief.p, belief.outcome));
+        baseline_losses.push(mb);
+        // Forward-only, per-belief CLV (transparency metric; never gate input).
+        if let Some(c) = belief.clv_bps {
+            clv.push(c);
+        }
+    }
+
+    // The PURE aggregator owns every metric (Brier gate, Log, CORP, DM, mean
+    // CLV); we only hand it the collected vectors. rps/crps/pit are honestly
+    // empty for a binary scope (the aggregator's contract).
+    let card = fortuna_cognition::scorecard_agg::assemble_from_samples(
+        scope,
+        producer,
+        "forward",
+        &samples,
+        &baseline_losses,
+        &clv,
+        min_n,
+    );
+
+    // Persist the snapshot (append-only; INSERT-only, idempotent on
+    // (scope, producer, window, computed_at)). computed_at = now in the repo's
+    // fixed ISO8601-ms format.
+    let id = format!("01SCD{id_base:021}");
+    fortuna_ledger::ScorecardsRepo::new(pool.clone())
+        .insert_scorecard(&id, &card, &now.to_iso8601())
+        .await
+        .map_err(|e| DaemonError::Compose {
+            reason: format!("recompute_scorecards insert for {scope}: {e}"),
+        })?;
+
+    Ok(Some(card))
 }
 
 /// Minimal weekly-review framing context (the spec-5.8 inputs are the
@@ -4663,6 +6112,86 @@ pub fn rich_daily_digest<
         veto_decisions: snap.veto_decisions,
         veto_suppressed: snap.veto_suppressed,
     })
+}
+
+/// Idempotent boot-time seed for the personas registry (D2).
+///
+/// For each configured persona entry: reads `{dir}/persona.md` + `{dir}/schema.json`,
+/// parses them through `PersonaDef::parse` (which computes `def.method_hash` = SHA-256
+/// of the ENTIRE `persona.md` — the same hash the runtime loader checks), then inserts
+/// the row only when `PersonasRepo::head` returns `None` (skip if already registered,
+/// so a re-boot never double-inserts). The seeded `method_hash` equals what the loader
+/// computes by construction — a re-hash or a separate hash computation is
+/// intentionally absent. Returns the count of rows inserted (0 on a re-boot).
+///
+/// `now_iso` MUST come from the injected boot clock (the caller's `UtcTimestamp`
+/// converted via `.to_iso8601()`), never from `SystemTime::now()` or `Utc::now()`.
+/// This keeps the timestamp deterministic for DST replay.
+pub async fn seed_personas(
+    pool: &PgPool,
+    personas_cfg: &[crate::boot::PersonaEntryConfig],
+    now_iso: &str,
+) -> anyhow::Result<usize> {
+    let repo = fortuna_ledger::PersonasRepo::new(pool.clone());
+    let mut seeded = 0usize;
+    for entry in personas_cfg {
+        let md_path = format!("{}/persona.md", entry.dir);
+        let schema_path = format!("{}/schema.json", entry.dir);
+        let md = std::fs::read_to_string(&md_path)
+            .map_err(|e| anyhow::anyhow!("seed_personas: reading {md_path}: {e}"))?;
+        let schema_json = std::fs::read_to_string(&schema_path)
+            .map_err(|e| anyhow::anyhow!("seed_personas: reading {schema_path}: {e}"))?;
+        let def = fortuna_cognition::persona::PersonaDef::parse(&md, &schema_json)
+            .map_err(|e| anyhow::anyhow!("seed_personas: parsing persona {:?}: {e}", entry.id))?;
+        // Idempotent: skip if a registry head already exists for this persona.
+        let head = repo.head(&def.meta.id).await.map_err(|e| {
+            anyhow::anyhow!(
+                "seed_personas: querying registry head for {:?}: {e}",
+                def.meta.id
+            )
+        })?;
+        if head.is_some() {
+            continue;
+        }
+        // Derive a stable row id from the persona id + version (no randomness; no
+        // wall-clock entropy — the row is uniquely identified by (persona_id, version)
+        // and the DB UNIQUE constraint enforces that; the row_id is an opaque string
+        // key for the audit trail).
+        let persona_row_id = format!("{}:v{}", def.meta.id, def.meta.version);
+        let domain_tags = serde_json::Value::Array(
+            def.meta
+                .domain_tags
+                .iter()
+                .map(|t| serde_json::Value::String(t.clone()))
+                .collect(),
+        );
+        let reads_signal_kinds = serde_json::Value::Array(
+            def.meta
+                .reads_signal_kinds
+                .iter()
+                .map(|k| serde_json::Value::String(k.clone()))
+                .collect(),
+        );
+        repo.insert(
+            &persona_row_id,
+            &def.meta.id,
+            def.meta.version,
+            &def.meta.domain,
+            &domain_tags,
+            &reads_signal_kinds,
+            &def.meta.tier,
+            &def.method_hash, // hash from PersonaDef::parse — guaranteed match
+            &def.meta.output_schema_version,
+            "active",
+            None, // supersedes: first insert, no prior row
+            now_iso,
+            now_iso,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("seed_personas: inserting persona {:?}: {e}", def.meta.id))?;
+        seeded += 1;
+    }
+    Ok(seeded)
 }
 
 #[cfg(test)]

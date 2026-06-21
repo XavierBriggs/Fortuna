@@ -1,3 +1,15 @@
+# GATE FINDINGS — latest (captain-owned; read at priority)
+
+## LATEST — Loop-Close & Provable Demo milestone (2026-06-19, synchronous captain loop)
+- **Driver:** synchronous captain loop. Charter (re-read every iteration): `docs/superpowers/loop-close-captain-charter.md`.
+- **Goal/design:** `docs/superpowers/specs/2026-06-19-loop-close-and-provable-demo-design.md` · **North-star:** `…/2026-06-19-scoring-and-validation-architecture.md`.
+- **Workstreams:** WS1 live spine (`plans/2026-06-19-ws1-live-spine.md`, 8 slices) → WS2 proof layer → WS3 generic backtest → WS4 demo surface (E1–E6).
+- **Status:** WS1 kicked off. WS1 COMPLETE (9/9 + boundary): head-to-head Brier LIVE (both producers); CLV live; synthesis prices best producer; GO gate truthful. Boundary deep-verify caught+fixed a CRITICAL (meteorologist station). RALPH-STOP: awaiting operator review before WS2.
+- **UI session** (`.claude/worktrees/operator-ui/`): the scorecard serialization contract is pulled forward (early WS2); UI-relevant landings flagged here + in commit subjects.
+- **Gate discipline:** evidence-before-verdict · mutation-proof · gate-vs-pre-slice-base · fixtures-real · surface-real-scope. Protected invariants additions-only, baseline `dadd28a`.
+
+--- prior milestones (2026-06-15 and earlier) below ---
+
 # GATE FINDINGS — latest (verifier-owned; every track reads this at priority (a))
 
 State as of 2026-06-15 (PM), main @ 67e88cc (this-session merges: PerpTick live-wiring @b04183b,

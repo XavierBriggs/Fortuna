@@ -68,18 +68,21 @@ pub struct AeolusReliability {
     pub per_bracket: Vec<BracketScore>,
 }
 
-/// Whether the realized integer high/low satisfies a bracket. `ge t ⟺ realized ≥
+/// Whether the realized high/low satisfies a bracket. `ge t ⟺ realized ≥
 /// t`, `lt t ⟺ realized < t`. `in_bracket` needs a floor+cap pair a single
 /// threshold can't supply → `None` (skipped, mirroring F8).
 ///
 /// `pub` so the resolution bridge (`aeolus_resolve::score_bracket`) scores open
 /// beliefs by the SAME outcome rule — one source of truth for `ge`/`lt`/
 /// `in_bracket`, so the live resolver and this scorecard can never drift.
-pub fn bracket_outcome(threshold_f: i64, comparison: Comparison, realized_f: f64) -> Option<bool> {
-    let t = threshold_f as f64;
+///
+/// The threshold is `f64` (widened from `i64`) to handle fractional Kalshi
+/// bracket thresholds (e.g. `ge87.5` from persona beliefs). Integer thresholds
+/// call this by casting `i64 → f64` which is exact for the temperature range in use.
+pub fn bracket_outcome(threshold_f: f64, comparison: Comparison, realized_f: f64) -> Option<bool> {
     match comparison {
-        Comparison::Ge => Some(realized_f >= t),
-        Comparison::Lt => Some(realized_f < t),
+        Comparison::Ge => Some(realized_f >= threshold_f),
+        Comparison::Lt => Some(realized_f < threshold_f),
         Comparison::InBracket => None,
     }
 }
@@ -100,9 +103,10 @@ pub fn score_reliability(fc: &AeolusForecast, realized_f: f64) -> AeolusReliabil
         };
         // `ge`/`lt` with σ>0 (a parse invariant) ⇒ both `Some`; an `in_bracket`
         // bracket (or a degenerate σ that parse already rejected) is skipped.
+        // Cast i64→f64 for bracket_outcome (exact for the temperature range in use).
         let (Some(p), Some(outcome)) = (
             p,
-            bracket_outcome(bracket.threshold_f, bracket.comparison, realized_f),
+            bracket_outcome(bracket.threshold_f as f64, bracket.comparison, realized_f),
         ) else {
             continue;
         };

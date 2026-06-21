@@ -12,11 +12,22 @@
 //! [`market_to_bucket`] is pure kind-derivation and does NOT filter on status
 //! (the active-only filter is the caller's job), so the settled set still
 //! exercises the bucket-construction + belief + edge logic.
+//!
+//! # Golden regression (C1 decoupling)
+//! `market_to_bucket` now operates on venue-neutral [`MarketView`] (not
+//! `KalshiMarket` directly). The `golden_regression_market_view_geometry`
+//! test proves that `kalshi_market_to_market_view` + `market_to_bucket`
+//! produces the EXACT SAME `WeatherBucket` (kind + market_key + floor/cap)
+//! the old direct-`KalshiMarket` path did — for every representative
+//! strike_type (`between`, `greater`, `less`, unknown).
 
+use fortuna_cognition::aeolus_buckets::BucketKind;
 use fortuna_cognition::aeolus_forecast::parse_response;
+use fortuna_cognition::discovery::MarketView;
 use fortuna_cognition::events::MappingType;
 use fortuna_live::aeolus_venue::{aeolus_bucket_edges, market_to_bucket};
 use fortuna_venues::kalshi::dto::KalshiMarket;
+use fortuna_venues::kalshi::kalshi_market_to_market_view;
 
 const AEOLUS_FIXTURE: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -40,7 +51,7 @@ fn load_forecast() -> fortuna_cognition::aeolus_forecast::AeolusForecast {
 
 /// Read the recorded markets array into `Vec<KalshiMarket>` via
 /// `serde_json::from_value` (the fixture is `{ "markets": [...], "cursor": ... }`).
-fn load_markets() -> Vec<KalshiMarket> {
+fn load_raw_markets() -> Vec<KalshiMarket> {
     let body = std::fs::read_to_string(KALSHI_FIXTURE).expect("read kalshi fixture");
     let root: serde_json::Value = serde_json::from_str(&body).expect("kalshi fixture is json");
     let markets_val = root
@@ -50,15 +61,155 @@ fn load_markets() -> Vec<KalshiMarket> {
     serde_json::from_value(markets_val).expect("markets array deserializes into Vec<KalshiMarket>")
 }
 
+/// Convert the recorded raw `KalshiMarket`s to venue-neutral `MarketView`s
+/// via the adapter conversion (the only path that populates geometry fields).
+fn load_markets() -> Vec<MarketView> {
+    load_raw_markets()
+        .iter()
+        .map(kalshi_market_to_market_view)
+        .collect()
+}
+
 /// The 6 June-13 markets (event_ticker contains "26JUN13") — the complete
 /// partition: T87(less) B87.5 B89.5 B91.5 B93.5(between) T94(greater).
-fn june13(markets: &[KalshiMarket]) -> Vec<KalshiMarket> {
+/// Uses `market_id` (== ticker after conversion).
+fn june13(markets: &[MarketView]) -> Vec<MarketView> {
     markets
         .iter()
-        .filter(|m| m.event_ticker.contains("26JUN13"))
+        .filter(|m| m.market_id.contains("26JUN13"))
         .cloned()
         .collect()
 }
+
+// ─── GOLDEN REGRESSION (C1 load-bearing) ────────────────────────────────────
+
+/// GOLDEN REGRESSION: proves that `kalshi_market_to_market_view` + `market_to_bucket`
+/// produces the EXACT SAME `WeatherBucket` (kind + market_key + floor/cap) the old
+/// direct-`KalshiMarket` path did. One representative of each strike_type.
+///
+/// Fixture data from `markets__high_temp.json` (recorded 2026-06-14):
+///  - KXHIGHNY-26JUN13-T87 : strike_type="less",    cap=87   → LessEq(86)
+///  - KXHIGHNY-26JUN13-B89 : strike_type="between",  floor=89, cap=91 → InRange(89,91)
+///  - KXHIGHNY-26JUN13-T94 : strike_type="greater", floor=94 → GreaterEq(95)
+///
+/// These exact bucket values are what the old code produced by reading
+/// `m.floor_strike_int()` / `m.cap_strike_int()` / `m.strike_type` on `KalshiMarket`.
+/// After C1 the SAME values must come from `m.floor_strike` / `m.cap_strike` /
+/// `m.strike_type` on `MarketView` — identical arithmetic, identical output.
+#[test]
+fn golden_regression_market_view_geometry() {
+    let raw = load_raw_markets();
+
+    // ── "less" representative: T87, cap_strike=87 ────────────────────────────
+    let less_raw = raw
+        .iter()
+        .find(|m| m.ticker.contains("26JUN13-T87"))
+        .expect("T87 in fixture");
+    assert_eq!(less_raw.strike_type.as_deref(), Some("less"));
+    assert_eq!(less_raw.cap_strike_int(), Some(87));
+    let less_view = kalshi_market_to_market_view(less_raw);
+    // Geometry round-trips through MarketView unchanged.
+    assert_eq!(less_view.strike_type.as_deref(), Some("less"));
+    assert_eq!(less_view.cap_strike, Some(87));
+    assert_eq!(less_view.market_id, less_raw.ticker);
+    let bucket = market_to_bucket(&less_view).expect("T87 'less' → LessEq bucket");
+    assert_eq!(bucket.market_key, less_raw.ticker, "market_key == ticker");
+    assert_eq!(
+        bucket.kind,
+        BucketKind::LessEq { threshold_f: 86 },
+        "less: cap-1 = 87-1 = 86"
+    );
+
+    // ── "between" representative: B87.5 (covers 87–88) ──────────────────────
+    let between_raw = raw
+        .iter()
+        .find(|m| m.ticker.contains("26JUN13-B87.5"))
+        .expect("B87.5 in fixture");
+    assert_eq!(between_raw.strike_type.as_deref(), Some("between"));
+    let floor = between_raw.floor_strike_int().expect("B87.5 has floor");
+    let cap = between_raw.cap_strike_int().expect("B87.5 has cap");
+    let between_view = kalshi_market_to_market_view(between_raw);
+    assert_eq!(between_view.strike_type.as_deref(), Some("between"));
+    assert_eq!(between_view.floor_strike, Some(floor));
+    assert_eq!(between_view.cap_strike, Some(cap));
+    assert_eq!(between_view.market_id, between_raw.ticker);
+    let bucket = market_to_bucket(&between_view).expect("B87.5 'between' → InRange bucket");
+    assert_eq!(
+        bucket.market_key, between_raw.ticker,
+        "market_key == ticker"
+    );
+    assert_eq!(
+        bucket.kind,
+        BucketKind::InRange {
+            lo_f: floor,
+            hi_f: cap
+        },
+        "between: InRange(floor, cap) unchanged"
+    );
+
+    // ── "greater" representative: T94, floor_strike=94 ───────────────────────
+    let greater_raw = raw
+        .iter()
+        .find(|m| m.ticker.contains("26JUN13-T94"))
+        .expect("T94 in fixture");
+    assert_eq!(greater_raw.strike_type.as_deref(), Some("greater"));
+    assert_eq!(greater_raw.floor_strike_int(), Some(94));
+    let greater_view = kalshi_market_to_market_view(greater_raw);
+    assert_eq!(greater_view.strike_type.as_deref(), Some("greater"));
+    assert_eq!(greater_view.floor_strike, Some(94));
+    assert_eq!(greater_view.market_id, greater_raw.ticker);
+    let bucket = market_to_bucket(&greater_view).expect("T94 'greater' → GreaterEq bucket");
+    assert_eq!(
+        bucket.market_key, greater_raw.ticker,
+        "market_key == ticker"
+    );
+    assert_eq!(
+        bucket.kind,
+        BucketKind::GreaterEq { threshold_f: 95 },
+        "greater: floor+1 = 94+1 = 95"
+    );
+
+    // ── unknown strike_type → None (no fabricated bucket) ────────────────────
+    use fortuna_cognition::discovery::MarketView as MV;
+    let unknown_view = MV {
+        market_id: "FAKE-MARKET".to_string(),
+        venue: "kalshi".to_string(),
+        title: String::new(),
+        category: String::new(),
+        volume_contracts: None,
+        resolution_source: String::new(),
+        close_at: None,
+        strike_type: Some("structured".to_string()),
+        floor_strike: Some(50),
+        cap_strike: Some(60),
+        status: "active".to_string(),
+    };
+    assert!(
+        market_to_bucket(&unknown_view).is_none(),
+        "unknown strike_type 'structured' yields None (no fabricated bucket)"
+    );
+
+    // ── None strike_type → None ───────────────────────────────────────────────
+    let no_type_view = MV {
+        market_id: "FAKE-MARKET-2".to_string(),
+        venue: "kalshi".to_string(),
+        title: String::new(),
+        category: String::new(),
+        volume_contracts: None,
+        resolution_source: String::new(),
+        close_at: None,
+        strike_type: None,
+        floor_strike: None,
+        cap_strike: None,
+        status: String::new(),
+    };
+    assert!(
+        market_to_bucket(&no_type_view).is_none(),
+        "None strike_type yields None"
+    );
+}
+
+// ─── EXISTING INTEGRATION TESTS (updated to use MarketView) ─────────────────
 
 #[test]
 fn june13_partition_yields_six_beliefs_and_edges_summing_to_one() {

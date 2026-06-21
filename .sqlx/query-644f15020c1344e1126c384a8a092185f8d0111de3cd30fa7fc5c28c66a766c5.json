@@ -1,0 +1,54 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT snapshot_id, best_bid_cents, best_ask_cents, bid_qty, ask_qty, at\n               FROM price_snapshots\n               WHERE market_id = $1 AND event_id = $2\n                 AND liquidity_ok AND at < $3\n               ORDER BY at DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "snapshot_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "best_bid_cents",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "best_ask_cents",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "bid_qty",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "ask_qty",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "at",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "644f15020c1344e1126c384a8a092185f8d0111de3cd30fa7fc5c28c66a766c5"
+}

@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT source_id, trust_tier, domain_tags, enabled FROM source_registry",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "source_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "trust_tier",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "domain_tags",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "enabled",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "c6bebdc3a5f3064542e1af962f38fd66bc849f99a3b59e24b948234572077f6a"
+}

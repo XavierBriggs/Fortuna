@@ -200,6 +200,43 @@ fn lt_bracket_uses_lt_helper_and_is_complementary() {
     draft.validate().expect("lt draft validates");
 }
 
+/// WS1.1 T1 — Aeolus binary beliefs carry `producer == "aeolus"` in provenance
+/// alongside the existing model_id / nws_station_id / variable / target_date.
+#[test]
+fn aeolus_provenance_carries_producer_literal() {
+    let fc = fixture_forecast();
+    let out = emit_aeolus_beliefs(&fc);
+    // Every binary draft's provenance must carry "producer": "aeolus".
+    for draft in &out.binary {
+        assert_eq!(
+            draft.provenance["producer"], "aeolus",
+            "binary draft provenance must have producer == \"aeolus\""
+        );
+        // Existing keys must still be present (non-regression).
+        assert!(
+            draft.provenance.get("model_id").is_some(),
+            "model_id must still be present"
+        );
+        assert!(
+            draft.provenance.get("nws_station_id").is_some(),
+            "nws_station_id must still be present"
+        );
+        assert!(
+            draft.provenance.get("variable").is_some(),
+            "variable must still be present"
+        );
+        assert!(
+            draft.provenance.get("target_date").is_some(),
+            "target_date must still be present"
+        );
+    }
+    // The scalar draft's provenance must also carry the producer key.
+    assert_eq!(
+        out.scalar.provenance["producer"], "aeolus",
+        "scalar draft provenance must have producer == \"aeolus\""
+    );
+}
+
 /// in_bracket comparisons are skipped (a single threshold can't define a range);
 /// the count is surfaced. A mixed envelope with one in_bracket among ge yields
 /// `skipped_in_bracket == 1` and one fewer binary draft.

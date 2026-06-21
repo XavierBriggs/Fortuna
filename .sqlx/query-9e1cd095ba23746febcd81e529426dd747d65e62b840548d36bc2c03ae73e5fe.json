@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO scorecards (id, scope, producer, \"window\", computed_at, payload)\n               VALUES ($1, $2, $3, $4, $5, $6)\n               ON CONFLICT (scope, producer, \"window\", computed_at) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9e1cd095ba23746febcd81e529426dd747d65e62b840548d36bc2c03ae73e5fe"
+}

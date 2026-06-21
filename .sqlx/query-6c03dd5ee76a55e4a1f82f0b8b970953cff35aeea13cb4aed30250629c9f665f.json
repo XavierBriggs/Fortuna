@@ -1,0 +1,78 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT belief_id, producer, event_key, quantiles, unit, horizon,\n                      provenance, created_at, realized_value, resolved_at\n               FROM scalar_beliefs\n               WHERE producer = $1 AND realized_value IS NULL AND horizon <= $2\n               ORDER BY horizon ASC, belief_id ASC\n               LIMIT $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "belief_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "producer",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "event_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "quantiles",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "unit",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "horizon",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "provenance",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "realized_value",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 9,
+        "name": "resolved_at",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "6c03dd5ee76a55e4a1f82f0b8b970953cff35aeea13cb4aed30250629c9f665f"
+}

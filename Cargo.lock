@@ -553,6 +553,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "fortuna-core",
+ "fortuna-scoring",
  "futures",
  "proptest",
  "reqwest",
@@ -659,6 +660,7 @@ dependencies = [
  "fortuna-core",
  "fortuna-exec",
  "fortuna-gates",
+ "fortuna-scoring",
  "fortuna-sources",
  "fortuna-venues",
  "serde",
@@ -707,6 +709,7 @@ dependencies = [
  "fortuna-core",
  "fortuna-gates",
  "fortuna-ledger",
+ "fortuna-scoring",
  "futures",
  "reqwest",
  "serde",
@@ -764,6 +767,16 @@ dependencies = [
  "thiserror",
  "tokio",
  "toml",
+]
+
+[[package]]
+name = "fortuna-scoring"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]

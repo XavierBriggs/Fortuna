@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO discrepancy_resolutions\n               (resolution_id, discrepancy_id, disposition, reason, ref_id, at)\n               VALUES ($1,$2,$3,$4,$5,$6)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "513dc75be8ef1dc82991222974ea2a62ae7daf3fe67e5344b1eee13949d76564"
+}

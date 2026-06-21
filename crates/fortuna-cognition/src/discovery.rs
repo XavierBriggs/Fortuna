@@ -87,18 +87,12 @@ impl DiscoveryBudget {
 
 // -------------------------------------------------------------- prefilter
 
-/// A venue catalog listing as the prefilter consumes it (built from
-/// `fortuna_venues::Market` by the composition).
-#[derive(Debug, Clone)]
-pub struct MarketView {
-    pub market_id: String,
-    pub venue: String,
-    pub title: String,
-    pub category: String,
-    pub volume_contracts: Option<i64>,
-    pub resolution_source: String,
-    pub close_at: Option<UtcTimestamp>,
-}
+// `MarketView` now lives in `fortuna-core::market` so that `fortuna-venues`
+// can return it from `WeatherMarketSource::day_set` without a
+// `fortuna-venues → fortuna-cognition` dep edge (which would violate I4).
+// Re-exported here to preserve all existing `fortuna_cognition::discovery::MarketView`
+// paths in `fortuna-runner`, `fortuna-live`, and cognition-internal callers.
+pub use fortuna_core::market::MarketView;
 
 #[derive(Debug, Clone)]
 pub struct PrefilterConfig {
@@ -626,13 +620,54 @@ pub fn watchlist_count(events: &[WatchlistEventView]) -> usize {
     events.iter().filter(|e| !e.unscoreable).count()
 }
 
+/// Canonicalize a raw category string: trim whitespace, lowercase, then
+/// collapse any run of whitespace, `/`, `-`, or `_` to a single ASCII space,
+/// and trim again. Deterministic, idempotent, no domain literals.
+///
+/// Examples: "Macro" → "macro"; "MACRO/Fed" → "macro fed";
+/// "macro-monetary-policy" → "macro monetary policy".
+pub fn normalize_category(raw: &str) -> String {
+    // Lowercase and trim first so separators at boundaries don't leave
+    // a leading/trailing space after the collapse step.
+    let lower = raw.trim().to_lowercase();
+    // Collapse runs of separator characters (whitespace, `/`, `-`, `_`) to
+    // a single space, then trim any residual leading/trailing space.
+    let mut result = String::with_capacity(lower.len());
+    let mut in_sep = false;
+    for ch in lower.chars() {
+        if ch.is_whitespace() || ch == '/' || ch == '-' || ch == '_' {
+            if !in_sep && !result.is_empty() {
+                result.push(' ');
+            }
+            in_sep = true;
+        } else {
+            result.push(ch);
+            in_sep = false;
+        }
+    }
+    // A trailing separator (e.g. "macro/") leaves a trailing space from the
+    // collapse step; trim it so normalize is IDEMPOTENT (normalize(normalize(x))
+    // == normalize(x)) and "macro/" canonicalizes to "macro", not "macro ".
+    result.truncate(result.trim_end().len());
+    result
+}
+
 /// The world-forward loop (spec 5.12): synthesize candidate events from
 /// the signals store, attach zero-capital beliefs. Hard daily cost cap
 /// checked BEFORE spending — this loop throttles first under pressure.
+///
+/// `category_allowlist` is the controlled vocabulary (config data, not
+/// hardcoded). Each candidate's category is normalized via
+/// `normalize_category` and compared against the normalized form of every
+/// allowlist entry; if it matches, the candidate is stored with the
+/// CANONICAL allowlist spelling. If the allowlist is empty, the gate is
+/// bypassed (legacy / unconfigured behaviour). If a candidate does not
+/// match any allowlist entry, it is REJECTED with an audit-visible defect.
 pub async fn world_forward_discovery(
     mind: &dyn Mind,
     context_items: &[ContextItem],
     registry: &SourceRegistry,
+    category_allowlist: &[String],
     budget: &mut DiscoveryBudget,
     now: UtcTimestamp,
 ) -> Result<WatchlistOutcome, DiscoveryError> {
@@ -684,10 +719,42 @@ pub async fn world_forward_discovery(
             ));
             continue;
         }
+        // C3 (F9): controlled vocabulary gate. Normalize the raw category
+        // and match against normalized allowlist entries. If the allowlist
+        // is empty, the gate is bypassed (empty = "no vocabulary configured"
+        // = no filter — the sensible default). NOTE the market-back prefilter
+        // treats an empty `category_allowlist` as reject-ALL (`!contains`,
+        // discovery.rs:122) — the opposite default. This asymmetry is
+        // pre-existing and only bites an UNCONFIGURED deployment; the demo
+        // MUST set `[discovery] category_allowlist` (E2) so both paths use the
+        // real vocab and neither default triggers. See GAPS.md "C3 follow-on".
+        // On a match, store the CANONICAL allowlist spelling so all
+        // case/separator variants collapse to one string. On no match, reject.
+        let canonical_category = if category_allowlist.is_empty() {
+            entry.category.clone()
+        } else {
+            let norm_raw = normalize_category(&entry.category);
+            match category_allowlist
+                .iter()
+                .find(|allow| normalize_category(allow) == norm_raw)
+            {
+                Some(canonical) => canonical.clone(),
+                None => {
+                    outcome.defects.push(format!(
+                        "watchlist candidate '{}' refused: category '{}' not in controlled vocabulary",
+                        entry.event_hint, entry.category
+                    ));
+                    continue;
+                }
+            }
+        };
         // The unscoreable rule: the declared source must be a checkable,
-        // ENABLED registry source at creation.
+        // ENABLED registry source at creation. Opus emits a PROSE
+        // resolution_source (e.g. "Federal Reserve Board press releases");
+        // `resolve` fuzzy-maps that prose to a registry entry so it can
+        // match machine ids like "rss_fed_press" (F4 fix).
         let unscoreable = registry
-            .get(&entry.resolution_source)
+            .resolve(&entry.resolution_source)
             .map(|s| !s.enabled)
             .unwrap_or(true);
         outcome.candidates.push(WatchlistCandidate {
@@ -696,7 +763,7 @@ pub async fn world_forward_discovery(
             resolution_criteria: entry.resolution_criteria,
             resolution_source: entry.resolution_source,
             horizon: entry.horizon,
-            category: entry.category,
+            category: canonical_category,
             reasoning: entry.reasoning,
             unscoreable,
         });

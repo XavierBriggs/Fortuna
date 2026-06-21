@@ -19,8 +19,8 @@ use fortuna_live::compose::DegradeScrape;
 use fortuna_live::daemon::{
     build_kalshi_demo_transport, build_kalshi_prod_transport, compose_kalshi_runner_with_transport,
     compose_paper_live_runner_with_transport, compose_runner, default_degrade_thresholds, drive,
-    mind_from_env, resolve_kalshi_demo_creds, resolve_kalshi_prod_creds, triage_from_env,
-    ActiveRunner, PgHaltPoller, SYNTH_MIND_TIMEOUT_SECS,
+    mind_from_env, persona_mind_from_env, resolve_kalshi_demo_creds, resolve_kalshi_prod_creds,
+    triage_from_env, ActiveRunner, PgHaltPoller, SYNTH_MIND_TIMEOUT_SECS,
 };
 use fortuna_live::run_loop::{HaltPoller, LoopConfig, RealCadence, RevocationHaltPoller};
 use fortuna_ops::dashboard::{serve_dashboard, DashboardSnapshot};
@@ -171,7 +171,7 @@ async fn main() -> Result<()> {
     // INERT off the kalshi demo. It is threaded into the discovery wiring below.
     let (mut active_runner, weather_source): (
         ActiveRunner,
-        Option<Arc<dyn fortuna_venues::kalshi::WeatherMarketSource>>,
+        Option<Arc<dyn fortuna_venues::WeatherMarketSource>>,
     ) = match dcfg.daemon.venue.as_str() {
         "kalshi" if dcfg.daemon.data_source.as_deref() == Some("kalshi_prod") => {
             // Paper-on-live-data: signed PROD reads only, local paper execution.
@@ -183,10 +183,9 @@ async fn main() -> Result<()> {
                 resolve_kalshi_prod_creds(&env).context("kalshi prod credentials")?;
             let transport = build_kalshi_prod_transport(key_id, key_pem, transport_clock)
                 .context("kalshi prod transport")?;
-            let weather: Option<Arc<dyn fortuna_venues::kalshi::WeatherMarketSource>> =
-                Some(Arc::new(fortuna_venues::kalshi::KalshiWeatherSource::new(
-                    transport.clone(),
-                )));
+            let weather: Option<Arc<dyn fortuna_venues::WeatherMarketSource>> = Some(Arc::new(
+                fortuna_venues::kalshi::KalshiWeatherSource::new(transport.clone()),
+            ));
             let runner = compose_paper_live_runner_with_transport(
                 pool.clone(),
                 &full,
@@ -228,10 +227,9 @@ async fn main() -> Result<()> {
                 resolve_kalshi_demo_creds(&env).context("kalshi demo credentials")?;
             let transport = build_kalshi_demo_transport(key_id, key_pem, transport_clock)
                 .context("kalshi demo transport")?;
-            let weather: Option<Arc<dyn fortuna_venues::kalshi::WeatherMarketSource>> =
-                Some(Arc::new(fortuna_venues::kalshi::KalshiWeatherSource::new(
-                    transport.clone(),
-                )));
+            let weather: Option<Arc<dyn fortuna_venues::WeatherMarketSource>> = Some(Arc::new(
+                fortuna_venues::kalshi::KalshiWeatherSource::new(transport.clone()),
+            ));
             let runner = compose_kalshi_runner_with_transport(
                 pool.clone(),
                 &full,
@@ -416,20 +414,43 @@ async fn main() -> Result<()> {
     // (merge: keep the Mid-tier reconciliation from 3-tier cognition; track-a's
     // persona/discovery wiring below is additive and retained.)
     let reconciliation = Some((pool.clone(), reconciliation_mind));
+    // D2: idempotent boot-time seed for the personas registry. When [personas] is
+    // enabled, any configured persona whose registry head is absent is inserted now
+    // (before the validation loop below, which would otherwise refuse NotRegistered).
+    // Re-boot is a no-op (head() is Some => skip). Timestamps come from `start` —
+    // the injected RealClock timestamp read at line ~86 — NEVER from SystemTime/Utc
+    // directly (DST-replay determinism, house rule). Absent/disabled => no seed.
+    if let Some(personas_sec) = dcfg.personas.as_ref() {
+        if personas_sec.enabled {
+            let now_iso = start.to_iso8601();
+            let seeded =
+                fortuna_live::daemon::seed_personas(&pool, &personas_sec.personas, &now_iso)
+                    .await
+                    .context("D2 boot-time persona seed failed")?;
+            if seeded > 0 {
+                eprintln!("fortuna-live: seeded {seeded} persona(s) into the registry");
+            }
+        }
+    }
     // OPT-IN [personas] wiring (default-off). PRESENT + enabled => load each
     // configured persona FAIL-CLOSED: read persona.md + schema.json, parse, fetch
     // the registry HEAD, and validate_against it (a file whose hash != the active
     // registry row — or an inactive/version-mismatched head — REFUSES to boot, so
     // a tampered method never runs, design §6). The persona STRATEGY id is built
-    // ONCE here (no fallible id construction on the loop path). The persona mind is
-    // the SAME synthesis mind (one build; a stub mind proposes nothing). Absent /
-    // `enabled = false` => None => the persona step never runs (byte-identical
-    // daemon). Built BEFORE `pool` + `synthesis_mind` move below.
+    // ONCE here (no fallible id construction on the loop path). Each persona gets
+    // its OWN Mind built from its charter (D1, audit Area 8 — see the per-persona
+    // mind map below), NOT the shared synthesis mind. Absent / `enabled = false`
+    // => None => the persona step never runs (byte-identical daemon).
     let persona_strategy = fortuna_core::market::StrategyId::new("domain-analysis")
         .map_err(|e| anyhow::anyhow!("building persona strategy id: {e}"))?;
     let personas_wiring = match dcfg.personas.as_ref() {
         Some(sec) if sec.enabled => {
             let mut schedules = Vec::new();
+            // D1 (audit Area 8): build one Mind per persona, each with ITS OWN
+            // charter (the persona's `method` body). Each persona gets a fresh
+            // transport (per-persona API call isolation); no charter sharing.
+            let mut persona_minds: BTreeMap<String, Arc<dyn fortuna_cognition::mind::Mind>> =
+                BTreeMap::new();
             for entry in &sec.personas {
                 let md = std::fs::read_to_string(format!("{}/persona.md", entry.dir))
                     .with_context(|| format!("reading persona.md for {:?}", entry.id))?;
@@ -453,6 +474,32 @@ async fn main() -> Result<()> {
                     .with_context(|| {
                         format!("persona {:?} failed registry validation", entry.id)
                     })?;
+
+                // D1: build a Mind for this persona using ITS method as the
+                // system_charter. Fresh transport per persona (persona API call
+                // isolation); None transport => inert StubMind (no-key path).
+                let persona_charter =
+                    fortuna_cognition::persona_runner::persona_system_charter(&def).to_string();
+                let persona_transport = match validated.anthropic_api_key.as_ref() {
+                    Some(_) => Some(
+                        ReqwestMindTransport::from_env(std::time::Duration::from_secs(
+                            SYNTH_MIND_TIMEOUT_SECS,
+                        ))
+                        .with_context(|| {
+                            format!("anthropic transport for persona {:?}", entry.id)
+                        })?,
+                    ),
+                    None => None,
+                };
+                let persona_mind = persona_mind_from_env(
+                    &dcfg.cognition,
+                    model_registry.model(ModelTier::Synthesis),
+                    persona_transport,
+                    Arc::new(RealClock),
+                    &persona_charter,
+                );
+                persona_minds.insert(def.meta.id.clone(), persona_mind);
+
                 schedules.push(fortuna_cognition::persona_orchestrator::PersonaSchedule {
                     def,
                     cadences: entry.cadences.clone(),
@@ -471,7 +518,7 @@ async fn main() -> Result<()> {
                 budget: fortuna_cognition::discovery::DiscoveryBudget::new(
                     sec.budget_cents_per_day,
                 ),
-                mind: synthesis_mind.clone(),
+                minds: persona_minds,
                 strategy: persona_strategy,
                 window_hours: sec.window_hours,
                 max_signals: sec.max_signals,
@@ -572,6 +619,15 @@ async fn main() -> Result<()> {
             mind: synthesis_mind,
             review,
             synth_category: dcfg.synthesis.as_ref().and_then(|s| s.category.clone()),
+            // I7 (Task B1 / F0): auto-persist a fitted calibration set ONLY in
+            // PaperLedger (live data + local paper execution). Every other runtime
+            // mode — and an absent [runtime] (legacy sim) — leaves this false, so
+            // the daemon never advances a calibration version on its own outside
+            // paper. Expressed as ExecutionMode membership, never a string compare.
+            auto_persist_calibration: dcfg
+                .runtime
+                .as_ref()
+                .is_some_and(|r| r.execution_mode.auto_persist_calibration()),
             start,
             weekly: fortuna_live::daemon::WeeklyScheduler::new(),
             monthly: fortuna_live::daemon::MonthlyScheduler::new(),
@@ -835,6 +891,12 @@ async fn main() -> Result<()> {
     // data. Inert/degraded when ingestion is off (merge_ingest_views gates on an
     // empty telemetry — the daemon snapshot is byte-unchanged in that case).
     let ingest_telemetry_for_segments = ingest_telemetry.clone();
+    // A7: pool handle for Phase-C DB metric families (fills/settlements/PnL/
+    // trade_scores/belief_scores). Cloned here, captured by the move closure,
+    // queried each segment via block_on so the sync closure can call the async
+    // phase_c_db_metrics. A DB error degrades telemetry for that segment only —
+    // never a halt, never a panic.
+    let pool_for_telemetry = pool.clone();
     let halt_poll_ms = dcfg.daemon.halt_poll_ms.max(1);
     let tick_wakes = dcfg
         .daemon
@@ -861,13 +923,21 @@ async fn main() -> Result<()> {
             // SimVenue-only board reads). The telemetry pane + ingest merge below
             // are venue-agnostic and apply identically to both arms.
             let generated_at = fortuna_core::clock::Clock::now(r.clock().as_ref()).to_iso8601();
-            let registry = r.metrics_registry();
+            let mut registry = r.metrics_registry();
             let metrics_text = registry.render_prometheus();
             let boards = r.boards_json();
             let mut views = r.rota_views(&generated_at);
             // Mission item 6: the telemetry pane — the same MetricsRegistry the
             // /metrics exposition is rendered from, shaped into a ROTA board (R2: the
             // daemon shapes; fortuna-ops serves it via read_view, never parsing text).
+            // A7: merge Phase-C DB-derived families (fills / settlements / PnL /
+            // trade_scores / belief_scores) into the registry before rendering the
+            // telemetry board. A DB error degrades the board for that segment only.
+            if let Ok(db_reg) = tokio::runtime::Handle::current().block_on(
+                fortuna_live::telemetry::phase_c_db_metrics(&pool_for_telemetry),
+            ) {
+                registry.merge(db_reg);
+            }
             views["telemetry"] = registry.telemetry_board(&generated_at);
             // OBS-2c: non-blocking read of the published telemetry (the closure is
             // sync; the ingestion loop holds the write lock only momentarily). On
@@ -903,6 +973,18 @@ async fn main() -> Result<()> {
         // C-next-1b: the LIVE PerpTick channel receiver — `Some` only when the
         // producer was spawned (gated on [perp_event_basis_v2]); `None` otherwise.
         perp_tick_rx_for_drive,
+        // A2 (F12): persist paper fills. Always wire the ledger pool so every
+        // applied fill (Sim, Kalshi-paper, or PaperLive) lands in the fills
+        // table with its strategy and NULL producer (D4 adds producer).
+        Some(pool.clone()),
+        // A6 (F4): persist the bus recording per segment (append-only;
+        // `RecordingsRepo::append`). Always wire the ledger pool so every
+        // segment's decision event-stream is replayable (I5 / F4).
+        Some(pool.clone()),
+        // WS1 slice 4: persist per-market price quotes per segment (CLV
+        // capture substrate). Always wire the ledger pool so every tracked
+        // market's book snapshot lands in `price_snapshots`.
+        Some(pool.clone()),
     )
     .await
     .context("daemon loop")?;

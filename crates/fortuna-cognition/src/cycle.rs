@@ -624,6 +624,22 @@ impl DecisionCycle {
         self
     }
 
+    /// Live-update the scope's calibration (B3 Part 1: the daemon pushes a
+    /// freshly fetched scope each segment so B1's persisted params reach
+    /// synthesis without a restart). `None` reverts to the cold fail-closed
+    /// state (full shrinkage to market prior, zero autonomous weight).
+    pub fn set_calibration(&mut self, calibration: Option<CalibrationContext>) {
+        self.calibration = calibration;
+    }
+
+    /// Whether this cycle has a calibration context wired (B3 Part 2: the
+    /// synthesis `on_event` gates the paid Mind on this — while cold the arm
+    /// skips the Mind call entirely, saving budget without losing decisions the
+    /// calibration substrate will provide once B1's persist warms the scope).
+    pub fn is_calibrated(&self) -> bool {
+        self.calibration.is_some()
+    }
+
     /// Run one cycle for a fired trigger on `event_id`. The mind's
     /// beliefs become candidates only on a NON-shadow accepted run.
     #[allow(clippy::too_many_arguments)]

@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT b.p, b.outcome as \"outcome!\", b.brier as \"brier!\", b.clv_bps\n               FROM beliefs b JOIN events e ON e.event_id = b.event_id\n               WHERE b.status = 'resolved' AND b.outcome IS NOT NULL\n                 AND b.brier IS NOT NULL AND e.category = $1\n                 AND NOT e.unscoreable\n               ORDER BY b.created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "p",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 1,
+        "name": "outcome!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "brier!",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 3,
+        "name": "clv_bps",
+        "type_info": "Float8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "83f5af1a2110fb6eb5e328d9709fa8f0529af74d4f87828e267267b0caa91203"
+}

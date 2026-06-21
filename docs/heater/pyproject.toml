@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "heater"
+version = "0.0.1"
+description = "Pitcher-strikeout prop research harness for FORTUNA"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "requests>=2.31",
+    "python-dotenv>=1.0",
+    "cryptography>=42.0",   # Kalshi RSA-PSS request signing (read-only market data)
+]
+
+[project.optional-dependencies]
+data = ["pybaseball>=2.2"]   # Statcast/FanGraphs pulls (semi-dormant upstream; see README)
+dev = ["pytest>=7.4", "ruff>=0.4"]
+
+[project.scripts]
+heater = "heater.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["heater*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

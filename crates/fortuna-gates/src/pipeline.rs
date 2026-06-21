@@ -1,4 +1,4 @@
-//! The universal gate pipeline: ordered, fail-closed checks 1-10 (spec 5.3).
+//! The universal gate pipeline: ordered, fail-closed checks 1-11 (spec 5.3).
 //!
 //! Every order, regardless of origin, passes here (I1). Each evaluated check
 //! emits an audit record with verdict and reason; the first rejection stops
@@ -11,6 +11,12 @@
 //! netting (check 10) convert to YES space; notional, fees, and edge math
 //! (checks 2, 3, 5, 6, 9) stay in candidate space, which is what the venue
 //! charges.
+//!
+//! Check 11 (book-age freshness): opt-in via `GateConfig.max_book_age_ms`.
+//! `None` (default) means the check is a no-op (always passes); `Some(ms)`
+//! rejects orders backed by a book older than `ms` milliseconds. Absent a
+//! book (`GateInputs.book = None`) the check passes — book absence is already
+//! handled by check 4 (PriceSanity, fail-closed on no reference).
 
 use crate::config::{GateConfig, GateError, RateLimits, StrategyLimits};
 use crate::halt::{HaltFlags, HaltScope};
@@ -43,8 +49,8 @@ pub struct CandidateOrder {
     pub client_order_id: ClientOrderId,
 }
 
-/// The pipeline checks: spec 5.3 checks 1-10, plus the spec 5.15 perps
-/// additions (11-14). `ALL` is the event-contract order; `perp::PERP_ALL`
+/// The pipeline checks: spec 5.3 checks 1-11, plus the spec 5.15 perps
+/// additions (12-15). `ALL` is the event-contract order; `perp::PERP_ALL`
 /// is the perp-arm order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum GateCheck {
@@ -58,6 +64,9 @@ pub enum GateCheck {
     Idempotency,
     EventExposure,
     InternalNetting,
+    /// Check 11 (P2 safety): rejects orders priced on a stale order book.
+    /// Opt-in via `GateConfig.max_book_age_ms`; `None` = disabled (no-op).
+    BookAge,
     /// Spec 5.15: worst-case (liquidation-loss) margin requirement vs the
     /// margin account's conservative equity.
     MarginHeadroom,
@@ -71,7 +80,7 @@ pub enum GateCheck {
 }
 
 impl GateCheck {
-    pub const ALL: [GateCheck; 10] = [
+    pub const ALL: [GateCheck; 11] = [
         GateCheck::Halts,
         GateCheck::Capital,
         GateCheck::PositionCaps,
@@ -82,9 +91,10 @@ impl GateCheck {
         GateCheck::Idempotency,
         GateCheck::EventExposure,
         GateCheck::InternalNetting,
+        GateCheck::BookAge,
     ];
 
-    /// 1-based pipeline position (spec numbering; 11-14 are the spec 5.15
+    /// 1-based pipeline position (spec numbering; 12-15 are the spec 5.15
     /// perps additions).
     pub fn index(self) -> usize {
         match self {
@@ -98,10 +108,11 @@ impl GateCheck {
             GateCheck::Idempotency => 8,
             GateCheck::EventExposure => 9,
             GateCheck::InternalNetting => 10,
-            GateCheck::MarginHeadroom => 11,
-            GateCheck::LiquidationDistance => 12,
-            GateCheck::LeverageCap => 13,
-            GateCheck::PerpNotionalCap => 14,
+            GateCheck::BookAge => 11,
+            GateCheck::MarginHeadroom => 12,
+            GateCheck::LiquidationDistance => 13,
+            GateCheck::LeverageCap => 14,
+            GateCheck::PerpNotionalCap => 15,
         }
     }
 }
@@ -211,10 +222,10 @@ impl GatePipeline {
         Ok(())
     }
 
-    /// Run checks 1-10 in order, fail-closed, emitting one record per
+    /// Run checks 1-11 in order, fail-closed, emitting one record per
     /// evaluated check.
     pub fn evaluate(&mut self, candidate: &CandidateOrder, inputs: &GateInputs) -> GateOutcome {
-        let mut records = Vec::with_capacity(10);
+        let mut records = Vec::with_capacity(GateCheck::ALL.len());
         for check in GateCheck::ALL {
             let result = self.run_check(check, candidate, inputs);
             let (verdict, reason, rejection) = match result {
@@ -263,6 +274,7 @@ impl GatePipeline {
             GateCheck::Idempotency => self.check_idempotency(c, i),
             GateCheck::EventExposure => self.check_event_exposure(c, i),
             GateCheck::InternalNetting => self.check_internal_netting(c, i),
+            GateCheck::BookAge => self.check_book_age(c, i),
             // Perp-domain checks (spec 5.15) never run on the event-contract
             // arm; `ALL` does not contain them. Defensive fail-closed arm.
             GateCheck::MarginHeadroom
@@ -567,6 +579,24 @@ impl GatePipeline {
             }
         }
         Ok("no self-crossing".into())
+    }
+
+    // ---- check 11 ----
+    fn check_book_age(&self, _c: &CandidateOrder, i: &GateInputs) -> Result<String, String> {
+        let Some(max) = self.config.max_book_age_ms else {
+            return Ok("book-age check disabled".into());
+        };
+        let Some(book) = i.book else {
+            return Ok("no book to age-check".into());
+        };
+        let age_ms = i
+            .now
+            .epoch_millis()
+            .saturating_sub(book.as_of.epoch_millis());
+        if age_ms > max {
+            return Err(format!("book stale: {age_ms}ms > {max}ms"));
+        }
+        Ok(format!("book age {age_ms}ms <= {max}ms"))
     }
 
     fn strategy_limits(&self, c: &CandidateOrder) -> Result<&StrategyLimits, String> {

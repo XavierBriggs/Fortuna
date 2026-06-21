@@ -60,17 +60,28 @@ pub fn cli_serves_station(product_text: &str, nws_station_id: &str) -> bool {
         .any(|tok| tok.eq_ignore_ascii_case(&awips))
 }
 
-/// Recover `(comparison, threshold_f)` from a v1 bracket `event_hint`
-/// (`knyc-2026-06-13-tmax-ge87` → `(Ge, 87)`; `…-lt87` → `(Lt, 87)`). The
-/// comparison+threshold are the trailing `-`-delimited token. The `event_hint`
-/// is producer-controlled, so this is treated as untrusted: any shape that is not
-/// `ge<int>`/`lt<int>` — an `in_bracket`-style hint, a missing token, a
-/// non-integer, or a NEGATIVE threshold (whose leading `-` splits the token) —
+/// Recover `(comparison, threshold_f)` from a bracket event_id or bare hint.
+///
+/// Grammar-agnostic: the bracket token is the LAST segment produced by splitting
+/// on any separator in `[-:#]`. This handles both producer grammars without
+/// naming either:
+///   - Aeolus: `aeolus:knyc-2026-06-13-tmax-ge87`  → last = `ge87`
+///   - Persona: `weather:KNYC:tmax:2026-06-12#ge87` → last = `ge87`
+///   - Bare hint: `knyc-2026-06-13-tmax-ge87`       → last = `ge87`
+///
+/// The event_id/hint is producer-controlled, so this is treated as untrusted:
+/// any shape that is not `ge<number>`/`lt<number>` — an `in_bracket`-style hint,
+/// a missing token, a non-finite parse result, or a NEGATIVE threshold (whose
+/// leading `-` splits the token, landing in a `ge`/`lt`-less last segment) —
 /// returns `None`, and the belief is SKIPPED (left OPEN), never mis-graded.
-/// Negative daily-high/low brackets do not occur for the stations Aeolus
-/// forecasts today (NYC summer highs/lows); the limitation is ledgered in GAPS.
-pub fn parse_bracket_hint(event_hint: &str) -> Option<(Comparison, i64)> {
-    let last = event_hint.rsplit('-').next()?;
+/// Negative daily-high/low brackets do not occur for the stations forecasted
+/// today; the limitation is ledgered in GAPS.
+///
+/// The threshold is `f64` (fractional brackets, e.g. `ge87.5`, are valid in
+/// Kalshi markets; `i64`-only parse would silently skip them, leaving persona
+/// beliefs unscored).
+pub fn parse_bracket_hint(event_id: &str) -> Option<(Comparison, f64)> {
+    let last = event_id.rsplit(['-', ':', '#']).next()?;
     let (comparison, digits) = if let Some(d) = last.strip_prefix("ge") {
         (Comparison::Ge, d)
     } else if let Some(d) = last.strip_prefix("lt") {
@@ -78,7 +89,10 @@ pub fn parse_bracket_hint(event_hint: &str) -> Option<(Comparison, i64)> {
     } else {
         return None;
     };
-    let threshold_f: i64 = digits.parse().ok()?;
+    let threshold_f: f64 = digits.parse().ok()?;
+    if !threshold_f.is_finite() {
+        return None;
+    }
     Some((comparison, threshold_f))
 }
 
@@ -156,11 +170,11 @@ mod tests {
     fn parses_ge_and_lt_hints() {
         assert_eq!(
             parse_bracket_hint("knyc-2026-06-13-tmax-ge87"),
-            Some((Comparison::Ge, 87))
+            Some((Comparison::Ge, 87.0_f64))
         );
         assert_eq!(
             parse_bracket_hint("knyc-2026-06-13-tmin-lt60"),
-            Some((Comparison::Lt, 60))
+            Some((Comparison::Lt, 60.0_f64))
         );
     }
 

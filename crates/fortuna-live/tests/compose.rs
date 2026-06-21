@@ -60,6 +60,7 @@ async fn calibration_scope_with_no_params_is_none_and_quality_zero(pool: PgPool)
         "synth_events",
         "weather",
         "platt",
+        None, // back-compat: merged resolved_stats
     )
     .await
     .unwrap();
@@ -143,6 +144,7 @@ async fn calibration_scope_builds_context_and_quality_from_the_ledger(pool: PgPo
         "synth_events",
         "weather",
         "platt",
+        None, // back-compat: merged resolved_stats
     )
     .await
     .unwrap();
@@ -179,6 +181,7 @@ async fn corrupt_params_row_is_a_loud_error_never_a_silent_none(pool: PgPool) {
         "synth_events",
         "weather",
         "platt",
+        None, // back-compat: merged resolved_stats
     )
     .await;
     assert!(

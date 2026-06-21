@@ -4,11 +4,55 @@
 //! fortuna-venues -> fortuna-gates -> fortuna-core. Market *data* structures
 //! (books, markets, fills) live in fortuna-venues; the gate pipeline and
 //! exec only need this vocabulary.
+//!
+//! `MarketView` (the venue-neutral bracket-geometry carrier used by the
+//! discovery loops and the weather-match plug-in) also lives here so that
+//! `fortuna-venues` can use it WITHOUT depending on `fortuna-cognition` —
+//! maintaining the I4 killswitch independence invariant.
 
+use crate::clock::UtcTimestamp;
 use crate::ids::IntentId;
 use crate::money::{Cents, MoneyError};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+// ----------------------------------------------------------------- MarketView
+
+/// A venue catalog listing as the prefilter and weather-match plug-in consume
+/// it (built from `fortuna_venues::Market` by the composition).
+///
+/// Moved to `fortuna-core` (from `fortuna-cognition::discovery`) so that
+/// `fortuna-venues` can return it from `WeatherMarketSource::day_set` without
+/// creating a `fortuna-venues → fortuna-cognition` dependency edge — which
+/// would violate I4 (killswitch independence).
+#[derive(Debug, Clone)]
+pub struct MarketView {
+    pub market_id: String,
+    pub venue: String,
+    pub title: String,
+    pub category: String,
+    pub volume_contracts: Option<i64>,
+    pub resolution_source: String,
+    pub close_at: Option<UtcTimestamp>,
+    // ------------------------------------------------------------------
+    // Venue-neutral bracket geometry (C1 — decouple weather path).
+    // Populated by the kalshi adapter's KalshiMarket→MarketView conversion;
+    // absent (None/"") on non-bracket market views (e.g. prefilter path).
+    // ------------------------------------------------------------------
+    /// Temperature-bracket strike semantics: `"between"` | `"greater"` | `"less"`.
+    /// `None` on non-bracket markets.
+    pub strike_type: Option<String>,
+    /// Lower strike bound as an integer (degrees for temperature series).
+    /// `None` when absent or non-integral on the wire.
+    pub floor_strike: Option<i64>,
+    /// Upper strike bound as an integer (degrees for temperature series).
+    /// `None` when absent or non-integral on the wire.
+    pub cap_strike: Option<i64>,
+    /// Venue-neutral market status. The kalshi adapter maps `KalshiMarketStatus`
+    /// to `"active"` | `"settled"` | `"closed"` | `"inactive"` | `"unknown"`.
+    /// Empty string when the source did not supply a status.
+    pub status: String,
+}
 
 /// Errors from vocabulary construction.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]

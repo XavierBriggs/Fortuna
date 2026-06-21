@@ -63,6 +63,37 @@ pub fn prob_at_least(threshold: f64, mu: f64, sigma: f64) -> Option<f64> {
     }
 }
 
+/// Parse weather grading keys from a `weather:GRADING_STATION:variable:date` region_key.
+///
+/// Segment 1 of the region_key is the NWS-CLI GRADING station (e.g. "NYC", not
+/// the forecast station "KNYC"). The shipped persona.md template uses
+/// `{nws_station_id}` in position 1 so the grading station comes from the
+/// Aeolus payload's authoritative `resolution.nws_station_id` field.
+///
+/// Returns `(nws_station_id, variable, target_date)` if and only if:
+/// - the key has exactly 4+ colon-separated segments
+/// - segment 0 is "weather"
+/// - segment 1 is the station (non-empty)
+/// - segment 2 is the variable (non-empty)
+/// - segment 3 passes `is_iso_date` (YYYY-MM-DD shaped and parseable)
+///
+/// Any parse shortfall returns `None` — the caller omits the keys silently.
+/// Never panics (positional split only, no indexing past `.get()`).
+fn parse_weather_grading_keys(region_key: &str) -> Option<(String, String, String)> {
+    let mut segs = region_key.splitn(5, ':');
+    let domain = segs.next()?;
+    if domain != "weather" {
+        return None;
+    }
+    let station = segs.next().filter(|s| !s.is_empty())?;
+    let variable = segs.next().filter(|s| !s.is_empty())?;
+    let date = segs.next().filter(|s| is_iso_date(s))?;
+    // Reuse is_iso_date's shape check; validate calendar range via timestamp parse.
+    UtcTimestamp::parse_iso8601(&format!("{date}T00:00:00.000Z"))
+        .ok()
+        .map(|_| (station.to_string(), variable.to_string(), date.to_string()))
+}
+
 /// Fan a persisted analysis's `findings` onto BINARY `BeliefDraft`s — one per
 /// `thresholds[]` entry (weather: `{ge, p}`) and/or `outcomes[]` entry (macro:
 /// `{label, p}`). The belief's `p` is the persona's stated probability (the
@@ -83,16 +114,44 @@ pub fn map_persona_analysis(
     horizon: UtcTimestamp,
 ) -> Result<Vec<BeliefDraft>, PersonaBeliefError> {
     let source = format!("persona:{persona_id}@{persona_version}");
-    let provenance = json!({
+    // WS1.1: producer is always stamped so downstream jobs can route without
+    // re-parsing the source.  Weather grading keys (nws_station_id / variable /
+    // target_date) are added ONLY on the weather-threshold path, parsed from the
+    // region_key by positional `:` split — never on the macro outcomes path.
+    let base_provenance = json!({
+        "producer": persona_id,
         "persona_id": persona_id,
         "persona_version": persona_version,
         "analysis_id": analysis_id,
         "analysis_content_hash": content_hash,
     });
+
+    // Try to parse weather grading keys up front; `None` → thresholds use
+    // base_provenance, never a partial / wrong key.
+    let weather_grading_keys = parse_weather_grading_keys(region_key);
+
+    // Provenance with weather grading keys appended — built lazily only when
+    // needed and only when the parse succeeded.
+    let weather_provenance: Option<Value> =
+        weather_grading_keys
+            .as_ref()
+            .map(|(station, variable, date)| {
+                let mut prov = base_provenance.clone();
+                if let Some(obj) = prov.as_object_mut() {
+                    obj.insert("nws_station_id".to_string(), json!(station));
+                    obj.insert("variable".to_string(), json!(variable));
+                    obj.insert("target_date".to_string(), json!(date));
+                }
+                prov
+            });
+
     let mut drafts = Vec::new();
     let mut seen = BTreeSet::new();
 
     if let Some(thresholds) = findings.get("thresholds").and_then(Value::as_array) {
+        // Weather grading keys ride on the threshold path only; if the region_key
+        // didn't parse (malformed / macro-shaped), fall back to base_provenance.
+        let threshold_prov = weather_provenance.as_ref().unwrap_or(&base_provenance);
         for (index, entry) in thresholds.iter().enumerate() {
             let ge = entry.get("ge").and_then(Value::as_f64).ok_or_else(|| {
                 PersonaBeliefError::BadEntry {
@@ -110,7 +169,7 @@ pub fn map_persona_analysis(
                 horizon,
                 &source,
                 analysis_id,
-                &provenance,
+                threshold_prov,
             )?;
         }
     }
@@ -125,7 +184,8 @@ pub fn map_persona_analysis(
             })?;
             let p = number_p(entry, index)?;
             // Raw label (injective; distinct labels -> distinct ids), `out:`-prefixed
-            // so it can never collide with a `ge…` threshold id.
+            // so it can never collide with a `ge…` threshold id. Macro outcomes path
+            // never receives weather grading keys (base_provenance only).
             push_draft(
                 &mut drafts,
                 &mut seen,
@@ -135,7 +195,7 @@ pub fn map_persona_analysis(
                 horizon,
                 &source,
                 analysis_id,
-                &provenance,
+                &base_provenance,
             )?;
         }
     }
@@ -149,12 +209,13 @@ pub fn map_persona_analysis(
 /// Derive the belief resolution `horizon` for an analysis from its `region_key`:
 /// the end of the UTC day (`T23:59:59.999Z`) of the `YYYY-MM-DD` segment embedded
 /// in the key. Both shipped persona region_keys carry a date
-/// (`weather:KNYC:tmax:2026-06-12`, `macro:US-CPI-MoM:2026-06-12`) — the
-/// date-resolving-market convention (design §11: weather's daily resolution, the
-/// macro release date). Returns `None` when the key has no parseable date; the
-/// daemon then persists the artifact but SKIPS belief fan-out (only beliefs need a
-/// horizon). A per-domain refinement (intraday prints, local-vs-UTC day edges) is a
-/// documented future tweak — this is the conservative first cut. PURE; never panics.
+/// (`weather:NYC:tmax:2026-06-12` — note: grading station, not forecast station —
+/// `macro:US-CPI-MoM:2026-06-12`) — the date-resolving-market convention
+/// (design §11: weather's daily resolution, the macro release date). Returns `None`
+/// when the key has no parseable date; the daemon then persists the artifact but
+/// SKIPS belief fan-out (only beliefs need a horizon). A per-domain refinement
+/// (intraday prints, local-vs-UTC day edges) is a documented future tweak — this
+/// is the conservative first cut. PURE; never panics.
 pub fn belief_horizon(region_key: &str) -> Option<UtcTimestamp> {
     let date = region_key.split(':').find(|seg| is_iso_date(seg))?;
     UtcTimestamp::parse_iso8601(&format!("{date}T23:59:59.999Z")).ok()
@@ -275,6 +336,12 @@ mod horizon_tests {
 
     #[test]
     fn weather_region_key_resolves_to_end_of_its_date() {
+        // Both old-style (KNYC, forecast station) and new-style (NYC, grading
+        // station) region keys work — belief_horizon only cares about the date.
+        assert_eq!(
+            belief_horizon("weather:NYC:tmax:2026-06-12"),
+            end_of("2026-06-12")
+        );
         assert_eq!(
             belief_horizon("weather:KNYC:tmax:2026-06-12"),
             end_of("2026-06-12")
@@ -299,7 +366,7 @@ mod horizon_tests {
 
     #[test]
     fn no_date_segment_yields_none() {
-        assert!(belief_horizon("weather:KNYC:tmax").is_none());
+        assert!(belief_horizon("weather:NYC:tmax").is_none());
         assert!(belief_horizon("macro").is_none());
         assert!(belief_horizon("").is_none());
     }

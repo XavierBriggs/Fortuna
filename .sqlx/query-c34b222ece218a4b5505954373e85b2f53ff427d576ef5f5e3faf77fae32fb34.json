@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO market_event_edges\n               (edge_id, market_id, venue, event_id, mapping_type, confidence,\n                proposed_by, confirmed_by, supersedes, created_at)\n               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Float8",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c34b222ece218a4b5505954373e85b2f53ff427d576ef5f5e3faf77fae32fb34"
+}

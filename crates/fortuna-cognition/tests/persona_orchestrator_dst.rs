@@ -20,7 +20,7 @@
 //! PERSONA_ORCH_DST_SCENARIOS (default 20; the battery runs 2000).
 
 use fortuna_cognition::discovery::DiscoveryBudget;
-use fortuna_cognition::mind::{MindOutput, StubMind};
+use fortuna_cognition::mind::{Mind, MindOutput, StubMind};
 use fortuna_cognition::persona::PersonaDef;
 use fortuna_cognition::persona_orchestrator::{
     fill_region_key, run_due_personas, PersonaSchedule, PersonaScheduleState,
@@ -30,7 +30,8 @@ use fortuna_cognition::signals::{content_hash, SignalEnvelope};
 use fortuna_core::clock::UtcTimestamp;
 use fortuna_core::ids::SplitMix64;
 use serde_json::json;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 const PERSONA_MD: &str = "+++\n\
 id = \"meteorologist\"\n\
@@ -145,12 +146,16 @@ fn run_scenario(seed: u64) -> Result<Vec<Tuple>, String> {
     let mut state = PersonaScheduleState::new(debounce_ms);
     let mind = scripted_mind();
 
+    // D1: build the per-persona mind map (one entry keyed by "meteorologist").
+    let mut minds: BTreeMap<String, Arc<dyn Mind>> = BTreeMap::new();
+    minds.insert("meteorologist".to_string(), Arc::new(mind));
+
     let results = futures::executor::block_on(run_due_personas(
         tick_now(),
         &schedules,
         &signals,
         &mut state,
-        &mind,
+        &minds,
         &mut budget,
     ));
 

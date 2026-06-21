@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO beliefs\n               (belief_id, created_at, event_id, p, p_raw, horizon,\n                evidence, provenance, supersedes)\n               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Float8",
+        "Float8",
+        "Text",
+        "Jsonb",
+        "Jsonb",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1704449ea096c09b0069c2dcfdb860d5550cb8fd9b8cf57a5d3147b999f25170"
+}

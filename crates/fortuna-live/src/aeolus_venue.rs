@@ -37,9 +37,9 @@
 use fortuna_cognition::aeolus_buckets::{aeolus_bucket_beliefs, BucketKind, WeatherBucket};
 use fortuna_cognition::aeolus_forecast::{AeolusForecast, Variable};
 use fortuna_cognition::beliefs::BeliefDraft;
+use fortuna_cognition::discovery::MarketView;
 use fortuna_cognition::events::{EdgeProposal, MappingType};
 use fortuna_core::market::MarketId;
-use fortuna_venues::kalshi::dto::KalshiMarket;
 
 /// The signal `kind` the Aeolus source emits (the raw `aeolus.forecast/v2`
 /// envelope, carried as untrusted DATA). The F7 live weather plug-in reads
@@ -89,9 +89,11 @@ pub fn station_series(station: &str, variable: Variable) -> Option<&'static str>
     }
 }
 
-/// Derive the [`WeatherBucket`] a Kalshi temperature-bracket market represents,
+/// Derive the [`WeatherBucket`] a temperature-bracket market represents,
 /// applying the grounded venue→kind mapping (contract: the only logic F7
-/// writes besides discovery):
+/// writes besides discovery). Operates on a venue-neutral [`MarketView`]
+/// whose geometry fields were populated by the kalshi adapter's conversion
+/// (`kalshi_market_to_market_view`).
 ///
 /// - `strike_type == "between"` → `InRange { lo_f: floor, hi_f: cap }`
 ///   (Kalshi "87° to 88°" ⇒ floor=87, cap=88; both inclusive).
@@ -100,31 +102,30 @@ pub fn station_series(station: &str, variable: Variable) -> Option<&'static str>
 /// - `strike_type == "less"`    → `LessEq { threshold_f: cap - 1 }`
 ///   ("<87" means the integer high ≤ 86).
 ///
-/// `market_key` is the raw ticker (`m.ticker`). A market missing the strike
-/// field it needs, carrying a non-integer (price-series) strike, or with an
-/// unknown `strike_type` returns `None` — never a panic, never a fabricated
-/// bucket.
+/// `market_key` is `m.market_id` (the venue ticker). A market missing the
+/// strike field it needs, or with an unknown `strike_type`, returns `None` —
+/// never a panic, never a fabricated bucket.
 ///
 /// PURE kind derivation by design: this does NOT inspect `m.status`. The
 /// active-only filter belongs to the CALLER (live discovery passes only active
 /// markets; a test may pass a settled day-set to exercise the construction).
-pub fn market_to_bucket(m: &KalshiMarket) -> Option<WeatherBucket> {
+pub fn market_to_bucket(m: &MarketView) -> Option<WeatherBucket> {
     let kind = match m.strike_type.as_deref()? {
         "between" => BucketKind::InRange {
-            lo_f: m.floor_strike_int()?,
-            hi_f: m.cap_strike_int()?,
+            lo_f: m.floor_strike?,
+            hi_f: m.cap_strike?,
         },
         "greater" => BucketKind::GreaterEq {
-            threshold_f: m.floor_strike_int()?.checked_add(1)?,
+            threshold_f: m.floor_strike?.checked_add(1)?,
         },
         "less" => BucketKind::LessEq {
-            threshold_f: m.cap_strike_int()?.checked_sub(1)?,
+            threshold_f: m.cap_strike?.checked_sub(1)?,
         },
         // "structured" / "custom" / anything else: not a temperature bucket.
         _ => return None,
     };
     Some(WeatherBucket {
-        market_key: m.ticker.clone(),
+        market_key: m.market_id.clone(),
         kind,
     })
 }

@@ -101,6 +101,46 @@ impl SourceRegistry {
     pub fn get(&self, source_id: &str) -> Option<&SourceEntry> {
         self.entries.get(source_id)
     }
+
+    /// Resolve a prose string (e.g. a model-emitted `resolution_source`) to a
+    /// registry entry.
+    ///
+    /// Algorithm (deterministic — BTreeMap iteration is sorted by key):
+    /// 1. Exact match: try `self.get(prose)` (back-compat for machine ids).
+    /// 2. Fuzzy: normalize both sides to lowercase alphanumeric token sets.
+    ///    An entry matches if EITHER:
+    ///    (a) every significant token of the `source_id` appears in the prose tokens, OR
+    ///    (b) any `domain_tag` token-set is a subset of the prose tokens.
+    ///    Return the first match in key order (stable tie-break).
+    /// 3. No match → `None`.
+    ///
+    /// NOTE: `resolve` does NOT filter on `enabled` — that is the caller's
+    /// concern. A disabled source still resolves; the caller decides
+    /// `unscoreable`.
+    pub fn resolve(&self, prose: &str) -> Option<&SourceEntry> {
+        // 1. Exact.
+        if let Some(e) = self.get(prose) {
+            return Some(e);
+        }
+        // 2. Fuzzy.
+        let prose_tokens = normalize_tokens(prose);
+        if prose_tokens.is_empty() {
+            return None;
+        }
+        for entry in self.entries.values() {
+            let id_tokens = normalize_tokens(&entry.source_id);
+            if !id_tokens.is_empty() && id_tokens.iter().all(|t| prose_tokens.contains(t)) {
+                return Some(entry);
+            }
+            for tag in &entry.domain_tags {
+                let tag_tokens = normalize_tokens(tag);
+                if !tag_tokens.is_empty() && tag_tokens.iter().all(|t| prose_tokens.contains(t)) {
+                    return Some(entry);
+                }
+            }
+        }
+        None
+    }
 }
 
 /// What a dumb adapter emits: kind + payload + receipt time (from the
@@ -341,6 +381,23 @@ impl TriggerEngine {
     }
 }
 
+/// Normalize a string into a set of lowercase alphanumeric tokens, dropping
+/// very-short stop-fragments ("the", "of", "and", "a", "in", "to", "for").
+/// Used by [`SourceRegistry::resolve`] so neither side needs to match exactly.
+fn normalize_tokens(s: &str) -> BTreeSet<String> {
+    const STOPS: &[&str] = &["the", "of", "and", "a", "in", "to", "for", "by", "at"];
+    s.split(|c: char| !c.is_alphanumeric())
+        .filter_map(|tok| {
+            let t = tok.to_lowercase();
+            if t.is_empty() || STOPS.contains(&t.as_str()) {
+                None
+            } else {
+                Some(t)
+            }
+        })
+        .collect()
+}
+
 /// Collect every string value in a JSON tree (keyword scan input).
 fn collect_strings(v: &Value, out: &mut Vec<String>) {
     match v {
@@ -356,5 +413,97 @@ fn collect_strings(v: &Value, out: &mut Vec<String>) {
             }
         }
         _ => {}
+    }
+}
+
+// ---------------------------------------------------------------------- tests
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fed_entry(enabled: bool) -> SourceEntry {
+        SourceEntry {
+            source_id: "rss_fed_press".to_string(),
+            trust_tier: TrustTier::new(8).unwrap(),
+            domain_tags: vec!["federal reserve".to_string(), "fomc".to_string()],
+            enabled,
+        }
+    }
+
+    fn registry_with(entry: SourceEntry) -> SourceRegistry {
+        let mut reg = SourceRegistry::new();
+        reg.upsert(entry);
+        reg
+    }
+
+    // TDD: these tests are written BEFORE `resolve` is implemented.
+    // The test block calling `resolve` will fail to compile until the method exists.
+
+    #[test]
+    fn resolve_prose_matches_via_domain_tag() {
+        let reg = registry_with(fed_entry(true));
+        let result = reg.resolve("Federal Reserve Board press releases");
+        assert!(
+            result.is_some(),
+            "prose must resolve via domain_tag 'federal reserve'"
+        );
+        assert_eq!(result.unwrap().source_id, "rss_fed_press");
+    }
+
+    #[test]
+    fn resolve_exact_machine_id_still_works() {
+        let reg = registry_with(fed_entry(true));
+        let result = reg.resolve("rss_fed_press");
+        assert!(
+            result.is_some(),
+            "exact machine id must resolve via back-compat exact path"
+        );
+        assert_eq!(result.unwrap().source_id, "rss_fed_press");
+    }
+
+    #[test]
+    fn resolve_unrelated_prose_returns_none() {
+        let reg = registry_with(fed_entry(true));
+        let result = reg.resolve("the price of tea in china");
+        assert!(
+            result.is_none(),
+            "unrelated prose must not match any source"
+        );
+    }
+
+    #[test]
+    fn resolve_disabled_source_still_resolves() {
+        // `resolve` is agnostic to `enabled`; caller decides unscoreable.
+        let reg = registry_with(fed_entry(false));
+        let result = reg.resolve("Federal Reserve Board press releases");
+        assert!(
+            result.is_some(),
+            "disabled source resolves (caller handles unscoreable)"
+        );
+        assert!(!result.unwrap().enabled, "but it is disabled");
+    }
+
+    #[test]
+    fn resolve_is_deterministic() {
+        // Same prose always returns the same entry.
+        let reg = registry_with(fed_entry(true));
+        let a = reg.resolve("Federal Reserve Board press releases");
+        let b = reg.resolve("Federal Reserve Board press releases");
+        assert_eq!(
+            a.map(|e| &e.source_id),
+            b.map(|e| &e.source_id),
+            "resolve must be deterministic"
+        );
+    }
+
+    #[test]
+    fn resolve_source_id_token_match() {
+        // "rss" and "fed" and "press" all appear in the prose via id tokens.
+        let reg = registry_with(fed_entry(true));
+        // "rss fed press conference" has all tokens of "rss_fed_press"
+        let result = reg.resolve("rss fed press conference");
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().source_id, "rss_fed_press");
     }
 }

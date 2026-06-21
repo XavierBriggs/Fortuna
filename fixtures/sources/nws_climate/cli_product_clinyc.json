@@ -1,0 +1,14 @@
+{
+    "@context": {
+        "@version": "1.1",
+        "@vocab": "https://api.weather.gov/ontology#"
+    },
+    "@id": "https://api.weather.gov/products/a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "wmoCollectiveId": "CDUS41",
+    "issuingOffice": "KOKX",
+    "issuanceTime": "2026-06-14T10:00:00+00:00",
+    "productCode": "CLI",
+    "productName": "CLIMATE REPORT",
+    "productText": "\n000\nCDUS41 KOKX 141000\nCLINYC\n\nCLIMATE REPORT\nNATIONAL WEATHER SERVICE NEW YORK NY\n600 AM EDT SAT JUN 14 2026\n\n...................................\n\n...THE NEW YORK CITY CLIMATE SUMMARY FOR JUNE 13 2026...\n\nCLIMATE NORMAL PERIOD 1991 TO 2020\nCLIMATE RECORD PERIOD 1869 TO 2026\n\n\nWEATHER ITEM   OBSERVED TIME   NORMAL DEPARTURE LAST\n                VALUE   (LST)  VALUE  FROM      YEAR\n                                      NORMAL\n.......................................................\nTEMPERATURE (F)\n MAXIMUM         91      244 PM   82      9     90\n MINIMUM         70      604 AM   67      3     71\n AVERAGE         80              74      6\n.......................................................\n$$\n"
+}

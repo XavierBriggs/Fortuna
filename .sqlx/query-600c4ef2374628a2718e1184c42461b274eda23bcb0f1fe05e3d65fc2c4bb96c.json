@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE beliefs SET status = 'abandoned'\n               WHERE event_id = $1 AND status = 'open'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "600c4ef2374628a2718e1184c42461b274eda23bcb0f1fe05e3d65fc2c4bb96c"
+}

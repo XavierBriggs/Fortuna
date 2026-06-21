@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT event_id, resolution_source, horizon\n                                       FROM events\n                                       WHERE event_id = ANY($1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "resolution_source",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "horizon",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "ddafdc00dab6024bd0388dc6b5efbf3485f691146007cdc337f7426ed36cce14"
+}

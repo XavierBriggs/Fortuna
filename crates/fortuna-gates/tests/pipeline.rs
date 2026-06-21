@@ -159,7 +159,7 @@ fn candidate(coid: &str) -> CandidateOrder {
 // ---- happy path + audit completeness ----
 
 #[test]
-fn clean_order_passes_all_ten_checks_with_full_audit_trail() {
+fn clean_order_passes_all_eleven_checks_with_full_audit_trail() {
     let mut p = pipeline();
     let s = Setup::new();
     let out = p.evaluate(&candidate("c1"), &s.inputs());
@@ -168,7 +168,7 @@ fn clean_order_passes_all_ten_checks_with_full_audit_trail() {
     assert_eq!(gated.qty().raw(), 10);
     assert_eq!(gated.client_order_id().as_str(), "c1");
     // One record per check, in pipeline order, all Pass.
-    assert_eq!(out.records.len(), 10);
+    assert_eq!(out.records.len(), GateCheck::ALL.len());
     for (i, r) in out.records.iter().enumerate() {
         assert_eq!(r.check.index(), i + 1, "records must be in check order");
         assert_eq!(r.verdict, Verdict::Pass);
@@ -779,4 +779,84 @@ fn reload_config_never_clears_halts() {
             .check,
         GateCheck::Halts
     );
+}
+
+// ---- check 11: book-age freshness ----
+
+fn pipeline_with_book_age(max_ms: i64) -> GatePipeline {
+    // Prepend max_book_age_ms before the first section header so it belongs
+    // to the root GateConfig (not to [rate.sim] or any other sub-table).
+    let src = format!("max_book_age_ms = {}\n{}", max_ms, config_toml(100));
+    let cfg: GateConfig = toml::from_str(&src).unwrap();
+    GatePipeline::new(cfg).unwrap()
+}
+
+#[test]
+fn stale_book_is_rejected_when_max_book_age_configured() {
+    // Book as_of is 2000ms before now; max_book_age_ms = 1000 → reject.
+    let s = Setup::new();
+    let mut p = pipeline_with_book_age(1000);
+    let mut stale_book = book();
+    stale_book.as_of = t0().checked_add_millis(-2000).unwrap();
+    let mut inputs = s.inputs();
+    inputs.book = Some(&stale_book);
+    let out = p.evaluate(&candidate("c1"), &inputs);
+    let rejection = out.gated.unwrap_err();
+    assert_eq!(rejection.check, GateCheck::BookAge);
+    assert!(
+        rejection.reason.contains("stale"),
+        "reason must mention 'stale': {}",
+        rejection.reason
+    );
+}
+
+#[test]
+fn fresh_book_passes_when_max_book_age_configured() {
+    // Book as_of is 500ms before now; max_book_age_ms = 1000 → pass.
+    let s = Setup::new();
+    let mut p = pipeline_with_book_age(1000);
+    let mut fresh_book = book();
+    fresh_book.as_of = t0().checked_add_millis(-500).unwrap();
+    let mut inputs = s.inputs();
+    inputs.book = Some(&fresh_book);
+    assert!(p.evaluate(&candidate("c1"), &inputs).gated.is_ok());
+}
+
+#[test]
+fn book_age_disabled_when_max_book_age_not_set() {
+    // Default config (no max_book_age_ms) → check is a no-op even for ancient book.
+    let s = Setup::new();
+    let mut p = pipeline(); // no max_book_age_ms
+    let mut ancient_book = book();
+    ancient_book.as_of = t0().checked_add_millis(-86_400_000).unwrap(); // 24h ago
+    let mut inputs = s.inputs();
+    inputs.book = Some(&ancient_book);
+    assert!(p.evaluate(&candidate("c1"), &inputs).gated.is_ok());
+}
+
+#[test]
+fn book_age_passes_when_no_book_provided() {
+    // book=None → check passes (book absence is PriceSanity's concern, not BookAge's).
+    // Give a last_trade_price so PriceSanity doesn't block us.
+    let s = Setup::new();
+    let mut p = pipeline_with_book_age(1000);
+    let mut inputs = s.inputs();
+    inputs.book = None;
+    inputs.last_trade_price = Some(Cents::new(50));
+    assert!(p.evaluate(&candidate("c1"), &inputs).gated.is_ok());
+}
+
+#[test]
+fn book_age_check_attributed_correctly_in_rejection_record() {
+    // Pipeline-level: rejection is attributed to BookAge in the audit trail.
+    let s = Setup::new();
+    let mut p = pipeline_with_book_age(500);
+    let mut stale_book = book();
+    stale_book.as_of = t0().checked_add_millis(-2000).unwrap();
+    let mut inputs = s.inputs();
+    inputs.book = Some(&stale_book);
+    let out = p.evaluate(&candidate("c1"), &inputs);
+    let last = out.records.last().unwrap();
+    assert_eq!(last.verdict, Verdict::Reject);
+    assert_eq!(last.check, GateCheck::BookAge);
 }

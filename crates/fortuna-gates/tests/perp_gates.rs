@@ -231,13 +231,15 @@ fn full_pass_emits_perp_all_trail_and_seals() {
 fn perp_all_has_eleven_checks_with_spec_numbering() {
     assert_eq!(PERP_ALL.len(), 11);
     assert_eq!(PERP_ALL[0], GateCheck::Halts);
-    // The four 5.15 additions carry 1-based pipeline positions 11-14.
-    assert_eq!(GateCheck::MarginHeadroom.index(), 11);
-    assert_eq!(GateCheck::LiquidationDistance.index(), 12);
-    assert_eq!(GateCheck::LeverageCap.index(), 13);
-    assert_eq!(GateCheck::PerpNotionalCap.index(), 14);
-    // The event-contract pipeline is untouched.
-    assert_eq!(GateCheck::ALL.len(), 10);
+    // The four 5.15 additions carry 1-based pipeline positions 12-15
+    // (BookAge occupies position 11 in the event-contract pipeline ALL).
+    assert_eq!(GateCheck::MarginHeadroom.index(), 12);
+    assert_eq!(GateCheck::LiquidationDistance.index(), 13);
+    assert_eq!(GateCheck::LeverageCap.index(), 14);
+    assert_eq!(GateCheck::PerpNotionalCap.index(), 15);
+    // The event-contract pipeline now has 11 checks (BookAge added).
+    assert_eq!(GateCheck::ALL.len(), 11);
+    assert_eq!(GateCheck::BookAge.index(), 11);
 }
 
 #[test]

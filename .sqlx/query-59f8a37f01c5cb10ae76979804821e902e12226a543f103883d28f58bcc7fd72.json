@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT liquidity_ok, event_id FROM price_snapshots WHERE snapshot_id = '01SNAP000000000000000000011'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "liquidity_ok",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "event_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "59f8a37f01c5cb10ae76979804821e902e12226a543f103883d28f58bcc7fd72"
+}

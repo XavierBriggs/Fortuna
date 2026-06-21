@@ -4,15 +4,15 @@
 //! - `PredictiveDistribution` validation for all three shapes.
 //! - `RealizedOutcome` kind parity.
 //! - `BrierRule`: exact squared-error vectors; binary-only scope.
-//! - `CrpsPinballRule`: mean-pinball vectors (hand-computed); median
+//! - `CrpsPinballRule`: TRUE-CRPS vectors (hand-computed); median
 //!   degeneracy; realistic funding-rate vector; proper-scoring property.
 //! - `ScoringRule` swappability: each rule on its shape, each rule errors on
 //!   the wrong shape, kind-mismatched (pred, outcome) errors.
 //! - Determinism: same inputs → identical score on repeated calls.
 
-use fortuna_cognition::scoring::{
-    BrierRule, CategoricalBin, CrpsPinballRule, PredictiveDistribution, PredictiveKind, Quantile,
-    RealizedOutcome, ScoreError, ScoringRule,
+use fortuna_scoring::{
+    BrierRule, CategoricalBin, CrpsPinballRule, LogScoreRule, PredictiveDistribution,
+    PredictiveKind, Quantile, RealizedOutcome, RpsRule, ScoreError, ScoringRule,
 };
 use proptest::prelude::*;
 
@@ -372,27 +372,33 @@ fn brier_on_categorical_pred_errors() {
     );
 }
 
-// ─── CrpsPinballRule: exact vectors ──────────────────────────────────────────
+// ─── CrpsPinballRule: exact vectors (TRUE CRPS = 2·Σ pinball·Δτ) ──────────────
 //
-// Grid: [(0.1, -1.0), (0.5, 0.0), (0.9, 1.0)]
+// The rule returns the TRUE CRPS, not the mean pinball: for an equally-spaced
+// quantile grid of K levels the convention is Δτ = 1/K, so
+//   CRPS = 2·Σ_k pinball_{q_k}(y, v_k)·Δτ = (2/K)·Σ_k pinball_{q_k}(y, v_k).
+// (Mean pinball, Σ/K, is exactly ½·CRPS — missing the factor 2.)
+//
+// Grid: [(0.1, -1.0), (0.5, 0.0), (0.9, 1.0)]  (K = 3)
 //
 // y = 0:
 //   pinball_0.1(-1.0, 0) = 0.1*(0-(-1)) = 0.1
 //   pinball_0.5(0.0, 0)  = 0.5*(0-0)   = 0.0
 //   pinball_0.9(1.0, 0)  = (1-0.9)*(1-0) = 0.1
-//   mean = (0.1 + 0.0 + 0.1) / 3 ≈ 0.0666...
+//   CRPS = (2/3)*(0.1 + 0.0 + 0.1) ≈ 0.1333...
 //
 // y = 2:
 //   pinball_0.1(-1.0, 2) = 0.1*(2-(-1)) = 0.3
 //   pinball_0.5(0.0, 2)  = 0.5*(2-0)   = 1.0
 //   pinball_0.9(1.0, 2)  = 0.9*(2-1)   = 0.9
-//   mean = (0.3 + 1.0 + 0.9) / 3 ≈ 0.7333...
+//   CRPS = (2/3)*(0.3 + 1.0 + 0.9) ≈ 1.4666...
 
 const GRID: &[(f64, f64)] = &[(0.1, -1.0), (0.5, 0.0), (0.9, 1.0)];
 
+/// TRUE CRPS over an equally-spaced K-level grid: `(2/K)·Σ pinball`.
 fn expected_crps(qs: &[(f64, f64)], y: f64) -> f64 {
     let sum: f64 = qs.iter().map(|(q, v)| pinball(*q, *v, y)).sum();
-    sum / qs.len() as f64
+    2.0 * sum / qs.len() as f64
 }
 
 #[test]
@@ -415,9 +421,9 @@ fn crps_grid_y_two() {
 
 #[test]
 fn crps_single_quantile_fails_validation_as_required() {
-    // A lone q=0.5 quantile is the mathematical |y − v|/2 median case, but the
+    // A lone q=0.5 quantile is the mathematical |y − v| median case, but the
     // ≥2-quantile invariant makes it UNREACHABLE: score() calls validate()
-    // first and MUST reject it. This pins that contract — the |y − v|/2 identity
+    // first and MUST reject it. This pins that contract — the |y − v| identity
     // documented on the rule is never a scored input.
     for (v, y) in [(0.0f64, 1.0f64), (0.5, 0.0), (3.0, -1.0)] {
         let pred = PredictiveDistribution::Scalar {
@@ -436,8 +442,9 @@ fn crps_single_quantile_fails_validation_as_required() {
 #[test]
 fn pinball_at_realized_equals_v_is_zero() {
     // The kink point: at y == v the check loss is exactly 0 for every q (both
-    // branches vanish). Pins the boundary value as a regression guard and
-    // covers the flat-CDF (constant v) case.
+    // branches vanish), so the TRUE CRPS (2/K · Σ 0) is also 0. Pins the
+    // boundary value as a regression guard and covers the flat-CDF (constant v)
+    // case.
     let pred = scalar(vec![(0.1, 0.5), (0.9, 0.5)]);
     let out = RealizedOutcome::Scalar { value: 0.5 };
     let s = CrpsPinballRule.score(&pred, &out).unwrap();
@@ -574,7 +581,8 @@ fn crps_deterministic_on_repeated_calls() {
 // Concretely: for scalar [q1,q2,q3] whose MEDIAN (q=0.5) equals the
 // realized value, the score is no worse than a forecast shifted ±δ.
 // We test the median-is-optimal property: when v_median = y, no shift
-// can improve the score.
+// can improve the score. (The constant factor 2 in TRUE CRPS preserves the
+// ordering, so this property is unchanged by the scale fix.)
 
 proptest! {
     #[test]
@@ -616,4 +624,303 @@ proptest! {
             "s_true={s_true} should be ≤ s_shifted={s_shifted} (delta={delta})"
         );
     }
+}
+
+// ─── LogScoreRule (S2): logarithmic / ignorance score for binary events ───────
+//
+// Log score S(p, o) = −ln(p) if the event happened, −ln(1−p) otherwise.
+// Lower is better. p is clamped to [1e-15, 1−1e-15] so a near-certain miss is
+// finite rather than +∞. Guard ORDER mirrors BrierRule: validate → applies_to
+// (UnsupportedKind) → kind parity (KindMismatch).
+
+#[test]
+fn log_score_at_half_is_ln2() {
+    // p = 0.5, event happened ⇒ −ln(0.5) = ln(2).
+    let s = LogScoreRule
+        .score(&binary(0.5), &RealizedOutcome::Binary { happened: true })
+        .unwrap();
+    assert!(
+        (s - std::f64::consts::LN_2).abs() < 1e-12,
+        "got {s}, expected ln(2)={}",
+        std::f64::consts::LN_2
+    );
+}
+
+#[test]
+fn log_score_at_half_miss_is_ln2() {
+    // Symmetry at p=0.5: a miss also scores ln(2) since −ln(1−0.5) = ln(2).
+    let s = LogScoreRule
+        .score(&binary(0.5), &RealizedOutcome::Binary { happened: false })
+        .unwrap();
+    assert!((s - std::f64::consts::LN_2).abs() < 1e-12, "got {s}");
+}
+
+#[test]
+fn log_floor_keeps_finite() {
+    // p ≈ 1, event did NOT happen ⇒ −ln(1−p) would diverge; the 1e-15 clamp
+    // keeps it finite and large (> 30, i.e. about −ln(1e-15) ≈ 34.5).
+    let s = LogScoreRule
+        .score(
+            &binary(0.999999999999999),
+            &RealizedOutcome::Binary { happened: false },
+        )
+        .unwrap();
+    assert!(s.is_finite(), "score must be finite, got {s}");
+    assert!(s > 30.0, "clamped tail score should exceed 30, got {s}");
+}
+
+#[test]
+fn log_perfect_forecast_scores_near_zero() {
+    // A confident, correct forecast (p≈1, happened) scores ≈ 0 (−ln(1) = 0),
+    // but is floored just above 0 by the clamp (−ln(1−1e-15) ≈ 1e-15).
+    let s = LogScoreRule
+        .score(
+            &binary(0.999999999999999),
+            &RealizedOutcome::Binary { happened: true },
+        )
+        .unwrap();
+    assert!((0.0..1e-6).contains(&s), "near-perfect forecast got {s}");
+}
+
+#[test]
+fn log_rejects_scalar() {
+    // Scalar pred + Scalar outcome: the rule is Binary-only ⇒ UnsupportedKind
+    // (raised before kind parity, matching BrierRule's guard order).
+    let pred = scalar(vec![(0.1, -1.0), (0.9, 1.0)]);
+    let out = RealizedOutcome::Scalar { value: 0.0 };
+    let r = LogScoreRule.score(&pred, &out);
+    assert!(
+        matches!(r, Err(ScoreError::UnsupportedKind { .. })),
+        "expected UnsupportedKind, got {r:?}"
+    );
+}
+
+#[test]
+fn log_rejects_categorical() {
+    let pred = categorical(vec![("a", 0.6), ("b", 0.4)]);
+    let out = RealizedOutcome::Categorical {
+        label: "a".to_string(),
+    };
+    let r = LogScoreRule.score(&pred, &out);
+    assert!(
+        matches!(r, Err(ScoreError::UnsupportedKind { .. })),
+        "expected UnsupportedKind, got {r:?}"
+    );
+}
+
+#[test]
+fn log_kind_mismatch_pred_binary_outcome_scalar_errors() {
+    // Binary pred (applies_to passes) paired with a Scalar outcome ⇒ the kind
+    // parity guard fires AFTER applies_to: KindMismatch.
+    let pred = binary(0.5);
+    let out = RealizedOutcome::Scalar { value: 1.0 };
+    let r = LogScoreRule.score(&pred, &out);
+    assert!(
+        matches!(r, Err(ScoreError::KindMismatch { .. })),
+        "expected KindMismatch, got {r:?}"
+    );
+}
+
+#[test]
+fn log_invalid_pred_errors_with_invalid_prediction() {
+    // validate() runs first: p outside [0,1] is rejected before any guard.
+    let pred = binary(1.5);
+    let out = RealizedOutcome::Binary { happened: true };
+    let r = LogScoreRule.score(&pred, &out);
+    assert!(
+        matches!(r, Err(ScoreError::InvalidPrediction { .. })),
+        "expected InvalidPrediction, got {r:?}"
+    );
+}
+
+#[test]
+fn log_id_is_log() {
+    assert_eq!(LogScoreRule.id(), "log");
+}
+
+#[test]
+fn log_applies_to_binary_only() {
+    assert!(LogScoreRule.applies_to(PredictiveKind::Binary));
+    assert!(!LogScoreRule.applies_to(PredictiveKind::Categorical));
+    assert!(!LogScoreRule.applies_to(PredictiveKind::Scalar));
+}
+
+#[test]
+fn log_monotone_worse_scores_higher() {
+    // Event happened: a forecast that assigned LESS probability to the truth
+    // (p=0.4) must score strictly WORSE (higher) than one that assigned more
+    // (p=0.8). Lower-is-better ordering for the log score.
+    let better = LogScoreRule
+        .score(&binary(0.8), &RealizedOutcome::Binary { happened: true })
+        .unwrap();
+    let worse = LogScoreRule
+        .score(&binary(0.4), &RealizedOutcome::Binary { happened: true })
+        .unwrap();
+    assert!(
+        worse > better,
+        "worse (p=0.4) {worse} should exceed better (p=0.8) {better}"
+    );
+}
+
+#[test]
+fn log_deterministic_on_repeated_calls() {
+    let pred = binary(0.7);
+    let out = RealizedOutcome::Binary { happened: true };
+    let s1 = LogScoreRule.score(&pred, &out).unwrap();
+    let s2 = LogScoreRule.score(&pred, &out).unwrap();
+    assert_eq!(s1.to_bits(), s2.to_bits());
+}
+
+// ─── RpsRule (S2): Ranked Probability Score for ordered categorical ───────────
+//
+// RPS over an ordered K-bin ladder is the sum of squared distances between the
+// predicted cumulative distribution and the observed (step) cumulative
+// distribution, over the first K−1 cut points:
+//
+//   RPS = Σ_{i=1}^{K-1} (P_i − O_i)²
+//
+// where P_i = Σ_{j≤i} p_j and O_i steps 0→1 at the realized label's index.
+// The Vec order of `bins` IS the ladder order. Lower is better.
+
+/// Build an RPS pred from ordered (label, mass) pairs and a Categorical outcome.
+fn cat_outcome(label: &str) -> RealizedOutcome {
+    RealizedOutcome::Categorical {
+        label: label.to_string(),
+    }
+}
+
+#[test]
+fn rps_known_value_three_bins() {
+    // Ladder masses [lo:0.2, mid:0.5, hi:0.3]; realized = "mid" (index 1).
+    // Predicted CDF: [0.2, 0.7, 1.0]; observed CDF: [0, 1, 1].
+    // RPS = Σ_{i=1..2} (P_i − O_i)²
+    //     = (0.2 − 0)² + (0.7 − 1)²
+    //     = 0.04 + 0.09 = 0.13.
+    let pred = categorical(vec![("lo", 0.2), ("mid", 0.5), ("hi", 0.3)]);
+    let s = RpsRule.score(&pred, &cat_outcome("mid")).unwrap();
+    assert!((s - 0.13).abs() < 1e-12, "got {s}, expected 0.13");
+}
+
+#[test]
+fn rps_perfect_forecast_is_zero() {
+    // All mass on the realized label ⇒ predicted CDF equals the observed step
+    // CDF exactly ⇒ RPS = 0.
+    let pred = categorical(vec![("lo", 0.0), ("mid", 1.0), ("hi", 0.0)]);
+    let s = RpsRule.score(&pred, &cat_outcome("mid")).unwrap();
+    assert!(s.abs() < 1e-15, "perfect forecast should score 0, got {s}");
+}
+
+#[test]
+fn rps_realized_at_first_label() {
+    // Realized = "lo" (index 0). Observed CDF: [1, 1].
+    // Predicted CDF: [0.2, 0.7]. RPS = (0.2−1)² + (0.7−1)² = 0.64 + 0.09 = 0.73.
+    let pred = categorical(vec![("lo", 0.2), ("mid", 0.5), ("hi", 0.3)]);
+    let s = RpsRule.score(&pred, &cat_outcome("lo")).unwrap();
+    assert!((s - 0.73).abs() < 1e-12, "got {s}, expected 0.73");
+}
+
+#[test]
+fn rps_realized_at_last_label() {
+    // Realized = "hi" (index 2, the last cut). Observed CDF over cuts 1..2:
+    // [0, 0]. Predicted CDF: [0.2, 0.7]. RPS = 0.04 + 0.49 = 0.53.
+    let pred = categorical(vec![("lo", 0.2), ("mid", 0.5), ("hi", 0.3)]);
+    let s = RpsRule.score(&pred, &cat_outcome("hi")).unwrap();
+    assert!((s - 0.53).abs() < 1e-12, "got {s}, expected 0.53");
+}
+
+#[test]
+fn rps_rejects_binary() {
+    // Binary pred + Binary outcome: the rule is Categorical-only ⇒
+    // UnsupportedKind (raised before kind parity).
+    let pred = binary(0.7);
+    let out = RealizedOutcome::Binary { happened: true };
+    let r = RpsRule.score(&pred, &out);
+    assert!(
+        matches!(r, Err(ScoreError::UnsupportedKind { .. })),
+        "expected UnsupportedKind, got {r:?}"
+    );
+}
+
+#[test]
+fn rps_rejects_scalar() {
+    let pred = scalar(vec![(0.1, -1.0), (0.9, 1.0)]);
+    let out = RealizedOutcome::Scalar { value: 0.0 };
+    let r = RpsRule.score(&pred, &out);
+    assert!(
+        matches!(r, Err(ScoreError::UnsupportedKind { .. })),
+        "expected UnsupportedKind, got {r:?}"
+    );
+}
+
+#[test]
+fn rps_unknown_label_invalid() {
+    // The realized label is absent from the bins ⇒ no step can be placed on the
+    // ladder ⇒ InvalidPrediction (never silently treated as "never happened").
+    let pred = categorical(vec![("lo", 0.2), ("mid", 0.5), ("hi", 0.3)]);
+    let r = RpsRule.score(&pred, &cat_outcome("nope"));
+    assert!(
+        matches!(r, Err(ScoreError::InvalidPrediction { .. })),
+        "expected InvalidPrediction, got {r:?}"
+    );
+}
+
+#[test]
+fn rps_kind_mismatch_pred_categorical_outcome_scalar_errors() {
+    // Categorical pred (applies_to passes) paired with a Scalar outcome ⇒ the
+    // kind parity guard fires AFTER applies_to: KindMismatch.
+    let pred = categorical(vec![("a", 0.6), ("b", 0.4)]);
+    let out = RealizedOutcome::Scalar { value: 1.0 };
+    let r = RpsRule.score(&pred, &out);
+    assert!(
+        matches!(r, Err(ScoreError::KindMismatch { .. })),
+        "expected KindMismatch, got {r:?}"
+    );
+}
+
+#[test]
+fn rps_invalid_pred_errors_with_invalid_prediction() {
+    // validate() runs first: masses that don't sum to 1 are rejected.
+    let pred = categorical(vec![("a", 0.3), ("b", 0.3)]);
+    let out = cat_outcome("a");
+    let r = RpsRule.score(&pred, &out);
+    assert!(
+        matches!(r, Err(ScoreError::InvalidPrediction { .. })),
+        "expected InvalidPrediction, got {r:?}"
+    );
+}
+
+#[test]
+fn rps_id_is_rps() {
+    assert_eq!(RpsRule.id(), "rps");
+}
+
+#[test]
+fn rps_applies_to_categorical_only() {
+    assert!(RpsRule.applies_to(PredictiveKind::Categorical));
+    assert!(!RpsRule.applies_to(PredictiveKind::Binary));
+    assert!(!RpsRule.applies_to(PredictiveKind::Scalar));
+}
+
+#[test]
+fn rps_monotone_distance_aware_beats_distant() {
+    // RPS rewards being CLOSE on an ordered ladder, not just right. Realized =
+    // "hi" (index 2). A forecast that puts its errant mass on the ADJACENT bin
+    // "mid" must score better (lower) than one that puts it on the FAR bin "lo".
+    let near = categorical(vec![("lo", 0.0), ("mid", 0.3), ("hi", 0.7)]);
+    let far = categorical(vec![("lo", 0.3), ("mid", 0.0), ("hi", 0.7)]);
+    let s_near = RpsRule.score(&near, &cat_outcome("hi")).unwrap();
+    let s_far = RpsRule.score(&far, &cat_outcome("hi")).unwrap();
+    assert!(
+        s_near < s_far,
+        "near-miss {s_near} should beat far-miss {s_far}"
+    );
+}
+
+#[test]
+fn rps_deterministic_on_repeated_calls() {
+    let pred = categorical(vec![("lo", 0.2), ("mid", 0.5), ("hi", 0.3)]);
+    let out = cat_outcome("mid");
+    let s1 = RpsRule.score(&pred, &out).unwrap();
+    let s2 = RpsRule.score(&pred, &out).unwrap();
+    assert_eq!(s1.to_bits(), s2.to_bits());
 }

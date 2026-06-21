@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 fortuna-core = { path = "../fortuna-core" }
+fortuna-scoring = { path = "../fortuna-scoring" }
 async-trait = { workspace = true }
 thiserror = { workspace = true }
 serde_json = { workspace = true }

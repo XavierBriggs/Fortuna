@@ -179,7 +179,11 @@ impl Venue for PaperLiveVenue {
     }
 
     async fn settlements_since(&self, cursor: Cursor) -> Result<SettlementPage, VenueError> {
-        self.paper.settlements_since(cursor).await
+        // The bridge (A3/F1): settlements are EXTERNAL real-market resolutions,
+        // not local paper events. Fills stay local (`self.paper`), but the
+        // settlement stream comes from REAL Kalshi (`self.read`) so the runner's
+        // `process_settlements` settles our paper position from venue truth.
+        self.read.settlements_since(cursor).await
     }
 
     fn fee_model(&self) -> &dyn FeeModel {

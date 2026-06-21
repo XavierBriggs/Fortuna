@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO source_registry\n               (source_id, trust_tier, domain_tags, enabled, created_at, updated_at)\n               VALUES ($1,$2,$3,$4,$5,$5)\n               ON CONFLICT (source_id) DO UPDATE\n               SET trust_tier = $2, domain_tags = $3, enabled = $4, updated_at = $5",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4",
+        "Jsonb",
+        "Bool",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c92a7ea039b6f2c4f786245968064bd040d352dc72b5507ff69490be1e50f73a"
+}
