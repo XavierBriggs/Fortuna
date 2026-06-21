@@ -8,7 +8,7 @@
 
 use fortuna_cognition::context::{content_hash_of, AssembledContext, ContextItem, SectionKind};
 use fortuna_cognition::discovery::DiscoveryBudget;
-use fortuna_cognition::mind::{Mind, MindError, MindOutput, StubMind};
+use fortuna_cognition::mind::{Mind, MindError, MindOutput, StructuredDecision, StubMind};
 use fortuna_cognition::persona::PersonaDef;
 use fortuna_cognition::persona_runner::{persona_system_charter, run_persona_analysis};
 use fortuna_core::clock::UtcTimestamp;
@@ -116,6 +116,39 @@ impl Mind for FailMind {
     }
 }
 
+/// A Mind whose findings + cost ride the SCHEMA-ENFORCED structured channel
+/// (`decide_structured`), exactly like `AnthropicMind`'s provider-constrained
+/// override. Its `decide()` returns `MindOutput::empty()` (journal `None`), so a
+/// runner that still reads the journal body produces NO artifact — this is the
+/// offline bite: reverting `run_persona_analysis` to the `mind.decide(&ctx)` +
+/// `journal.body` path goes RED (no findings, no content_hash), while the
+/// schema-enforced rewire goes GREEN (findings + cost from THIS channel).
+struct StructuredStubMind {
+    value: serde_json::Value,
+    cost: i64,
+}
+#[async_trait::async_trait]
+impl Mind for StructuredStubMind {
+    fn id(&self) -> &str {
+        "structured-stub"
+    }
+    async fn decide(&self, _ctx: &AssembledContext) -> Result<MindOutput, MindError> {
+        // Empty (journal None): the journal channel carries NOTHING, so only a
+        // runner that consumes `decide_structured` can produce an artifact.
+        Ok(MindOutput::empty())
+    }
+    async fn decide_structured(
+        &self,
+        _ctx: &AssembledContext,
+        _schema: serde_json::Value,
+    ) -> Result<StructuredDecision, MindError> {
+        Ok(StructuredDecision {
+            value: self.value.clone(),
+            cost_cents: self.cost,
+        })
+    }
+}
+
 // ---- THE HEADLINE: the trusted/untrusted firewall (design §4) ----
 
 #[tokio::test]
@@ -193,6 +226,56 @@ async fn a_scripted_stubmind_yields_a_byte_identical_artifact_and_content_hash()
     assert_eq!(a.signal_manifest.len(), 2);
     assert_eq!(a.signal_manifest[0].signal_id, "sig-1");
     assert_eq!(a.signal_manifest[0].content_hash, content_hash_of("alpha"));
+}
+
+// ---- the persona emits findings via the SCHEMA-ENFORCED structured channel ----
+//
+// THE BITE (WS2 S1): findings + cost MUST come from `mind.decide_structured`, not
+// the journal body. `StructuredStubMind.decide()` is `MindOutput::empty()` (journal
+// None, cost 0); only the structured channel carries the valid findings/v2 value
+// and cost 7. So an artifact + `content_hash` + `cost_cents == 7` proves the runner
+// reads the structured channel. Reverting to `mind.decide(&ctx)` + `journal.body`
+// makes this RED (empty journal → "no findings journal" defect → no artifact).
+
+#[tokio::test]
+async fn persona_structured_findings_come_from_the_schema_enforced_channel() {
+    let persona = persona();
+    let signals = vec![signal("sig-1", "x")];
+    // A valid findings/v2 value for TEST_SCHEMA (required `verdict`, optional `note`).
+    let value = json!({"verdict": "ridge", "note": "stable"});
+    let mind = StructuredStubMind {
+        value: value.clone(),
+        cost: 7,
+    };
+    let mut budget = DiscoveryBudget::new(100);
+
+    let outcome = run_persona_analysis(&persona, "r", &signals, &mind, &mut budget, t())
+        .await
+        .unwrap();
+
+    // Findings sourced from the structured channel (the journal was empty).
+    assert_eq!(
+        outcome.findings,
+        Some(value),
+        "findings must come from decide_structured, not the empty journal"
+    );
+    // The replay anchor was stamped over those findings.
+    assert!(
+        outcome.content_hash.is_some(),
+        "a structured-channel artifact must stamp a content_hash"
+    );
+    assert!(outcome.produced_artifact());
+    assert!(
+        outcome.defects.is_empty(),
+        "no defects: {:?}",
+        outcome.defects
+    );
+    // Cost is the structured-channel cost (7), NOT the empty decide()'s 0.
+    assert_eq!(
+        outcome.cost_cents, 7,
+        "cost_cents must be sourced from the structured channel"
+    );
+    assert_eq!(budget.spent_today_cents(), 7);
 }
 
 // ---- validate_findings edge cases (design §4c) ----
@@ -415,7 +498,10 @@ async fn a_missing_required_field_is_a_counted_defect() {
 async fn non_json_findings_prose_degrades_without_crashing() {
     let persona = persona();
     let signals = vec![signal("s", "x")];
-    // journal body is free prose, not JSON.
+    // journal body is free prose, not JSON. With the schema-enforced structured
+    // channel, `StubMind`'s DEFAULT `decide_structured` parses the journal body and
+    // raises `SchemaInvalid` on non-JSON, which the runner degrades to a counted
+    // "mind failed" defect — no artifact, no crash (the contract that matters).
     let bad = serde_json::from_value::<MindOutput>(json!({
         "beliefs": [], "proposals": [],
         "journal": {"body": "I think it will be warm tomorrow."},
@@ -428,10 +514,15 @@ async fn non_json_findings_prose_degrades_without_crashing() {
         .await
         .unwrap();
     assert!(!outcome.produced_artifact());
-    assert!(outcome
-        .defects
-        .iter()
-        .any(|d| d.contains("violated the contract")));
+    assert!(outcome.findings.is_none());
+    assert!(
+        outcome
+            .defects
+            .iter()
+            .any(|d| d.contains("mind failed") && d.contains("not valid JSON")),
+        "non-JSON prose must degrade to a counted defect, got: {:?}",
+        outcome.defects
+    );
 }
 
 #[tokio::test]

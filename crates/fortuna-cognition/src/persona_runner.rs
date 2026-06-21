@@ -265,9 +265,9 @@ fn anchor_hash(findings: &Value, manifest: &[SignalRef]) -> Result<String, Perso
 
 /// Run one persona analysis (design §8). Budget-first, assemble ONLY untrusted
 /// signals (the method is the Mind's system charter, never the context), one
-/// `Mind.decide`, parse + strictly validate findings from the journal body,
-/// stamp the `content_hash` anchor. Degrades on every failure mode; the only hard
-/// error is context assembly.
+/// `Mind.decide_structured` against `persona.schema` (the schema-enforced findings
+/// channel), strictly re-validate the returned findings, stamp the `content_hash`
+/// anchor. Degrades on every failure mode; the only hard error is context assembly.
 pub async fn run_persona_analysis(
     persona: &PersonaDef,
     region_key: &str,
@@ -308,9 +308,14 @@ pub async fn run_persona_analysis(
     let ctx = assemble_context(signals, now, &cycle_kind, &assembler)?;
     outcome.manifest_hash = Some(ctx.manifest_hash.clone());
 
-    // 4. One Mind call; degrade on failure (counted defect, never crash).
-    let output = match mind.decide(&ctx).await {
-        Ok(output) => output,
+    // 4. One Mind call on the SCHEMA-ENFORCED structured channel; degrade on
+    //    failure (counted defect, never crash). `AnthropicMind` constrains the
+    //    provider output to `persona.schema`, so a real model emits conforming
+    //    JSON instead of free-text prose — the structured channel IS the findings
+    //    vehicle (no journal indirection). A non-JSON / schema-invalid provider
+    //    body surfaces here as a `MindError` → a counted defect.
+    let decision = match mind.decide_structured(&ctx, persona.schema.clone()).await {
+        Ok(decision) => decision,
         Err(e) => {
             outcome
                 .defects
@@ -318,25 +323,15 @@ pub async fn run_persona_analysis(
             return Ok(outcome);
         }
     };
-    budget.record_spend(output.cost_cents, now);
-    outcome.cost_cents = output.cost_cents;
+    budget.record_spend(decision.cost_cents, now);
+    outcome.cost_cents = decision.cost_cents;
 
-    // 5. Findings ride in the journal body as strict JSON (like discovery).
-    let Some(journal) = output.journal else {
-        outcome
-            .defects
-            .push("persona produced no findings journal".to_string());
-        return Ok(outcome);
-    };
-    let findings: Value = match serde_json::from_str(&journal.body) {
-        Ok(value) => value,
-        Err(e) => {
-            outcome.defects.push(format!(
-                "findings body violated the contract (never repaired): {e}"
-            ));
-            return Ok(outcome);
-        }
-    };
+    // 5. The structured channel returns the findings value directly. Keep the
+    //    strict `validate_findings` as defense-in-depth: the provider's
+    //    schema-constrained output should already conform, but a schema the
+    //    provider can't fully express (e.g. additionalProperties nuances) is
+    //    re-checked here at the SOURCE before any content_hash is stamped.
+    let findings: Value = decision.value;
     let violations = validate_findings(&findings, &persona.schema);
     if !violations.is_empty() {
         for v in violations {
