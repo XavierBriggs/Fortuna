@@ -45,7 +45,7 @@
 - `struct HistoricalSnapshot { market: String, price: Cents, at: UtcTimestamp }`
 - `struct HistoricalTrade { /* … */ orders: u32 /* invariant: always 0 */ }`
 - `struct UniverseManifest { engaged: Vec<EngagedMarket> }`, `struct EngagedMarket { event_linkage: String, resolved: bool, voided: bool }`
-- `trait HistoricalSource { fn beliefs/outcomes/snapshots/trades(&self) -> impl Iterator<Item=Result<…,SourceError>>; fn universe_manifest(&self) -> Result<UniverseManifest,SourceError>; }` (sync streaming iterators; `enum SourceError` via thiserror)
+- `trait HistoricalSource { fn beliefs/outcomes/snapshots/trades(&self) -> impl Iterator<Item=Result<…,SourceError>>; fn universe_manifest(&self) -> Result<UniverseManifest,SourceError>; }` (sync streaming iterators; `enum SourceError` via thiserror). **M2 note (document in the trait):** spec §4 prose shows `impl Stream` (async); we deliberately use **sync `Iterator`** — replay is deterministic/single-threaded with no async in the core loop and `rusqlite` is sync. State this in the trait doc so a reviewer doesn't read it as drift.
 - Module doc on `source.rs` states the **bitemporal invariant**: `available_at` is KNOWLEDGE time (`fetched_at`), never event/observed/`target_date`; post-resolution fields carry `available_at = resolution time`. The **canonical `event_linkage` namespace** is documented here (the join key; Aeolus↔future-producer reconciliation rule).
 
 **Failing tests (TDD):**
@@ -73,7 +73,7 @@
 - `replay_is_idempotent`: replay twice → second run writes 0 (content-hash / ON CONFLICT), `skipped_idempotent` == first run's `written`.
 - `replay_is_deterministic`: same source + injected `SimClock` → identical ledger rows (no wall-clock).
 - `replay_stamps_historical_import`: every written row has `provenance.source == "historical-import"` + preserved original timestamps.
-- `parity_seam_backtest_equals_live` (G-PARITY): the same record set scored via the live path vs the replay path → byte-identical scorecards modulo the source label (extends WS2 `scorecard_parity_seam`).
+- **`parity_seam_backtest_equals_live` (G-PARITY — must invoke the REAL paths, not a twin assemble call; Important#1):** construct N (belief, outcome, snapshot) records; score them BOTH via (a) the **live scoring path** — `fortuna_cognition::scorecard_agg::assemble_from_samples` (the same assembly the daemon's `recompute_scorecards` uses) — AND (b) `ReplayHarness::replay` against an in-memory `HistoricalSource` (which actually streams → as-of-joins → scores → produces the `Scorecard`/ledger rows); assert the two resulting `Scorecard`s are **byte-identical modulo `provenance.source`**. NOTE: the existing WS2 `scorecard_parity_seam` (tests/scorecard.rs:429) is a *pure twin `assemble_scorecard` call* and does NOT exercise a replay path — this test is the larger claim and MUST drive `ReplayHarness::replay`, else the gate has nothing to bite. Mutation: stubbing the replay path to just call the live assembler (or any divergence) reds it.
 
 **Algorithm:** stream records; per decision, `asof_join` with **strict `available_at < decided_at`** (documented rule); feed `DecisionContext` to the *same* `fortuna-scoring` rules + the *same* ledger repos (source-stamped); idempotency via a content-hash unique key + `ON CONFLICT DO NOTHING`. No `panic`/`unwrap`.
 
@@ -85,7 +85,7 @@
 
 **Files:** Modify `src/harness.rs` (manifest enforcement); `src/manifest.rs` (coverage check). Test `tests/gdead.rs`.
 
-**Interfaces — Produces:** `fn enforce_gdead(scored: &[ScoredRow], manifest: &UniverseManifest) -> Result<(), GDeadViolation>` — (a) every manifest-engaged market appears in `scored` (no silent drop) AND (b) voided + NO-resolved markets are present in `scored`.
+**Interfaces — Produces:** `struct ScoredRow { event_linkage: String, outcome: f64, voided: bool }` (the per-market scored result the harness produces); `fn enforce_gdead(scored: &[ScoredRow], manifest: &UniverseManifest) -> Result<(), GDeadViolation>` — (a) every manifest-engaged market appears in `scored` (no silent drop) AND (b) voided + NO-resolved markets are present in `scored`.
 
 **Failing tests (TDD):**
 - `gdead_voided_present`: a manifest with a voided market → if `scored` omits it, violation; present → ok. (The load-bearing clause.)
@@ -103,7 +103,7 @@
 
 **READ FIRST:** `docs/research/2026-06-21-ws3-backtest-overfitting-grounding.md` — all formulas below are quoted there with citations. Implement them EXACTLY.
 
-**Files:** Create `crates/fortuna-scoring/src/deflation/{mod.rs, cscv.rs, purge.rs, spa.rs, effective_n.rs, dsr.rs}`; `tests/deflation_*.rs`. Pure math — no IO, no Clock, no RNG except a **seeded** bootstrap PRNG passed in (determinism: the seed is an explicit parameter, never wall-clock).
+**Files:** Create `crates/fortuna-scoring/src/deflation/{mod.rs, cscv.rs, purge.rs, spa.rs, effective_n.rs, dsr.rs}`; `tests/deflation_*.rs`. Pure math — no IO, no Clock. **PURITY CONSTRAINT (Important#2): `fortuna-scoring/Cargo.toml` gains NO new dependency** — the crate's documented purity is "std + serde + thiserror only; no `rand`/`getrandom`/`libm`" (`lib.rs:6-8`; the `dm.rs` hand-rolled-erf precedent). The SPA stationary block bootstrap needs a seeded PRNG: define `trait SeededRng { fn next_u64(&mut self) -> u64; fn gen_range(&mut self, lo: usize, hi: usize) -> usize; }` in the deflation module and supply the concrete deterministic impl as a **hand-rolled SplitMix64 in-module** (no dep) — or let the *caller* (`fortuna-backtest`/tests) provide it. **`rand` MUST NOT enter `fortuna-scoring`.** Add a purity assertion (extend the existing decoupling/purity check, mutation-proofed) that `fortuna-scoring`'s dependency set is unchanged.
 
 **Interfaces — Produces:**
 - `purge.rs`: `fn purge_embargo(train: &[LabelWindow], test: &[LabelWindow], embargo: Duration) -> Vec<usize>` — indices to KEEP. Overlap = `train.t0 ≤ test.t1 && train.t1 ≥ test.t0`; embargo extends each test window to `t1+h` before the overlap test (one-sided).
@@ -120,7 +120,7 @@
 - `cscv_is_metric_agnostic`: feeding a Brier-skill matrix vs a Sharpe matrix runs identically (no metric assumption).
 - `spa_c_studentized_and_recentered`: poor configs do NOT inflate the p-value (RC contamination test — add a terrible config; `p_c` ~unchanged; an RC-style un-recentered mutation degrades). Φ checks: a clear winner → `p_c < 0.05`; pure noise → `p_c` ~uniform/high.
 - `spa_block_bootstrap_deterministic`: same seed → same `p_c`.
-- `mintrl_matches_paper_worked_example` (SR2-vs-1 daily Normal → ~688 obs ≈ 2.73yr; verify against the research's worked number); `effective_n_ar1` (ρ=0.5 → 0.33·N).
+- `mintrl_matches_paper_worked_example`: pin the EXACT research §3 inputs (SR2-vs-1, daily, Normal — per-period SR_hat=2/√252, SR*=1/√252, skew=0, γ4=3, Z_α=1.645) → MinTRL ≈ 688 obs (≈2.73yr); `effective_n_ar1` (ρ=0.5 → 0.33·N).
 - `dsr_denominator_uses_sr_hat` (guards the resolved contested point); `dsr_grows_with_t`, `dsr_shrinks_with_N`.
 
 **Acceptance / gate:** `cargo test -p fortuna-scoring deflation`; clippy; commit. (Pure-crate purity grep still passes — deflation adds no IO.)
@@ -132,17 +132,24 @@
 **Files:** Create `crates/fortuna-backtest/src/sweep.rs`; migration `crates/fortuna-ledger/migrations/2026062100000X_validation_runs.sql`; `crates/fortuna-ledger/src/repos.rs` (`ValidationRunsRepo`); extend the WS2 scorecard contract (`fortuna-scoring/src/scorecard.rs`) with the deflated view. Tests `tests/sweep.rs`, ledger `tests/validation_runs.rs`.
 
 **Interfaces — Produces:**
-- `struct TrialSpace { calibration_windows, recal_methods, scopes, go_thresholds }`; `fn run_sweep(...) -> ValidationRun` — for each config compute the OOS forecasting-edge series; assemble the CSCV matrix; call `pbo`, `spa_c`, `effective_n`, `mintrl`, `dsr`.
-- `enum Verdict { Go, NoGo, InsufficientEvidence }`; `fn decide(report) -> Verdict` — **GO iff** N_eff sufficient (≥30 + per-CSCV-fold coherent) AND `pbo ≤ 0.05` AND `spa.p_c < α` AND selected OOS edge > 0; **INSUFFICIENT** iff under-powered (N_eff<30 / folds too thin); else **NO-GO**.
-- `struct ValidationRun { run_id, scope, producer, trial_space, n_trials, selected_config, deflated_edge, deflated_p, pbo, effective_n, mintrl_ok, sharpe_dsr, verdict, computed_at }`; `ValidationRunsRepo::{insert, latest}`.
+- `struct TrialSpace { calibration_windows, recal_methods, scopes, go_thresholds }`; `fn run_sweep(...) -> ValidationRun`. **The trial count N is the JOINT scope × config grid (BLOCK-2 / research §6 cross-scope snooping):** when multiple scopes are validated, `n_trials = |scopes| × |configs|`, and the DSR/SPA `N` deflate against this **`family_n_trials`**, never a single scope's config count. (Romano–Wolf StepM family-wise control across the grid is a *recorded deferral*; the N-counting itself is NOT deferrable — it's the difference between a correct and an inflated deflation.) For each config compute the OOS edge series; assemble the CSCV matrix; call `pbo`, `spa_c`, `effective_n`, `mintrl`, `dsr`.
+- **Verdict = the EXISTING `GoDecision { Go, NoGo, Insufficient }`** (reuse `fortuna-scoring/src/scorecard.rs`'s enum — do NOT add a fifth verdict type; M1). `fn decide(report) -> GoDecision` — **Brier is the PRIMARY gated metric (BLOCK-1; matches WS2's "Brier is the sole GO gate"):**
+  - **GO iff** `N_eff` sufficient (≥30 + per-CSCV-fold coherent) **AND** the **Brier-skill** OOS edge > 0 **AND** `pbo` (computed on the **Brier-skill** matrix) ≤ 0.05 **AND** `spa.p_c` (on the **Brier-loss** differential) < α.
+  - **CLV is a CORROBORATING axis ONLY** — reported with its own `pbo`/`spa`, it may *strengthen* the read but **never create a GO** (CLV's benchmark is a market price, not ground truth — research §6 proxy-truth caveat). A CLV-positive but Brier-flat config is **NOT** a GO.
+  - **INSUFFICIENT** iff under-powered (`N_eff` < 30 / CSCV folds too thin); else **NO-GO**.
+- `struct ValidationRun { run_id, scope, producer, trial_space, n_trials, family_n_trials, selected_config, brier_edge, brier_pbo, brier_spa_p, clv_edge, clv_pbo, clv_spa_p, effective_n, mintrl_ok, sharpe_dsr, verdict, computed_at }`; `ValidationRunsRepo::{insert, latest}`.
 
 **Failing tests (TDD):**
-- `verdict_go_requires_all`: drop any one of {N_eff ok, pbo≤.05, p_c<α, edge>0} → not GO (mutation-proof each).
-- `verdict_insufficient_on_thin_n`: N_eff<30 → InsufficientEvidence (NOT NoGo, NOT Go).
+- `verdict_go_requires_all`: drop any one of {N_eff ok, brier_pbo≤.05, brier_spa_p<α, brier_edge>0} → not GO (mutation-proof each conjunct).
+- **`verdict_clv_cannot_rescue_brier_flat` (BLOCK-1):** a config with positive CLV but Brier-skill NOT beating baseline → **NoGo**; a mutation that ORs CLV into the GO condition reds it.
+- **`sweep_n_trials_counts_scope_x_config_grid` (BLOCK-2):** validating K scopes records `n_trials = K × |configs|` and deflates DSR/SPA against `family_n_trials`; a mutation counting only one scope's configs reds it.
+- `verdict_insufficient_on_thin_n`: N_eff<30 → `GoDecision::Insufficient` (NOT NoGo, NOT Go).
 - `validation_runs_append_only`: UPDATE/DELETE rejected by `fortuna_refuse_mutation` (the WS2 scorecards pattern); insert + `latest` round-trip; newest-wins.
-- `go_surface_serializes_whole_truth`: the serialized contract carries {n_trials, effective_n, pbo, deflated_p, sharpe_dsr, verdict} — never a lone number.
+- `go_surface_serializes_whole_truth`: the serialized contract carries {n_trials, family_n_trials, effective_n, brier_pbo, brier_spa_p, clv_*, sharpe_dsr, verdict} — never a lone number.
 
-**Acceptance / gate:** `SQLX_OFFLINE=… cargo test -p fortuna-backtest --test sweep` + `-p fortuna-ledger --test validation_runs -- --test-threads=1`; `.sqlx` regenerated for the new query; clippy; commit.
+**Files note:** the migration is `crates/fortuna-ledger/migrations/20260621000002_validation_runs.sql` (sorts strictly after the current tail `20260621000001_scorecards.sql`; M3).
+
+**Acceptance / gate:** `SQLX_OFFLINE=… cargo test -p fortuna-backtest --test sweep` + `-p fortuna-ledger --test validation_runs -- --test-threads=1`; **regenerate `.sqlx` for the new `query!` against a LIVE Postgres** (per the ledger-gate-DB recipe — `fortuna_app` lacks CREATEDB; use the superuser socket; M5); clippy; commit.
 
 ---
 
@@ -168,7 +175,7 @@
 
 ### S7: CLI — `fortuna backtest` + `fortuna validate`
 
-**Files:** Modify `crates/fortuna-cli/src/main.rs` (+ a `backtest`/`validate` subcommand module). Test `crates/fortuna-cli/tests/backtest_cli.rs`.
+**Files:** Modify `crates/fortuna-cli/src/main.rs` (+ a `backtest`/`validate` subcommand module). Test `crates/fortuna-cli/tests/backtest_cli.rs`. **M4: dispatch via the DB-backed async path (`main.rs:1043`, where the tokio runtime + pool are built), NOT the read-only block (`main.rs:138`)** — both commands write the ledger.
 
 **Interfaces:** `fortuna backtest <source> [--from --to]` (idempotent replay via `ReplayHarness`); `fortuna validate --scope … --producer …` (run the sweep → write `validation_runs` → print the GO surface). Paper-safe: read-only on the source, no real orders.
 
@@ -197,3 +204,4 @@
 - Shared cross-language Source/Record *standard* with Alexandria — deferred until a second producer (spec D2).
 - Arrow/Parquet record format — JSONL is the canonical contract now; Arrow is an optional scale path.
 - Lo (2002) serially-correlated Sharpe SE — the effective-N haircut is used instead (research §8).
+- Romano–Wolf StepM / stepwise-SPA family-wise control across the scope × config grid — deferred (research §6); the joint `family_n_trials` N-counting (S5) is the **non-deferrable** part that prevents cross-scope snooping now.
