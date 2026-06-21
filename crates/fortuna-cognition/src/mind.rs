@@ -465,6 +465,48 @@ pub struct AnthropicMind<T: MindTransport> {
     clock: std::sync::Arc<dyn Clock>,
 }
 
+/// Anthropic's structured-output `json_schema` format supports only a subset of
+/// JSON Schema: it REJECTS validation-constraint keywords (numeric range, array
+/// length, string length/pattern) with an HTTP 400. We keep the full schema as the
+/// contract (the harness re-validates ranges/length in
+/// `persona_runner::validate_findings`, spec I6) and strip the unsupported
+/// keywords from the copy SENT to the provider. Pure + recursive: the Array arm
+/// covers `anyOf`/`allOf`/`oneOf`; the Object arm covers `properties`/`items`/`not`.
+fn sanitize_schema_for_anthropic(schema: &serde_json::Value) -> serde_json::Value {
+    const UNSUPPORTED: &[&str] = &[
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "multipleOf",
+        "minItems",
+        "maxItems",
+        "uniqueItems",
+        "minLength",
+        "maxLength",
+        "pattern",
+        "format",
+        "minProperties",
+        "maxProperties",
+    ];
+    match schema {
+        serde_json::Value::Object(map) => {
+            let mut out = serde_json::Map::new();
+            for (k, v) in map {
+                if UNSUPPORTED.contains(&k.as_str()) {
+                    continue;
+                }
+                out.insert(k.clone(), sanitize_schema_for_anthropic(v));
+            }
+            serde_json::Value::Object(out)
+        }
+        serde_json::Value::Array(items) => {
+            serde_json::Value::Array(items.iter().map(sanitize_schema_for_anthropic).collect())
+        }
+        other => other.clone(),
+    }
+}
+
 impl<T: MindTransport> AnthropicMind<T> {
     pub fn new(
         config: AnthropicMindConfig,
@@ -667,12 +709,17 @@ impl<T: MindTransport> AnthropicMind<T> {
         ctx: &AssembledContext,
         schema: serde_json::Value,
     ) -> (Result<serde_json::Value, MindError>, i64) {
+        // Anthropic's json_schema format rejects validation-constraint keywords
+        // (numeric range, array length) with HTTP 400; strip them from the copy
+        // we send. The full schema remains the contract — `validate_findings`
+        // re-enforces ranges/length harness-side (spec I6).
+        let api_schema = sanitize_schema_for_anthropic(&schema);
         let body = json!({
             "model": self.config.model,
             "max_tokens": self.config.max_tokens,
             "thinking": {"type": "adaptive"},
             "system": self.config.system_charter,
-            "output_config": {"format": {"type": "json_schema", "schema": schema}},
+            "output_config": {"format": {"type": "json_schema", "schema": api_schema}},
             "messages": [{"role": "user", "content": ctx.rendered}],
         });
 
@@ -819,4 +866,61 @@ pub fn mind_from_env(
 
 fn ceil_div(num: i64, den: i64) -> i64 {
     (num + den - 1) / den
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitize_schema_strips_unsupported_keywords_recursively() {
+        // A schema shaped like the meteorologist one: validation-constraint
+        // keywords (numeric range, array length) are nested under
+        // properties.thresholds.items.properties.p — exactly where Anthropic's
+        // json_schema output format rejects them with HTTP 400.
+        let schema = json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["thresholds"],
+            "properties": {
+                "thresholds": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["ge", "p"],
+                        "properties": {
+                            "p": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                            "ge": {"type": "number"}
+                        }
+                    }
+                }
+            }
+        });
+
+        let sanitized = sanitize_schema_for_anthropic(&schema);
+        let serialized = sanitized.to_string();
+
+        // None of the unsupported validation keywords survive, anywhere in the tree.
+        assert!(
+            !serialized.contains("minimum"),
+            "minimum must be stripped, got: {serialized}"
+        );
+        assert!(
+            !serialized.contains("maximum"),
+            "maximum must be stripped, got: {serialized}"
+        );
+        assert!(
+            !serialized.contains("minItems"),
+            "minItems must be stripped, got: {serialized}"
+        );
+
+        // The structural keywords Anthropic DOES support are preserved.
+        assert!(serialized.contains("properties"));
+        assert!(serialized.contains("\"type\""));
+        assert!(serialized.contains("required"));
+        assert!(serialized.contains("additionalProperties"));
+        assert!(serialized.contains("items"));
+    }
 }

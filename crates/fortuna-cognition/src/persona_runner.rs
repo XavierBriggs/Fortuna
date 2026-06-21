@@ -128,10 +128,12 @@ pub fn persona_system_charter(persona: &PersonaDef) -> &str {
 /// shape never slips past the validator to fail silently downstream. Violation
 /// messages are path-qualified (`thresholds[0]: missing required field 'ge'`).
 ///
-/// Scope (YAGNI): structural only — required + additionalProperties. Type and
-/// numeric-range constraints are deliberately NOT enforced here (the schema layer
-/// does not support ranges; probability/price domains re-validate in code — see
-/// the `output_schema` comment in `mind.rs`).
+/// Scope: structural (required + additionalProperties) AND the validation
+/// constraints the PROVIDER cannot enforce — numeric `minimum`/`maximum` on
+/// number/integer fields and array `minItems`. Anthropic's `json_schema` output
+/// format REJECTS those keywords (HTTP 400), so the schema sent to the model is
+/// sanitized (see `sanitize_schema_for_anthropic` in `mind.rs`) and this harness
+/// is the ONLY place p∈[0,1] and "at least one threshold" are actually enforced.
 pub fn validate_findings(findings: &Value, schema: &Value) -> Vec<String> {
     let mut violations = Vec::new();
     validate_against_object_schema(findings, schema, "", &mut violations);
@@ -194,9 +196,11 @@ fn validate_against_object_schema(
 }
 
 /// Dispatch a property's sub-schema by its declared `type`: `object` → recurse
-/// into the child object; `array` with an object `items` schema → apply the
-/// object checks to each element (path `key[i]`). Other types are structurally
-/// unconstrained at this layer (no type/range checks — that is by design).
+/// into the child object; `array` → enforce `minItems`, then apply per-element
+/// object checks (path `key[i]`); `number`/`integer` → enforce `minimum`/`maximum`.
+/// The numeric-range and array-length checks live HERE (not the provider's schema
+/// layer): Anthropic's `json_schema` output format REJECTS those keywords (HTTP
+/// 400), so the harness is the only place p∈[min,max] and minItems can be enforced.
 fn validate_sub_schema(
     value: &Value,
     sub_schema: &Value,
@@ -213,12 +217,27 @@ fn validate_sub_schema(
             }
         }
         Some("array") => {
+            // Enforce minItems against the value array regardless of item type
+            // (an array-of-strings still has a length contract the provider drops).
+            if let (Some(min_items), Some(elements)) = (
+                sub_schema.get("minItems").and_then(Value::as_u64),
+                value.as_array(),
+            ) {
+                if (elements.len() as u64) < min_items {
+                    violations.push(qualify(
+                        path,
+                        &format!(
+                            "array has {} items, fewer than minItems {min_items}",
+                            elements.len()
+                        ),
+                    ));
+                }
+            }
             let Some(items) = sub_schema.get("items") else {
                 return;
             };
-            // Only per-element object checks are in scope; a non-object `items`
-            // schema (e.g. array of strings) carries no required/additional
-            // structure to enforce here.
+            // Only per-element object checks recurse; a non-object `items` schema
+            // (e.g. array of strings) carries no required/additional structure.
             if items.get("type").and_then(Value::as_str) != Some("object") {
                 return;
             }
@@ -229,7 +248,34 @@ fn validate_sub_schema(
                 }
             }
         }
+        Some("number") | Some("integer") => {
+            validate_numeric_range(value, sub_schema, path, violations);
+        }
         _ => {}
+    }
+}
+
+/// Enforce `minimum`/`maximum` (inclusive bounds) on a numeric `value` against its
+/// sub-schema. Pure: a non-numeric value or an absent bound is a no-op (type
+/// mismatch is left to the structural scope); appends to `violations`, never panics.
+fn validate_numeric_range(
+    value: &Value,
+    sub_schema: &Value,
+    path: &str,
+    violations: &mut Vec<String>,
+) {
+    let Some(v) = value.as_f64() else {
+        return;
+    };
+    if let Some(min) = sub_schema.get("minimum").and_then(Value::as_f64) {
+        if v < min {
+            violations.push(qualify(path, &format!("value {v} is below minimum {min}")));
+        }
+    }
+    if let Some(max) = sub_schema.get("maximum").and_then(Value::as_f64) {
+        if v > max {
+            violations.push(qualify(path, &format!("value {v} is above maximum {max}")));
+        }
     }
 }
 

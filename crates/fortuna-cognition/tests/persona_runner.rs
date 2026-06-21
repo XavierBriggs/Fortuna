@@ -459,6 +459,113 @@ fn valid_macro_economist_findings_pass_with_no_false_rejection() {
     );
 }
 
+// ---- numeric-range / array-length enforcement (S7): the provider's schema
+//      layer REJECTS these keywords (Anthropic HTTP 400), so the harness must
+//      enforce p∈[minimum,maximum] and array minItems against the SHIPPED schema. ----
+
+#[test]
+fn validate_findings_rejects_probability_above_one() {
+    use fortuna_cognition::persona_runner::validate_findings;
+    let schema = shipped_schema("meteorologist");
+    // p = 1.5 violates the schema's maximum:1.0 on thresholds[].p.
+    let findings = json!({
+        "thresholds": [{"ge": 65, "p": 1.5}],
+        "sigma_trend": "steady",
+        "confidence": "medium",
+        "regime": "weak ridge",
+        "key_risk": "marine layer timing"
+    });
+    let violations = validate_findings(&findings, &schema);
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.contains("maximum") && v.contains("thresholds[0].p")),
+        "p above maximum must be rejected and localized, got: {violations:?}"
+    );
+}
+
+#[test]
+fn validate_findings_rejects_probability_below_zero() {
+    use fortuna_cognition::persona_runner::validate_findings;
+    let schema = shipped_schema("meteorologist");
+    // p = -0.1 violates the schema's minimum:0.0 on thresholds[].p.
+    let findings = json!({
+        "thresholds": [{"ge": 65, "p": -0.1}],
+        "sigma_trend": "steady",
+        "confidence": "medium",
+        "regime": "weak ridge",
+        "key_risk": "marine layer timing"
+    });
+    let violations = validate_findings(&findings, &schema);
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.contains("minimum") && v.contains("thresholds[0].p")),
+        "p below minimum must be rejected and localized, got: {violations:?}"
+    );
+}
+
+#[test]
+fn validate_findings_rejects_empty_thresholds() {
+    use fortuna_cognition::persona_runner::validate_findings;
+    let schema = shipped_schema("meteorologist");
+    // thresholds:[] violates minItems:1 on the array (all other required fields present).
+    let findings = json!({
+        "thresholds": [],
+        "sigma_trend": "steady",
+        "confidence": "medium",
+        "regime": "weak ridge",
+        "key_risk": "marine layer timing"
+    });
+    let violations = validate_findings(&findings, &schema);
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.contains("minItems") && v.contains("thresholds")),
+        "an empty thresholds array must be rejected for minItems, got: {violations:?}"
+    );
+}
+
+#[test]
+fn validate_findings_accepts_in_range() {
+    use fortuna_cognition::persona_runner::validate_findings;
+    let schema = shipped_schema("meteorologist");
+    // p = 0.5 is within [0.0, 1.0] and the array is non-empty: NO range/length
+    // violations (boundary-adjacent in-range value).
+    let findings = json!({
+        "thresholds": [{"ge": 65, "p": 0.5}],
+        "sigma_trend": "steady",
+        "confidence": "medium",
+        "regime": "weak ridge",
+        "key_risk": "marine layer timing"
+    });
+    let violations = validate_findings(&findings, &schema);
+    assert!(
+        violations.is_empty(),
+        "in-range findings must pass with no violations, got: {violations:?}"
+    );
+}
+
+#[test]
+fn validate_findings_accepts_probability_at_boundaries() {
+    use fortuna_cognition::persona_runner::validate_findings;
+    let schema = shipped_schema("meteorologist");
+    // BVA: p exactly at minimum (0.0) and at maximum (1.0) are INCLUSIVE bounds —
+    // they must NOT be flagged (the schema uses minimum/maximum, not exclusive*).
+    let findings = json!({
+        "thresholds": [{"ge": 60, "p": 0.0}, {"ge": 65, "p": 1.0}],
+        "sigma_trend": "steady",
+        "confidence": "medium",
+        "regime": "weak ridge",
+        "key_risk": "marine layer timing"
+    });
+    let violations = validate_findings(&findings, &schema);
+    assert!(
+        violations.is_empty(),
+        "inclusive boundary probabilities (0.0, 1.0) must pass, got: {violations:?}"
+    );
+}
+
 // ---- the strict findings contract (design §4c): degrade, never crash ----
 
 #[tokio::test]
