@@ -212,6 +212,170 @@ fn additional_properties_false_with_no_properties_forbids_every_key() {
     );
 }
 
+// ---- validate_findings recurses into nested objects/arrays (design §4c) ----
+//
+// A live meteorologist run emitted `thresholds:[{threshold_f:79, p:0.67}]`
+// (the schema requires `{ge, p}`). The old top-level-only validator PASSED
+// it; the bad shape then failed silently downstream at map_persona_analysis
+// ("threshold missing numeric 'ge'"). The validator must catch nested schema
+// violations at the SOURCE. These tests load the SHIPPED persona schemas so
+// the generic, config-driven recursion is exercised against real shapes.
+
+fn shipped_schema(persona_dir: &str) -> serde_json::Value {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../config/personas")
+        .join(persona_dir)
+        .join("schema.json");
+    let raw = std::fs::read_to_string(path).unwrap();
+    serde_json::from_str(&raw).unwrap()
+}
+
+#[test]
+fn regression_threshold_missing_ge_is_rejected_at_the_source() {
+    use fortuna_cognition::persona_runner::validate_findings;
+    // The exact live-run defect: `threshold_f` instead of `ge`.
+    let schema = shipped_schema("meteorologist");
+    let findings = json!({
+        "thresholds": [{"threshold_f": 79, "p": 0.67}],
+        "sigma_trend": "steady",
+        "confidence": "medium",
+        "regime": "weak ridge",
+        "key_risk": "marine layer timing"
+    });
+    let violations = validate_findings(&findings, &schema);
+    assert!(
+        !violations.is_empty(),
+        "the malformed threshold item must be rejected, got no violations"
+    );
+    // The violation must name the missing `ge` and/or the unknown `threshold_f`,
+    // and localize it to the offending array element.
+    assert!(
+        violations
+            .iter()
+            .any(|v| (v.contains("ge") || v.contains("threshold_f")) && v.contains("thresholds[0]")),
+        "the violation must localize the nested defect to thresholds[0], got: {violations:?}"
+    );
+}
+
+#[test]
+fn valid_meteorologist_findings_pass_with_no_violations() {
+    use fortuna_cognition::persona_runner::validate_findings;
+    let schema = shipped_schema("meteorologist");
+    let findings = json!({
+        "thresholds": [{"ge": 79, "p": 0.67}],
+        "sigma_trend": "steady",
+        "confidence": "medium",
+        "regime": "weak ridge",
+        "key_risk": "marine layer timing",
+        "rationale": "optional free text reasoning"
+    });
+    let violations = validate_findings(&findings, &schema);
+    assert!(
+        violations.is_empty(),
+        "valid meteorologist findings must pass, got: {violations:?}"
+    );
+}
+
+#[test]
+fn nested_additional_properties_false_rejects_an_extra_field_in_a_threshold() {
+    use fortuna_cognition::persona_runner::validate_findings;
+    // The threshold item schema sets additionalProperties:false; an extra key
+    // inside an otherwise-valid item must be rejected (not just at the top level).
+    let schema = shipped_schema("meteorologist");
+    let findings = json!({
+        "thresholds": [{"ge": 79, "p": 0.67, "smuggled": "extra"}],
+        "sigma_trend": "steady",
+        "confidence": "medium",
+        "regime": "weak ridge",
+        "key_risk": "marine layer timing"
+    });
+    let violations = validate_findings(&findings, &schema);
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.contains("smuggled") && v.contains("thresholds[0]")),
+        "an extra field inside a threshold item must be rejected at thresholds[0], got: {violations:?}"
+    );
+}
+
+#[test]
+fn array_items_are_checked_per_element_localizing_the_offending_index() {
+    use fortuna_cognition::persona_runner::validate_findings;
+    // First element valid, SECOND malformed → rejected, localized to [1].
+    let schema = shipped_schema("meteorologist");
+    let findings = json!({
+        "thresholds": [{"ge": 79, "p": 0.67}, {"p": 0.41}],
+        "sigma_trend": "steady",
+        "confidence": "medium",
+        "regime": "weak ridge",
+        "key_risk": "marine layer timing"
+    });
+    let violations = validate_findings(&findings, &schema);
+    assert!(
+        violations.iter().any(|v| v.contains("thresholds[1]")),
+        "the malformed second element must be localized to thresholds[1], got: {violations:?}"
+    );
+    assert!(
+        !violations.iter().any(|v| v.contains("thresholds[0]")),
+        "the valid first element must NOT be flagged, got: {violations:?}"
+    );
+}
+
+#[test]
+fn top_level_required_and_additional_checks_are_preserved() {
+    use fortuna_cognition::persona_runner::validate_findings;
+    let schema = shipped_schema("meteorologist");
+    // Missing a top-level required key (`key_risk`) → rejected.
+    let missing_top = json!({
+        "thresholds": [{"ge": 79, "p": 0.67}],
+        "sigma_trend": "steady",
+        "confidence": "medium",
+        "regime": "weak ridge"
+    });
+    let v1 = validate_findings(&missing_top, &schema);
+    assert!(
+        v1.iter()
+            .any(|v| v.contains("missing required field") && v.contains("key_risk")),
+        "a missing top-level required key must still be caught, got: {v1:?}"
+    );
+    // Extra top-level key → rejected.
+    let extra_top = json!({
+        "thresholds": [{"ge": 79, "p": 0.67}],
+        "sigma_trend": "steady",
+        "confidence": "medium",
+        "regime": "weak ridge",
+        "key_risk": "marine layer timing",
+        "bogus_top": 1
+    });
+    let v2 = validate_findings(&extra_top, &schema);
+    assert!(
+        v2.iter().any(|v| v.contains("unknown field 'bogus_top'")),
+        "an extra top-level key must still be caught, got: {v2:?}"
+    );
+}
+
+#[test]
+fn valid_macro_economist_findings_pass_with_no_false_rejection() {
+    use fortuna_cognition::persona_runner::validate_findings;
+    // The other shipped persona uses `outcomes` (array of {label, p}); the
+    // generic recursion must not falsely reject its valid findings.
+    let schema = shipped_schema("macro-economist");
+    let findings = json!({
+        "outcomes": [
+            {"label": "MoM >= 0.3%", "p": 0.55},
+            {"label": "MoM >= 0.5%", "p": 0.20}
+        ],
+        "regime": "sticky services inflation",
+        "confidence": "medium",
+        "key_risk": "shelter disinflation stalls"
+    });
+    let violations = validate_findings(&findings, &schema);
+    assert!(
+        violations.is_empty(),
+        "valid macro-economist findings must pass, got: {violations:?}"
+    );
+}
+
 // ---- the strict findings contract (design §4c): degrade, never crash ----
 
 #[tokio::test]
@@ -359,5 +523,5 @@ async fn the_shipped_meteorologist_runs_against_a_scripted_finding() {
     assert!(outcome.produced_artifact());
     assert_eq!(outcome.findings.as_ref().unwrap(), &findings);
     assert_eq!(outcome.persona_id, "meteorologist");
-    assert_eq!(outcome.persona_version, 2); // v2 after D3 persona.md bump
+    assert_eq!(outcome.persona_version, 4); // v4: shipped meteorologist (output-contract completion)
 }

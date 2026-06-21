@@ -182,7 +182,7 @@ async fn meteorologist_end_to_end_registry_to_scored_beliefs(pool: PgPool) {
     assert_eq!(recent.len(), 3, "all three persona beliefs persisted");
     for b in &recent {
         assert_eq!(b.provenance["persona_id"], "meteorologist");
-        assert_eq!(b.provenance["persona_version"], 2); // v2 after D3 persona.md bump
+        assert_eq!(b.provenance["persona_version"], 4); // v4: shipped meteorologist (output-contract completion)
         let cited = b.provenance["analysis_id"].as_str().unwrap();
         assert_eq!(cited, analysis_id);
         assert_eq!(

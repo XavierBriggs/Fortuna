@@ -5046,8 +5046,8 @@ async fn seed_personas_enabled_boots_and_head_is_present(pool: PgPool) {
     assert!(head.is_some(), "registry head must be present after seed");
     let row = head.unwrap();
     assert_eq!(
-        row.version, 3,
-        "version = 3 from persona.md frontmatter (bumped at WS1 boundary: grading-station fix)"
+        row.version, 4,
+        "version = 4 from persona.md frontmatter (output-contract completion: journal.body routing + `ge` field-name + nested-schema validation)"
     );
     assert_eq!(row.status, "active", "status = active");
     assert_eq!(row.domain, "weather", "domain = weather");
@@ -5107,9 +5107,9 @@ async fn seed_personas_is_idempotent(pool: PgPool) {
 
 #[sqlx::test(migrations = "../fortuna-ledger/migrations")]
 async fn seed_personas_version_bump_causes_version_mismatch(pool: PgPool) {
-    // D2 mutation-proof: seed with the real persona.md (now version=3 after
-    // WS1 boundary grading-station fix), then simulate an operator inserting a
-    // FUTURE v4 row that has a DIFFERENT method_hash — validate_against must
+    // D2 mutation-proof: seed with the real persona.md (now version=4 after the
+    // output-contract completion bump), then simulate an operator inserting a
+    // FUTURE v5 row that has a DIFFERENT method_hash — validate_against must
     // return VersionMismatch, proving the registry gate is real.
     let now_iso = "2026-06-18T00:00:00.000Z";
     let dir = meteorologist_dir();
@@ -5119,18 +5119,18 @@ async fn seed_personas_version_bump_causes_version_mismatch(pool: PgPool) {
         cadences: vec![],
     }];
 
-    // Seed the real persona (version=3 after WS1 boundary fix, real hash).
+    // Seed the real persona (version=4 after the output-contract bump, real hash).
     fortuna_live::daemon::seed_personas(&pool, &cfg, now_iso)
         .await
         .expect("initial seed succeeds");
 
-    // Simulate an operator inserting a superseding v4 row with a DIFFERENT hash.
-    // This makes the REGISTRY HEAD be version=4, but the file on disk is version=3.
+    // Simulate an operator inserting a superseding v5 row with a DIFFERENT hash.
+    // This makes the REGISTRY HEAD be version=5, but the file on disk is version=4.
     let repo = fortuna_ledger::PersonasRepo::new(pool.clone());
     repo.insert(
-        "meteorologist:v4",
+        "meteorologist:v5",
         "meteorologist",
-        4, // bumped version — one above the current file version
+        5, // bumped version — one above the current file version
         "weather",
         &serde_json::json!(["temperature"]),
         &serde_json::json!(["aeolus.forecast"]),
@@ -5138,14 +5138,14 @@ async fn seed_personas_version_bump_causes_version_mismatch(pool: PgPool) {
         "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef", // different hash
         "findings/v2",
         "active",
-        Some("meteorologist:v3"),
+        Some("meteorologist:v4"),
         now_iso,
         now_iso,
     )
     .await
-    .expect("v4 insert succeeds");
+    .expect("v5 insert succeeds");
 
-    // Now parse the on-disk def (version=3) and validate against the new head.
+    // Now parse the on-disk def (version=4) and validate against the new head.
     let md = std::fs::read_to_string(format!("{dir}/persona.md")).unwrap();
     let schema_json = std::fs::read_to_string(format!("{dir}/schema.json")).unwrap();
     let def = fortuna_cognition::persona::PersonaDef::parse(&md, &schema_json)
@@ -5157,7 +5157,7 @@ async fn seed_personas_version_bump_causes_version_mismatch(pool: PgPool) {
         method_hash: head.method_hash.clone(),
         status: head.status.clone(),
     };
-    // The file is v3; the registry head is v4 → VersionMismatch.
+    // The file is v4; the registry head is v5 → VersionMismatch.
     let err = def
         .validate_against(Some(&registry_head))
         .expect_err("version mismatch must be rejected");
