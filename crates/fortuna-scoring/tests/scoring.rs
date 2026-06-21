@@ -4,13 +4,13 @@
 //! - `PredictiveDistribution` validation for all three shapes.
 //! - `RealizedOutcome` kind parity.
 //! - `BrierRule`: exact squared-error vectors; binary-only scope.
-//! - `CrpsPinballRule`: mean-pinball vectors (hand-computed); median
+//! - `CrpsPinballRule`: TRUE-CRPS vectors (hand-computed); median
 //!   degeneracy; realistic funding-rate vector; proper-scoring property.
 //! - `ScoringRule` swappability: each rule on its shape, each rule errors on
 //!   the wrong shape, kind-mismatched (pred, outcome) errors.
 //! - Determinism: same inputs → identical score on repeated calls.
 
-use fortuna_cognition::scoring::{
+use fortuna_scoring::{
     BrierRule, CategoricalBin, CrpsPinballRule, PredictiveDistribution, PredictiveKind, Quantile,
     RealizedOutcome, ScoreError, ScoringRule,
 };
@@ -372,27 +372,33 @@ fn brier_on_categorical_pred_errors() {
     );
 }
 
-// ─── CrpsPinballRule: exact vectors ──────────────────────────────────────────
+// ─── CrpsPinballRule: exact vectors (TRUE CRPS = 2·Σ pinball·Δτ) ──────────────
 //
-// Grid: [(0.1, -1.0), (0.5, 0.0), (0.9, 1.0)]
+// The rule returns the TRUE CRPS, not the mean pinball: for an equally-spaced
+// quantile grid of K levels the convention is Δτ = 1/K, so
+//   CRPS = 2·Σ_k pinball_{q_k}(y, v_k)·Δτ = (2/K)·Σ_k pinball_{q_k}(y, v_k).
+// (Mean pinball, Σ/K, is exactly ½·CRPS — missing the factor 2.)
+//
+// Grid: [(0.1, -1.0), (0.5, 0.0), (0.9, 1.0)]  (K = 3)
 //
 // y = 0:
 //   pinball_0.1(-1.0, 0) = 0.1*(0-(-1)) = 0.1
 //   pinball_0.5(0.0, 0)  = 0.5*(0-0)   = 0.0
 //   pinball_0.9(1.0, 0)  = (1-0.9)*(1-0) = 0.1
-//   mean = (0.1 + 0.0 + 0.1) / 3 ≈ 0.0666...
+//   CRPS = (2/3)*(0.1 + 0.0 + 0.1) ≈ 0.1333...
 //
 // y = 2:
 //   pinball_0.1(-1.0, 2) = 0.1*(2-(-1)) = 0.3
 //   pinball_0.5(0.0, 2)  = 0.5*(2-0)   = 1.0
 //   pinball_0.9(1.0, 2)  = 0.9*(2-1)   = 0.9
-//   mean = (0.3 + 1.0 + 0.9) / 3 ≈ 0.7333...
+//   CRPS = (2/3)*(0.3 + 1.0 + 0.9) ≈ 1.4666...
 
 const GRID: &[(f64, f64)] = &[(0.1, -1.0), (0.5, 0.0), (0.9, 1.0)];
 
+/// TRUE CRPS over an equally-spaced K-level grid: `(2/K)·Σ pinball`.
 fn expected_crps(qs: &[(f64, f64)], y: f64) -> f64 {
     let sum: f64 = qs.iter().map(|(q, v)| pinball(*q, *v, y)).sum();
-    sum / qs.len() as f64
+    2.0 * sum / qs.len() as f64
 }
 
 #[test]
@@ -415,9 +421,9 @@ fn crps_grid_y_two() {
 
 #[test]
 fn crps_single_quantile_fails_validation_as_required() {
-    // A lone q=0.5 quantile is the mathematical |y − v|/2 median case, but the
+    // A lone q=0.5 quantile is the mathematical |y − v| median case, but the
     // ≥2-quantile invariant makes it UNREACHABLE: score() calls validate()
-    // first and MUST reject it. This pins that contract — the |y − v|/2 identity
+    // first and MUST reject it. This pins that contract — the |y − v| identity
     // documented on the rule is never a scored input.
     for (v, y) in [(0.0f64, 1.0f64), (0.5, 0.0), (3.0, -1.0)] {
         let pred = PredictiveDistribution::Scalar {
@@ -436,8 +442,9 @@ fn crps_single_quantile_fails_validation_as_required() {
 #[test]
 fn pinball_at_realized_equals_v_is_zero() {
     // The kink point: at y == v the check loss is exactly 0 for every q (both
-    // branches vanish). Pins the boundary value as a regression guard and
-    // covers the flat-CDF (constant v) case.
+    // branches vanish), so the TRUE CRPS (2/K · Σ 0) is also 0. Pins the
+    // boundary value as a regression guard and covers the flat-CDF (constant v)
+    // case.
     let pred = scalar(vec![(0.1, 0.5), (0.9, 0.5)]);
     let out = RealizedOutcome::Scalar { value: 0.5 };
     let s = CrpsPinballRule.score(&pred, &out).unwrap();
@@ -574,7 +581,8 @@ fn crps_deterministic_on_repeated_calls() {
 // Concretely: for scalar [q1,q2,q3] whose MEDIAN (q=0.5) equals the
 // realized value, the score is no worse than a forecast shifted ±δ.
 // We test the median-is-optimal property: when v_median = y, no shift
-// can improve the score.
+// can improve the score. (The constant factor 2 in TRUE CRPS preserves the
+// ordering, so this property is unchanged by the scale fix.)
 
 proptest! {
     #[test]

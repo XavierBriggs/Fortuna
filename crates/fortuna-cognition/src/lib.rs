@@ -53,7 +53,11 @@ pub mod persona_trigger;
 pub mod reconciliation;
 pub mod review;
 pub mod scalar_beliefs;
-pub mod scoring;
+// The scoring math now lives in the pure `fortuna-scoring` crate. This re-export
+// SHIM preserves every `fortuna_cognition::scoring::*` and `crate::scoring::*`
+// path workspace-wide, so no consumer in cognition/live/runner/ledger/ops is
+// repointed. See `fortuna-scoring` (decoupled: std + serde + thiserror only).
+pub use fortuna_scoring as scoring;
 pub mod shadow;
 pub mod signals;
 pub mod veto;

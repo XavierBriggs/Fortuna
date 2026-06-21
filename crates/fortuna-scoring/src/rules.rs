@@ -23,9 +23,9 @@
 //! # Shipped rules
 //!
 //! - [`BrierRule`] — binary Brier score `(p − o)²` (lower is better).
-//! - [`CrpsPinballRule`] — mean pinball / quantile loss over the provided
-//!   quantiles, which is the discretized CRPS for scalar forecasts.  A proper
-//!   scoring rule; lower is better.
+//! - [`CrpsPinballRule`] — TRUE CRPS via the pinball / quantile-loss
+//!   discretization (`2·Σ pinball·Δτ`; equal grid → `(2/K)·Σ`) for scalar
+//!   forecasts.  A proper scoring rule; lower is better.
 //!
 //! Adding a new rule (log-loss, weighted-CRPS, categorical Brier, …) is a new
 //! `impl ScoringRule` — no schema change.
@@ -297,7 +297,14 @@ impl ScoringRule for BrierRule {
 
 // ─── CrpsPinballRule ──────────────────────────────────────────────────────────
 
-/// Mean pinball / quantile loss — the discretized CRPS for scalar forecasts.
+/// TRUE CRPS via the pinball / quantile-loss discretization for scalar
+/// forecasts.
+///
+/// CRPS as a quantile integral is `CRPS = 2·∫₀¹ pinball_τ dτ`.  Discretized on
+/// an **equally-spaced grid** of K quantile levels with spacing `Δτ = 1/K`
+/// (this rule's normalization convention), that is `(2/K)·Σ` — i.e. **true
+/// CRPS = 2·Σ pinball·Δτ; equal grid → (2/K)·Σ**.  The bare mean pinball
+/// (`Σ/K`, no factor 2) is exactly ½·CRPS and is NOT what this rule returns.
 ///
 /// Given K quantile levels `(q_k, v_k)` and realized value `y`:
 ///
@@ -305,14 +312,18 @@ impl ScoringRule for BrierRule {
 /// pinball_q(y, v) = q·(y − v)       if y ≥ v
 ///                  (1 − q)·(v − y)   otherwise
 ///
-/// score = (1/K) · Σ_k  pinball_{q_k}(y, v_k)
+/// score = (2/K) · Σ_k  pinball_{q_k}(y, v_k)
 /// ```
 ///
 /// This is a proper scoring rule; lower is better.  (Mathematical aside, not a
-/// reachable path: a lone q=0.5 quantile reduces to `|y − v|/2`, the median's
-/// proper score — NOT the Brier squared error; the two rules are distinct
-/// `ScoringRule` instances, not reductions of each other.  It is an identity
-/// only: `validate()` requires ≥2 quantiles, so K=1 is never a scored input.)
+/// reachable path: a lone q=0.5 quantile reduces to `|y − v|`, the median's
+/// proper score scaled to CRPS — NOT the Brier squared error; the two rules are
+/// distinct `ScoringRule` instances, not reductions of each other.  It is an
+/// identity only: `validate()` requires ≥2 quantiles, so K=1 is never a scored
+/// input.)
+///
+/// CRPS is consumed only RELATIVELY (one forecast's CRPS compared against a
+/// baseline's on the same realized value), so the factor-2 scale is GO-neutral.
 ///
 /// Handles `Scalar` distributions only.
 pub struct CrpsPinballRule;
@@ -347,7 +358,7 @@ impl ScoringRule for CrpsPinballRule {
             });
         }
 
-        // 4. Compute mean pinball loss.
+        // 4. Compute the TRUE CRPS = 2·Σ pinball·Δτ.
         let quantiles = match pred {
             PredictiveDistribution::Scalar { quantiles, .. } => quantiles,
             _ => unreachable!("applies_to guarantees Scalar"),
@@ -362,7 +373,10 @@ impl ScoringRule for CrpsPinballRule {
             .map(|Quantile { q, v }| pinball_loss(*q, *v, y))
             .sum();
 
-        Ok(sum / quantiles.len() as f64)
+        // Equally-spaced grid of K levels ⇒ Δτ = 1/K, so
+        // CRPS = 2·Σ pinball·Δτ = (2/K)·Σ. The old `Σ/K` was mean pinball
+        // (= ½·CRPS, missing the factor 2).
+        Ok(2.0 * sum / quantiles.len() as f64)
     }
 }
 

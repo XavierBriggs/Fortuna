@@ -8,6 +8,7 @@ members = [
   "crates/fortuna-venues",
   "crates/fortuna-ledger",
   "crates/fortuna-cognition",
+  "crates/fortuna-scoring",
   "crates/fortuna-ops",
   "crates/fortuna-invariants",
   "crates/fortuna-killswitch",
