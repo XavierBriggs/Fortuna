@@ -4062,6 +4062,83 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                             .await;
                     }
                 }
+
+                // WS2 S6d (milestone D-E "recompute on cadence"): on the SAME
+                // week boundary, persist the append-only `scorecards` snapshot
+                // for the synthesis scope. THIN connecting wiring — the tested
+                // `recompute_scorecards` driver owns the sample-collection +
+                // scoring math; here we only enumerate the (scope, producer)
+                // buckets and hand each to the driver. The scope is the
+                // [synthesis].category the review already audits; the producers
+                // are the DATA-driven DISTINCT set (no producer literal) PLUS the
+                // merged `None` bucket (the dashboard reads both). Each persists
+                // ONE card stamped `now`. The verdict floor is the §11 forward
+                // gate (`SCORECARD_MIN_FORWARD_N`). A failure ALERTS and continues
+                // — a scorecard is a transparency snapshot, never a money path,
+                // and must never crash the boundary (mirrors the calibration
+                // persist posture above).
+                if let Some(scope) = rw.synth_category.as_deref() {
+                    // Deterministic, no wall-clock entropy: the week's epoch-ms
+                    // base + the disjoint scorecard tag, advanced per recompute so
+                    // the 01SCD row ids in this pass never collide.
+                    let mut scorecard_id_base =
+                        SCORECARD_RECOMPUTE_BASE_TAG + (now.epoch_millis().max(0) as u64);
+                    let producers = match BeliefsRepo::new(rw.pool.clone())
+                        .producers_for_resolved_category(scope)
+                        .await
+                    {
+                        Ok(p) => p,
+                        Err(e) => {
+                            total_send_failures += runner
+                                .route_alerts(
+                                    slack,
+                                    &[(
+                                        fortuna_ops::MessageKind::Ops,
+                                        format!("weekly scorecard producers FAILED: {e}"),
+                                    )],
+                                )
+                                .await;
+                            Vec::new()
+                        }
+                    };
+                    // The merged-scope bucket (producer = None) FIRST, then each
+                    // attributed producer — every bucket the §9.1 dashboard reads.
+                    let buckets: Vec<Option<&str>> = std::iter::once(None)
+                        .chain(producers.iter().map(|p| Some(p.as_str())))
+                        .collect();
+                    for producer in buckets {
+                        match recompute_scorecards(
+                            &rw.pool,
+                            scope,
+                            producer,
+                            SCORECARD_MIN_FORWARD_N,
+                            scorecard_id_base,
+                            now,
+                        )
+                        .await
+                        {
+                            Ok(_) => {
+                                // One id consumed per persisted card; advance so the
+                                // next bucket's 01SCD id is disjoint.
+                                scorecard_id_base = scorecard_id_base.wrapping_add(1);
+                            }
+                            Err(e) => {
+                                total_send_failures += runner
+                                    .route_alerts(
+                                        slack,
+                                        &[(
+                                            fortuna_ops::MessageKind::Ops,
+                                            format!(
+                                                "weekly scorecard recompute FAILED for \
+                                                 ({scope}, {producer:?}): {e}"
+                                            ),
+                                        )],
+                                    )
+                                    .await;
+                            }
+                        }
+                    }
+                }
             }
             // The MONTHLY review (spec 5.8): same review block, its OWN scheduler
             // (won't fire in a week soak). Routes the allocation/cost summary to
@@ -4393,6 +4470,21 @@ const FUNDING_SCORE_BASE_TAG: u64 = 1 << 57;
 /// collide with that day's `01BSC` weather/funding score-ids (different id space
 /// anyway) nor with another day's `01CAL` run.
 const CALIBRATION_PERSIST_BASE_TAG: u64 = 1 << 58;
+
+/// Per-week base TAG for the weekly scorecard-recompute `01SCD…` row ids (WS2
+/// S6d). A FOURTH disjoint high tag on the week's epoch-ms base, 2^59 — the same
+/// 2^56-gap rationale as the score/calibration tags. The `01SCD` id space is
+/// distinct from `01BSC`/`01CAL` anyway; the gap simply guarantees the per-week
+/// per-(scope,producer) offset (a handful of recompute passes) can never wrap
+/// into another week's run.
+const SCORECARD_RECOMPUTE_BASE_TAG: u64 = 1 << 59;
+
+/// The forward-resolved volume floor below which a scorecard's GO/NO-GO verdict
+/// is `Insufficient` (spec Section 11: ">= 30 resolved beliefs per active
+/// category" — the same gate the weekly review's forward-volume recommendation
+/// uses). Passed to `recompute_scorecards` as `min_n` so the persisted snapshot's
+/// verdict matches the §11 gate.
+const SCORECARD_MIN_FORWARD_N: u32 = 30;
 
 /// Resolve + score every DUE, capturable `funding_forecast` scalar belief
 /// (design §2.6 A2d + §9.1; the SLICE-3-part-3 standalone — NOT yet wired into
