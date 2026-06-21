@@ -85,7 +85,7 @@ Each gate is enforced **FORTUNA-side** and ships an **executable test** (and a m
 - **Best-of-N** correction (White Reality Check / Hansen SPA / deflated p-value) on the *selected* config's edge, accounting for the `N` trials.
 - **Effective-N / MinTRL guard, as a verdict STATE:** post-purge the *independent* sample shrinks; the report carries `effective_n`. The verdict ∈ **{GO, NO-GO, INSUFFICIENT-EVIDENCE}** — if `effective_n < MinTRL` (the minimum track-record length that supports the CSCV partition count), the verdict is **INSUFFICIENT-EVIDENCE, never GO**. "We don't have enough independent data to say" is part of the whole truth (and aligns with WS2's existing `n<min_n → Insufficient`).
 - **DSR** on the paper-trade Sharpe is reported as **walled-off supporting context** (PnL is not the edge claim).
-- The GO surface reports `{selected_config, n_trials, effective_n, deflated_edge, deflated_p, pbo, sharpe_dsr, verdict}` — **never a single flattering number**.
+- The GO surface reports `{selected_config, n_trials, family_n_trials, effective_n, brier_edge, brier_pbo, brier_spa_p, clv_edge, clv_pbo, clv_spa_p, sharpe_dsr, verdict}` — **never a single flattering number** (Brier is the gated headline; CLV columns are corroborating).
 - **Executable gates:** (a) a deliberately-overfit sweep (many configs, one lucky winner) yields high PBO / non-significant deflated edge → **NO-GO**; (b) a **purged-CSCV-correctness test on a known-overlap fixture** — construct known overlap, confirm purging removes it, and a *no-purge* mutation measurably *understates* PBO (this is the test that proves the purging actually bites); (c) `effective_n < MinTRL` → INSUFFICIENT-EVIDENCE.
 
 ## 6. The replay harness
@@ -100,7 +100,7 @@ Each gate is enforced **FORTUNA-side** and ships an **executable test** (and a m
 
 - A **sweep driver** enumerates the trial space, runs the forecasting pipeline per config on the resolved set, and computes each config's OOS edge.
 - The **deflation module** (`fortuna-scoring` extension or a `fortuna-backtest` sub-module — purity-preserving, pure math): purged+embargoed CSCV → PBO; best-of-N correction; DSR; effective-N/MinTRL. Grounded by the research pass (§8) before implementation.
-- **Persistence:** a new append-only `validation_runs` table `{run_id, scope, producer, trial_space, n_trials, selected_config, deflated_edge, deflated_p, pbo, effective_n, mintrl_ok, sharpe_dsr, verdict, computed_at}`, protected by the `fortuna_refuse_mutation` trigger (the `scorecards` pattern; I5). The WS2 scorecard contract is extended with the deflated view.
+- **Persistence:** a new append-only `validation_runs` table `{run_id, scope, producer, trial_space, n_trials, family_n_trials, selected_config, brier_edge, brier_pbo, brier_spa_p, clv_edge, clv_pbo, clv_spa_p, effective_n, mintrl_ok, sharpe_dsr, verdict, computed_at}` (Brier = gated; CLV = corroborating; `family_n_trials` = the joint scope×config grid), protected by the `fortuna_refuse_mutation` trigger (the `scorecards` pattern; I5). The WS2 scorecard contract is extended with the deflated view.
 
 ## 8. Research-grounding pass (FIRST, before implementation)
 
