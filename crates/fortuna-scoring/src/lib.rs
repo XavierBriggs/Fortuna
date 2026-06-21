@@ -12,10 +12,12 @@
 
 pub mod corp;
 pub mod pav;
+pub mod pit;
 pub mod rules;
 pub mod samples;
 
 pub use corp::*;
 pub use pav::*;
+pub use pit::*;
 pub use rules::*;
 pub use samples::*;
