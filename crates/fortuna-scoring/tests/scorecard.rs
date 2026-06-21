@@ -31,13 +31,17 @@ fn strong_samples(n: usize) -> Vec<CalibrationSample> {
         .collect()
 }
 
-/// Samples whose mean Brier is EXACTLY a given target by making every sample a
-/// `p` vs `outcome=false` pair, so each loss is `p^2`. With `p = sqrt(target)`
-/// the mean Brier equals `target` exactly (all identical terms).
-fn samples_with_exact_brier(n: usize, target_brier: f64) -> Vec<CalibrationSample> {
-    let p = target_brier.sqrt();
+/// `n` identical `CalibrationSample{p:0.5, outcome:false}` samples. Each loss is
+/// `(0.5 − 0)² = 0.25` *bit-exactly* (0.5 and 0.25 are exactly representable and
+/// the product is exact), so the mean Brier is `0.25` with zero rounding error.
+/// Paired with `baseline_brier = 0.25` this is the only input that distinguishes
+/// strict `<` (NoGo) from `<=` (Go): `lt` is false but `le` is true.
+fn samples_tie_at_quarter(n: usize) -> Vec<CalibrationSample> {
     (0..n)
-        .map(|_| CalibrationSample { p, outcome: false })
+        .map(|_| CalibrationSample {
+            p: 0.5,
+            outcome: false,
+        })
         .collect()
 }
 
@@ -75,16 +79,17 @@ fn scorecard_go_strict_lt() {
 
 #[test]
 fn scorecard_tie_is_nogo() {
-    // brier == baseline EXACTLY → NoGo (strict `<`, matching WS1 review.rs:279
-    // which returns NoGo on `b >= mb`). This is the load-bearing boundary.
-    let target = 0.16;
-    let samples = samples_with_exact_brier(40, target);
+    // brier == baseline BIT-EXACTLY → NoGo (strict `<`, matching WS1 review.rs:279
+    // which returns NoGo on `b >= mb`). This is the load-bearing boundary and the
+    // ONLY input that kills the `< → <=` mutation: with brier == baseline, strict
+    // `<` is false (NoGo) while `<=` is true (Go). A near-tie would not bite.
+    let samples = samples_tie_at_quarter(40);
     let card = assemble_scorecard(
         "scope",
         None,
         "forward",
         &samples,
-        target, // baseline equals the model's brier exactly
+        0.25, // baseline equals the model's brier (0.25) bit-for-bit
         None,
         None,
         None,
@@ -92,12 +97,14 @@ fn scorecard_tie_is_nogo() {
         None,
         &[],
         Vec::new(),
-        30,
+        30, // min_n <= n so the trial-count floor does not pre-empt the gate
     );
 
-    assert!(
-        (card.brier - card.brier_baseline).abs() < 1e-12,
-        "precondition: this test must exercise the exact tie (brier == baseline)"
+    // Strengthened precondition: a BIT-EXACT tie, not an approximate one. If this
+    // is not a true tie the mutation-distinguishing property is lost.
+    assert_eq!(
+        card.brier, card.brier_baseline,
+        "precondition: this test must exercise a bit-exact tie (brier == baseline)"
     );
     assert_eq!(
         card.go.decision,
@@ -190,9 +197,15 @@ fn scorecard_reasoning_whole_truth() {
         r.contains(&card.n.to_string()),
         "reasoning must name the trial count n; got: {r}"
     );
+    // The VERDICT itself must state the Brier-vs-baseline comparison, not merely
+    // mention "baseline" somewhere. The GO verdict emits "Brier <x> < baseline
+    // <y> (strict)"; the only other "baseline" mention is the DM line ("DM vs
+    // baseline p-value"), which uses "vs baseline", not "< baseline". Asserting
+    // the literal "< baseline" therefore binds to the verdict's comparison and
+    // would fail if "baseline" were dropped from only the verdict line.
     assert!(
-        r.contains("baseline"),
-        "reasoning must name the baseline; got: {r}"
+        r.contains("< baseline"),
+        "the verdict must state the Brier-vs-baseline comparison (\"< baseline\"); got: {r}"
     );
     assert!(
         r.contains("MCB"),
@@ -390,15 +403,15 @@ fn scorecard_serialize_golden_shape() {
 
 #[test]
 fn scorecard_serialize_nogo_snake_case() {
-    // The NoGo variant must serialize as "no_go" (snake_case rename).
-    let target = 0.16;
-    let samples = samples_with_exact_brier(40, target);
+    // The NoGo variant must serialize as "no_go" (snake_case rename). A bit-exact
+    // tie at 0.25 is a NoGo (strict `<`), which is the cleanest way to force it.
+    let samples = samples_tie_at_quarter(40);
     let card = assemble_scorecard(
         "scope",
         None,
         "forward",
         &samples,
-        target,
+        0.25,
         None,
         None,
         None,
