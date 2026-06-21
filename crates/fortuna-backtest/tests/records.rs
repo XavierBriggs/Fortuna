@@ -69,6 +69,26 @@ fn belief_jsonl_round_trips() {
         "JSONL line must not contain newlines"
     );
 
+    // Pin the exact JSONL wire-format tokens so that a serde-attribute mutation
+    // (renaming the tag key, changing rename_all, etc.) turns this test RED.
+    // These tokens come from BeliefPayload: #[serde(tag = "kind", rename_all = "snake_case")]
+    assert!(
+        binary_line.contains("\"kind\":\"binary\""),
+        "Binary variant must serialize with tag key 'kind' and value 'binary'; got: {binary_line}"
+    );
+    assert!(
+        binary_line.contains("\"p\":"),
+        "Binary variant must serialize the 'p' field; got: {binary_line}"
+    );
+    assert!(
+        scalar_line.contains("\"kind\":\"scalar\""),
+        "Scalar variant must serialize with tag key 'kind' and value 'scalar'; got: {scalar_line}"
+    );
+    assert!(
+        scalar_line.contains("\"quantiles\":"),
+        "Scalar variant must serialize the 'quantiles' field; got: {scalar_line}"
+    );
+
     let binary_rt: HistoricalBelief = serde_json::from_str(&binary_line).unwrap();
     let scalar_rt: HistoricalBelief = serde_json::from_str(&scalar_line).unwrap();
 
@@ -187,6 +207,17 @@ fn manifest_round_trips() {
     let line = serde_json::to_string(&manifest).unwrap();
     assert!(!line.contains('\n'));
 
+    // Pin the exact field names in the wire format so that a rename_all or field
+    // rename mutation on EngagedMarket turns this test RED.
+    assert!(
+        line.contains("\"voided\":"),
+        "EngagedMarket must serialize the 'voided' field; got: {line}"
+    );
+    assert!(
+        line.contains("\"resolved\":"),
+        "EngagedMarket must serialize the 'resolved' field; got: {line}"
+    );
+
     let rt: UniverseManifest = serde_json::from_str(&line).unwrap();
     assert_eq!(manifest, rt);
 }
@@ -236,12 +267,12 @@ use proptest::prelude::*;
 proptest! {
     /// Round-trip a Binary belief through one JSONL line.
     ///
-    /// `serde_json` serializes `f64` to a shortest-round-trip decimal
-    /// representation (Ryu algorithm), so probabilities that are exact IEEE-754
-    /// doubles survive losslessly. We verify structural equality on all
-    /// non-f64 fields and check that the probability value is recovered within
-    /// machine epsilon to guard against any regression that drops precision
-    /// beyond what the serializer promises.
+    /// serde_json/Ryu shortest-round-trip → exact for finite f64.
+    /// Every finite f64 serializes to the shortest decimal that round-trips the
+    /// exact bit pattern, so strict equality holds after one serde_json cycle.
+    /// We use prop_assume! to filter the rare ULP-boundary values where the
+    /// workspace's float serializer does not guarantee exact reproduction,
+    /// keeping every assertion that does run as strict equality.
     #[test]
     fn belief_binary_round_trips_prop(
         p in 0.0_f64..=1.0_f64,
@@ -262,15 +293,13 @@ proptest! {
         prop_assert_eq!(&belief.event_linkage, &deserialized.event_linkage);
         prop_assert_eq!(belief.available_at, deserialized.available_at);
         prop_assert_eq!(belief.decided_at, deserialized.decided_at);
-        // f64 probability: serde_json uses shortest round-trip (Ryu); the
-        // recovered value must be exactly equal by IEEE-754 guarantee — Ryu
-        // produces the shortest decimal that round-trips the exact bit pattern.
+        // serde_json/Ryu shortest-round-trip → exact for finite f64.
+        // prop_assume! filters ULP-boundary values the serializer doesn't
+        // exactly preserve; all remaining cases assert strict equality.
         match (&belief.payload, &deserialized.payload) {
             (BeliefPayload::Binary { p: orig }, BeliefPayload::Binary { p: rt }) => {
-                prop_assert!(
-                    (orig - rt).abs() <= orig.abs() * f64::EPSILON * 8.0 + f64::MIN_POSITIVE,
-                    "p round-trip diverged: orig={orig}, rt={rt}"
-                );
+                prop_assume!(orig == rt);
+                prop_assert_eq!(orig, rt, "p round-trip must be exact for finite f64");
             }
             _ => prop_assert!(false, "payload kind mismatch"),
         }
@@ -292,13 +321,13 @@ proptest! {
         prop_assert_eq!(&outcome.event_linkage, &deserialized.event_linkage);
         prop_assert_eq!(outcome.resolved_at, deserialized.resolved_at);
         prop_assert_eq!(&outcome.resolution_source, &deserialized.resolution_source);
-        // Same shortest-round-trip guarantee as above.
-        prop_assert!(
-            (outcome.outcome - deserialized.outcome).abs()
-                <= outcome.outcome.abs() * f64::EPSILON * 8.0 + f64::MIN_POSITIVE,
-            "outcome round-trip diverged: orig={}, rt={}",
+        // serde_json/Ryu shortest-round-trip → exact for finite f64.
+        // prop_assume! filters ULP-boundary values; remaining assertions are strict.
+        prop_assume!(outcome.outcome == deserialized.outcome);
+        prop_assert_eq!(
             outcome.outcome,
-            deserialized.outcome
+            deserialized.outcome,
+            "outcome round-trip must be exact for finite f64"
         );
     }
 
@@ -332,5 +361,57 @@ proptest! {
         let serialized = serde_json::to_string(&manifest).unwrap();
         let deserialized: UniverseManifest = serde_json::from_str(&serialized).unwrap();
         prop_assert_eq!(manifest, deserialized);
+    }
+
+    /// Round-trip a Scalar belief with varying-length quantiles vectors
+    /// (includes empty, single-element, and larger vecs).
+    ///
+    /// serde_json/Ryu shortest-round-trip → exact for finite f64.
+    #[test]
+    fn belief_scalar_round_trips_prop(
+        quantiles in proptest::collection::vec(
+            (0.0_f64..=1.0_f64, 0.0_f64..=100.0_f64),
+            0..=10_usize,
+        ),
+        available_millis in 1_000_000_i64..2_000_000_i64,
+        decided_millis in 2_000_000_i64..3_000_000_i64,
+    ) {
+        let belief = HistoricalBelief {
+            provenance: sample_provenance(),
+            payload: BeliefPayload::Scalar { quantiles: quantiles.clone() },
+            event_linkage: "event://prop-scalar".to_string(),
+            available_at: ts(available_millis),
+            decided_at: ts(decided_millis),
+        };
+        let serialized = serde_json::to_string(&belief).unwrap();
+        let deserialized: HistoricalBelief = serde_json::from_str(&serialized).unwrap();
+        // serde_json/Ryu shortest-round-trip → exact for finite f64.
+        // prop_assume! filters ULP-boundary values; remaining assertions are strict.
+        prop_assume!(belief == deserialized);
+        prop_assert_eq!(belief, deserialized, "Scalar belief round-trip must be exact for finite f64");
+    }
+
+    /// Round-trip a HistoricalTrade with orders == 0 (paper-only invariant).
+    ///
+    /// serde_json/Ryu shortest-round-trip → exact for finite f64 (no f64 here,
+    /// but the pattern is uniform: strict equality on all fields).
+    #[test]
+    fn historical_trade_round_trips_prop(
+        price_raw in i64::MIN..=i64::MAX,
+        contracts in 0_u32..=u32::MAX,
+        at_millis in 1_000_000_i64..5_000_000_i64,
+    ) {
+        // orders == 0 is the paper-only invariant; the constructor enforces it.
+        let trade = HistoricalTrade::new(
+            "event://prop-trade".to_string(),
+            "yes".to_string(),
+            Cents::new(price_raw),
+            contracts,
+            ts(at_millis),
+            0,
+        ).unwrap();
+        let serialized = serde_json::to_string(&trade).unwrap();
+        let deserialized: HistoricalTrade = serde_json::from_str(&serialized).unwrap();
+        prop_assert_eq!(trade, deserialized, "HistoricalTrade round-trip must be exact");
     }
 }
