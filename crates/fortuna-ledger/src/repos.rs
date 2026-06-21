@@ -1162,6 +1162,11 @@ pub struct ForwardResolvedBeliefRow {
     pub event_id: String,
     /// ISO8601 UTC: the benchmark window cutoff — snapshot must precede this.
     pub benchmark_at: String,
+    /// Closing-line value in basis points, when CLV linkage was measurable;
+    /// `None` for beliefs with no liquid benchmark snapshot. Carried so the
+    /// cadence scorecard driver can collect a forward-only CLV series without a
+    /// second query (CLV is a transparency metric — never a gate input).
+    pub clv_bps: Option<f64>,
 }
 
 /// One open Aeolus weather belief that is DUE for resolution (the weather
@@ -1610,7 +1615,7 @@ impl BeliefsRepo {
     ) -> Result<Vec<ForwardResolvedBeliefRow>, LedgerError> {
         let rows = sqlx::query!(
             r#"SELECT b.belief_id, b.p, b.outcome AS "outcome!", b.event_id,
-                      e.benchmark_at
+                      e.benchmark_at, b.clv_bps
                FROM beliefs b JOIN events e ON e.event_id = b.event_id
                WHERE b.status = 'resolved' AND b.outcome IS NOT NULL
                  AND b.brier IS NOT NULL AND e.category = $1
@@ -1629,6 +1634,7 @@ impl BeliefsRepo {
                 outcome: r.outcome == 1,
                 event_id: r.event_id,
                 benchmark_at: r.benchmark_at,
+                clv_bps: r.clv_bps,
             })
             .collect())
     }

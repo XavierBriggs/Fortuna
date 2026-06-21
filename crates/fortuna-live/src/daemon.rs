@@ -5537,6 +5537,135 @@ pub async fn run_weekly_review<
     Ok(wr)
 }
 
+/// WS2 milestone D-E (cadence recompute): the daemon-cadence DRIVER that
+/// populates the append-only `scorecards` snapshot from the ledger.
+///
+/// This is THIN CONNECTING WIRING, not new scoring logic. It COLLECTS the exact
+/// per-sample vectors the weekly-review Brier-baseline path already computes
+/// (`run_weekly_review` step §11) — for each forward-resolved belief in `scope`:
+/// the binary sample `(p, outcome)`, the de-vigged market baseline loss
+/// `mb = (market_p − outcome)²` with `market_p = (best_bid + best_ask) / 200.0`
+/// from the latest liquid pre-`benchmark_at` snapshot of the belief's confirmed
+/// direct edge, and the per-belief CLV (transparency only). It then calls the
+/// PURE aggregator [`fortuna_cognition::scorecard_agg::assemble_from_samples`]
+/// (which owns Brier/Log/CORP/DM math — none of it duplicated here) and persists
+/// ONE scorecard for `(scope, producer, "forward")` via
+/// [`fortuna_ledger::ScorecardsRepo::insert_scorecard`], stamped `now`.
+///
+/// `window = "forward"` excludes `source='historical-import'` exactly as the
+/// baseline path does — `forward_resolved_for_brier_baseline` carries that
+/// filter, so the collected samples, baseline, and CLV are all forward-only.
+///
+/// Beliefs with no confirmed direct edge, or no liquid pre-benchmark snapshot,
+/// or a non-positive bid/ask, are SKIPPED for the baseline series (same tier as
+/// CLV) — identical to the weekly-review loop. An empty scope yields an
+/// `Insufficient` card (`n = 0 < min_n`), still persisted (the honest snapshot),
+/// never a panic.
+///
+/// Returns the assembled `Scorecard` (also persisted) so the cadence caller can
+/// log/route it. `id_base` mints the row ULID (`01SCD…`, the daemon id pattern).
+pub async fn recompute_scorecards(
+    pool: &PgPool,
+    scope: &str,
+    producer: Option<&str>,
+    min_n: u32,
+    id_base: u64,
+    now: UtcTimestamp,
+) -> Result<Option<fortuna_cognition::scoring::Scorecard>, DaemonError> {
+    // Forward-resolved beliefs for this scope (category); historical-import is
+    // already excluded by the query (the window="forward" contract).
+    let fwd_beliefs = BeliefsRepo::new(pool.clone())
+        .forward_resolved_for_brier_baseline(scope)
+        .await
+        .map_err(|e| DaemonError::Compose {
+            reason: format!("recompute_scorecards forward_resolved for {scope}: {e}"),
+        })?;
+
+    // COLLECT the per-sample vectors (the existing baseline path accumulates only
+    // sums; here we keep the vectors the pure aggregator needs). A sample joins
+    // the series ONLY when its de-vigged market baseline is computable — same
+    // tier as the weekly-review loop — so `samples` and `baseline_losses` stay
+    // index-aligned for the Diebold–Mariano comparison.
+    let mut samples: Vec<(f64, bool)> = Vec::with_capacity(fwd_beliefs.len());
+    let mut baseline_losses: Vec<f64> = Vec::with_capacity(fwd_beliefs.len());
+    let mut clv: Vec<f64> = Vec::new();
+
+    for belief in &fwd_beliefs {
+        let outcome_f = if belief.outcome { 1.0_f64 } else { 0.0_f64 };
+
+        // Find the mapped market for this belief's event (N+1 edge lookup; the
+        // infrequent cadence path reuses the tested EdgesRepo, like the review).
+        let edges = fortuna_ledger::EdgesRepo::new(pool.clone())
+            .current_edges_for_event(&belief.event_id)
+            .await
+            .map_err(|e| DaemonError::Compose {
+                reason: format!("recompute_scorecards: edges for {}: {e}", belief.event_id),
+            })?;
+        let Some(edge) = edges
+            .iter()
+            .find(|e| e.confirmed_by.is_some() && e.mapping_type == "direct")
+        else {
+            continue; // no confirmed direct edge → skip for the baseline series
+        };
+
+        // Snapshot: latest liquid before benchmark_at.
+        let Some(snap) = fortuna_ledger::SnapshotsRepo::new(pool.clone())
+            .latest_liquid_before(&edge.market_id, &belief.event_id, &belief.benchmark_at)
+            .await
+            .map_err(|e| DaemonError::Compose {
+                reason: format!(
+                    "recompute_scorecards snapshot for {}: {e}",
+                    belief.belief_id
+                ),
+            })?
+        else {
+            continue; // no pre-benchmark liquid snapshot → skip
+        };
+        let (Some(bid), Some(ask)) = (snap.best_bid_cents, snap.best_ask_cents) else {
+            continue; // missing bid/ask → skip
+        };
+        if bid <= 0 || ask <= 0 {
+            continue; // illiquid → skip
+        }
+
+        let market_p = (bid + ask) as f64 / 200.0;
+        let mb = (market_p - outcome_f).powi(2);
+
+        samples.push((belief.p, belief.outcome));
+        baseline_losses.push(mb);
+        // Forward-only, per-belief CLV (transparency metric; never gate input).
+        if let Some(c) = belief.clv_bps {
+            clv.push(c);
+        }
+    }
+
+    // The PURE aggregator owns every metric (Brier gate, Log, CORP, DM, mean
+    // CLV); we only hand it the collected vectors. rps/crps/pit are honestly
+    // empty for a binary scope (the aggregator's contract).
+    let card = fortuna_cognition::scorecard_agg::assemble_from_samples(
+        scope,
+        producer,
+        "forward",
+        &samples,
+        &baseline_losses,
+        &clv,
+        min_n,
+    );
+
+    // Persist the snapshot (append-only; INSERT-only, idempotent on
+    // (scope, producer, window, computed_at)). computed_at = now in the repo's
+    // fixed ISO8601-ms format.
+    let id = format!("01SCD{id_base:021}");
+    fortuna_ledger::ScorecardsRepo::new(pool.clone())
+        .insert_scorecard(&id, &card, &now.to_iso8601())
+        .await
+        .map_err(|e| DaemonError::Compose {
+            reason: format!("recompute_scorecards insert for {scope}: {e}"),
+        })?;
+
+    Ok(Some(card))
+}
+
 /// Minimal weekly-review framing context (the spec-5.8 inputs are the
 /// calibration + strategy records; this is what the mind reads for commentary).
 fn weekly_review_context<
