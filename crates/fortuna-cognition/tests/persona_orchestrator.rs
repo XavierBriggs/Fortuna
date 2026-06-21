@@ -549,21 +549,16 @@ async fn identical_inputs_yield_identical_results() {
 
 // --------------------------------------------------------- D1 per-persona charter
 
-/// Build a scripted API response carrying valid JSON persona findings in the
-/// text content block (the persona runner parses `journal.body` as JSON).
+/// A successful Anthropic structured-output response whose single text block IS
+/// the findings JSON (the post-S1 schema-enforced `decide_structured` contract —
+/// `call_priced_structured` parses `content[0].text` directly as the findings).
 fn persona_api_response(findings: &serde_json::Value) -> serde_json::Value {
-    let journal = serde_json::json!({
-        "beliefs": [],
-        "proposals": [],
-        "journal": {"body": findings.to_string()},
-        "cost_cents": 2
-    });
     serde_json::json!({
         "id": "msg_test",
         "type": "message",
         "model": "claude-fable-5",
         "stop_reason": "end_turn",
-        "content": [{"type": "text", "text": journal.to_string()}],
+        "content": [{"type": "text", "text": findings.to_string()}],
         "usage": {"input_tokens": 100, "output_tokens": 50}
     })
 }
