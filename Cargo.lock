@@ -660,6 +660,7 @@ dependencies = [
  "fortuna-core",
  "fortuna-exec",
  "fortuna-gates",
+ "fortuna-scoring",
  "fortuna-sources",
  "fortuna-venues",
  "serde",
@@ -708,6 +709,7 @@ dependencies = [
  "fortuna-core",
  "fortuna-gates",
  "fortuna-ledger",
+ "fortuna-scoring",
  "futures",
  "reqwest",
  "serde",
@@ -773,6 +775,7 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "serde",
+ "serde_json",
  "thiserror",
 ]
 

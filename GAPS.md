@@ -23,6 +23,10 @@ The audit is now the canonical "what's open + readiness" source:
 - World-forward unscoreable trap (`discovery.rs:689` exact-match vs prose `resolution_source`).
 - Market-back never dedups events (`daemon.rs:2010` empty `existing_events`) — **CLOSED by C4** (populated `existing_by_market` + `existing_events`; persist-loop guard); no DB unique constraint on events (deferred — append-only table, guard is sufficient).
 
+## WS2 proof-layer (2026-06-21) — follow-ons
+- **Macro-economist persona not yet live-smoke-validated.** Only the meteorologist has a gated live one-shot (`crates/fortuna-cognition/tests/persona_live_smoke.rs`). The macro-economist shares the structured `decide_structured` path (the S7 sanitizer + harness range-enforcement cover it; its charter is NOT stale — already "emit ONLY the structured finding"). Unblock: add a gated macro-economist live one-shot, or run one against live data before relying on its findings. A validation-coverage gap, not a code gap.
+- **Meteorologist charter v5 activation is an operator action (I7).** S9 promoted the charter v4→v5 (completes S1's structured-output contract + a non-empty-threshold-ladder instruction; the live smoke went 0/3→3/3). The daemon registry seeds ON CONFLICT DO NOTHING and the deliberate-promotion gate refuses an unmatched edit, so to ACTIVATE v5 the operator inserts + activates the v5 row; until then a running daemon keeps the prior active head.
+
 ## Operator actions (runtime; not code — daemon was live during Phase B)
 - Stale demo DBs `fortuna_demo_paper_green_2026061704*` (×4) + `fortuna_demo_paper_live` are abandoned snapshots —
   drop manually when convenient (`DROP DATABASE` is irreversible; left for the operator). The LIVE DB is `fortuna_demo`.

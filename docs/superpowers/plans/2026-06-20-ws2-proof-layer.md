@@ -32,14 +32,16 @@ cognition. One concept per module. The GO *decision* stays Brier-beats-baseline;
 
 - **North-star:** WS2 spec + milestone spec `2026-06-19-...` + `CLAUDE.md` (I1–I7) + the Alexandria WS3 brief (source-agnostic, G-TRUTH) + the research report.
 - **Autonomy:** `plan-gated` — drive slice gates; at the WS2 phase boundary run guardian + live smoke, then surface for operator review (do NOT proceed to WS3).
-- **Offline gate commands** (`.hephaestus/ws2.gates`):
-  - `cargo test -p fortuna-scoring 2>&1 | grep -q "test result: ok"`
-  - `cargo test -p fortuna-cognition --test scoring --test persona_runner --test persona_scoring 2>&1 | grep -q "test result: ok"`
-  - `cargo test -p fortuna-invariants 2>&1 | grep -q "test result: ok"`
-  - `cargo clippy -p fortuna-scoring -p fortuna-cognition -p fortuna-ledger -p fortuna-ops --all-targets -- -D warnings`
+- **Offline gate commands** (authoritative file: `.hephaestus/ws2.gates`; EVOLVED during execution — the cognition line is now the FULL crate after a targeted subset let an S1 regression hide in `persona_orchestrator`; +scorecard tests; +fortuna-live; `SQLX_OFFLINE` on clippy/DB lines; `--test-threads=1` on invariants+live):
+  - `cargo test -p fortuna-scoring`
+  - `cargo test -p fortuna-cognition`  *(FULL crate — was `--test scoring/persona_runner/persona_scoring`; the subset missed `persona_orchestrator`, where the S1 structured-migration regression hid)*
+  - `SQLX_OFFLINE=true DATABASE_URL=postgres:///fortuna?host=/tmp cargo test -p fortuna-invariants -- --test-threads=1`
+  - `SQLX_OFFLINE=true DATABASE_URL=postgres:///fortuna?host=/tmp cargo test -p fortuna-ledger --test ledger --test persona_e2e --test scorecards`
+  - `SQLX_OFFLINE=true DATABASE_URL=postgres:///fortuna?host=/tmp cargo test -p fortuna-live --test scorecard_driver --test scorecard_cadence --test daemon_smoke -- --test-threads=1`
+  - `SQLX_OFFLINE=true DATABASE_URL=postgres:///fortuna?host=/tmp cargo clippy -p fortuna-scoring -p fortuna-cognition -p fortuna-ledger -p fortuna-ops -p fortuna-live --all-targets -- -D warnings`  *(SQLX_OFFLINE required — ledger/live use `sqlx::query!`)*
   - `cargo fmt --check`
-  - decoupling grep (mutation-proof first): `! grep -rnE "sqlx|tokio|reqwest|fortuna_ledger|fortuna_cognition|PgPool|Clock" crates/fortuna-scoring/src/` (the crate stays pure)
-  - source-literal grep: `! grep -rnE '"historical-import"|"live"|"aeolus"|"meteorologist"' crates/fortuna-scoring/src/` (no producer/source literal in the math)
+  - decoupling grep (mutation-proof first): `! grep -rnE "sqlx::|tokio::|reqwest::|fortuna_ledger::|fortuna_cognition::|PgPool|async fn" crates/fortuna-scoring/src/` (the crate stays pure)
+  - source-literal grep: `! grep -rnE '"aeolus"|"meteorologist"|"historical-import"|"kalshi"' crates/fortuna-scoring/src/` (no producer/source literal in the math)
   - persona path retired: `! grep -rn "mind.decide(&ctx)" crates/fortuna-cognition/src/persona_runner.rs`
 - **DB-backed gates** (`SQLX_OFFLINE=true DATABASE_URL=postgres:///fortuna?host=/tmp`): `cargo test -p fortuna-ledger --test ledger`; `-p fortuna-live --test daemon_smoke` at the phase boundary.
 - **Live gate** (`.hephaestus/ws2.live.gates`, phase boundary; real Anthropic + Aeolus spend): `set -a; . ./.env; set +a; FORTUNA_LIVE_PERSONA_SMOKE=1 cargo test -p fortuna-cognition --test persona_live_smoke -- --nocapture` — loop-valid finding on **3 consecutive** runs.
