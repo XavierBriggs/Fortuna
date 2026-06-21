@@ -17,6 +17,7 @@ pub mod pav;
 pub mod pit;
 pub mod rules;
 pub mod samples;
+pub mod scorecard;
 
 pub use corp::*;
 pub use dm::*;
@@ -25,3 +26,4 @@ pub use pav::*;
 pub use pit::*;
 pub use rules::*;
 pub use samples::*;
+pub use scorecard::*;
