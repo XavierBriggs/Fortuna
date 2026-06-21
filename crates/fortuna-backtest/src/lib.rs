@@ -1,0 +1,28 @@
+//! fortuna-backtest: generic, integrity-gated backtest subsystem (WS3).
+//!
+//! Replays any [`source::HistoricalSource`] through the proven WS1/WS2
+//! scoring rules and produces an honest, overfitting-deflated GO/NO-GO
+//! behind four integrity gates (G-PIT, G-DEAD, G-PARITY, G-TRUTH).
+//!
+//! **Decoupling invariant:** `crates/fortuna-backtest/src/` contains no
+//! source-name literals. The only source-coupled code (`src/sources/`)
+//! arrives in S6. A grep gate enforces this; see the BUILD_PLAN boundary.
+//!
+//! **S1 scope (this slice):** source/record contracts, portable JSONL
+//! serialization, and the universe manifest. No harness, no deflation math,
+//! no adapters.
+
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented
+    )
+)]
+
+pub mod manifest;
+pub mod records;
+pub mod source;

@@ -1,0 +1,14 @@
+[package]
+name = "fortuna-backtest"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fortuna-core = { path = "../fortuna-core" }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+serde_json = { workspace = true }

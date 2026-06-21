@@ -534,6 +534,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "fortuna-backtest"
+version = "0.1.0"
+dependencies = [
+ "fortuna-core",
+ "proptest",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "fortuna-cli"
 version = "0.1.0"
 dependencies = [
