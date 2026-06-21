@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 fortuna-core = { path = "../fortuna-core" }
 serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["float_roundtrip"] } # float_roundtrip: serde_json's default deserializer is lossy up to 1 ULP; the canonical JSONL record contract must round-trip f64 bit-exactly (determinism / G-PARITY).
 thiserror = { workspace = true }
 
 [dev-dependencies]

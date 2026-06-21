@@ -267,12 +267,8 @@ use proptest::prelude::*;
 proptest! {
     /// Round-trip a Binary belief through one JSONL line.
     ///
-    /// serde_json/Ryu shortest-round-trip → exact for finite f64.
-    /// Every finite f64 serializes to the shortest decimal that round-trips the
-    /// exact bit pattern, so strict equality holds after one serde_json cycle.
-    /// We use prop_assume! to filter the rare ULP-boundary values where the
-    /// workspace's float serializer does not guarantee exact reproduction,
-    /// keeping every assertion that does run as strict equality.
+    /// float_roundtrip feature makes serde_json deserialization bit-exact for finite f64
+    /// (ryu already gives exact shortest serialization).
     #[test]
     fn belief_binary_round_trips_prop(
         p in 0.0_f64..=1.0_f64,
@@ -293,12 +289,10 @@ proptest! {
         prop_assert_eq!(&belief.event_linkage, &deserialized.event_linkage);
         prop_assert_eq!(belief.available_at, deserialized.available_at);
         prop_assert_eq!(belief.decided_at, deserialized.decided_at);
-        // serde_json/Ryu shortest-round-trip → exact for finite f64.
-        // prop_assume! filters ULP-boundary values the serializer doesn't
-        // exactly preserve; all remaining cases assert strict equality.
+        // float_roundtrip feature makes serde_json deserialization bit-exact for finite f64
+        // (ryu already gives exact shortest serialization).
         match (&belief.payload, &deserialized.payload) {
             (BeliefPayload::Binary { p: orig }, BeliefPayload::Binary { p: rt }) => {
-                prop_assume!(orig == rt);
                 prop_assert_eq!(orig, rt, "p round-trip must be exact for finite f64");
             }
             _ => prop_assert!(false, "payload kind mismatch"),
@@ -321,9 +315,8 @@ proptest! {
         prop_assert_eq!(&outcome.event_linkage, &deserialized.event_linkage);
         prop_assert_eq!(outcome.resolved_at, deserialized.resolved_at);
         prop_assert_eq!(&outcome.resolution_source, &deserialized.resolution_source);
-        // serde_json/Ryu shortest-round-trip → exact for finite f64.
-        // prop_assume! filters ULP-boundary values; remaining assertions are strict.
-        prop_assume!(outcome.outcome == deserialized.outcome);
+        // float_roundtrip feature makes serde_json deserialization bit-exact for finite f64
+        // (ryu already gives exact shortest serialization).
         prop_assert_eq!(
             outcome.outcome,
             deserialized.outcome,
@@ -366,7 +359,8 @@ proptest! {
     /// Round-trip a Scalar belief with varying-length quantiles vectors
     /// (includes empty, single-element, and larger vecs).
     ///
-    /// serde_json/Ryu shortest-round-trip → exact for finite f64.
+    /// float_roundtrip feature makes serde_json deserialization bit-exact for finite f64
+    /// (ryu already gives exact shortest serialization).
     #[test]
     fn belief_scalar_round_trips_prop(
         quantiles in proptest::collection::vec(
@@ -385,9 +379,8 @@ proptest! {
         };
         let serialized = serde_json::to_string(&belief).unwrap();
         let deserialized: HistoricalBelief = serde_json::from_str(&serialized).unwrap();
-        // serde_json/Ryu shortest-round-trip → exact for finite f64.
-        // prop_assume! filters ULP-boundary values; remaining assertions are strict.
-        prop_assume!(belief == deserialized);
+        // float_roundtrip feature makes serde_json deserialization bit-exact for finite f64
+        // (ryu already gives exact shortest serialization).
         prop_assert_eq!(belief, deserialized, "Scalar belief round-trip must be exact for finite f64");
     }
 
