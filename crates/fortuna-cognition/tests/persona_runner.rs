@@ -721,5 +721,5 @@ async fn the_shipped_meteorologist_runs_against_a_scripted_finding() {
     assert!(outcome.produced_artifact());
     assert_eq!(outcome.findings.as_ref().unwrap(), &findings);
     assert_eq!(outcome.persona_id, "meteorologist");
-    assert_eq!(outcome.persona_version, 4); // v4: shipped meteorologist (output-contract completion)
+    assert_eq!(outcome.persona_version, 5); // v5: shipped meteorologist (S1 structured-output contract completion)
 }

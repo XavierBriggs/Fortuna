@@ -5046,8 +5046,8 @@ async fn seed_personas_enabled_boots_and_head_is_present(pool: PgPool) {
     assert!(head.is_some(), "registry head must be present after seed");
     let row = head.unwrap();
     assert_eq!(
-        row.version, 4,
-        "version = 4 from persona.md frontmatter (output-contract completion: journal.body routing + `ge` field-name + nested-schema validation)"
+        row.version, 5,
+        "version = 5 from persona.md frontmatter (S1 structured-output contract completion: transport section + non-empty threshold-ladder instruction)"
     );
     assert_eq!(row.status, "active", "status = active");
     assert_eq!(row.domain, "weather", "domain = weather");
@@ -5107,10 +5107,10 @@ async fn seed_personas_is_idempotent(pool: PgPool) {
 
 #[sqlx::test(migrations = "../fortuna-ledger/migrations")]
 async fn seed_personas_version_bump_causes_version_mismatch(pool: PgPool) {
-    // D2 mutation-proof: seed with the real persona.md (now version=4 after the
-    // output-contract completion bump), then simulate an operator inserting a
-    // FUTURE v5 row that has a DIFFERENT method_hash — validate_against must
-    // return VersionMismatch, proving the registry gate is real.
+    // D2 mutation-proof: seed with the real persona.md (now version=5 after the
+    // S1 structured-output contract completion bump), then simulate an operator
+    // inserting a FUTURE v6 row that has a DIFFERENT method_hash — validate_against
+    // must return VersionMismatch, proving the registry gate is real.
     let now_iso = "2026-06-18T00:00:00.000Z";
     let dir = meteorologist_dir();
     let cfg = vec![fortuna_live::boot::PersonaEntryConfig {
@@ -5119,18 +5119,18 @@ async fn seed_personas_version_bump_causes_version_mismatch(pool: PgPool) {
         cadences: vec![],
     }];
 
-    // Seed the real persona (version=4 after the output-contract bump, real hash).
+    // Seed the real persona (version=5 after the S1 structured-contract bump, real hash).
     fortuna_live::daemon::seed_personas(&pool, &cfg, now_iso)
         .await
         .expect("initial seed succeeds");
 
-    // Simulate an operator inserting a superseding v5 row with a DIFFERENT hash.
-    // This makes the REGISTRY HEAD be version=5, but the file on disk is version=4.
+    // Simulate an operator inserting a superseding v6 row with a DIFFERENT hash.
+    // This makes the REGISTRY HEAD be version=6, but the file on disk is version=5.
     let repo = fortuna_ledger::PersonasRepo::new(pool.clone());
     repo.insert(
-        "meteorologist:v5",
+        "meteorologist:v6",
         "meteorologist",
-        5, // bumped version — one above the current file version
+        6, // bumped version — one above the current file version
         "weather",
         &serde_json::json!(["temperature"]),
         &serde_json::json!(["aeolus.forecast"]),
@@ -5138,14 +5138,14 @@ async fn seed_personas_version_bump_causes_version_mismatch(pool: PgPool) {
         "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef", // different hash
         "findings/v2",
         "active",
-        Some("meteorologist:v4"),
+        Some("meteorologist:v5"),
         now_iso,
         now_iso,
     )
     .await
-    .expect("v5 insert succeeds");
+    .expect("v6 insert succeeds");
 
-    // Now parse the on-disk def (version=4) and validate against the new head.
+    // Now parse the on-disk def (version=5) and validate against the new head.
     let md = std::fs::read_to_string(format!("{dir}/persona.md")).unwrap();
     let schema_json = std::fs::read_to_string(format!("{dir}/schema.json")).unwrap();
     let def = fortuna_cognition::persona::PersonaDef::parse(&md, &schema_json)
@@ -5157,7 +5157,7 @@ async fn seed_personas_version_bump_causes_version_mismatch(pool: PgPool) {
         method_hash: head.method_hash.clone(),
         status: head.status.clone(),
     };
-    // The file is v4; the registry head is v5 → VersionMismatch.
+    // The file is v5; the registry head is v6 → VersionMismatch.
     let err = def
         .validate_against(Some(&registry_head))
         .expect_err("version mismatch must be rejected");

@@ -30,7 +30,7 @@ fn meteorologist() -> PersonaDef {
 fn shipped_meteorologist_parses_with_expected_metadata() {
     let def = meteorologist();
     assert_eq!(def.meta.id, "meteorologist");
-    assert_eq!(def.meta.version, 4); // bumped to v4: output-contract completion (journal.body routing + `ge` field-name + nested-schema validation)
+    assert_eq!(def.meta.version, 5); // bumped to v5: S1 structured-output contract completion (transport section + non-empty threshold-ladder instruction)
     assert_eq!(def.meta.domain, "weather");
     assert_eq!(def.meta.tier, "cheap");
     assert_eq!(def.meta.output_schema_version, "findings/v2"); // schema title bumped at D3
@@ -69,7 +69,7 @@ fn method_body_is_the_trusted_scaffolding_not_the_frontmatter() {
 fn validate_accepts_a_matching_active_registry_head() {
     let def = meteorologist();
     let head = RegistryHead {
-        version: 4, // v4 matches the shipped def (output-contract completion)
+        version: 5, // v5 matches the shipped def (S1 structured-output contract completion)
         method_hash: def.method_hash.clone(),
         status: "active".to_string(),
     };
@@ -82,7 +82,7 @@ fn validate_refuses_a_method_hash_mismatch() {
     // active registry row is REFUSED — promotion must be deliberate.
     let def = meteorologist();
     let head = RegistryHead {
-        version: 4, // v4 must match so the version check passes and hash is checked
+        version: 5, // v5 must match so the version check passes and hash is checked
         method_hash: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
         status: "active".to_string(),
     };
@@ -110,7 +110,7 @@ fn validate_refuses_an_unregistered_persona() {
 fn validate_refuses_a_retired_head() {
     let def = meteorologist();
     let head = RegistryHead {
-        version: 4, // v4 matches the shipped def; status check runs before version check
+        version: 5, // v5 matches the shipped def; status check runs before version check
         method_hash: def.method_hash.clone(),
         status: "retired".to_string(),
     };
@@ -129,7 +129,7 @@ fn validate_fails_closed_on_an_unknown_status() {
     // status (future migration / corruption) refuses, never silently activates.
     let def = meteorologist();
     let head = RegistryHead {
-        version: 4, // v4 matches the shipped def; status check runs before version check
+        version: 5, // v5 matches the shipped def; status check runs before version check
         method_hash: def.method_hash.clone(),
         status: "suspended".to_string(),
     };
@@ -145,16 +145,17 @@ fn validate_fails_closed_on_an_unknown_status() {
 #[test]
 fn validate_refuses_a_version_mismatch() {
     let def = meteorologist();
-    // File is v4 after the output-contract bump; registry head at v5 → VersionMismatch.
+    // File is v5 after the S1 structured-contract bump; registry head one above
+    // (v6) → VersionMismatch.
     let head = RegistryHead {
-        version: 5,
+        version: 6,
         method_hash: def.method_hash.clone(),
         status: "active".to_string(),
     };
     match def.validate_against(Some(&head)) {
         Err(PersonaError::VersionMismatch { file, registry, .. }) => {
-            assert_eq!(file, 4);
-            assert_eq!(registry, 5);
+            assert_eq!(file, 5);
+            assert_eq!(registry, 6);
         }
         other => panic!("expected VersionMismatch, got {other:?}"),
     }
