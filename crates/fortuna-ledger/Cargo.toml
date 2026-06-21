@@ -8,6 +8,9 @@ fortuna-core = { path = "../fortuna-core" }
 fortuna-venues = { path = "../fortuna-venues" }
 fortuna-exec = { path = "../fortuna-exec" }
 fortuna-gates = { path = "../fortuna-gates" }
+# WS2 S6b: the pure Scorecard type for the append-only scorecards snapshot store.
+# fortuna-scoring depends on nothing but std+serde+thiserror (no cycle).
+fortuna-scoring = { path = "../fortuna-scoring" }
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

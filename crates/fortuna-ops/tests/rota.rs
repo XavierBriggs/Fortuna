@@ -66,7 +66,7 @@ async fn serve() -> (String, tokio::task::JoinHandle<()>) {
     (format!("http://{addr}"), handle)
 }
 
-const PATHS: [&str; 28] = [
+const PATHS: [&str; 29] = [
     "/rota",
     "/favicon.ico",
     "/assets/rota/logo.svg",
@@ -95,6 +95,7 @@ const PATHS: [&str; 28] = [
     "/api/rota/v1/db",
     "/api/rota/v1/telemetry",
     "/api/rota/v1/audit",
+    "/api/rota/v1/scorecard",
 ];
 
 #[tokio::test]
@@ -3079,4 +3080,142 @@ async fn perps_edge_gate_beats_all_is_false_when_a_baseline_wins(pool: sqlx::PgP
         .find(|r| r["baseline"] == "last_rate")
         .unwrap();
     assert_eq!(lr["beats"], false, "forecast does NOT beat last_rate: {j}");
+}
+
+// ---- WS2 S6b: GET /api/rota/v1/scorecard ----
+//
+// The proof-layer surface: the latest persisted `fortuna_scoring::Scorecard` for
+// a (scope, producer, window), served read-only as JSON. POPULATED-path (a real
+// Scorecard seeded via ScorecardsRepo), not a vacuous shape check. Per the R1
+// read-only doctrine (and the route-table test that asserts GET=200 on every
+// PATHS entry), an absent scorecard / absent pool degrades to HTTP 200 with an
+// explicit `unavailable` body — never a 404/500.
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn scorecard_endpoint_serves_the_latest_persisted_card(pool: sqlx::PgPool) {
+    use fortuna_ledger::ScorecardsRepo;
+    use fortuna_scoring::{assemble_scorecard, CalibrationSample};
+
+    // A GO card for the weather demo scope (model strictly beats the baseline).
+    let samples = vec![
+        CalibrationSample {
+            p: 0.1,
+            outcome: false,
+        },
+        CalibrationSample {
+            p: 0.9,
+            outcome: true,
+        },
+        CalibrationSample {
+            p: 0.2,
+            outcome: false,
+        },
+        CalibrationSample {
+            p: 0.8,
+            outcome: true,
+        },
+    ];
+    let baseline_losses = vec![0.25, 0.25, 0.25, 0.25];
+    let card = assemble_scorecard(
+        "weather:KNYC",
+        Some("aeolus"),
+        "forward",
+        &samples,
+        0.25,
+        Some(&baseline_losses),
+        None,
+        Some(0.30),
+        0,
+        None,
+        &[14.0],
+        Vec::new(),
+        3,
+    );
+    ScorecardsRepo::new(pool.clone())
+        .insert_scorecard(
+            "01SCOREENDPOINT0000000001",
+            &card,
+            "2026-06-21T00:00:00.000Z",
+        )
+        .await
+        .unwrap();
+
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+        reviews_dir: None,
+    };
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+
+    let resp = reqwest::get(format!(
+        "http://{addr}/api/rota/v1/scorecard?scope=weather:KNYC&producer=aeolus&window=forward"
+    ))
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200, "scorecard present => 200");
+    let j: serde_json::Value = resp.json().await.unwrap();
+
+    // The persisted Scorecard is served verbatim — the GO surface + the whole
+    // metric suite, a fabricated/empty body cannot satisfy these.
+    assert_eq!(j["scope"], "weather:KNYC", "{j}");
+    assert_eq!(j["producer"], "aeolus");
+    assert_eq!(j["window"], "forward");
+    assert_eq!(j["n"], 4);
+    assert_eq!(j["go"]["decision"], "go", "model beats baseline => go: {j}");
+    assert_eq!(j["brier_baseline"], 0.25);
+    assert_eq!(j["clv_mean_bps"], 14.0);
+    // The whole-truth reasoning names the baseline + N + CORP (G-TRUTH).
+    let reasoning = j["go"]["reasoning"].as_str().unwrap();
+    assert!(
+        reasoning.contains("baseline"),
+        "reasoning names the baseline: {j}"
+    );
+    assert!(reasoning.contains("MCB"), "reasoning names CORP MCB: {j}");
+}
+
+#[tokio::test]
+async fn scorecard_endpoint_degrades_to_200_unavailable_without_pool() {
+    // Standalone (no Postgres): the surface degrades to HTTP 200 + explicit
+    // unavailable, never a 404/500 (R1 read-only doctrine).
+    let (base, _h) = serve().await;
+    let resp = reqwest::get(format!(
+        "{base}/api/rota/v1/scorecard?scope=weather:KNYC&window=forward"
+    ))
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200, "no pool => 200, never 404/500");
+    let j: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(j["status"], "unavailable", "explicit unavailable: {j}");
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn scorecard_endpoint_absent_card_is_200_unavailable(pool: sqlx::PgPool) {
+    // Pool present but no scorecard for this (scope, producer, window) => 200 +
+    // unavailable (honest absence, not a 404).
+    let state = RotaState {
+        snapshot: empty_snapshot(),
+        pool: Some(pool),
+        perishable_dir: None,
+        reviews_dir: None,
+    };
+    let app = rota_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _h = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let resp = reqwest::get(format!(
+        "http://{addr}/api/rota/v1/scorecard?scope=nope&window=forward"
+    ))
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200, "absent card => 200, never 404");
+    let j: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(j["status"], "unavailable", "{j}");
 }

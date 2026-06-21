@@ -37,9 +37,9 @@ pub use repos::{
     FillAggregate, FillsRepo, FirstFillRow, ForwardResolvedBeliefRow, FundingRatesHistoricalRepo,
     HaltsRepo, JournalRepo, JournalRow, LessonRow, LessonsRepo, OpenWeatherBelief, PersonaRow,
     PersonasRepo, RecentSignalRow, RecordingsRepo, ReservationsRepo, ResolvedPersonaStats,
-    ResolvedStat, ScalarBeliefRow, ScalarBeliefsRepo, SettlementEntryRow, SettlementsRepo,
-    SignalsRepo, SnapshotRow, SnapshotsRepo, SourceRegistryRepo, SourceRegistryRow,
-    TradabilityRepo, TradabilityRow, TradeScoresRepo,
+    ResolvedStat, ScalarBeliefRow, ScalarBeliefsRepo, ScorecardsRepo, SettlementEntryRow,
+    SettlementsRepo, SignalsRepo, SnapshotRow, SnapshotsRepo, SourceRegistryRepo,
+    SourceRegistryRow, TradabilityRepo, TradabilityRow, TradeScoresRepo,
 };
 
 pub use sqlx::PgPool;

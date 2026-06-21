@@ -8,6 +8,7 @@ use fortuna_core::clock::UtcTimestamp;
 use fortuna_core::ids::IntentId;
 use fortuna_core::money::Cents;
 use fortuna_gates::HaltScope;
+use fortuna_scoring::Scorecard;
 use fortuna_venues::Fill;
 use sqlx::PgPool;
 use std::collections::BTreeMap;
@@ -2917,5 +2918,87 @@ impl TradeScoresRepo {
         .execute(&self.pool)
         .await?;
         Ok(result.rows_affected() == 1)
+    }
+}
+
+/// Append-only snapshot store for the pure `fortuna_scoring::Scorecard` (WS2 S6b;
+/// plan Task 6 Step 5). One IMMUTABLE row per recompute — a recompute is a NEW
+/// row, never an edit (the DB trigger refuses UPDATE/DELETE, I5). The whole
+/// Scorecard rides in the JSONB `payload`, so the schema is source-agnostic and
+/// WS3 reuses it unchanged.
+pub struct ScorecardsRepo {
+    pool: PgPool,
+}
+
+impl ScorecardsRepo {
+    pub fn new(pool: PgPool) -> ScorecardsRepo {
+        ScorecardsRepo { pool }
+    }
+
+    /// Insert one Scorecard snapshot at `computed_at`. INSERT-only; idempotent on
+    /// the `(scope, producer, window, computed_at)` UNIQUE key (a duplicate
+    /// recompute at the same instant is a no-op, not an error). `scope`,
+    /// `producer`, and `window` are read off the card itself so the row's columns
+    /// always agree with the persisted payload.
+    pub async fn insert_scorecard(
+        &self,
+        id: &str,
+        card: &Scorecard,
+        computed_at: &str,
+    ) -> Result<(), LedgerError> {
+        let payload = serde_json::to_value(card)?;
+        sqlx::query!(
+            r#"INSERT INTO scorecards (id, scope, producer, "window", computed_at, payload)
+               VALUES ($1, $2, $3, $4, $5, $6)
+               ON CONFLICT (scope, producer, "window", computed_at) DO NOTHING"#,
+            id,
+            card.scope,
+            card.producer.as_deref(),
+            card.window,
+            computed_at,
+            payload,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// The newest Scorecard for a `(scope, producer, window)` triple (by
+    /// `computed_at` DESC), or `None` when none exists. `producer = None` selects
+    /// the merged-scope bucket (the persisted NULL), distinct from any
+    /// producer-attributed row — `IS NOT DISTINCT FROM` matches NULL to NULL and a
+    /// value to that value. The JSONB payload deserializes back to the exact
+    /// Scorecard (a corrupt payload surfaces as `CorruptRow`, never a panic).
+    pub async fn latest_scorecard(
+        &self,
+        scope: &str,
+        producer: Option<&str>,
+        window: &str,
+    ) -> Result<Option<Scorecard>, LedgerError> {
+        let row = sqlx::query!(
+            r#"SELECT payload AS "payload!: serde_json::Value"
+               FROM scorecards
+               WHERE scope = $1
+                 AND producer IS NOT DISTINCT FROM $2
+                 AND "window" = $3
+               ORDER BY computed_at DESC
+               LIMIT 1"#,
+            scope,
+            producer,
+            window,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        match row {
+            None => Ok(None),
+            Some(r) => {
+                let card: Scorecard =
+                    serde_json::from_value(r.payload).map_err(|e| LedgerError::CorruptRow {
+                        table: "scorecards",
+                        reason: format!("payload is not a Scorecard: {e}"),
+                    })?;
+                Ok(Some(card))
+            }
+        }
     }
 }

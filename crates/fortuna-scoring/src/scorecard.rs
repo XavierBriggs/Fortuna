@@ -38,14 +38,14 @@ use crate::corp::{corp, Corp};
 use crate::dm::{diebold_mariano, DmResult};
 use crate::pit::PitBin;
 use crate::samples::CalibrationSample;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// The GO/NO-GO verdict for a scorecard.
 ///
 /// `Insufficient` means there were too few trials (`n < min_n`) to judge the
 /// gate at all — it is distinct from `NoGo`, which is a judged failure to beat
 /// the baseline.
-#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum GoDecision {
     /// Brier strictly beat the baseline with enough trials.
@@ -63,7 +63,7 @@ pub enum GoDecision {
 /// score and tail-event count, the CORP MCB/DSC/UNC (tagged as an in-sample
 /// diagnostic, cross-fit deferred to gating), the DM p-value when available, and
 /// the no-selection caveat — so a reader never has to trust the bare verdict.
-#[derive(Serialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct GoSurface {
     /// The gate verdict.
     pub decision: GoDecision,
@@ -77,7 +77,7 @@ pub struct GoSurface {
 /// never affect `go.decision`. `Option` fields are `None` when the metric does
 /// not apply to this scope (e.g. `rps` for a binary scope) or could not be
 /// computed (e.g. `corp` on an empty sample set).
-#[derive(Serialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Scorecard {
     /// Opaque scope label (e.g. a market/strategy scope key).
     pub scope: String,

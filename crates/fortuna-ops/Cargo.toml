@@ -10,6 +10,9 @@ fortuna-gates = { path = "../fortuna-gates" }
 # scopes. Cycle-checked (design V-5): ledger's runtime deps are core/venues/
 # exec/gates — ops is not among them.
 fortuna-ledger = { path = "../fortuna-ledger" }
+# WS2 S6b: the pure Scorecard type for the /api/rota/v1/scorecard endpoint.
+# fortuna-scoring is std+serde+thiserror only (light, pure, acyclic).
+fortuna-scoring = { path = "../fortuna-scoring" }
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -24,3 +27,5 @@ tokio = { workspace = true }
 tokio = { workspace = true }
 futures = { workspace = true }
 reqwest = { workspace = true }
+# WS2 S6b: the rota scorecard-endpoint test seeds a Scorecard via the ledger.
+fortuna-scoring = { path = "../fortuna-scoring" }
