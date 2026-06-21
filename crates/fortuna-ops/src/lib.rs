@@ -23,6 +23,7 @@
 )]
 
 pub mod alerts;
+pub mod chain_view;
 mod config;
 pub mod dashboard;
 mod deadman;
