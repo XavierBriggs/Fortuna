@@ -33,20 +33,21 @@ ChainView {
   signals: [ { source, kind, at, summary } ]                                     // what triggered it
   producers: [                                                                   // the head-to-head, per producer
     { producer_id, producer_type, mind_id?, mind_version?,
-      p_raw, p_cal, rationale?,                                                  // rationale = reasoning drill-in (append-only, never executed)
+      p_raw, p_cal?, rationale?,                                                 // p_cal Option (absent until a producer has a calibration set); rationale = reasoning drill-in (append-only, never executed)
       belief_at,
-      score?: { status, outcome?, brier?, clv_bps? } }                          // post-resolution; CLV non-null for BOTH after W5
+      score?: { status, outcome?, brier?, clv_bps? } }                          // post-resolution. Brier DIFFERENTIATES the producers; CLV is MARKET-LEVEL — shared/identical when producers share a bracket (see W5), NOT an independent per-producer confirmation
   ]
   proposal?:   { market, side, max_price_cents, size, thesis, belief_ref, urgency }
   gate?:       { decision, checks: [ { name, passed, detail } ] }               // the I1 universal-gate trace (render-only, never a bypass)
   fill?:       { price_cents, qty, orders, at }                                 // orders == 0 (paper)
   settlement?: { outcome, realized_pnl_cents, settled_at, resolution_source }
   scorecard?:  <WS2 Scorecard>                                                   // GO whole-truth: Brier-vs-baseline, CORP, DM, reliability
-  validation?: <WS3 ValidationRun>                                              // deflated view: PBO, SPA p_c, family_n_trials, verdict — Option-absent until WS3 merges
+  validation?: Option<serde_json::Value>                                        // WS3's deflated view (PBO, SPA p_c, family_n_trials, verdict). FORWARD-DECL as raw JSON until WS3 commits `ValidationRun: Serialize` — W1 must NOT reuse an unbuilt type; reconcile to the real type when WS3 merges (WS3→WS4 dep).
 }
 ```
 - Every stage is `Option` — the chain renders at any maturity; a freshly-tagged event has signals+beliefs but no fill/settle/score yet.
-- The head-to-head (`producers[]`) is the showpiece: Aeolus + meteorologist on the same bracket, each with `p_cal`, `brier`, `clv_bps`.
+- The head-to-head (`producers[]`) is the showpiece: Aeolus + meteorologist on the same bracket. **Brier is the per-producer differentiator; CLV is market-level (shared when they share a bracket).**
+- **Serialization realism (V&V):** `execution_mode` serializes via `ExecutionMode::as_str()` (the enum is `Deserialize`-only) and `order_mutation_enabled` via `allows_order_mutation()`; the WS2 `Scorecard` is the SHIPPED struct (its original `murphy` field was superseded by `corp` in the research pass — track the shipped reality).
 
 ### W2 — E3 endpoint
 `GET /api/rota/v1/chain?event=<event_linkage>` assembles `ChainView` from the ledger (signals → beliefs-by-producer → proposal → gate → fill → settlement → scores) + the scorecard + validation. Read-only, GET-only (405 on mutating methods), degrades to HTTP 200 + `{"status":"unavailable"}` per the ROTA R1 doctrine. PATHS count bump + the route-table test (`every_path_is_get_only_and_200`).
@@ -58,11 +59,13 @@ A readiness command printing a green/red checklist, exiting non-zero on any red:
 Extends `start` with a `paper-demo` mode: fresh migrated DB; `execution_mode="paper_ledger"` (paper fills, **no real-venue order** — the `i_paper_live_no_real_order` wall holds); the **F11 pointer-write** — the daemon writes the live `DATABASE_URL` to `data/runtime/current-demo-db-url` on boot (the GAPS-noted stale-pointer fix). The forward-collection entry point.
 
 ### W5 — G1 CLV-for-persona fix
-At persona belief-formation, match the meteorologist bracket to the corresponding Aeolus bracket's market (by station/date/threshold) and `insert_edge(persona_event_id → that market_id)` (repos.rs `insert_edge`). Then `current_edges_for_event(persona event_id)` resolves → CLV computes for the meteorologist. The head-to-head finally shows CLV for both producers (today it is always `None` for the persona — loop-close-gaps "[Important] CLV per-event linkage", option A). The Brier half (primary GO) already resolves; this completes the CLV half.
+At persona belief-formation, match the meteorologist bracket to the corresponding Aeolus bracket's market and `insert_edge(persona_event_id → that market_id)` (repos.rs `insert_edge`). Then `current_edges_for_event(persona event_id)` resolves → CLV computes for the meteorologist (today it is always `None` — loop-close-gaps "[Important] CLV per-event linkage", option A). The resolver is already producer-agnostic (no `if producer=="aeolus"`); the only missing link is the edge row.
+- **Threshold-matching is a genuine join sub-step (milestone open-Q#3), not a slam-dunk:** the persona's `…#ge<thr>` token must resolve to the same Kalshi market strike the Aeolus bracket already has an edge for. The slice looks up the Aeolus event's existing edge by station/date/threshold to find `market_id`. Ships an integration test (a meteorologist belief → non-null `clv_bps`).
+- **Honesty (V&V guardian Adv-3):** the resolver computes CLV from the EARLIEST fill on the edge-market. Because the persona points to the SAME market as Aeolus, the persona's CLV will be **identical** to Aeolus's — CLV is a **market-level drift quantity, shared** when producers share a bracket, NOT two independent edge confirmations. W5 makes the persona CLV non-null (vs `None`); the **Brier** half is what differentiates the producers' head-to-head. The contract + demo must present CLV as market-level — do NOT claim "two independent CLV confirmations."
 
 ### W6 — hardening + docs + config
-- **E6:** `rearm` exists (`fortuna-cli` + `gates.rearm()` halt.rs:87); add the **I4 refusal** — refuse to rearm if the kill-switch sentinel is present (the out-of-band kill switch outranks a halt clear).
-- **E4 dead-man:** the daemon writes a liveness heartbeat; a dead-man checker alerts + reconnects when it goes stale.
+- **E6:** `rearm` exists — the CLI **ledger-rearm path** (`db_command` arm, main.rs:1074, calling `HaltsRepo::record_rearm` — NOT the in-memory `HaltFlags::rearm`). Add the **I4 refusal**: refuse to rearm if the kill-switch sentinel is present (`fortuna_killswitch::is_revoked(revocation_path)`), reading the sentinel path from config `[killswitch].revocation_file` (boot.rs:317). **FAIL CLOSED** — an unreadable/unverifiable sentinel dir must REFUSE the rearm (note `is_revoked` returns `false` on FS error — safe for the gate poller but the WRONG direction for a rearm refusal, so the rearm path must guard/invert it).
+- **E4 dead-man (RESCOPE — it already exists):** the daemon already runs an EXTERNAL push `DeadmanPinger` (`fortuna-ops/src/deadman.rs`; pings `FORTUNA_DEADMAN_URL` ~every 60s — external by design: "the system can't report its own death"). Do NOT build an internal heartbeat/self-checker (a step backward). E4 = **fix the failing pinger (F8 "dead-man ping FAILED: transport failure")** + harden source-reconnect (Slack `SocketDial`, Kalshi `kalshi::dial` already cap-exponential — verify + wire). The slice must state its precise delta over `deadman.rs`, or drop as already-satisfied.
 - **E5:** demo runbook (doctor → WS3 backtest-seed → start paper-demo → chain-view) + Aeolus stable-source note + CHANGELOG.
 - **Config-cleanup:** GO-gate example config → spec §11 values (paper 30, fee 0.35, synth 60 — loop-close-gaps "GO-gate config vs spec §11"); CLV constants (`CLV_MIN_TOUCH_QTY`/`CLV_MAX_SPREAD_CENTS`, daemon.rs:4743-4744) → `[cognition]` config.
 
@@ -87,6 +90,7 @@ At persona belief-formation, match the meteorologist bracket to the correspondin
 ## 5. Sequencing & coordination
 - **W1 (contract) commits NOW** → the UI session unblocks and builds the render against it. (This is the commit the operator told the UI session to wait for.)
 - **W2's endpoint can serve live (WS2) data immediately;** the `validation` field stays `Option`-absent until WS3 merges.
+- **WS3→WS4 type dependency:** W1's `validation` is forward-decl `Option<serde_json::Value>` until WS3 commits `ValidationRun: Serialize`; reconcile to the real type when WS3 merges. (The WS2 `Scorecard` half is real today — `fortuna-ops` already depends on `fortuna-scoring`.)
 - **Full WS4 implementation sequences after WS3 merges** so the chain renders the real backtested record — but the contract + endpoint do not block on it.
 - WS4 builds in its own worktree (own target dir) to avoid build-lock contention with the parallel WS3 builder.
 
