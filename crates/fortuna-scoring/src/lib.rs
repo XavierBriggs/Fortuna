@@ -11,12 +11,16 @@
 //! aggregation/scorecard layer in other crates; no metric here ever sees them.
 
 pub mod corp;
+pub mod dm;
+pub mod murphy_diagram;
 pub mod pav;
 pub mod pit;
 pub mod rules;
 pub mod samples;
 
 pub use corp::*;
+pub use dm::*;
+pub use murphy_diagram::*;
 pub use pav::*;
 pub use pit::*;
 pub use rules::*;
