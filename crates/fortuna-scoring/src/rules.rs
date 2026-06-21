@@ -26,8 +26,14 @@
 //! - [`CrpsPinballRule`] — TRUE CRPS via the pinball / quantile-loss
 //!   discretization (`2·Σ pinball·Δτ`; equal grid → `(2/K)·Σ`) for scalar
 //!   forecasts.  A proper scoring rule; lower is better.
+//! - [`LogScoreRule`] — binary logarithmic / ignorance score
+//!   `−ln(p_realized)` with a fixed `1e-15` probability floor (lower is
+//!   better).  A strictly proper scoring rule.
+//! - [`RpsRule`] — Ranked Probability Score for an *ordered* categorical
+//!   ladder: `Σ_{i=1}^{K-1}(P_i − O_i)²` over cumulative distributions (lower
+//!   is better).  A proper scoring rule that rewards proximity on the ladder.
 //!
-//! Adding a new rule (log-loss, weighted-CRPS, categorical Brier, …) is a new
+//! Adding a new rule (weighted-CRPS, categorical Brier, …) is a new
 //! `impl ScoringRule` — no schema change.
 
 use serde::{Deserialize, Serialize};
@@ -389,6 +395,174 @@ fn pinball_loss(q: f64, v: f64, y: f64) -> f64 {
         q * (y - v)
     } else {
         (1.0 - q) * (v - y)
+    }
+}
+
+// ─── LogScoreRule ─────────────────────────────────────────────────────────────
+
+/// Probability floor for the log score: `p` is clamped to `[EPS, 1 − EPS]` so a
+/// near-certain miss is a large finite number rather than `+∞`.
+///
+/// Fixed and documented, never tuned (per the WS2 constraint). `−ln(1e-15)`
+/// ≈ 34.5 is the maximum a single observation can contribute.
+const LOG_SCORE_EPS: f64 = 1e-15;
+
+/// Binary logarithmic / ignorance score: `−ln(p)` if the event happened,
+/// `−ln(1 − p)` otherwise.
+///
+/// Handles `Binary` distributions only.  Lower is better.
+///
+/// The log score is a *strictly* proper scoring rule (unlike Brier, which is
+/// merely proper): it uniquely rewards reporting the true probability.  Because
+/// it diverges as the reported probability of the realized event → 0, `p` is
+/// clamped to `[`[`LOG_SCORE_EPS`]`, 1 − `[`LOG_SCORE_EPS`]`]` so a confident
+/// miss yields a large finite penalty (≈ 34.5) instead of `+∞`.  This bound is
+/// fixed, not tuned.
+pub struct LogScoreRule;
+
+impl ScoringRule for LogScoreRule {
+    fn id(&self) -> &'static str {
+        "log"
+    }
+
+    fn applies_to(&self, kind: PredictiveKind) -> bool {
+        kind == PredictiveKind::Binary
+    }
+
+    fn score(
+        &self,
+        pred: &PredictiveDistribution,
+        outcome: &RealizedOutcome,
+    ) -> Result<f64, ScoreError> {
+        // 1. Validate prediction first (spec 5.9 — reject, never repair).
+        pred.validate()?;
+
+        // 2. Check rule applicability before kind parity (mirrors BrierRule).
+        if !self.applies_to(pred.kind()) {
+            return Err(ScoreError::UnsupportedKind { kind: pred.kind() });
+        }
+
+        // 3. Check kind parity between prediction and outcome.
+        if pred.kind() != outcome.kind() {
+            return Err(ScoreError::KindMismatch {
+                pred_kind: pred.kind(),
+                outcome_kind: outcome.kind(),
+            });
+        }
+
+        // 4. Compute. Clamp keeps the tail finite (−ln of a tiny number).
+        let p = match pred {
+            PredictiveDistribution::Binary { p } => p.clamp(LOG_SCORE_EPS, 1.0 - LOG_SCORE_EPS),
+            _ => return Err(ScoreError::UnsupportedKind { kind: pred.kind() }),
+        };
+        let happened = match outcome {
+            RealizedOutcome::Binary { happened } => *happened,
+            _ => {
+                return Err(ScoreError::KindMismatch {
+                    pred_kind: pred.kind(),
+                    outcome_kind: outcome.kind(),
+                })
+            }
+        };
+        Ok(if happened { -p.ln() } else { -(1.0 - p).ln() })
+    }
+}
+
+// ─── RpsRule ──────────────────────────────────────────────────────────────────
+
+/// Ranked Probability Score for an **ordered** categorical ladder.
+///
+/// Handles `Categorical` distributions only.  Lower is better.
+///
+/// The RPS is the sum of squared distances between the predicted cumulative
+/// distribution and the observed (step) cumulative distribution over the first
+/// `K − 1` cut points of a `K`-bin ladder:
+///
+/// ```text
+/// P_i = Σ_{j≤i} p_j           (predicted CDF; running sum of bin masses)
+/// O_i = 𝟙{i ≥ realized_index}  (observed CDF; a single 0→1 step)
+/// RPS = Σ_{i=1}^{K-1} (P_i − O_i)²
+/// ```
+///
+/// **The `Vec` order of `bins` IS the ladder order** — bin `0` is the lowest
+/// rung, bin `K−1` the highest.  RPS is *distance-aware*: putting errant mass on
+/// a bin adjacent to the realized one is penalized less than putting it far
+/// away, which a label-agnostic score (e.g. categorical Brier) would not
+/// capture.  It is a proper scoring rule.
+///
+/// If the realized label is absent from the bins there is no rung to step at, so
+/// the pair is rejected as [`ScoreError::InvalidPrediction`] rather than
+/// silently treated as "never happened".
+pub struct RpsRule;
+
+impl ScoringRule for RpsRule {
+    fn id(&self) -> &'static str {
+        "rps"
+    }
+
+    fn applies_to(&self, kind: PredictiveKind) -> bool {
+        kind == PredictiveKind::Categorical
+    }
+
+    fn score(
+        &self,
+        pred: &PredictiveDistribution,
+        outcome: &RealizedOutcome,
+    ) -> Result<f64, ScoreError> {
+        // 1. Validate prediction first (spec 5.9 — reject, never repair).
+        pred.validate()?;
+
+        // 2. Check rule applicability before kind parity (mirrors BrierRule).
+        if !self.applies_to(pred.kind()) {
+            return Err(ScoreError::UnsupportedKind { kind: pred.kind() });
+        }
+
+        // 3. Check kind parity between prediction and outcome.
+        if pred.kind() != outcome.kind() {
+            return Err(ScoreError::KindMismatch {
+                pred_kind: pred.kind(),
+                outcome_kind: outcome.kind(),
+            });
+        }
+
+        // 4. Compute. The Vec order is the ladder order.
+        let bins = match pred {
+            PredictiveDistribution::Categorical { bins } => bins,
+            _ => return Err(ScoreError::UnsupportedKind { kind: pred.kind() }),
+        };
+        let label = match outcome {
+            RealizedOutcome::Categorical { label } => label,
+            _ => {
+                return Err(ScoreError::KindMismatch {
+                    pred_kind: pred.kind(),
+                    outcome_kind: outcome.kind(),
+                })
+            }
+        };
+
+        // Locate the realized label on the ladder. Absent ⇒ no rung to step at.
+        let realized_index = bins.iter().position(|b| b.label == *label).ok_or_else(|| {
+            ScoreError::InvalidPrediction {
+                reason: format!("realized label {label:?} is not among the categorical bins"),
+            }
+        })?;
+
+        // Σ_{i=1}^{K-1} (P_i − O_i)² over the first K−1 cut points. P_i is the
+        // running sum of masses; O_i steps to 1 once i reaches realized_index.
+        let mut cumulative = 0.0_f64;
+        let mut rps = 0.0_f64;
+        for (i, bin) in bins.iter().enumerate() {
+            cumulative += bin.p;
+            // The final cut point i = K−1 has P = 1 and O = 1 (both CDFs end at
+            // 1), contributing 0 — skip it to match Σ_{i=1}^{K-1}.
+            if i + 1 == bins.len() {
+                break;
+            }
+            let observed = if i >= realized_index { 1.0 } else { 0.0 };
+            let diff = cumulative - observed;
+            rps += diff * diff;
+        }
+        Ok(rps)
     }
 }
 
