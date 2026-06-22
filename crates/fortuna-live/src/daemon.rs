@@ -1645,6 +1645,13 @@ pub struct PersonasWiring {
     pub strategy: fortuna_core::market::StrategyId,
     pub window_hours: u32,
     pub max_signals: i64,
+    /// W5 (CLV-for-persona): monotonic base for the persona→market edge ids
+    /// (`01EDG…`), seeded from the drive-start epoch (unique across runs) and
+    /// advanced per edge linked. These PROPOSED edges map a persona weather
+    /// belief onto the SAME market an existing producer's edge points at, so the
+    /// producer-agnostic CLV resolver can score the persona's `clv_bps` (the
+    /// head-to-head completer). PROPOSED ⇒ never in the tradeable set.
+    pub edge_id_base: u64,
 }
 
 /// Opt-in WORLD-FORWARD discovery wiring (drive() arg `discovery`; spec 5.12,
@@ -3390,20 +3397,64 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                 };
                             // Attribute every draft to the pre-built persona strategy
                             // (the gate/scoring boundary, I7); persist through the
-                            // existing binary-belief path.
+                            // existing binary-belief path. `drafts` is cloned (not
+                            // moved) into `pairs` so it stays available for the W5
+                            // edge-join below.
                             let pairs: Vec<_> = drafts
-                                .into_iter()
-                                .map(|d| (pw.strategy.clone(), d))
+                                .iter()
+                                .map(|d| (pw.strategy.clone(), d.clone()))
                                 .collect();
                             let n = pairs.len();
-                            match persist_beliefs(&pw.pool, &pairs, &now_iso, belief_id_base).await {
-                                Ok(persisted) => belief_id_base += persisted as u64,
-                                Err(e) => alerts.push((
-                                    fortuna_ops::MessageKind::Ops,
-                                    format!(
-                                        "persona belief persist FAILED — {n} belief(s) lost (analysis={analysis_id}): {e}"
-                                    ),
-                                )),
+                            let persona_persisted = match persist_beliefs(
+                                &pw.pool,
+                                &pairs,
+                                &now_iso,
+                                belief_id_base,
+                            )
+                            .await
+                            {
+                                Ok(persisted) => {
+                                    belief_id_base += persisted as u64;
+                                    true
+                                }
+                                Err(e) => {
+                                    alerts.push((
+                                        fortuna_ops::MessageKind::Ops,
+                                        format!(
+                                            "persona belief persist FAILED — {n} belief(s) lost (analysis={analysis_id}): {e}"
+                                        ),
+                                    ));
+                                    false
+                                }
+                            };
+                            // W5 (CLV-for-persona): once the persona weather beliefs
+                            // are persisted, map each onto the SAME market an existing
+                            // edge already points at (threshold-match join), so the
+                            // producer-agnostic CLV resolver can score the persona's
+                            // clv_bps at resolution. PROPOSED edges only (never
+                            // tradeable). Non-fatal: per-edge failures alert + continue.
+                            if persona_persisted {
+                                match link_persona_market_edges_collecting(
+                                    &pw.pool,
+                                    &drafts,
+                                    &r.persona_id,
+                                    pw.edge_id_base,
+                                    now,
+                                )
+                                .await
+                                {
+                                    Ok((linked, join_alerts)) => {
+                                        pw.edge_id_base =
+                                            pw.edge_id_base.wrapping_add(linked as u64);
+                                        alerts.extend(join_alerts);
+                                    }
+                                    Err(e) => alerts.push((
+                                        fortuna_ops::MessageKind::Ops,
+                                        format!(
+                                            "persona edge-join FAILED (analysis={analysis_id}): {e}"
+                                        ),
+                                    )),
+                                }
                             }
                             // D3 (thesis): write event_source_evidence links — one
                             // row per (belief event_id × input signal) — so the
@@ -4978,10 +5029,18 @@ pub async fn resolve_and_score_weather_beliefs(
                 _ => return None, // unknown side string: skip
             };
 
-            // 5. Pre-benchmark liquid snapshots for that market.
+            // 5. Pre-benchmark liquid snapshots for that MARKET (any event_id).
+            // The benchmark mid is a property of the shared market's book, not of
+            // which event maps to it — a market's cadence snapshots are captured
+            // under ONE event_id (the runner's confirmed-edge tracking event), so
+            // a belief on a DIFFERENT event that maps to the SAME market (a
+            // persona belief sharing the Aeolus market, W5) must read by market,
+            // not by its own event_id (which has no captured snapshots). This is
+            // PRODUCER-NEUTRAL — keyed on the market, never on a producer; for the
+            // tracking producer (market↔event 1:1) it returns the identical rows.
             let benchmark_iso = benchmark_at.to_iso8601();
             let snap_rows = snapshots_repo
-                .snapshots_for_market_before(&market_id, &b.event_id, &benchmark_iso)
+                .snapshots_for_market_before_any_event(&market_id, &benchmark_iso)
                 .await
                 .ok()?;
 
@@ -5102,6 +5161,178 @@ pub async fn resolve_and_score_weather_beliefs(
     }
 
     Ok(resolved)
+}
+
+/// W5 (G1 CLV-for-persona): map freshly-formed PERSONA weather beliefs onto the
+/// SAME market an existing edge already points at, so the producer-agnostic CLV
+/// resolver ([`resolve_and_score_weather_beliefs`]) can compute a non-null
+/// `clv_bps` for them. Today a persona belief's `clv_bps` is always `None`
+/// because its `event_id` namespace (`weather:NYC:tmax:DATE#ge87`) has no
+/// `market_event_edge` row; this inserts that missing link.
+///
+/// For each draft carrying the weather grading keys (`nws_station_id`/
+/// `variable`/`target_date` in provenance) and a parseable bracket threshold in
+/// its `event_id`, this looks up an EXISTING current edge on ANOTHER event with
+/// the SAME grading identity (`EdgesRepo::edges_for_weather_grading_keys`) whose
+/// event_id parses to the SAME `(comparison, threshold)` — and inserts a
+/// persona_event_id → that-same-`market_id` edge (reusing the looked-up edge's
+/// `venue`). The match is PRODUCER-NEUTRAL: it keys on the grading identity +
+/// the canonical [`parse_bracket_hint`] grammar, never on a producer name, so it
+/// finds any producer's existing edge (today: the Aeolus discovery edge). The
+/// CLV RESOLVER IS UNTOUCHED — W5 only inserts the edge row (A7 decoupling).
+///
+/// ## Honesty (market-level, not independent)
+///
+/// The persona edge points to the SAME market as the existing edge, so CLV is
+/// computed from the SAME earliest fill on that market — the persona's `clv_bps`
+/// is therefore IDENTICAL to the existing producer's. This is market-level
+/// drift, NOT an independent per-producer confirmation; Brier is the
+/// per-producer differentiator (documented in the chain-view contract).
+///
+/// ## Safety
+///
+/// The inserted edge is PROPOSED (`confirmed_by = None`), so it is NEVER in the
+/// confirmed/tradeable synthesis set (`EdgesRepo::confirmed_edges`) — it exists
+/// ONLY to let CLV resolve, and the harness will not place orders on this
+/// duplicate edge (I6). Idempotent: a draft whose persona event already has a
+/// current edge is skipped. Non-fatal by design (CLV is calibration substrate,
+/// not the money path): an individual lookup/insert FAILURE is recorded in the
+/// returned alerts and the loop continues. NEVER panics: every fallible step is
+/// handled with `match`/`if let`/`?`-on-`DaemonError`. All time via the injected
+/// `now` (no wall-clock). Returns `(edges_linked, alerts)`.
+pub async fn link_persona_market_edges(
+    pool: &PgPool,
+    drafts: &[fortuna_cognition::beliefs::BeliefDraft],
+    proposed_by: &str,
+    edge_id_base: u64,
+    now: UtcTimestamp,
+) -> Result<usize, DaemonError> {
+    let (linked, _alerts) =
+        link_persona_market_edges_collecting(pool, drafts, proposed_by, edge_id_base, now).await?;
+    Ok(linked)
+}
+
+/// The alert-collecting variant of [`link_persona_market_edges`], for the
+/// `drive()` persona step (which routes the per-edge failure alerts alongside
+/// the rest of the segment). Returns `(edges_linked, alerts)`.
+pub async fn link_persona_market_edges_collecting(
+    pool: &PgPool,
+    drafts: &[fortuna_cognition::beliefs::BeliefDraft],
+    proposed_by: &str,
+    edge_id_base: u64,
+    now: UtcTimestamp,
+) -> Result<(usize, Vec<(fortuna_ops::MessageKind, String)>), DaemonError> {
+    use fortuna_cognition::aeolus_resolve::parse_bracket_hint;
+    use fortuna_ledger::EdgesRepo;
+
+    let edges_repo = EdgesRepo::new(pool.clone());
+    let now_iso = now.to_iso8601();
+    let mut linked = 0usize;
+    let mut alerts: Vec<(fortuna_ops::MessageKind, String)> = Vec::new();
+    let mut next_edge_seq = edge_id_base;
+
+    for draft in drafts {
+        // (1) The bracket threshold must parse from the draft's own event_id
+        // (the persona grammar `…#ge87`). A non-bracket draft (macro outcome,
+        // unparseable) carries no threshold → never linked (left to resolve with
+        // None CLV, as today). This is the SAME canonical parser the resolver
+        // uses, so the join and the resolve can never disagree on the token.
+        let Some(persona_bracket) = parse_bracket_hint(&draft.event_id) else {
+            continue;
+        };
+
+        // (2) The grading keys identify the bracket's station/variable/date.
+        // Absent any one ⇒ skip (never a partial / wrong-key lookup).
+        let prov = &draft.provenance;
+        let (Some(station), Some(variable), Some(date)) = (
+            prov.get("nws_station_id").and_then(|v| v.as_str()),
+            prov.get("variable").and_then(|v| v.as_str()),
+            prov.get("target_date").and_then(|v| v.as_str()),
+        ) else {
+            continue;
+        };
+
+        // (3) Idempotency: if the persona event already has a current edge, do
+        // nothing (a re-run, or a prior segment already linked it).
+        match edges_repo.current_edges_for_event(&draft.event_id).await {
+            Ok(existing) if !existing.is_empty() => continue,
+            Ok(_) => {}
+            Err(e) => {
+                alerts.push((
+                    fortuna_ops::MessageKind::Ops,
+                    format!(
+                        "persona edge-join: current_edges_for_event({}) FAILED: {e}",
+                        draft.event_id
+                    ),
+                ));
+                continue;
+            }
+        }
+
+        // (4) Find an existing edge on ANOTHER event with the SAME grading
+        // identity AND the SAME bracket threshold. Producer-neutral: keyed on
+        // the grading keys + the canonical parser, never a producer name.
+        let candidates = match edges_repo
+            .edges_for_weather_grading_keys(station, variable, date)
+            .await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                alerts.push((
+                    fortuna_ops::MessageKind::Ops,
+                    format!(
+                        "persona edge-join: edges_for_weather_grading_keys({station},{variable},{date}) FAILED: {e}"
+                    ),
+                ));
+                continue;
+            }
+        };
+        let matched = candidates.into_iter().find(|c| {
+            c.event_id != draft.event_id && parse_bracket_hint(&c.event_id) == Some(persona_bracket)
+        });
+        let Some(matched) = matched else {
+            // No already-mapped market for this exact bracket ⇒ leave the
+            // persona belief unlinked (it resolves with None CLV, as today).
+            continue;
+        };
+
+        // (5) Insert the persona_event_id → that-same-market edge. PROPOSED
+        // (confirmed_by = None): never tradeable, present only for CLV. The
+        // venue is the looked-up edge's own venue (same market). The edge id is
+        // minted from the caller's monotonic base.
+        let edge_id = format!("01EDG{next_edge_seq:021}");
+        match edges_repo
+            .insert_edge(
+                &edge_id,
+                &matched.market_id,
+                &matched.venue,
+                &draft.event_id,
+                "direct",
+                1.0,
+                proposed_by,
+                None, // PROPOSED — excluded from the confirmed/tradeable set
+                None,
+                &now_iso,
+            )
+            .await
+        {
+            Ok(()) => {
+                linked += 1;
+                next_edge_seq = next_edge_seq.wrapping_add(1);
+            }
+            Err(e) => {
+                alerts.push((
+                    fortuna_ops::MessageKind::Ops,
+                    format!(
+                        "persona edge-join: insert_edge({edge_id} {} -> {}) FAILED: {e}",
+                        draft.event_id, matched.market_id
+                    ),
+                ));
+            }
+        }
+    }
+
+    Ok((linked, alerts))
 }
 
 /// The daily reconciliation cycle (spec 5.8; fires at the 00:00 UTC daily

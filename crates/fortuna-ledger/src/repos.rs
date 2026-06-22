@@ -729,6 +729,17 @@ pub struct EdgeRow {
     pub supersedes: Option<String>,
 }
 
+/// One candidate market edge for a weather bracket, keyed by grading identity
+/// (returned by [`EdgesRepo::edges_for_weather_grading_keys`]). The W5 persona→
+/// market join reads the existing edge's `market_id`/`venue` to map a freshly-
+/// formed persona belief onto the SAME market (CLV-for-persona).
+#[derive(Debug, Clone)]
+pub struct WeatherEdgeCandidate {
+    pub event_id: String,
+    pub market_id: String,
+    pub venue: String,
+}
+
 pub struct EdgesRepo {
     pool: PgPool,
 }
@@ -842,6 +853,54 @@ impl EdgesRepo {
                 proposed_by: r.proposed_by,
                 confirmed_by: r.confirmed_by,
                 supersedes: r.supersedes,
+            })
+            .collect())
+    }
+
+    /// Candidate `(event_id, market_id, venue)` for every CURRENT (non-
+    /// superseded) edge whose event carries the SAME weather grading keys
+    /// (`nws_station_id`/`variable`/`target_date`) as some belief — i.e. an
+    /// already-mapped market for that station/variable/date. PRODUCER-NEUTRAL:
+    /// the match is on the grading identity in the belief provenance, never on a
+    /// producer name, so it finds any producer's existing edge (today: Aeolus's
+    /// discovery edge). The THRESHOLD (`ge87`/`lt60`) lives in the event_id
+    /// suffix in a producer-specific grammar, so the caller narrows by parsing
+    /// it (the canonical grammar-agnostic `parse_bracket_hint`) rather than this
+    /// query string-matching a grammar.
+    ///
+    /// The W5 persona→market join (CLV-for-persona): a freshly-formed persona
+    /// belief on the SAME bracket has no edge of its own; this returns the
+    /// existing edge's market so the join can map the persona event onto it.
+    pub async fn edges_for_weather_grading_keys(
+        &self,
+        nws_station_id: &str,
+        variable: &str,
+        target_date: &str,
+    ) -> Result<Vec<WeatherEdgeCandidate>, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT DISTINCT e.event_id, e.market_id, e.venue
+               FROM market_event_edges e
+               JOIN beliefs b ON b.event_id = e.event_id
+               WHERE b.provenance->>'nws_station_id' = $1
+                 AND b.provenance->>'variable'       = $2
+                 AND b.provenance->>'target_date'    = $3
+                 AND NOT EXISTS (
+                     SELECT 1 FROM market_event_edges n
+                     WHERE n.supersedes = e.edge_id
+                 )
+               ORDER BY e.event_id"#,
+            nws_station_id,
+            variable,
+            target_date
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| WeatherEdgeCandidate {
+                event_id: r.event_id,
+                market_id: r.market_id,
+                venue: r.venue,
             })
             .collect())
     }
@@ -1000,6 +1059,47 @@ impl SnapshotsRepo {
                ORDER BY at ASC"#,
             market_id,
             event_id,
+            cutoff_iso
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| SnapshotRow {
+                snapshot_id: r.snapshot_id,
+                best_bid_cents: r.best_bid_cents,
+                best_ask_cents: r.best_ask_cents,
+                bid_qty: r.bid_qty,
+                ask_qty: r.ask_qty,
+                at: r.at,
+            })
+            .collect())
+    }
+
+    /// All liquid snapshots for a MARKET strictly before the cutoff (ANY
+    /// event_id), ordered by time ASC. The book is a property of the MARKET, not
+    /// of which event maps to it: a market's cadence snapshots are captured under
+    /// ONE event_id (the runner tracks a market under its confirmed edge's event
+    /// — `MarketQuoteCapture::event_id`, daemon snapshot capture), and at most one
+    /// row exists per `(market_id, at)` (the WS1-slice-4 unique index). So this
+    /// returns the SAME rows as [`Self::snapshots_for_market_before`] for the
+    /// market's tracking event, while ALSO serving a belief on a DIFFERENT event
+    /// that maps to the SAME market (W5: a persona belief sharing the Aeolus
+    /// market — its CLV benchmark is that shared market's mid). PRODUCER-NEUTRAL:
+    /// it keys on the market alone, never on a producer or event grammar.
+    /// Defensive: callers skip/None on any parse error (never panic on `at`).
+    pub async fn snapshots_for_market_before_any_event(
+        &self,
+        market_id: &str,
+        cutoff_iso: &str,
+    ) -> Result<Vec<SnapshotRow>, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT snapshot_id, best_bid_cents, best_ask_cents, bid_qty, ask_qty, at
+               FROM price_snapshots
+               WHERE market_id = $1
+                 AND liquidity_ok AND at < $2
+               ORDER BY at ASC"#,
+            market_id,
             cutoff_iso
         )
         .fetch_all(&self.pool)

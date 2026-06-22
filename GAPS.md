@@ -107,6 +107,32 @@ once field data from the live paper soak validates the right thresholds.
 No existing config key covers this; the constants are documented at the site.
 Unblock: add `[clv]` TOML section, update `FortunaConfig`, thread to resolver.
 
+## WS4 W5: CLV-for-persona required a market-keyed snapshot read, not just the edge (2026-06-22)
+The W5 brief diagnosed the missing link as "only the `market_event_edge` row" — insert the
+persona_event_id → existing-Aeolus-market edge, and `current_edges_for_event` resolves so the
+producer-agnostic CLV resolver scores the persona's `clv_bps`. That is necessary but NOT sufficient.
+The CLV resolver also read its benchmark snapshots filtered by the BELIEF's own `event_id`
+(`snapshots_for_market_before(market_id, b.event_id, …)`). But a market's cadence snapshots are
+captured under exactly ONE `event_id` — the runner tracks a market under its CONFIRMED edge's event
+(`MarketQuoteCapture::event_id` from `market_events`, populated only by confirmed edges), and the
+`(market_id, at)` unique index (20260619000001) permits one row per timestamp. The W5 persona edge is
+PROPOSED (so it is NOT in the confirmed/tradeable set — `confirmed_edges()` excludes it, no order risk),
+so the shared market's snapshots stay tagged with the AEOLUS event_id. A persona belief on a different
+event_id therefore found NO snapshots and would still resolve to `clv_bps = None` with the edge alone.
+**Resolution (producer-neutral, no `if producer==` branch):** the benchmark mid is a property of the
+MARKET's book, not of which event maps to it, so the resolver now reads
+`SnapshotsRepo::snapshots_for_market_before_any_event(market_id, cutoff)` (market-keyed). For the
+tracking producer (market↔event 1:1) this returns the IDENTICAL rows — zero behavior change, verified by
+the unchanged `weather_resolve.rs` Aeolus tests; it ADDITIONALLY lets a co-mapped persona belief read the
+same shared-market snapshot. **Honesty:** because the persona points at the SAME market, CLV is computed
+from the SAME earliest fill + the SAME shared-market benchmark snapshot → the persona's `clv_bps` is
+IDENTICAL to Aeolus's (market-level drift, NOT an independent per-producer confirmation; Brier is the
+differentiator). Asserted as EQUALITY in `persona_clv.rs` + the chain-view contract documents it.
+**Future tweak:** if a market is ever re-listed for a genuinely different event, a market-only read could
+pull the prior event's snapshots; today market tickers are bracket-specific (date+threshold in the
+ticker) so the `(station,date,threshold)` market is one physical market — safe. Revisit if market id
+reuse across distinct events becomes possible.
+
 ## WS3 backtest — guardian boundary findings (2026-06-21, operator queue)
 ### G1. `fortuna validate` ships a placeholder edge-provider; purge/embargo unreachable in production (Important)
 The S7 `run_validate` `EdgeProvider` (`crates/fortuna-cli/src/backtest_cmd.rs:173-178`) returns empty

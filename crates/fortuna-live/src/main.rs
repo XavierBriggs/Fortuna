@@ -133,7 +133,9 @@ async fn main() -> Result<()> {
                 validated.database_url.expose(),
                 runtime.execution_mode,
             ) {
-                Ok(()) if runtime.execution_mode == fortuna_live::boot::ExecutionMode::PaperLedger => {
+                Ok(())
+                    if runtime.execution_mode == fortuna_live::boot::ExecutionMode::PaperLedger =>
+                {
                     eprintln!(
                         "fortuna-live: F11 pointer written → {}/current-demo-db-url",
                         runtime_dir.display()
@@ -141,9 +143,7 @@ async fn main() -> Result<()> {
                 }
                 Ok(()) => {}
                 Err(e) => {
-                    eprintln!(
-                        "fortuna-live: warning: F11 pointer write failed (non-fatal): {e}"
-                    );
+                    eprintln!("fortuna-live: warning: F11 pointer write failed (non-fatal): {e}");
                 }
             }
         }
@@ -594,6 +594,9 @@ async fn main() -> Result<()> {
                 strategy: persona_strategy,
                 window_hours: sec.window_hours,
                 max_signals: sec.max_signals,
+                // W5: seed the persona→market edge ids from the drive-start epoch
+                // (unique across runs), like the discovery wiring's edge_id_base.
+                edge_id_base: start_ms.max(0) as u64,
             })
         }
         _ => None,

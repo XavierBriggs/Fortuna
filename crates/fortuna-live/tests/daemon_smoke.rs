@@ -2596,6 +2596,7 @@ async fn drive_persists_persona_analysis_and_beliefs_when_wired(pool: PgPool) {
         strategy: StrategyId::new("domain-analysis").unwrap(), // TEST code: unwrap fine
         window_hours: 48,
         max_signals: 200,
+        edge_id_base: 0,
     };
 
     // No persona rows before the drive.
@@ -2877,6 +2878,7 @@ async fn persona_evidence_chain_is_replayable(pool: PgPool) {
         strategy: StrategyId::new("domain-analysis").unwrap(),
         window_hours: 48,
         max_signals: 200,
+        edge_id_base: 0,
     };
 
     // ---- 5. Run ONE drive() segment with persona wiring. ----

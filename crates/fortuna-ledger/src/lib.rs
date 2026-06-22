@@ -40,7 +40,7 @@ pub use repos::{
     RecentSignalRow, RecordingsRepo, ReservationsRepo, ResolvedPersonaStats, ResolvedStat,
     ScalarBeliefRow, ScalarBeliefsRepo, ScorecardsRepo, SettlementEntryRow, SettlementsRepo,
     SignalsRepo, SnapshotRow, SnapshotsRepo, SourceRegistryRepo, SourceRegistryRow,
-    TradabilityRepo, TradabilityRow, TradeScoresRepo, ValidationRunsRepo,
+    TradabilityRepo, TradabilityRow, TradeScoresRepo, ValidationRunsRepo, WeatherEdgeCandidate,
 };
 
 pub use sqlx::PgPool;

@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT e.event_id, e.market_id, e.venue\n               FROM market_event_edges e\n               JOIN beliefs b ON b.event_id = e.event_id\n               WHERE b.provenance->>'nws_station_id' = $1\n                 AND b.provenance->>'variable'       = $2\n                 AND b.provenance->>'target_date'    = $3\n                 AND NOT EXISTS (\n                     SELECT 1 FROM market_event_edges n\n                     WHERE n.supersedes = e.edge_id\n                 )\n               ORDER BY e.event_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "market_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "venue",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "004a6c6278972df513999d78ee2abfeb2ab06695bfd2b018f22386a8117dc36c"
+}
