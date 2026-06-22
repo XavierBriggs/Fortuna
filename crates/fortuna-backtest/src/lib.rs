@@ -32,4 +32,8 @@ pub mod harness;
 pub mod manifest;
 pub mod records;
 pub mod source;
+/// Source-coupled adapters (S6). The ONLY place in the crate where
+/// source-name literals are permitted; the decoupling grep gate excludes
+/// `src/sources/`.
+pub mod sources;
 pub mod sweep;
