@@ -11,6 +11,7 @@
 //! aggregation/scorecard layer in other crates; no metric here ever sees them.
 
 pub mod corp;
+pub mod deflation;
 pub mod dm;
 pub mod murphy_diagram;
 pub mod pav;
