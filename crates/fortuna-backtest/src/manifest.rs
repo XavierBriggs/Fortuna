@@ -28,7 +28,6 @@
 //! of sets).
 
 use std::collections::HashSet;
-use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
@@ -64,7 +63,7 @@ pub struct ScoredRow {
 ///
 /// The variant carries the full list of offending `event_linkage` strings so
 /// the caller can surface a precise, actionable error message.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 pub enum GDeadViolation {
     /// One or more engaged markets were absent from the scored set.
     ///
@@ -73,23 +72,9 @@ pub enum GDeadViolation {
     ///
     /// The inner `Vec<String>` is sorted for deterministic, diff-friendly
     /// output. Use `.0` to iterate over the offending linkages.
+    #[error("G-DEAD: {} engaged market(s) absent from scored set: {}", .0.len(), .0.join(", "))]
     DroppedMarkets(Vec<String>),
 }
-
-impl fmt::Display for GDeadViolation {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            GDeadViolation::DroppedMarkets(linkages) => write!(
-                f,
-                "G-DEAD: {} engaged market(s) absent from scored set: {}",
-                linkages.len(),
-                linkages.join(", ")
-            ),
-        }
-    }
-}
-
-impl std::error::Error for GDeadViolation {}
 
 // ---------------------------------------------------------------------------
 // enforce_gdead
