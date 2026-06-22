@@ -579,12 +579,16 @@ name = "fortuna-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "fortuna-backtest",
  "fortuna-core",
  "fortuna-gates",
  "fortuna-ledger",
+ "fortuna-live",
  "fortuna-ops",
  "fortuna-scoring",
+ "fortuna-venues",
+ "futures",
  "reqwest",
  "rusqlite",
  "serde",

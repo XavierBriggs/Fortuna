@@ -14,6 +14,9 @@ path = "src/main.rs"
 [dependencies]
 fortuna-core = { path = "../fortuna-core" }
 fortuna-gates = { path = "../fortuna-gates" }
+# W4: start paper-demo writes the boot pointer via fortuna_live::boot.
+# No cycle: fortuna-live does NOT depend on fortuna-cli.
+fortuna-live = { path = "../fortuna-live" }
 fortuna-ledger = { path = "../fortuna-ledger" }
 fortuna-ops = { path = "../fortuna-ops" }
 # S7: backtest/validate commands wire the replay harness + sweep machinery.
@@ -41,3 +44,11 @@ reqwest = { workspace = true }
 sqlx = { workspace = true }
 
 [dev-dependencies]
+# W4: paper_demo.rs uses fortuna-live types (ExecutionMode, write_demo_db_pointer)
+# + the GuardedTransport pattern (fortuna-venues KalshiTransport).
+# No cycle: fortuna-live does NOT depend on fortuna-cli.
+fortuna-live = { path = "../fortuna-live" }
+fortuna-venues = { path = "../fortuna-venues" }
+async-trait = { workspace = true }
+futures = { workspace = true }
+serde_json = { workspace = true }

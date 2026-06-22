@@ -8,6 +8,8 @@
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::fmt;
+use std::io;
+use std::path::Path;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -885,6 +887,26 @@ impl DaemonToml {
         }
         Ok(())
     }
+}
+
+/// Write the live `DATABASE_URL` to `{runtime_dir}/current-demo-db-url`.
+///
+/// This is the **F11 pointer-write**: the demo boot path calls this once the
+/// daemon pool is connected, so the chain-view UI (and operator tooling) can
+/// discover which DB the running paper-demo is connected to without reading
+/// environment variables.
+///
+/// The write is **atomic**: the URL is written to a `.tmp` sibling file then
+/// renamed into place, so readers never see a partial write.
+///
+/// # Errors
+/// Returns `io::Error` for any filesystem failure; callers propagate via `?`.
+pub fn write_demo_db_pointer(runtime_dir: &Path, db_url: &str) -> Result<(), io::Error> {
+    let dest = runtime_dir.join("current-demo-db-url");
+    let tmp = runtime_dir.join("current-demo-db-url.tmp");
+    std::fs::write(&tmp, db_url)?;
+    std::fs::rename(&tmp, &dest)?;
+    Ok(())
 }
 
 #[cfg(test)]
