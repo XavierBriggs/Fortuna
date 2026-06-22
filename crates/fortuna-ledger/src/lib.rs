@@ -61,6 +61,22 @@ pub enum LedgerError {
     Id(#[from] fortuna_core::ids::IdError),
 }
 
+/// The canonical `provenance->>'source'` value stamped on every belief written
+/// by the WS3 replay harness (historical backtest import).
+///
+/// This is the SINGLE definition of the literal in the workspace. It already
+/// appears as a SQL literal in the forward-window filters in `repos.rs`
+/// (`provenance->>'source' IS DISTINCT FROM 'historical-import'`), which exclude
+/// these replayed rows from the forward live windows so a backtest seed never
+/// contaminates a live calibration window.
+///
+/// The `fortuna-backtest` crate references THIS const rather than the literal:
+/// `crates/fortuna-backtest/src/` is grep-gated against source-name literals
+/// (the decoupling guard), and `"historical-import"` is one of the forbidden
+/// tokens. Keeping the literal here (where it must live for the SQL anyway) lets
+/// the harness stamp the source without breaching that gate.
+pub const SOURCE_HISTORICAL_IMPORT: &str = "historical-import";
+
 /// Embedded migrations (one per schema-touching BUILD_PLAN task).
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 

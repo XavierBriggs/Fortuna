@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO price_snapshots\n               (snapshot_id, market_id, venue, event_id, kind, best_bid_cents,\n                best_ask_cents, bid_qty, ask_qty, liquidity_ok, at)\n               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)\n               ON CONFLICT (market_id, at) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Bool",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7515a522c18f5e9b1156f8e58cc2e301c8c3f9719ebdb39a1635b36a1e588ea8"
+}

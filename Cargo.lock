@@ -537,11 +537,16 @@ dependencies = [
 name = "fortuna-backtest"
 version = "0.1.0"
 dependencies = [
+ "fortuna-cognition",
  "fortuna-core",
+ "fortuna-ledger",
+ "fortuna-scoring",
  "proptest",
  "serde",
  "serde_json",
+ "sqlx",
  "thiserror",
+ "tokio",
 ]
 
 [[package]]

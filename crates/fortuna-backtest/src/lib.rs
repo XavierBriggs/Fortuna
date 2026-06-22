@@ -8,9 +8,13 @@
 //! source-name literals. The only source-coupled code (`src/sources/`)
 //! arrives in S6. A grep gate enforces this; see the BUILD_PLAN boundary.
 //!
-//! **S1 scope (this slice):** source/record contracts, portable JSONL
-//! serialization, and the universe manifest. No harness, no deflation math,
-//! no adapters.
+//! **S1 scope:** source/record contracts, portable JSONL serialization, and the
+//! universe manifest.
+//!
+//! **S2 scope (this slice):** the replay harness — the as-of join (G-PIT, strict
+//! `available_at < decided_at`), idempotent + deterministic replay through the
+//! SAME `fortuna-scoring` rules and the SAME ledger write path as live
+//! (G-PARITY). No deflation math, no adapters.
 
 #![cfg_attr(
     not(test),
@@ -23,6 +27,8 @@
     )
 )]
 
+pub mod asof;
+pub mod harness;
 pub mod manifest;
 pub mod records;
 pub mod source;

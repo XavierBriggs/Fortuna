@@ -1,0 +1,48 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT bs.score_id, bs.belief_id, bs.rule_id, bs.score, bs.scored_at\n               FROM belief_scores bs\n               JOIN scalar_beliefs sb ON sb.belief_id = bs.belief_id\n               WHERE sb.producer = $1 AND bs.rule_id = $2\n               ORDER BY bs.scored_at DESC, bs.score_id DESC LIMIT $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "score_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "belief_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "rule_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "score",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 4,
+        "name": "scored_at",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ec7823f23e2e47f04366947b0950fdb9695590003b78ea0e6b9bc5f5d75f9010"
+}
