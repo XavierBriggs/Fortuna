@@ -227,6 +227,70 @@ fn spa_c_studentized_and_recentered() {
     );
 }
 
+/// Sibling test that *earns the name* "recentering advantage."
+///
+/// The existing `spa_c_studentized_and_recentered` test uses a fixture so dominant
+/// (winner stat ≈94) that p_c == p_u == 0 under all recentering variants, so it
+/// cannot distinguish SPA_c from White's RC. This test uses a **marginal winner**
+/// (stat ~2.0) plus four "innocent bystander" configs whose sample means are
+/// small-positive (stats ~0.77, well above the recentering threshold ≈−1.72 for
+/// n=80). That puts them in the band where:
+///
+/// - **Consistent (SPA_c):** all four bystanders get recentered to mean 0 (their
+///   stat > threshold so they are NOT demonstrably inferior → offset = d̄_k →
+///   bootstrap world sees zero-mean noise from them). Result: bootstrap null driven
+///   only by the winner's sampling variance → low null → p_c is small (winner passes
+///   the test more easily).
+/// - **Conservative (White RC):** all bystanders keep their small positive means in
+///   the bootstrap null (offset = 0) → bootstrap max inflated by their positive
+///   contributions → bootstrap null is harder to beat → p_u is large.
+///
+/// Assertion: `report.p_c < report.p_u − 0.05` — SPA_c strictly tighter than RC.
+///
+/// Bite proof: mutating `spa.rs` so Consistent always uses `offset = 0.0` (RC
+/// behaviour) collapses the gap (p_c → p_u, difference → 0) and this test fails.
+#[test]
+fn spa_c_recentering_beats_rc() {
+    // marginal_winner_diffs: n=80, 5 configs (winner + 4 bystanders with small
+    // positive means). All bystander stats are in (threshold, 0] — above the
+    // "demonstrably inferior" cutoff — so Consistent recenters them to 0 while
+    // Conservative (RC) keeps their positive means in the bootstrap null.
+    let diffs = marginal_winner_loss_diffs();
+    let mut rng = SplitMix64::seed(0xF00D_CAFE);
+    let report = spa_c(&diffs, 4, 2000, &mut rng);
+
+    // The recentering must produce a nonzero gap: SPA_c p_c strictly less than
+    // White-RC p_u. A gap of ≥ 0.05 distinguishes the two variants on this fixture.
+    assert!(
+        report.p_c < report.p_u - 0.05,
+        "SPA_c (Consistent) must tighten the test vs White RC (Conservative): \
+         p_c={:.4} p_u={:.4} gap={:.4}",
+        report.p_c,
+        report.p_u,
+        report.p_u - report.p_c,
+    );
+    // Sanity: the winner IS marginally significant under SPA_c (not a noise fixture).
+    // p_c is in the marginal range, not a clear winner (p≈0) nor pure noise (p≈1).
+    assert!(
+        report.p_c < 0.40,
+        "marginal winner should be significant under SPA_c: p_c={}",
+        report.p_c
+    );
+    // Ordering invariant: p_l <= p_c <= p_u.
+    assert!(
+        report.p_l <= report.p_c + 1e-9,
+        "p_l <= p_c: p_l={} p_c={}",
+        report.p_l,
+        report.p_c
+    );
+    assert!(
+        report.p_c <= report.p_u + 1e-9,
+        "p_c <= p_u: p_c={} p_u={}",
+        report.p_c,
+        report.p_u
+    );
+}
+
 #[test]
 fn spa_block_bootstrap_deterministic() {
     // Same seed -> identical p_c (reproducible). Different seed -> may differ.
@@ -584,6 +648,47 @@ fn clear_winner_loss_diffs() -> Matrix {
                 0.05 * noise(),      // noise around 0
                 0.05 * noise(),
             ]
+        })
+        .collect()
+}
+
+/// Marginal-winner loss differentials for `spa_c_recentering_beats_rc`.
+///
+/// n=80 rows × 5 columns:
+/// - Column 0 (winner): mean ≈ 0.08, std ≈ 0.35 → studentized stat ≈ 2.0
+///   (marginal — the test statistic is modest enough that the bootstrap matters).
+/// - Columns 1–4 (bystanders): mean ≈ 0.03, std ≈ 0.35 → stat ≈ 0.77.
+///   All bystander stats sit comfortably above the recentering threshold
+///   ≈ −1.72 for n=80, so Consistent recenters them to 0 (not "demonstrably
+///   inferior") while Conservative (RC) keeps their small positive means,
+///   inflating the bootstrap null and producing a materially higher p_u.
+///
+/// The fixture is fully deterministic via a seeded SplitMix64.
+fn marginal_winner_loss_diffs() -> Matrix {
+    let t = 80usize;
+    let mut rng = SplitMix64::seed(0xBAD_5EED_1234_5678);
+    // Generate unit-variance noise via the U[0,1) → centred mapping; scale + shift
+    // to hit the desired per-column mean and std targets.
+    let noise = |r: &mut SplitMix64| -> f64 {
+        // Pair two uniforms into a roughly symmetric variate in (−0.5, 0.5).
+        let u1 = r.next_u64() as f64 / u64::MAX as f64 - 0.5;
+        let u2 = r.next_u64() as f64 / u64::MAX as f64 - 0.5;
+        u1 + u2 // roughly triangular on (−1,1), mean 0, var 1/6
+    };
+    // Scale factor so std ≈ 0.35: triangular on (−1,1) has variance 1/6 ≈ 0.167;
+    // sqrt(0.167) ≈ 0.408. We want std ≈ 0.35 so scale = 0.35/0.408 ≈ 0.86.
+    // We fix scale = 0.858 for reproducibility.
+    const SCALE: f64 = 0.858;
+    // Winner bias added per observation to achieve mean ≈ 0.08.
+    const WIN_BIAS: f64 = 0.08;
+    // Bystander bias added per observation to achieve mean ≈ 0.03.
+    const BYS_BIAS: f64 = 0.03;
+
+    (0..t)
+        .map(|_| {
+            let winner = WIN_BIAS + SCALE * noise(&mut rng);
+            let bys: Vec<f64> = (0..4).map(|_| BYS_BIAS + SCALE * noise(&mut rng)).collect();
+            std::iter::once(winner).chain(bys).collect()
         })
         .collect()
 }
