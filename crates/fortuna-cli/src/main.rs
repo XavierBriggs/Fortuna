@@ -37,6 +37,7 @@
 )]
 
 use anyhow::{bail, Context, Result};
+use fortuna_cli::backtest_cmd;
 use fortuna_core::clock::{Clock, RealClock, UtcTimestamp};
 use fortuna_ledger::{parse_halt_scope, AuditWriter, HaltsRepo};
 use std::path::{Path, PathBuf};
@@ -76,6 +77,12 @@ struct Args {
     flatten: bool,
     follow: bool,
     foreground: bool,
+    // S7: backtest / validate flags
+    from: Option<String>,
+    to: Option<String>,
+    scope: Option<String>,
+    producer: Option<String>,
+    archive: Option<String>,
 }
 
 fn parse_args() -> Result<Args> {
@@ -90,6 +97,11 @@ fn parse_args() -> Result<Args> {
         flatten: false,
         follow: false,
         foreground: false,
+        from: None,
+        to: None,
+        scope: None,
+        producer: None,
+        archive: None,
     };
     let raw: Vec<String> = std::env::args().skip(1).collect();
     let mut i = 0;
@@ -118,6 +130,26 @@ fn parse_args() -> Result<Args> {
             "--flatten" => args.flatten = true,
             "-f" | "--follow" => args.follow = true,
             "--foreground" => args.foreground = true,
+            "--from" => {
+                i += 1;
+                args.from = raw.get(i).cloned();
+            }
+            "--to" => {
+                i += 1;
+                args.to = raw.get(i).cloned();
+            }
+            "--scope" => {
+                i += 1;
+                args.scope = raw.get(i).cloned();
+            }
+            "--producer" => {
+                i += 1;
+                args.producer = raw.get(i).cloned();
+            }
+            "--archive" => {
+                i += 1;
+                args.archive = raw.get(i).cloned();
+            }
             other if args.command.is_empty() => args.command = other.to_string(),
             other => args.positional.push(other.to_string()),
         }
@@ -125,9 +157,12 @@ fn parse_args() -> Result<Args> {
     }
     if args.command.is_empty() {
         bail!(
-            "usage: fortuna <status|halt|rearm|kill|config check|logs|start|stop> \
+            "usage: fortuna <status|halt|rearm|kill|config check|logs|start|stop|\
+             backtest|validate> \
              [scope|component] [--reason ..] [--operator ..] [--journal ..] \
-             [--flatten] [--config-path ..] [-f] [--foreground] [--timeout-secs N]"
+             [--flatten] [--config-path ..] [-f] [--foreground] [--timeout-secs N] \
+             [--from <date>] [--to <date>] [--scope <scope>] [--producer <name>] \
+             [--archive <path>]"
         );
     }
     Ok(args)
@@ -142,7 +177,7 @@ fn run() -> Result<()> {
         "status" => status_cmd(&args),
         "start" => start_cmd(&args),
         "stop" => stop_cmd(&args),
-        "halt" | "rearm" => {
+        "halt" | "rearm" | "backtest" | "validate" => {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -1033,7 +1068,8 @@ fn kill(args: &Args) -> Result<()> {
 
 async fn db_command(args: &Args) -> Result<()> {
     let url = std::env::var("DATABASE_URL").context(
-        "DATABASE_URL is required for halt/rearm (kill and the read commands work without it)",
+        "DATABASE_URL is required for halt/rearm/backtest/validate \
+         (kill and the read commands work without it)",
     )?;
     let pool = fortuna_ledger::connect(&url).await?;
     let halts = HaltsRepo::new(pool.clone());
@@ -1041,6 +1077,53 @@ async fn db_command(args: &Args) -> Result<()> {
     let now = clock.now();
 
     match args.command.as_str() {
+        "backtest" => {
+            let source_name = args
+                .positional
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "aeolus-archive".to_string());
+            let from = parse_optional_ts(args.from.as_deref(), "--from")?;
+            let to = parse_optional_ts(args.to.as_deref(), "--to")?;
+            let archive_path = args
+                .archive
+                .as_ref()
+                .map(PathBuf::from)
+                .or_else(|| std::env::var_os("FORTUNA_WS3_ARCHIVE").map(PathBuf::from));
+            let bt_args = backtest_cmd::BacktestArgs {
+                source_name,
+                sql_fixture_path: None,
+                real_db_path: archive_path,
+                from,
+                to,
+            };
+            // min_n=3 matches the WS2 default; a future config key can override.
+            let report = backtest_cmd::run_backtest(&pool, &bt_args, clock, 3).await?;
+            println!(
+                "backtest complete: written={} skipped_idempotent={} look_ahead_rejected={}",
+                report.written, report.skipped_idempotent, report.look_ahead_rejected
+            );
+            if let Some(card) = &report.scorecard {
+                println!(
+                    "parity scorecard: scope={} n={} verdict={:?}",
+                    card.scope, card.n, card.go.decision
+                );
+            }
+            Ok(())
+        }
+        "validate" => {
+            let scope = args
+                .scope
+                .clone()
+                .context("--scope <scope> is required for fortuna validate")?;
+            let v_args = backtest_cmd::ValidateArgs {
+                scope,
+                producer: args.producer.clone(),
+            };
+            let output = backtest_cmd::run_validate(&pool, &v_args, clock).await?;
+            println!("{output}");
+            Ok(())
+        }
         "halt" | "rearm" => {
             let scope_raw = args
                 .positional
@@ -1086,7 +1169,18 @@ async fn db_command(args: &Args) -> Result<()> {
             }
             Ok(())
         }
-        _ => bail!("unreachable"),
+        _ => bail!("unreachable command in db_command"),
+    }
+}
+
+/// Parse an optional ISO8601 / date string into a `UtcTimestamp`.
+fn parse_optional_ts(raw: Option<&str>, flag: &str) -> Result<Option<UtcTimestamp>> {
+    match raw {
+        None => Ok(None),
+        Some(s) => UtcTimestamp::parse_iso8601(s)
+            .or_else(|_| UtcTimestamp::parse_iso8601_or_date(s))
+            .map(Some)
+            .with_context(|| format!("{flag} value {s:?} is not a valid ISO8601 date/timestamp")),
     }
 }
 

@@ -3,6 +3,10 @@ name = "fortuna-cli"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "fortuna_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "fortuna"
 path = "src/main.rs"
@@ -12,11 +16,23 @@ fortuna-core = { path = "../fortuna-core" }
 fortuna-gates = { path = "../fortuna-gates" }
 fortuna-ledger = { path = "../fortuna-ledger" }
 fortuna-ops = { path = "../fortuna-ops" }
+# S7: backtest/validate commands wire the replay harness + sweep machinery.
+# No cycle: fortuna-backtest depends on ledger/scoring/cognition, NOT on cli.
+fortuna-backtest = { path = "../fortuna-backtest" }
+# S7: used in test helpers (fixture_as_real_file) via transitively available
+# bundled rusqlite from fortuna-backtest. Pulled here explicitly so the
+# fortuna-cli test file can call rusqlite::Connection directly.
+rusqlite = { version = "0.32", features = ["bundled"] }
+fortuna-scoring = { path = "../fortuna-scoring" }
 anyhow = { workspace = true }
 tokio = { workspace = true }
 serde_json = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 # Raw-value read of config-on-disk for `status` (A6): FortunaConfig
 # deliberately drops [daemon] (the daemon owns that section), so the venue
 # line needs a plain toml::Value pass. Workspace-pinned dep, ledgered as a
 # deviation from design Section 6 in GAPS.md.
 toml = { workspace = true }
+
+[dev-dependencies]
+sqlx = { workspace = true }

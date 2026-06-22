@@ -46,7 +46,7 @@ use std::path::{Path, PathBuf};
 
 use fortuna_core::clock::UtcTimestamp;
 use fortuna_core::money::Cents;
-use rusqlite::Connection;
+use rusqlite::{Connection, OpenFlags};
 
 use crate::manifest::{EngagedMarket, UniverseManifest};
 use crate::records::{
@@ -162,6 +162,27 @@ impl AeolusArchiveSource {
         Ok(Self {
             conn,
             kalshi_db: sql_path.to_path_buf(),
+            aeolus_db: None,
+            range,
+        })
+    }
+
+    /// Open an archive read-only (`SQLITE_OPEN_READ_ONLY`). This is the
+    /// paper-safe path the CLI uses — spec §10 prohibits any write to the
+    /// source archive. The connection cannot create or modify tables; any
+    /// accidental write attempt from this `AeolusArchiveSource` will error
+    /// rather than silently modify the source DB.
+    pub fn open_read_only(kalshi_db: PathBuf, range: TimeRange) -> Result<Self, SourceError> {
+        let conn = Connection::open_with_flags(
+            &kalshi_db,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(|e| SourceError::Io {
+            reason: format!("opening archive read-only: {e}"),
+        })?;
+        Ok(Self {
+            conn,
+            kalshi_db,
             aeolus_db: None,
             range,
         })
