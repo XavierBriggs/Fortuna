@@ -435,7 +435,7 @@ fn content_ulid(segments: &[&[u8]]) -> String {
 ///
 /// # Arguments
 /// * `scope`          — validation scope string (e.g. `"weather:KNYC"`)
-/// * `producer`       — optional producer tag (e.g. `Some("aeolus")`)
+/// * `producer`       — optional producer tag (e.g. `Some("forecaster")`)
 /// * `computed_at_ms` — the run's `computed_at` epoch-milliseconds
 pub fn run_id_for(scope: &str, producer: Option<&str>, computed_at_ms: i64) -> String {
     let ts_bytes = computed_at_ms.to_le_bytes();
