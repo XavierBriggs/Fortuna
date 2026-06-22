@@ -11,3 +11,7 @@ data/
 # Per-tool agent mirrors (canonical skills live in .claude/)
 .agents/
 .codex/
+
+# Hephaestus loop harness (gate files / ledger — the oracle stays out of git + implementer diffs)
+.hephaestus/
+.superpowers/
