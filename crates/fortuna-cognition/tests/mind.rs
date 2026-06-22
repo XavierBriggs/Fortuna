@@ -261,6 +261,44 @@ async fn anthropic_request_shape_follows_the_documented_wire_format() {
         .contains("aeolus says rain"));
 }
 
+async fn prompt_hash_for(charter: &str) -> String {
+    let mut cfg = config();
+    cfg.system_charter = charter.to_string();
+    let transport = MockTransport::new(vec![(200, api_response(&valid_output_json(), 1000, 200))]);
+    let mind = AnthropicMind::new(
+        cfg,
+        transport,
+        CostBudget::new(100_000, 100_000),
+        std::sync::Arc::new(fortuna_core::clock::SimClock::new(t(
+            "2026-06-11T12:00:00.000Z",
+        ))),
+    );
+    let out = mind.decide(&ctx()).await.unwrap();
+    out.beliefs[0].provenance["prompt_hash"]
+        .as_str()
+        .expect("prompt_hash must be stamped into belief provenance (spec 5.5)")
+        .to_string()
+}
+
+#[tokio::test]
+async fn anthropic_stamps_charter_sensitive_prompt_hash() {
+    // spec 5.5: provenance must carry prompt_hash so a decision is replayable and
+    // a charter/template edit is VISIBLE in the audit trail (it is otherwise
+    // invisible — context_manifest_hash covers the context, not the instructions).
+    let h1 = prompt_hash_for("charter ONE").await;
+    let h2 = prompt_hash_for("charter ONE").await;
+    let h3 = prompt_hash_for("charter TWO, different instructions").await;
+    assert!(!h1.is_empty(), "prompt_hash must be recorded");
+    assert_eq!(
+        h1, h2,
+        "identical charter + context must yield an identical prompt_hash (deterministic)"
+    );
+    assert_ne!(
+        h1, h3,
+        "a charter change must change prompt_hash, or the edit is invisible to the audit trail"
+    );
+}
+
 #[tokio::test]
 async fn anthropic_parses_output_and_tracks_cost_from_usage() {
     let transport = MockTransport::new(vec![(

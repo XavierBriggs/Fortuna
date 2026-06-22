@@ -54,3 +54,21 @@
 //! fn requires_deserialize<T: serde::de::DeserializeOwned>() {}
 //! requires_deserialize::<fortuna_gates::perp::GatedPerpOrder>();
 //! ```
+//!
+//! S2 (type-level, money; CONSTITUTION structural invariant): `PerpPrice` and
+//! `Cents` are separate types and a value of one cannot be used where the other
+//! is expected (no implicit conversion; perps reach `Cents` only through the
+//! explicit, round-against-us conversion fns). Path witness (so the sibling
+//! fails for the RIGHT reason, not because a type was renamed):
+//!
+//! ```
+//! fn _needs_cents(_: fortuna_core::money::Cents) {}
+//! fn _ok(c: fortuna_core::money::Cents) { _needs_cents(c) }
+//! ```
+//!
+//! Separation (must NOT compile — a `PerpPrice` is not a `Cents`):
+//!
+//! ```compile_fail
+//! fn _needs_cents(_: fortuna_core::money::Cents) {}
+//! fn _bad(p: fortuna_core::perp::PerpPrice) { _needs_cents(p) }
+//! ```

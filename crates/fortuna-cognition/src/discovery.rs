@@ -791,10 +791,12 @@ pub async fn world_forward_discovery(
     // Provenance is HARNESS knowledge (spec 5.5), stamped post-call — the model
     // never writes its own. `decide()` stamps it for the synthesis path; the
     // structured channel hands back a raw Value, so we stamp it here so a
-    // world-forward belief carries the same {model_id, context_manifest_hash,
-    // cost_cents} audit trail it did before the structured-output cutover.
+    // world-forward belief carries the same {model_id, prompt_hash,
+    // context_manifest_hash, cost_cents} audit trail (spec 5.5). prompt_hash is
+    // the challenger-side prompt the structured call actually sent.
     let provenance = json!({
         "model_id": mind.id(),
+        "prompt_hash": decision.prompt_hash,
         "context_manifest_hash": ctx.manifest_hash,
         "cost_cents": decision.cost_cents,
     });

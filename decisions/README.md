@@ -16,3 +16,4 @@ These ADRs were reconstructed during the 2026-06-22 canon review from `docs/spec
 | [0006](0006-killswitch-independence.md) | Out-of-band kill switch with no shared dependencies | Accepted |
 | [0007](0007-append-only-audit-with-c1-exception.md) | Append-only audit log with the C1 scoring set-once exception | Accepted |
 | [0008](0008-backtest-overfitting-controls.md) | Overfitting-deflated, point-in-time backtest with a Brier-primary GO surface | Accepted |
+| [0009](0009-record-prompt-hash-in-provenance.md) | Record prompt_hash in belief provenance (close the I5 replay gap) | Accepted |

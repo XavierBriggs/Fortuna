@@ -145,6 +145,7 @@ impl Mind for StructuredStubMind {
         Ok(StructuredDecision {
             value: self.value.clone(),
             cost_cents: self.cost,
+            prompt_hash: String::new(),
         })
     }
 }

@@ -106,8 +106,17 @@ impl ShadowHarness {
         // belief (the harness knows; the model cannot).
         let mut beliefs = output.beliefs;
         for belief in &mut beliefs {
+            // Carry forward the prompt_hash the challenger mind stamped on this
+            // belief (its OWN sent prompt), before we overwrite provenance with
+            // the challenger identity + pairing key. Absent for a stub challenger.
+            let prompt_hash = belief
+                .provenance
+                .get("prompt_hash")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
             belief.provenance = json!({
                 "model_id": self.challenger_model_id,
+                "prompt_hash": prompt_hash,
                 "context_manifest_hash": incumbent_context.manifest_hash,
                 "shadow": true,
                 "cost_cents": output.cost_cents,

@@ -76,7 +76,7 @@ I4   | crates/fortuna-invariants/tests/i4_killswitch_revocation.rs    | write_re
 I4   | crates/fortuna-invariants/tests/i4_killswitch_revocation.rs    | rearm_guard_refuses_while_kill_sentinel_present                        | present
 I4   | crates/fortuna-invariants/tests/i4_killswitch_revocation.rs    | rearm_guard_refuses_when_sentinel_unverifiable                         | present
 I5   | crates/fortuna-invariants/tests/i5_audit_append_only.rs        | i5_audit_append_only                                                   | present
-I5   | crates/fortuna-invariants/tests/i5_audit_append_only.rs        | i5_all_append_only_tables_reject_mutation                              | todo
+I5   | crates/fortuna-invariants/tests/i5_all_append_only_tables.rs   | i5_all_append_only_tables_reject_mutation                              | present
 I6   | crates/fortuna-invariants/tests/i6_propose_only_mind.rs        | i6_sizing_fields_in_proposals_are_schema_rejected                      | present
 I6   | crates/fortuna-invariants/tests/i6_propose_only_mind.rs        | i6_mind_output_carries_no_executable_side_effects                      | present
 I6   | crates/fortuna-invariants/tests/i6_propose_only_mind.rs        | i6_mind_crate_cannot_name_a_venue_or_mutate_state                      | present
@@ -100,18 +100,23 @@ S1   | crates/fortuna-invariants/tests/i_decoupling_spine.rs          | spine_ga
 S1   | crates/fortuna-invariants/tests/i_decoupling_spine.rs          | spine_exec_has_zero_domain_literals                                    | present
 S1   | crates/fortuna-invariants/tests/i_decoupling_spine.rs          | spine_state_has_zero_domain_literals                                   | present
 S1   | crates/fortuna-invariants/tests/i_decoupling_spine.rs          | fortuna_live_has_no_kalshi_type_leak                                   | present
-S2   | crates/fortuna-invariants/tests/s2_money_type_integrity.rs     | s2_perp_price_and_cents_cannot_cross_assign                            | todo
-S3   | crates/fortuna-invariants/tests/s3_clock_only_determinism.rs   | s3_decision_crates_have_no_wallclock_or_rng                            | todo
+S2   | crates/fortuna-invariants/tests/s2_money_type_integrity.rs     | s2_money_uses_checked_arithmetic_and_never_wraps                       | present
+S2   | crates/fortuna-invariants/src/lib.rs                           | compile_fail:perp-price-not-cents                                      | present
+S3   | crates/fortuna-invariants/tests/s3_clock_only_determinism.rs   | s3_decision_crates_have_no_wallclock_or_rng                            | present
 S4   | crates/fortuna-invariants/tests/i_paper_live_no_real_order.rs  | paper_on_live_cannot_place_or_cancel_real_orders                       | present
 ```
 <!-- INVARIANT-MAP-END -->
 
 ## Coverage gaps (flagged)
 
-1. **S2, S3 have no dedicated invariant test (status `todo`).** Money-type integrity is covered indirectly by `perp_i1` and core unit tests; Clock-only determinism by the DST corpus. Neither is pinned by a dedicated `fortuna-invariants` test. Add `s2_money_type_integrity.rs` and `s3_clock_only_determinism.rs` (a source-scan like `i_decoupling_spine`).
-2. **I5 parametric coverage (status `todo`).** `i5_audit_append_only` exercises the `audit` table. The new append-only tables (`validation_runs`, `scorecards`, `trade_scores`, `bus_recordings`) are pinned only by per-crate tests, not the protected harness. Add `i5_all_append_only_tables_reject_mutation`.
-3. **Protected-invariant guard scope hole (not a map row; tooling gap).** `scripts/check-protected-invariants.sh` diffs only `crates/fortuna-invariants/tests/`, not `src/lib.rs`, where the I1 `compile_fail` doctests live. Those doctests are weakenable without tripping the guard. Extend the guard to scan `src/lib.rs`. Tracked for the operator.
-4. **CI invariant gate is latent.** `.github/workflows/invariants-dst.yml` runs only once a remote exists; today enforcement is local discipline.
-5. **I7 forward rails are unit-tested, not DST end-to-end.** Promotion-record and shadow-comparison are pinned at construction; the full forward ladder is not DST-driven.
+Closed 2026-06-22 (every map row is now `present`):
+- **S2** pinned by `s2_money_type_integrity.rs` (checked arithmetic) plus a `src/lib.rs` compile_fail (PerpPrice/Cents type separation).
+- **S3** pinned by `s3_clock_only_determinism.rs` (source scan of gates/exec/state/cognition for wall-clock reads and RNG).
+- **I5 parametric** pinned by `i5_all_append_only_tables.rs` (every append-only table carries a mutation-guard trigger in the migrated schema).
+- **Protected-guard scope hole** fixed: `scripts/check-protected-invariants.sh` now scans `crates/fortuna-invariants/src/lib.rs` as well as `tests/`, so the I1/perp-I1 compile_fail doctests are guarded.
+- **`prompt_hash` audit-replay defect** fixed: the harness now stamps `prompt_hash` (Sha256 of charter + rendered context) into belief provenance at all three sites (synthesis, shadow, discovery); see ADR 0009. The decision is now replayable, and a charter/template edit is visible in the audit trail.
 
-Audit-replay completeness defects (missing `prompt_hash`, no audit-log replay tool, `actor=NULL` on daemon rows) do not weaken the append-only enforcement under I5, which is fully tested. They are tracked as defects in `GAPS.md`, not as amendments here.
+Still open (tracked, not blocking this document):
+1. **CI invariant gate is latent.** `.github/workflows/invariants-dst.yml` and `canon.yml` run only once a remote exists; today enforcement is local discipline.
+2. **I7 forward rails are unit-tested, not DST end-to-end.** Promotion-record and shadow-comparison are pinned at construction; the full forward ladder is not DST-driven.
+3. **Remaining audit-replay items** (no audit-log replay TOOL; `actor=NULL` on daemon rows) do not weaken the append-only enforcement under I5, which is fully tested. Tracked as defects in `GAPS.md`.

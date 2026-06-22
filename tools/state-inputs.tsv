@@ -10,9 +10,9 @@ synth_events	strategy	T2	Paper	-
 perp_event_basis	strategy	T2	Sim	perps-opening-path-unwired
 funding_forecast	strategy	T3	Sim	-
 funding_carry	strategy	T3	DataOnly	data-collection-only-60d
-synthesis_mind	model	T2	active	prompt_hash-not-recorded
+synthesis_mind	model	T2	active	-
 triage_mind	model	T3	active	-
 gate_pipeline	subsystem	T1	n/a	-
 killswitch	subsystem	T1	n/a	slack-path-untested
-ledger_audit	subsystem	T1	n/a	parametric-I5-test-todo
+ledger_audit	subsystem	T1	n/a	-
 backtest_validation	subsystem	T2	n/a	recal-labels-illustrative

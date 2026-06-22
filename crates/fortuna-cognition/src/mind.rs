@@ -155,6 +155,10 @@ impl MindOutput {
 pub struct StructuredDecision {
     pub value: serde_json::Value,
     pub cost_cents: i64,
+    /// Hash of the EXACT prompt sent (system charter + rendered context); spec
+    /// 5.5 provenance. Empty for minds with no real prompt (the default channel
+    /// / StubMind) where there is nothing to reconstruct.
+    pub prompt_hash: String,
 }
 
 /// The model interface (spec 5.9).
@@ -184,7 +188,13 @@ pub trait Mind: Send + Sync {
         let value = serde_json::from_str(&journal.body).map_err(|e| MindError::SchemaInvalid {
             reason: format!("journal body is not valid JSON: {e}"),
         })?;
-        Ok(StructuredDecision { value, cost_cents })
+        // The default channel has no provider prompt to hash (StubMind scripts
+        // the output); a real prompt_hash is stamped by AnthropicMind's override.
+        Ok(StructuredDecision {
+            value,
+            cost_cents,
+            prompt_hash: String::new(),
+        })
     }
     /// Cycle boundary, called by the CYCLE OWNER (decision cycle, veto
     /// loop) before its first call: resets any per-cycle budget so the
@@ -687,10 +697,15 @@ impl<T: MindTransport> AnthropicMind<T> {
         }
         output.cost_cents = cost_cents;
         // Provenance is HARNESS knowledge (spec 5.5): stamp it here —
-        // the model never writes its own provenance.
+        // the model never writes its own provenance. prompt_hash covers the
+        // EXACT prompt (charter + rendered context); a template/charter edit
+        // changes it even when the context is byte-identical, so the decision
+        // stays replayable from the audit trail.
+        let phash = prompt_hash(&self.config.system_charter, &ctx.rendered);
         for belief in &mut output.beliefs {
             belief.provenance = json!({
                 "model_id": self.config.model,
+                "prompt_hash": phash,
                 "context_manifest_hash": ctx.manifest_hash,
                 "cost_cents": cost_cents,
             });
@@ -843,7 +858,11 @@ impl<T: MindTransport> Mind for AnthropicMind<T> {
             let mut budget = self.budget.lock().unwrap_or_else(|e| e.into_inner());
             budget.record_spend(cost_cents, now);
         }
-        result.map(|value| StructuredDecision { value, cost_cents })
+        result.map(|value| StructuredDecision {
+            value,
+            cost_cents,
+            prompt_hash: prompt_hash(&self.config.system_charter, &ctx.rendered),
+        })
     }
 }
 
@@ -866,6 +885,16 @@ pub fn mind_from_env(
 
 fn ceil_div(num: i64, den: i64) -> i64 {
     (num + den - 1) / den
+}
+
+/// Hash of the EXACT prompt material sent to the provider: the system charter
+/// plus the rendered context, joined by a unit separator so the boundary is
+/// unambiguous. Spec 5.5 provenance — with this and `context_manifest_hash`, a
+/// decision's full input is reconstructable, and a charter/template edit is
+/// visible in the audit trail even when the context is byte-identical. Reuses
+/// the same Sha256 content hash the context manifest uses.
+fn prompt_hash(system_charter: &str, rendered: &str) -> String {
+    crate::context::content_hash_of(&format!("{system_charter}\u{1f}{rendered}"))
 }
 
 #[cfg(test)]
