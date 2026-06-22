@@ -32,6 +32,7 @@
 //! live for the forward-window SQL filters.
 
 use crate::asof::{asof_join, AsOfDisposition, DecisionContext};
+use crate::manifest::{enforce_gdead, GDeadViolation, ScoredRow};
 use crate::records::BeliefPayload;
 use crate::source::{HistoricalSource, SourceError};
 use fortuna_core::clock::{Clock, UtcTimestamp};
@@ -69,6 +70,11 @@ pub enum ReplayError {
     /// derivation failed.
     #[error("record encoding error during replay: {0}")]
     Encoding(String),
+    /// The G-DEAD integrity gate failed: one or more engaged markets from the
+    /// universe manifest were absent from the scored set. The producer silently
+    /// dropped markets it engaged with — classic survivorship bias.
+    #[error("G-DEAD integrity gate failed: {0}")]
+    GDead(#[from] GDeadViolation),
 }
 
 /// The honest accounting of one replay pass.
@@ -112,7 +118,8 @@ impl<C: Clock> ReplayHarness<C> {
     /// Pipeline per decision: stream beliefs → as-of-join against the snapshot /
     /// outcome pools (G-PIT) → write the source-stamped belief (idempotent) →
     /// accumulate the resolved `(p, outcome)` sample → assemble + persist the
-    /// parity scorecard via the SAME live assembler + ledger path (G-PARITY).
+    /// parity scorecard via the SAME live assembler + ledger path (G-PARITY) →
+    /// enforce G-DEAD (every manifest-engaged market must appear in scored).
     pub async fn replay(
         &self,
         source: &impl HistoricalSource,
@@ -124,6 +131,10 @@ impl<C: Clock> ReplayHarness<C> {
         let snapshots = collect(source.snapshots())?;
         let outcomes = collect(source.outcomes())?;
 
+        // Obtain the universe manifest for the G-DEAD check (done once per
+        // replay pass, before consuming the belief stream).
+        let manifest = source.universe_manifest()?;
+
         let events = EventsRepo::new(self.pool.clone());
         let beliefs_repo = BeliefsRepo::new(self.pool.clone());
 
@@ -131,9 +142,14 @@ impl<C: Clock> ReplayHarness<C> {
         let mut skipped_idempotent = 0usize;
         let mut look_ahead_rejected = 0usize;
 
-        // Deterministic accumulation: (decided_at, linkage, p, outcome) sorted so
-        // the sample order is independent of the source's iteration order.
+        // Deterministic accumulation: (decided_at, linkage, p, outcome, voided)
+        // sorted so the sample order is independent of the source's iteration order.
         let mut resolved: Vec<(UtcTimestamp, String, f64, bool)> = Vec::new();
+        // Accumulate ScoredRow entries for G-DEAD: one per joined belief that
+        // has an outcome. We use a Vec here and deduplicate by linkage after the
+        // loop (a single market may have multiple beliefs; G-DEAD checks market
+        // coverage, not belief count).
+        let mut scored_rows: Vec<ScoredRow> = Vec::new();
         let mut scope: Option<(String, Option<String>)> = None;
 
         for belief in source.beliefs() {
@@ -170,7 +186,7 @@ impl<C: Clock> ReplayHarness<C> {
                     }
 
                     // Only RESOLVED beliefs (with an outcome label) contribute to
-                    // the parity scorecard sample set.
+                    // the parity scorecard sample set and the G-DEAD scored set.
                     if let Some(outcome) = &ctx.outcome {
                         let happened = outcome.outcome >= 0.5;
                         resolved.push((
@@ -179,10 +195,53 @@ impl<C: Clock> ReplayHarness<C> {
                             p,
                             happened,
                         ));
+                        // Accumulate a ScoredRow for G-DEAD coverage tracking.
+                        // `voided` is always false here: voided markets carry no
+                        // outcome in the outcomes pool (they are present in the
+                        // manifest but yield no resolved outcome record). The
+                        // harness produces ScoredRows only for resolved markets;
+                        // the G-DEAD check will catch any voided market that the
+                        // source omits from its outcomes stream.
+                        scored_rows.push(ScoredRow {
+                            event_linkage: ctx.belief.event_linkage.clone(),
+                            outcome: outcome.outcome,
+                            voided: false,
+                        });
                     }
                 }
             }
         }
+
+        // Also produce ScoredRows for voided markets: they appear in the
+        // manifest's engaged set but yield no resolved outcome record in the
+        // outcomes pool. The source's outcomes stream should carry them with
+        // `outcome = 0.0` (or they are absent — either way G-DEAD must see them).
+        // We add them from the outcomes pool (which already contains voided
+        // entries if the source is well-formed) by checking the manifest.
+        for m in &manifest.engaged {
+            if m.voided {
+                // Voided markets may or may not appear in the outcomes pool. If
+                // the source emits a voided outcome record, it's already in
+                // `outcomes`; if not, we still need a ScoredRow to satisfy G-DEAD.
+                // Find it in outcomes, or emit a placeholder voided row.
+                let from_outcomes = outcomes.iter().find(|o| o.event_linkage == m.event_linkage);
+                scored_rows.push(ScoredRow {
+                    event_linkage: m.event_linkage.clone(),
+                    outcome: from_outcomes.map(|o| o.outcome).unwrap_or(0.0),
+                    voided: true,
+                });
+            }
+        }
+
+        // Deduplicate ScoredRows by linkage (multiple beliefs → one market).
+        // Sort for determinism, then dedup by linkage.
+        scored_rows.sort_by(|a, b| a.event_linkage.cmp(&b.event_linkage));
+        scored_rows.dedup_by(|a, b| a.event_linkage == b.event_linkage);
+
+        // G-DEAD: every engaged market in the manifest must appear in scored.
+        // This is the false-negative guard: no silent survivorship via dropped
+        // losers / voided / NO-resolved markets.
+        enforce_gdead(&scored_rows, &manifest)?;
 
         // Deterministic sample order: by decided_at then linkage.
         resolved.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
