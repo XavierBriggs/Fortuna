@@ -31,10 +31,8 @@ use fortuna_core::ids::{IdGen, IntentId};
 use fortuna_core::market::{Action, ClientOrderId, Contracts, MarketId, Side, StrategyId, VenueId};
 use fortuna_core::money::Cents;
 use fortuna_gates::{CandidateOrder, GateCheck, GateConfig, GateInputs, GatePipeline, HaltScope};
-use fortuna_killswitch::{
-    clear_revocation, is_revoked, revocation_guard, revocation_path, write_revocation,
-    RevocationGuard,
-};
+use fortuna_killswitch::{clear_revocation, is_revoked, revocation_path, write_revocation};
+use fortuna_killswitch::{revocation_guard, RevocationGuard};
 use fortuna_live::run_loop::{HaltPoller, RevocationHaltPoller};
 use std::collections::BTreeSet;
 use std::sync::Arc;
