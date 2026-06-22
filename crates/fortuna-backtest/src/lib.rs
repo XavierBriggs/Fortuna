@@ -28,6 +28,11 @@
 )]
 
 pub mod asof;
+/// The real `validate` edge provider (W7): assembles the per-`(scope, config)`
+/// OOS Brier-skill + CLV series + per-row label windows from a historical source,
+/// scoring through the SAME `fortuna-scoring` path as live. Carries NO
+/// source-name literals (the decoupling grep gate).
+pub mod edge_provider;
 pub mod harness;
 pub mod manifest;
 pub mod records;

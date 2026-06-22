@@ -1169,9 +1169,19 @@ async fn db_command(args: &Args) -> Result<()> {
                 .scope
                 .clone()
                 .context("--scope <scope> is required for fortuna validate")?;
+            // W7: the same archive the `backtest` command uses supplies the real
+            // replayed track record for the edge series. When absent, validate is
+            // honestly `Insufficient`-by-construction (no track record in scope).
+            let archive_path = args
+                .archive
+                .as_ref()
+                .map(PathBuf::from)
+                .or_else(|| std::env::var_os("FORTUNA_WS3_ARCHIVE").map(PathBuf::from));
             let v_args = backtest_cmd::ValidateArgs {
                 scope,
                 producer: args.producer.clone(),
+                sql_fixture_path: None,
+                archive_path,
             };
             let output = backtest_cmd::run_validate(&pool, &v_args, clock).await?;
             println!("{output}");

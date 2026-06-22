@@ -29,13 +29,16 @@
 use std::path::PathBuf;
 
 use anyhow::{bail, Context, Result};
+use fortuna_backtest::edge_provider::LedgerEdgeProvider;
 use fortuna_backtest::harness::{
     run_id_for, ReplayHarness, ReplayReport, TimeRange as HarnessTimeRange,
 };
 use fortuna_backtest::sources::aeolus_archive::{
     AeolusArchiveSource, TimeRange as ArchiveTimeRange,
 };
-use fortuna_backtest::sweep::{run_sweep, RecalMethod, SweepParams, TrialSpace, ValidationRun};
+use fortuna_backtest::sweep::{
+    run_sweep, ConfigEdges, RecalMethod, SweepParams, TrialSpace, ValidationRun,
+};
 use fortuna_core::clock::{Clock, UtcTimestamp};
 use fortuna_ledger::{PgPool, ValidationRunsRepo};
 
@@ -71,6 +74,14 @@ pub struct ValidateArgs {
     pub scope: String,
     /// The producer identifier, when one is attributed.
     pub producer: Option<String>,
+    /// For tests: path to a `.sql` fixture to replay for the edge series instead
+    /// of opening a real archive file. When set, `archive_path` is ignored.
+    pub sql_fixture_path: Option<PathBuf>,
+    /// Path to a real `aeolus_kalshi.db` archive (opened read-only) whose replayed
+    /// track record supplies the real OOS Brier-skill edge series. When neither
+    /// this nor `sql_fixture_path` is set, the validate surface is the honest
+    /// `Insufficient`-by-construction (no track record in scope — W7 honesty note).
+    pub archive_path: Option<PathBuf>,
 }
 
 // ---------------------------------------------------------------------------
@@ -211,18 +222,26 @@ pub async fn run_validate<C: Clock>(
     };
     let params = SweepParams::default();
 
-    // The edge provider returns empty series — no historical data is in-scope
-    // for the validate command at S7 (the harness replay step is separate).
-    // An empty edge series yields a deterministic `Insufficient` run, which is
-    // the correct whole-truth surface for a fresh ledger.
-    let provider = |_scope: &str, _config_idx: usize| fortuna_backtest::sweep::ConfigEdges {
-        brier_oos: vec![],
-        brier_loss_diff: vec![],
-        clv_oos: vec![],
-        sharpe_returns: vec![],
+    // W7: when a historical archive is in scope, replay it through the SAME
+    // scoring + as-of-join path as live to assemble the REAL per-(scope, config)
+    // OOS Brier-skill edge series + per-row label windows, so `run_sweep` computes
+    // a real Brier-primary GO/NO-GO over the replayed track record (with purge
+    // applied). When no source is supplied, the edge series are empty → a
+    // deterministic `Insufficient` run — the honest whole-truth surface for "no
+    // track record in scope" (W7 / W6 honesty note), NEVER a false GO.
+    let mut run = match build_edge_provider(args)? {
+        Some(provider) => run_sweep(&space, &params, provider),
+        None => {
+            // The honest empty-series fallback (no archive in scope).
+            let empty = |_scope: &str, _config_idx: usize| ConfigEdges {
+                brier_oos: vec![],
+                brier_loss_diff: vec![],
+                clv_oos: vec![],
+                sharpe_returns: vec![],
+            };
+            run_sweep(&space, &params, empty)
+        }
     };
-
-    let mut run = run_sweep(&space, &params, provider);
 
     // Stamp the real run_id and computed_at via the injected clock (never
     // wall-time; time via the injected Clock — CLAUDE.md invariant).
@@ -250,6 +269,38 @@ pub async fn run_validate<C: Clock>(
     .context("persist validation_run")?;
 
     Ok(format_go_surface(&run))
+}
+
+/// Build the real [`LedgerEdgeProvider`] from the validate args' archive source,
+/// or `None` when no source is in scope (→ the honest empty-series fallback).
+///
+/// The archive is opened **read-only** (paper-safe), and the replay window is
+/// unbounded over `decided_at` — the provider's own as-of join (G-PIT,
+/// `available_at < decided_at`) is the leak guard, independent of the window. Any
+/// belief whose payload the binary edge path cannot score surfaces as an error
+/// rather than a silent drop.
+fn build_edge_provider(args: &ValidateArgs) -> Result<Option<LedgerEdgeProvider>> {
+    let archive_range = ArchiveTimeRange::unbounded();
+    let source = if let Some(fixture) = &args.sql_fixture_path {
+        AeolusArchiveSource::from_sql_fixture(fixture, archive_range)
+            .with_context(|| format!("loading validate fixture {}", fixture.display()))?
+    } else if let Some(db_path) = &args.archive_path {
+        AeolusArchiveSource::open_read_only(db_path.clone(), archive_range)
+            .context("opening validate archive read-only")?
+    } else {
+        // No source in scope: the honest Insufficient-by-construction surface.
+        return Ok(None);
+    };
+
+    // Unbounded harness window: the provider's as-of join is the leak guard.
+    let range = HarnessTimeRange {
+        from: UtcTimestamp::from_epoch_millis(0).context("epoch-0 lower-bound timestamp")?,
+        to: UtcTimestamp::from_epoch_millis(253_402_300_799_999)
+            .context("year-9999 upper-bound timestamp")?,
+    };
+    let provider =
+        LedgerEdgeProvider::from_source(&source, range).context("assembling real edge series")?;
+    Ok(Some(provider))
 }
 
 // ---------------------------------------------------------------------------

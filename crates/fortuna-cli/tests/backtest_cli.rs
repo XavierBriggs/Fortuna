@@ -122,6 +122,11 @@ async fn validate_cli_emits_verdict(pool: PgPool) {
     let args = ValidateArgs {
         scope: "weather:KNYC".to_string(),
         producer: Some("aeolus".to_string()),
+        // No archive in scope → the honest empty-series Insufficient surface; this
+        // test asserts the whole-truth FIELDS + a verdict value are present (not a
+        // specific verdict), so the fallback is the correct posture here.
+        sql_fixture_path: None,
+        archive_path: None,
     };
 
     let output = run_validate(&pool, &args, RealClock)
@@ -154,6 +159,52 @@ async fn validate_cli_emits_verdict(pool: PgPool) {
     assert!(
         has_verdict_value,
         "output must contain a verdict value (Go/NoGo/Insufficient); got:\n{output}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 2b: validate WIRES the real edge provider through the fixture source
+// ---------------------------------------------------------------------------
+//
+// W7: when an archive source is in scope, `run_validate` must build the REAL
+// `LedgerEdgeProvider` (replay → score through the SAME path) rather than the
+// empty-series placeholder, and persist a well-formed run. The committed fixture
+// is tiny (a few resolved samples) so the HONEST verdict over it is
+// `Insufficient` — but this asserts the real-provider PATH is wired (the handler
+// opens the fixture, replays it, and emits the whole-truth surface), distinct from
+// the no-source fallback above. The non-`Insufficient` real verdict is proven over
+// a powered track record in `fortuna-backtest`'s `validate_yields_honest_verdict`.
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn validate_wires_real_provider_from_fixture(pool: PgPool) {
+    let args = ValidateArgs {
+        scope: "weather:KNYC".to_string(),
+        producer: Some("aeolus".to_string()),
+        // The real-provider path: replay the committed fixture for the edges.
+        sql_fixture_path: Some(fixture_sql_path()),
+        archive_path: None,
+    };
+
+    let output = run_validate(&pool, &args, RealClock)
+        .await
+        .expect("validate over the fixture archive must succeed");
+
+    // The whole-truth surface is emitted (the handler ran the real sweep, not a
+    // panic / empty short-circuit).
+    assert!(
+        output.contains("verdict"),
+        "must emit a verdict field:\n{output}"
+    );
+    assert!(
+        output.contains("brier_pbo") && output.contains("effective_n"),
+        "must emit the whole-truth deflation fields:\n{output}"
+    );
+    // The tiny fixture is honestly under-powered → Insufficient (never a false GO
+    // from a 3-sample track record).
+    assert!(
+        output.contains("verdict:          Insufficient"),
+        "a tiny fixture track record must be honestly Insufficient, never a false \
+         GO; got:\n{output}"
     );
 }
 

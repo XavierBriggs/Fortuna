@@ -143,6 +143,21 @@ pub struct ConfigEdges {
 pub trait EdgeProvider {
     /// Edges for the config at per-scope grid index `config_index` under `scope`.
     fn edges(&self, scope: &str, config_index: usize) -> ConfigEdges;
+
+    /// The per-row label eval windows + embargo for purge/embargo under `scope`.
+    ///
+    /// The returned `Vec<LabelWindow>` MUST have the SAME length as each
+    /// `(scope, config)` edge series (`t`, the matrix row count). `pbo` only
+    /// purges when `windows.len() == t` (else it silently takes the no-purge path
+    /// and UNDERSTATES overfitting), so `run_sweep` asserts this equality before
+    /// calling `pbo` and the provider is contractually obliged to honor it.
+    ///
+    /// The default returns `(empty, zero)` — the no-purge baseline — so callers
+    /// that supply already-OOS series with no within-fold leak (e.g. the
+    /// closure-based `Fn` provider) keep the WS3 behavior unchanged.
+    fn windows(&self, _scope: &str) -> (Vec<LabelWindow>, Duration) {
+        (Vec::new(), Duration::zero())
+    }
 }
 
 impl<F> EdgeProvider for F
@@ -326,14 +341,33 @@ pub fn run_sweep<P: EdgeProvider>(
         .collect();
     let clv_loss_matrix = clv_matrix.clone();
 
-    // No per-slice purge windows here (the edge layer supplies already-OOS
-    // series); pass empty windows = the no-purge path. `pbo` validates S against
-    // T internally (default S=16 coerces to the largest even S ≤ T).
-    let no_windows: Vec<LabelWindow> = Vec::new();
-    let embargo = Duration::zero();
+    // Per-slice purge windows + embargo from the provider (W7). `pbo` ONLY purges
+    // when `label_windows.len() == T` (cscv.rs); a ragged or short window list
+    // silently takes the no-purge path and UNDERSTATES overfitting. So we assert
+    // the length invariant LOUDLY here: the provider's window count must equal the
+    // matrix row count `t`. A provider that returns no windows (the default /
+    // closure path) supplies an empty list — the no-purge baseline — which is the
+    // correct behavior for already-OOS series with no within-fold leak, and which
+    // the assertion below explicitly tolerates (`empty == no-purge`, never a
+    // length mismatch against a non-empty matrix).
+    let (windows, embargo) = provider.windows(&scope);
+    if !windows.is_empty() {
+        // Non-empty windows MUST match the matrix rows exactly, or `pbo` would
+        // silently no-op the purge. Fail loudly rather than ship a no-purge run
+        // that masquerades as purged. (`t == 0` with non-empty windows is also a
+        // mismatch and is caught here.)
+        assert_eq!(
+            windows.len(),
+            t,
+            "EdgeProvider::windows must return EXACTLY t windows (one per matrix \
+             row) so pbo takes the purge path; got {} windows for {} rows",
+            windows.len(),
+            t,
+        );
+    }
 
-    let brier_pbo_report: PboReport = pbo(&brier_matrix, params.cscv_s, &no_windows, embargo);
-    let clv_pbo_report: PboReport = pbo(&clv_matrix, params.cscv_s, &no_windows, embargo);
+    let brier_pbo_report: PboReport = pbo(&brier_matrix, params.cscv_s, &windows, embargo);
+    let clv_pbo_report: PboReport = pbo(&clv_matrix, params.cscv_s, &windows, embargo);
 
     // SPA on the loss differentials, deterministic via a seeded SplitMix64.
     let mut brier_rng = SplitMix64::seed(params.seed);
