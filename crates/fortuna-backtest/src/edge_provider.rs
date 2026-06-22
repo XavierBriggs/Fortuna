@@ -283,8 +283,10 @@ impl EdgeProvider for LedgerEdgeProvider {
 
             // Brier-SKILL = beats-baseline margin (positive ⇒ model better OOS).
             brier_oos.push(baseline_loss - model_loss);
-            // Brier-LOSS differential (model − baseline) for the SPA test; the SPA
-            // null is "the model is no better than the baseline".
+            // Brier-LOSS differential (baseline − model, i.e. loss_benchmark − loss_model)
+            // for the SPA test; the SPA null is "the model is no better than the baseline".
+            // SIGN NOTE: this is baseline − model (positive when model is better), NOT
+            // model − baseline — code is correct per spa.rs conventions.
             brier_loss_diff.push(baseline_loss - model_loss);
             // CLV (corroborating only).
             clv_oos.push(period.clv_bps);

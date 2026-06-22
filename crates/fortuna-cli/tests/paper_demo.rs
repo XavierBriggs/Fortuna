@@ -367,7 +367,10 @@ fn paper_demo_transport_wall() {
         .fills;
     assert!(!fills.is_empty(), "through print must produce paper fills");
     for fill in &fills {
-        assert!(fill.fill_id.starts_with("p-"), "paper fill ids start with p-");
+        assert!(
+            fill.fill_id.starts_with("p-"),
+            "paper fill ids start with p-"
+        );
         assert_eq!(fill.market, market_id());
         assert!(fill.is_maker, "paper-on-live fills must be maker fills");
     }
@@ -416,8 +419,8 @@ fn pointer_write_lands_live_url() {
         pointer_path.exists(),
         "current-demo-db-url must exist after write_demo_db_pointer"
     );
-    let contents = std::fs::read_to_string(&pointer_path)
-        .expect("should be able to read current-demo-db-url");
+    let contents =
+        std::fs::read_to_string(&pointer_path).expect("should be able to read current-demo-db-url");
     assert_eq!(
         contents.trim(),
         db_url,

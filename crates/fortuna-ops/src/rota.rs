@@ -2144,7 +2144,8 @@ async fn assemble_chain(
             scope,
             target_date,
             // NOTE: market_ticker is set to market_id — the events table has no
-            // separate ticker column. See GAPS.md: "events table has no ticker column".
+            // separate ticker column (Kalshi ticker == market_id; single-venue scope).
+            // See GAPS.md: "events table has no ticker column — market_ticker = market_id".
             market_ticker,
         },
         safety,

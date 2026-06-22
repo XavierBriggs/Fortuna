@@ -1992,6 +1992,12 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
     // substrate, not the money path).
     snapshots_pool: Option<PgPool>,
 ) -> Result<(LoopStats, fortuna_runner::ShutdownReport), DaemonError> {
+    // W6b #3b: extract CLV policy from LoopConfig so the config values flow
+    // through to resolve_and_score_weather_beliefs_with_policy on each
+    // resolution call. Pulled once at drive-start (stable across segments).
+    let loop_cfg_cognition_clv_min_touch_qty = loop_cfg.clv_min_touch_qty;
+    let loop_cfg_cognition_clv_max_spread_cents = loop_cfg.clv_max_spread_cents;
+
     let mut total = LoopStats::default();
     // Dedup state OWNED ACROSS SEGMENTS (gate finding 2026-06-11: keeping
     // these inside run_loop reset them every ~30s segment, so one standing
@@ -3870,10 +3876,14 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
             if let Some(rpool) = resolution_pool.as_ref() {
                 let day_base = now.epoch_millis().max(0) as u64;
                 // Weather: settled Aeolus brackets + μ/σ beliefs vs the NWS-CLI grade.
-                match resolve_and_score_weather_beliefs(
+                // Thread CLV LiquidityPolicy from [cognition] config (W6b #3b):
+                // these are operator-tunable via clv_min_touch_qty + clv_max_spread_cents.
+                match resolve_and_score_weather_beliefs_with_policy(
                     rpool,
                     now,
                     WEATHER_SCORE_BASE_TAG + day_base,
+                    loop_cfg_cognition_clv_min_touch_qty,
+                    loop_cfg_cognition_clv_max_spread_cents,
                 )
                 .await
                 {
@@ -4887,6 +4897,24 @@ pub async fn resolve_and_score_weather_beliefs(
     now: UtcTimestamp,
     score_id_base: u64,
 ) -> Result<usize, DaemonError> {
+    // Default CLV policy (1-contract touch min, ≤10c spread). The production
+    // call site in drive() threads config values from [cognition]; tests that
+    // call this public wrapper get the current defaults unchanged.
+    resolve_and_score_weather_beliefs_with_policy(pool, now, score_id_base, 1, 10).await
+}
+
+/// Internal: same as [`resolve_and_score_weather_beliefs`] but accepts the
+/// CLV `LiquidityPolicy` parameters from `[cognition]` config rather than
+/// hardcoded constants. Called from `drive()` with the operator-configured
+/// values; the public wrapper calls this with the current defaults so existing
+/// test call sites are byte-identical.
+pub(crate) async fn resolve_and_score_weather_beliefs_with_policy(
+    pool: &PgPool,
+    now: UtcTimestamp,
+    score_id_base: u64,
+    clv_min_touch_qty: i64,
+    clv_max_spread_cents: i64,
+) -> Result<usize, DaemonError> {
     use fortuna_cognition::aeolus_forecast::Variable;
     use fortuna_cognition::aeolus_resolve::{cli_serves_station, realized_f_for, score_bracket};
     use fortuna_cognition::events::{clv_bps as compute_clv_bps, LiquidityPolicy, SnapshotPoint};
@@ -4902,16 +4930,13 @@ pub async fn resolve_and_score_weather_beliefs(
     use fortuna_sources::nws_climate::{nws_cli_realized, RealizedExtreme, NWS_CLI_KIND};
     use std::collections::HashMap;
 
-    // WS1 slice 5: LiquidityPolicy constants.
-    // min_touch_qty matches the book-gate touch (1 contract minimum).
-    // max_spread_cents ≤ 10c keeps the CLV signal tight.
-    // GAPS: these will be promoted to config once a config key is confirmed.
-    const CLV_MIN_TOUCH_QTY: i64 = 1;
-    const CLV_MAX_SPREAD_CENTS: i64 = 10;
-
+    // CLV LiquidityPolicy: values come from [cognition] config (promoted from
+    // hardcoded consts at WS1/W6b). The defaults (min_touch_qty=1,
+    // max_spread_cents=10) match the original constants; the public wrapper
+    // passes them when config is not available (tests).
     let clv_policy = LiquidityPolicy {
-        min_touch_qty: CLV_MIN_TOUCH_QTY,
-        max_spread_cents: CLV_MAX_SPREAD_CENTS,
+        min_touch_qty: clv_min_touch_qty,
+        max_spread_cents: clv_max_spread_cents,
     };
 
     let events_repo = EventsRepo::new(pool.clone());
@@ -6532,6 +6557,9 @@ mod tests {
             synthesis_model: "claude-opus-4-8".to_string(),
             mid_model: "claude-sonnet-4-6".to_string(),
             triage_model: "claude-haiku-4-5".to_string(),
+            // W6b #3b: CLV policy defaults (same as the hardcoded consts they replaced).
+            clv_min_touch_qty: 1,
+            clv_max_spread_cents: 10,
         }
     }
 

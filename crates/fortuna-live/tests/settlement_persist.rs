@@ -102,6 +102,8 @@ async fn drive_once(runner: &mut ActiveRunner, pool: &PgPool, fire_at: u64) {
     let loop_cfg = LoopConfig {
         tick_interval_ms: 1000,
         halt_poll_ms: 500,
+        clv_min_touch_qty: 1,
+        clv_max_spread_cents: 10,
     };
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
     let mut daily = fortuna_live::daemon::DailyScheduler::new();

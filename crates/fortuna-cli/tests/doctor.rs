@@ -151,3 +151,82 @@ async fn doctor_reports_check_names_and_count(pool: PgPool) {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// mode_safe check — paper-safety gate (W3 Minor; previously untested)
+// ---------------------------------------------------------------------------
+
+/// A paper-safe config: `[runtime]` execution_mode=paper_ledger +
+/// orders_enabled=false. The `mode_safe` check must be GREEN.
+fn paper_safe_config() -> String {
+    "[runtime]\nexecution_mode = \"paper_ledger\"\norders_enabled = false\n".to_string()
+}
+
+/// A live-mode config: `[runtime]` execution_mode=live (NOT paper). The
+/// `mode_safe` check must be RED.
+fn live_mode_config() -> String {
+    "[runtime]\nexecution_mode = \"live\"\norders_enabled = true\n".to_string()
+}
+
+/// Write a config string to a named temp file and return the path.
+/// The file is written under the system temp dir so it is accessible.
+fn write_temp_config(content: &str, name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir();
+    let path = dir.join(name);
+    std::fs::write(&path, content).unwrap_or_else(|e| panic!("cannot write temp config: {e}"));
+    path
+}
+
+/// W3 Minor: `doctor_mode_safe_red_on_live` — mode_safe check is RED for a
+/// live-mode config and GREEN for a paper-ledger config (mutation-proven by
+/// construction: the two branches of `check_mode_safe` drive different
+/// `ok` values in the DoctorReport).
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn doctor_mode_safe_red_on_live(pool: PgPool) {
+    // ---- RED case: execution_mode = "live" ---------------------------------
+    let live_path = write_temp_config(&live_mode_config(), "fortuna_test_live_config.toml");
+    let opts_live = DoctorOpts {
+        env: full_env(),
+        offline: true,
+        config_path: Some(live_path.to_string_lossy().into_owned()),
+    };
+    let report_live = run(&pool, &opts_live).await;
+
+    let mode_safe_check = report_live
+        .checks
+        .iter()
+        .find(|c| c.name == "mode_safe")
+        .expect("mode_safe check must be present when config_path is provided");
+
+    assert!(
+        !mode_safe_check.ok,
+        "mode_safe must be RED for execution_mode=live; detail: {}",
+        mode_safe_check.detail
+    );
+    // all_green must be false when any check is red
+    assert!(
+        !report_live.all_green,
+        "all_green must be false when mode_safe is RED"
+    );
+
+    // ---- GREEN case: execution_mode = "paper_ledger" -----------------------
+    let paper_path = write_temp_config(&paper_safe_config(), "fortuna_test_paper_config.toml");
+    let opts_paper = DoctorOpts {
+        env: full_env(),
+        offline: true,
+        config_path: Some(paper_path.to_string_lossy().into_owned()),
+    };
+    let report_paper = run(&pool, &opts_paper).await;
+
+    let mode_safe_paper = report_paper
+        .checks
+        .iter()
+        .find(|c| c.name == "mode_safe")
+        .expect("mode_safe check must be present when config_path is provided");
+
+    assert!(
+        mode_safe_paper.ok,
+        "mode_safe must be GREEN for execution_mode=paper_ledger; detail: {}",
+        mode_safe_paper.detail
+    );
+}

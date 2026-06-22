@@ -84,6 +84,8 @@ async fn loop_ticks_at_cadence_and_polls_halts_at_500ms(pool: PgPool) {
     let cfg = LoopConfig {
         tick_interval_ms: 1000,
         halt_poll_ms: 500,
+        clv_min_touch_qty: 1,
+        clv_max_spread_cents: 10,
     };
 
     // Ten loop wakes at the 500ms poll cadence = 5 simulated seconds:
@@ -121,6 +123,8 @@ async fn polled_halt_applies_to_the_gates_and_audits(pool: PgPool) {
     let cfg = LoopConfig {
         tick_interval_ms: 1000,
         halt_poll_ms: 500,
+        clv_min_touch_qty: 1,
+        clv_max_spread_cents: 10,
     };
 
     let (_tx, mut stop) = tokio::sync::oneshot::channel::<()>();
@@ -179,6 +183,8 @@ async fn a_running_daemon_never_auto_clears_a_halt_on_rearm_only_a_restart_does(
     let cfg = LoopConfig {
         tick_interval_ms: 1000,
         halt_poll_ms: 500,
+        clv_min_touch_qty: 1,
+        clv_max_spread_cents: 10,
     };
 
     // 12 wakes: one pre-halt Ok(None), the halt at call 2, then TEN Ok(None)
@@ -250,6 +256,8 @@ async fn a_standing_halt_audits_exactly_once_across_segment_boundaries(pool: PgP
     let cfg = LoopConfig {
         tick_interval_ms: 1000,
         halt_poll_ms: 500,
+        clv_min_touch_qty: 1,
+        clv_max_spread_cents: 10,
     };
     let (_tx, mut stop) = tokio::sync::oneshot::channel::<()>();
     let mut last_halt: Option<String> = None;
@@ -297,6 +305,8 @@ async fn poll_failure_is_counted_never_silent_never_fatal(pool: PgPool) {
     let cfg = LoopConfig {
         tick_interval_ms: 1000,
         halt_poll_ms: 500,
+        clv_min_touch_qty: 1,
+        clv_max_spread_cents: 10,
     };
 
     let (_tx, mut stop) = tokio::sync::oneshot::channel::<()>();

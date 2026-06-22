@@ -752,6 +752,10 @@ async fn main() -> Result<()> {
     let loop_cfg = LoopConfig {
         tick_interval_ms: dcfg.daemon.tick_interval_ms,
         halt_poll_ms: dcfg.daemon.halt_poll_ms,
+        // W6b #3b: CLV LiquidityPolicy from [cognition] config (values flow
+        // through to resolve_and_score_weather_beliefs_with_policy via drive()).
+        clv_min_touch_qty: dcfg.cognition.clv_min_touch_qty,
+        clv_max_spread_cents: dcfg.cognition.clv_max_spread_cents,
     };
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
     let mut daily = fortuna_live::daemon::DailyScheduler::new();

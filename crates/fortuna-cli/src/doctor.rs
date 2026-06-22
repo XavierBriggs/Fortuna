@@ -344,6 +344,9 @@ async fn check_grants(pool: &PgPool) -> Check {
     for table in PROBE_TABLES {
         // A minimal SELECT with a false WHERE so no rows are returned, but the
         // permission check fires. On permission denial sqlx returns an error.
+        // SECURITY NOTE: `table` MUST remain a compile-time constant from PROBE_TABLES
+        // (a &[&str] of hard-coded names) — the format! here is NOT parameterized user
+        // input. Never allow a non-const table name to reach this format! call.
         let q = format!("SELECT 1 FROM {table} WHERE false");
         if let Err(e) = sqlx::query(&q).execute(pool).await {
             failed.push(format!("{table}: {e}"));

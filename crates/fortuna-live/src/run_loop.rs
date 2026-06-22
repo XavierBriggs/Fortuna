@@ -24,6 +24,12 @@ use fortuna_runner::{RunnerError, SimRunner};
 pub struct LoopConfig {
     pub tick_interval_ms: u64,
     pub halt_poll_ms: u64,
+    /// CLV LiquidityPolicy: minimum book-touch quantity. Defaults to 1.
+    /// Threaded from `[cognition].clv_min_touch_qty` at daemon boot (W6b #3b).
+    pub clv_min_touch_qty: i64,
+    /// CLV LiquidityPolicy: maximum bid-ask spread in cents. Defaults to 10.
+    /// Threaded from `[cognition].clv_max_spread_cents` at daemon boot (W6b #3b).
+    pub clv_max_spread_cents: i64,
 }
 
 /// Honest loop accounting; the composition exports these as metrics.

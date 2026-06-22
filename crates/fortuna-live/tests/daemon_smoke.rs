@@ -199,6 +199,8 @@ async fn daemon_smoke_boot_ticks_signal_shutdown(pool: PgPool) {
     let loop_cfg = LoopConfig {
         tick_interval_ms: 1000,
         halt_poll_ms: 500,
+        clv_min_touch_qty: 1,
+        clv_max_spread_cents: 10,
     };
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
     let mut daily = fortuna_live::daemon::DailyScheduler::new();
@@ -311,6 +313,8 @@ async fn signal_with_working_orders_cancels_them_and_audits(pool: PgPool) {
     let loop_cfg = LoopConfig {
         tick_interval_ms: 1000,
         halt_poll_ms: 500,
+        clv_min_touch_qty: 1,
+        clv_max_spread_cents: 10,
     };
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
     let mut daily = fortuna_live::daemon::DailyScheduler::new();
@@ -545,6 +549,8 @@ async fn per_segment_refresh_picks_up_a_newly_confirmed_edge(pool: PgPool) {
     let loop_cfg = LoopConfig {
         tick_interval_ms: 1000,
         halt_poll_ms: 500,
+        clv_min_touch_qty: 1,
+        clv_max_spread_cents: 10,
     };
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
     let mut daily = fortuna_live::daemon::DailyScheduler::new();
@@ -695,6 +701,8 @@ async fn refresh_failure_keeps_last_known_edges_alerts_and_survives(pool: PgPool
     let loop_cfg = LoopConfig {
         tick_interval_ms: 1000,
         halt_poll_ms: 500,
+        clv_min_touch_qty: 1,
+        clv_max_spread_cents: 10,
     };
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
     let mut daily = fortuna_live::daemon::DailyScheduler::new();
@@ -1299,6 +1307,8 @@ async fn drive_drains_and_persists_the_synthesis_arms_beliefs(pool: PgPool) {
     let loop_cfg = LoopConfig {
         tick_interval_ms: 1000,
         halt_poll_ms: 500,
+        clv_min_touch_qty: 1,
+        clv_max_spread_cents: 10,
     };
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
     let mut daily = fortuna_live::daemon::DailyScheduler::new();
@@ -1411,6 +1421,8 @@ async fn drive_drains_and_persists_funding_forecast_scalar_beliefs(pool: PgPool)
     let loop_cfg = LoopConfig {
         tick_interval_ms: 1000,
         halt_poll_ms: 500,
+        clv_min_touch_qty: 1,
+        clv_max_spread_cents: 10,
     };
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
     let mut daily = fortuna_live::daemon::DailyScheduler::new();
@@ -1559,6 +1571,8 @@ async fn drive_drains_the_live_perp_tick_channel_and_persists_a_scalar_belief(po
     let loop_cfg = LoopConfig {
         tick_interval_ms: 1000,
         halt_poll_ms: 500,
+        clv_min_touch_qty: 1,
+        clv_max_spread_cents: 10,
     };
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
     let mut daily = fortuna_live::daemon::DailyScheduler::new();
@@ -1829,6 +1843,8 @@ async fn drive_runs_daily_reconciliation_at_the_utc_day_boundary(pool: PgPool) {
     let loop_cfg = LoopConfig {
         tick_interval_ms: 1000,
         halt_poll_ms: 500,
+        clv_min_touch_qty: 1,
+        clv_max_spread_cents: 10,
     };
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
     let mut daily = fortuna_live::daemon::DailyScheduler::new();
@@ -2220,6 +2236,8 @@ async fn drive_runs_the_weekly_review_at_the_week_boundary(pool: PgPool) {
     let loop_cfg = LoopConfig {
         tick_interval_ms: 1000,
         halt_poll_ms: 500,
+        clv_min_touch_qty: 1,
+        clv_max_spread_cents: 10,
     };
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
     let mut daily = fortuna_live::daemon::DailyScheduler::new();
@@ -2394,6 +2412,8 @@ async fn drive_runs_the_monthly_review_at_the_month_boundary(pool: PgPool) {
     let loop_cfg = LoopConfig {
         tick_interval_ms: 1000,
         halt_poll_ms: 500,
+        clv_min_touch_qty: 1,
+        clv_max_spread_cents: 10,
     };
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
     let mut daily = fortuna_live::daemon::DailyScheduler::new();
@@ -2620,6 +2640,8 @@ async fn drive_persists_persona_analysis_and_beliefs_when_wired(pool: PgPool) {
     let loop_cfg = LoopConfig {
         tick_interval_ms: 1000,
         halt_poll_ms: 500,
+        clv_min_touch_qty: 1,
+        clv_max_spread_cents: 10,
     };
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
     let mut daily = fortuna_live::daemon::DailyScheduler::new();
@@ -2893,6 +2915,8 @@ async fn persona_evidence_chain_is_replayable(pool: PgPool) {
     let loop_cfg = LoopConfig {
         tick_interval_ms: 1000,
         halt_poll_ms: 500,
+        clv_min_touch_qty: 1,
+        clv_max_spread_cents: 10,
     };
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
     let mut daily = fortuna_live::daemon::DailyScheduler::new();
@@ -3331,6 +3355,8 @@ async fn discovery_world_forward_persists_watchlist_events_and_beliefs(pool: PgP
     let loop_cfg = LoopConfig {
         tick_interval_ms: 1000,
         halt_poll_ms: 500,
+        clv_min_touch_qty: 1,
+        clv_max_spread_cents: 10,
     };
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
     let mut daily = fortuna_live::daemon::DailyScheduler::new();
@@ -3625,6 +3651,8 @@ async fn discovery_market_back_auto_confirms_and_synthesis_drafts_a_belief(pool:
     let loop_cfg = LoopConfig {
         tick_interval_ms: 1000,
         halt_poll_ms: 500,
+        clv_min_touch_qty: 1,
+        clv_max_spread_cents: 10,
     };
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
     let mut daily = fortuna_live::daemon::DailyScheduler::new();
@@ -4125,6 +4153,8 @@ async fn drive_with_discovery(
     let loop_cfg = LoopConfig {
         tick_interval_ms: 1000,
         halt_poll_ms: 500,
+        clv_min_touch_qty: 1,
+        clv_max_spread_cents: 10,
     };
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
     let mut daily = fortuna_live::daemon::DailyScheduler::new();
@@ -4623,6 +4653,8 @@ async fn drive_one_boundary_with_resolution(
     let loop_cfg = LoopConfig {
         tick_interval_ms: 1000,
         halt_poll_ms: 500,
+        clv_min_touch_qty: 1,
+        clv_max_spread_cents: 10,
     };
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
     let mut daily = fortuna_live::daemon::DailyScheduler::new();
@@ -4906,6 +4938,8 @@ async fn drive_persists_bus_recording_per_segment_incrementally(pool: PgPool) {
     let loop_cfg = LoopConfig {
         tick_interval_ms: 1000,
         halt_poll_ms: 500,
+        clv_min_touch_qty: 1,
+        clv_max_spread_cents: 10,
     };
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
     let mut daily = fortuna_live::daemon::DailyScheduler::new();
@@ -5271,6 +5305,8 @@ async fn price_snapshots_written_after_segment(pool: PgPool) {
     let loop_cfg = LoopConfig {
         tick_interval_ms: 1000,
         halt_poll_ms: 500,
+        clv_min_touch_qty: 1,
+        clv_max_spread_cents: 10,
     };
     let mut scrape = DegradeScrape::new(default_degrade_thresholds());
     let mut daily = fortuna_live::daemon::DailyScheduler::new();

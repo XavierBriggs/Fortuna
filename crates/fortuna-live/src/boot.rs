@@ -269,6 +269,16 @@ pub struct CognitionSection {
     /// dropped); now parsed so a misspelled key is caught, not silently defaulted.
     #[serde(default = "default_triage_model")]
     pub triage_model: String,
+    /// CLV LiquidityPolicy: minimum book-touch quantity to count a snapshot as
+    /// liquid enough to serve as a CLV benchmark. Default: 1 (spec minimum;
+    /// the book-gate touch minimum). Promoted from a hardcoded const (WS1/W6b).
+    #[serde(default = "default_clv_min_touch_qty")]
+    pub clv_min_touch_qty: i64,
+    /// CLV LiquidityPolicy: maximum bid-ask spread in cents for a snapshot to
+    /// serve as a tight CLV benchmark. Default: 10c (keeps the CLV signal tight).
+    /// Promoted from a hardcoded const (WS1/W6b).
+    #[serde(default = "default_clv_max_spread_cents")]
+    pub clv_max_spread_cents: i64,
 }
 
 /// The three cognition tiers (spec 5.9). Each is overridable per `[cognition]`;
@@ -284,6 +294,14 @@ fn default_mid_model() -> String {
 
 fn default_triage_model() -> String {
     "claude-haiku-4-5".to_string()
+}
+
+fn default_clv_min_touch_qty() -> i64 {
+    1
+}
+
+fn default_clv_max_spread_cents() -> i64 {
+    10
 }
 
 impl CognitionSection {

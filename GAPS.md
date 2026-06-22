@@ -98,14 +98,45 @@ thesis payoff, spec/demo §0) accrues ZERO scored persona data today. Unblock = 
 scoring architecture doc: build resolution for persona + synthesis binary beliefs (not just unify
 the two existing forks). This is a hard prerequisite for the demo's head-to-head, scheduled P1.
 
-## WS1 slice 5: LiquidityPolicy constants not in config (2026-06-19)
-`resolve_and_score_weather_beliefs` uses hardcoded `CLV_MIN_TOUCH_QTY = 1` and
-`CLV_MAX_SPREAD_CENTS = 10` to construct the `LiquidityPolicy` for CLV computation.
-These are sensible defaults (1-contract touch minimum; ≤10c spread is tight)
-but should be promoted to operator config (e.g., `[clv]` table in `fortuna.toml`)
-once field data from the live paper soak validates the right thresholds.
-No existing config key covers this; the constants are documented at the site.
-Unblock: add `[clv]` TOML section, update `FortunaConfig`, thread to resolver.
+## WS1 slice 5 / W6b: CLV LiquidityPolicy — PROMOTED TO CONFIG (2026-06-22, RESOLVED)
+`resolve_and_score_weather_beliefs` previously used hardcoded `CLV_MIN_TOUCH_QTY = 1` and
+`CLV_MAX_SPREAD_CENTS = 10`. **RESOLVED at W6b:** both are now config keys under `[cognition]`
+(`clv_min_touch_qty`, `clv_max_spread_cents`) with the original values as serde defaults.
+Values flow from `CognitionSection` → `LoopConfig` → `drive()` →
+`resolve_and_score_weather_beliefs_with_policy`. See `config/fortuna.example.toml` for the
+commented-out keys + their rationale.
+
+## W6b: events table has no ticker column — market_ticker = market_id (2026-06-22)
+`rota.rs:assemble_chain` sets `ChainView.EventRef.market_ticker = market_id` because the
+`events` table has no separate `market_ticker` column. The two are structurally identical
+for Kalshi (the market id IS the ticker in Kalshi's URI scheme), so the current value is
+correct and non-misleading. Future venues where ticker ≠ market_id would need a real
+`market_ticker` column on `events` or a join to venue data. No action required for the
+current single-venue scope; the rota.rs:~2147 comment and this entry are aligned.
+
+## W6b: book_freshness_secs: None deferral in rota.rs (2026-06-22)
+`RotaSafety.book_freshness_secs` (rota.rs:2131) is always `None`: computing it requires
+a `price_snapshots` read at chain-assembly time, and the chain assembler does not yet hold
+a snapshots repo reference. `None` means "freshness not available" (the field is `Option<u64>`);
+the ROTA UI can display it as a dash. Unblock: pass a `SnapshotsRepo` into `assemble_chain`
+and compute the age from `max(at)` where `market_id = …` at chain-assembly time.
+Not blocking for the demo (the ROTA UI treats `None` as "not measured").
+
+## W6b: p_cal always Some — p_cal present ≠ calibrated (2026-06-22, UI honesty note)
+`beliefs.p` is `NOT NULL` (the schema enforces it), so the `clv_bps` and calibration
+fields are always populated (not `None`) from the resolver's perspective. For binary
+beliefs, `p == p_raw` when no post-resolution calibration has been applied (i.e., the raw
+model probability IS the reported belief — true for the current Aeolus + meteorologist
+path). The UI/operator should read `p_cal present` as "a probability was recorded", NOT
+as "a calibration step was applied". A future calibration layer would diverge `p` from
+`p_raw`; until then they are equal and `p_cal` carries the same value as `p_raw`.
+
+## W6b: min_resolved_beliefs_synthesis = 60 config adoption (2026-06-22)
+Spec §11 sets the floor at ≥ 60 resolved beliefs for the synthesis GO gate. The prior
+config shipped 100 (stricter than spec). The example.toml now adopts 60 (the spec
+minimum). The WS4 demo milestone tolerates Insufficient due to thin archive — this is
+honest and the gate refuses a false GO correctly. If the operator wants to start seeing
+GO verdicts sooner in the demo archive, 60 is the justified lower bound.
 
 ## WS4 W5: CLV-for-persona required a market-keyed snapshot read, not just the edge (2026-06-22)
 The W5 brief diagnosed the missing link as "only the `market_event_edge` row" — insert the

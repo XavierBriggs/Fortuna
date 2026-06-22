@@ -542,6 +542,114 @@ impl HistoricalSource for LeakManifestSource {
 }
 
 // ---------------------------------------------------------------------------
+// Test 4 — noise → NoGo (Phase C Minor, W6b #6)
+// ---------------------------------------------------------------------------
+//
+// PRE-REGISTERED FIXTURE — no-skill producer (documented BEFORE running).
+//
+// The producer emits p ≈ 0.5 on every event — identical to the baseline
+// (the de-vigged snapshot-implied probability, also ~0.5). Therefore:
+//
+//   - model_loss   ≈ (0.5 − o)² ≈ 0.25 on every period
+//   - baseline_loss ≈ (0.5 − o)² ≈ 0.25 on every period
+//   - brier_skill  ≈ baseline_loss − model_loss ≈ 0
+//
+// Over 48 periods this yields `brier_edge ≈ 0` (no skill). With no positive
+// edge `decide` returns **NoGo** (the SPA null is not rejected — the model
+// is indistinguishable from the baseline).
+//
+// Why NOT Insufficient: N = 48 ≥ 30 (effective_n clears the threshold), so
+// the sweeper has enough data to reach a verdict; it just finds no skill.
+// Why NOT Go: brier_edge ≤ 0 fails the primary Brier-skill gate.
+//
+// The test runs the SAME `run_sweep(LedgerEdgeProvider)` real-provider path
+// as `validate_yields_honest_verdict` (G-PARITY: the same code either scores
+// skill or doesn't). It closes the loop the demo's central claim rests on:
+// the gate refuses when there's no skill AND passes when there is.
+
+fn noise_fixture() -> MemSource {
+    // No-skill producer: p ≈ 0.5 on every event (same as the book baseline).
+    // The market baseline snapshot is also ~50c, so model ≈ baseline on every
+    // period → Brier-skill ≈ 0 throughout.
+    let base = 1_700_000_000_000_i64;
+    let day = 86_400_000_i64;
+    let mut events = Vec::new();
+    for i in 0..48i64 {
+        let yes = i % 2 == 0;
+        let outcome = if yes { 1.0 } else { 0.0 };
+        // Producer probability ≈ 0.5 on every event (no-skill, matches baseline).
+        let p = 0.5;
+        // Snapshot also ~50c (the book baseline is ~uniform / uninformative).
+        let snapshot_price = 50;
+        let decided = base + i * day;
+        events.push(Ev {
+            linkage: format!("event://noise/station-KNYC/noise-{i}/2026-day"),
+            p,
+            available_ms: decided - day / 2,
+            decided_ms: decided,
+            snapshot_price,
+            snapshot_ms: decided - 1_000,
+            outcome,
+            resolved_ms: decided + day,
+        });
+    }
+    MemSource {
+        events,
+        mark_resolved: true,
+    }
+}
+
+/// No-skill (noise) fixture through the FULL `run_sweep(LedgerEdgeProvider)`
+/// real-provider path must yield `NoGo` — not `Insufficient` (N is sufficient),
+/// not `Go` (brier_edge ≤ 0, no skill). Closes the demo's central claim: the
+/// gate passes on skill AND refuses on noise, both via the same real path.
+#[test]
+fn noise_producer_yields_nogo_not_insufficient() {
+    let source = noise_fixture();
+    let provider = LedgerEdgeProvider::from_source(&source, full_range())
+        .expect("provider builds from the resolved noise samples");
+
+    let space = trial_space();
+    let params = SweepParams::default();
+
+    // Verify the fixture provides enough periods for the N guard.
+    let t = provider.edges(SCOPE, 0).brier_oos.len();
+    assert!(
+        t >= 30,
+        "noise fixture must yield >= 30 periods so the verdict can be NoGo (not Insufficient); got t={t}"
+    );
+
+    let run = run_sweep(&space, &params, provider);
+
+    // The verdict must be NoGo — the gate fires correctly on a no-skill producer.
+    assert_eq!(
+        run.verdict,
+        GoDecision::NoGo,
+        "a no-skill producer (p≈0.5 = baseline) must yield NoGo through the real provider path; \
+         got verdict={:?} brier_edge={:.6} effective_n={:.2} brier_pbo={:.4} brier_spa_p={:.4}",
+        run.verdict,
+        run.brier_edge,
+        run.effective_n,
+        run.brier_pbo,
+        run.brier_spa_p,
+    );
+
+    // Corroborate: the sample was powered (not Insufficient due to thin N).
+    assert!(
+        run.effective_n >= 30.0,
+        "effective_n must clear 30 so NoGo is a powered refusal, not a thin-data deferral; \
+         got effective_n={}",
+        run.effective_n,
+    );
+
+    eprintln!(
+        "[noise_producer_yields_nogo_not_insufficient] DERIVED verdict = {:?} \
+         (brier_edge={:.6}, brier_pbo={:.4}, brier_spa_p={:.4}, effective_n={:.2})",
+        run.verdict, run.brier_edge, run.brier_pbo, run.brier_spa_p, run.effective_n
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 

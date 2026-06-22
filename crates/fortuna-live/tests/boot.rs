@@ -143,13 +143,14 @@ fn review_section_parses_from_the_committed_example_and_is_optional() {
         .expect("committed example with [review] parses")
         .review
         .expect("the example ships a [review] section");
-    assert_eq!(review.min_paper_days_mechanical, 14);
-    assert_eq!(review.min_resolved_beliefs_synthesis, 100);
-    assert_eq!(review.max_fee_pnl_ratio, 0.5);
+    // W6b #3: config tightened to spec §11 values (30 / 0.35 / 60).
+    assert_eq!(review.min_paper_days_mechanical, 30);
+    assert_eq!(review.min_resolved_beliefs_synthesis, 60);
+    assert_eq!(review.max_fee_pnl_ratio, 0.35);
     // to_thresholds maps 1:1 into the cognition layer's GoNoGoThresholds.
     let th = review.to_thresholds();
-    assert_eq!(th.min_paper_days_mechanical, 14);
-    assert_eq!(th.min_resolved_beliefs_synthesis, 100);
+    assert_eq!(th.min_paper_days_mechanical, 30);
+    assert_eq!(th.min_resolved_beliefs_synthesis, 60);
 
     // Opt-in: a config without [review] leaves it None (fail closed). Rename
     // only the section header (not the comment mention) so it parses as an
