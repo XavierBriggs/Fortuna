@@ -23,6 +23,7 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use fortuna_backtest::asof::{asof_join, AsOfDisposition};
+use fortuna_backtest::manifest::{enforce_gdead, ScoredRow};
 use fortuna_backtest::records::BeliefPayload;
 use fortuna_backtest::source::HistoricalSource;
 use fortuna_backtest::sources::aeolus_archive::{AeolusArchiveSource, TimeRange};
@@ -143,11 +144,29 @@ fn aeolus_manifest_includes_voided() {
         "a voided market is NOT resolved (it was cancelled before resolution)"
     );
 
-    // And every engaged market (3) is present, voided included.
+    // And every engaged market (4) is present, voided + pending included.
     assert_eq!(
         manifest.engaged.len(),
-        3,
-        "all three engaged markets (yes, no, void) must appear in the manifest"
+        4,
+        "all four engaged markets (yes, no, void, pending) must appear in the manifest"
+    );
+
+    // The PENDING market (no market_resolutions row) is engaged-but-unresolved:
+    // resolved=false AND voided=false. This is the shape G-DEAD must EXEMPT.
+    let pending: Vec<_> = manifest
+        .engaged
+        .iter()
+        .filter(|m| !m.resolved && !m.voided)
+        .collect();
+    assert_eq!(
+        pending.len(),
+        1,
+        "exactly one pending (resolved=false, voided=false) market expected"
+    );
+    assert!(
+        pending[0].event_linkage.contains("MKT-PENDING"),
+        "the pending market must be identifiable: {}",
+        pending[0].event_linkage
     );
 }
 
@@ -441,4 +460,116 @@ fn aeolus_paging_total_order_no_dupes_no_gaps() {
         "the streamed sequence must follow the TOTAL deterministic order (ascending marker), \
          not the under-determined insertion order — a non-total ORDER BY reds this"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 8. REAL-DATA G-DEAD REGRESSION (the permanent guard for the live-smoke bug):
+//    the FIRMED Aeolus manifest mixes RESOLVED (yes/no), VOIDED, and PENDING
+//    (engaged belief, NO market_resolutions row) markets — exactly the shape
+//    the real archive slice carries (67 pending markets) that false-failed
+//    G-DEAD.  We build the scored set the SAME way the harness does — one
+//    ScoredRow per RESOLVED market (from the outcomes pool) and one per VOIDED
+//    market (from the manifest), and NO row for PENDING markets (they have no
+//    outcome and cannot be scored) — then run the REAL `enforce_gdead` against
+//    the REAL manifest. It MUST succeed: the pending market is exempt while the
+//    resolved + voided markets are covered.
+//
+//    Then we prove the guard STILL BITES: drop the resolved YES market from the
+//    scored set → `enforce_gdead` must report a violation naming it (a resolved
+//    market dropped is survivorship, never exempted by the pending rule).
+//
+//    This test reds if the pending exemption is removed (the pending market
+//    would be required and absent → false violation) OR if the exemption is
+//    widened to resolved markets (the dropped-resolved sub-case would stop
+//    biting). It is the load-bearing regression so the fixture can never again
+//    hide the pending case.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn aeolus_gdead_exempts_pending_but_requires_resolved() {
+    let src = fixture_source();
+
+    let manifest = src.universe_manifest().expect("manifest must build");
+    let outcomes: Vec<_> = src
+        .outcomes()
+        .map(|r| r.expect("outcome row must map"))
+        .collect();
+
+    // Sanity on the real shape: yes/no resolved + one voided + one pending.
+    let resolved_n = manifest.engaged.iter().filter(|m| m.resolved).count();
+    let voided_n = manifest.engaged.iter().filter(|m| m.voided).count();
+    let pending_n = manifest
+        .engaged
+        .iter()
+        .filter(|m| !m.resolved && !m.voided)
+        .count();
+    assert_eq!(resolved_n, 2, "MKT-YES + MKT-NO are the resolved markets");
+    assert_eq!(voided_n, 1, "MKT-VOID is the one voided market");
+    assert_eq!(pending_n, 1, "MKT-PENDING is the one pending market");
+
+    // Build the scored set the SAME way the harness does:
+    //   - resolved markets: one ScoredRow each, from the outcomes pool;
+    //   - voided markets: one ScoredRow each, from the manifest (voided=true);
+    //   - PENDING markets: NO ScoredRow (no outcome → cannot be scored).
+    let mut scored: Vec<ScoredRow> = outcomes
+        .iter()
+        .map(|o| ScoredRow {
+            event_linkage: o.event_linkage.clone(),
+            outcome: o.outcome,
+            voided: false,
+        })
+        .collect();
+    for m in manifest.engaged.iter().filter(|m| m.voided) {
+        scored.push(ScoredRow {
+            event_linkage: m.event_linkage.clone(),
+            outcome: 0.0,
+            voided: true,
+        });
+    }
+
+    // With the pending market deliberately ABSENT from scored, G-DEAD must
+    // SUCCEED — the pending market is exempt, the terminal markets are covered.
+    assert!(
+        enforce_gdead(&scored, &manifest).is_ok(),
+        "a manifest with a pending (unresolved) engaged market must pass G-DEAD \
+         when every RESOLVED/VOIDED market is scored — the pending market is exempt"
+    );
+
+    // THE GUARD STILL BITES: drop the resolved YES market from the scored set.
+    // A resolved market dropped is survivorship and must STILL be a violation.
+    let yes_linkage = outcomes
+        .iter()
+        .find(|o| o.outcome == 1.0)
+        .map(|o| o.event_linkage.clone())
+        .expect("the YES-resolved market must be in outcomes");
+    let scored_minus_yes: Vec<ScoredRow> = scored
+        .iter()
+        .filter(|r| r.event_linkage != yes_linkage)
+        .cloned()
+        .collect();
+    let result = enforce_gdead(&scored_minus_yes, &manifest);
+    assert!(
+        result.is_err(),
+        "dropping a RESOLVED market must STILL fail G-DEAD (survivorship), even \
+         though a pending market is present in the same manifest"
+    );
+    match result.unwrap_err() {
+        fortuna_backtest::manifest::GDeadViolation::DroppedMarkets(linkages) => {
+            assert!(
+                linkages.contains(&yes_linkage),
+                "the dropped RESOLVED market must be named in the violation"
+            );
+            // The pending market must NOT be reported — it is exempt.
+            let pending_linkage = manifest
+                .engaged
+                .iter()
+                .find(|m| !m.resolved && !m.voided)
+                .map(|m| m.event_linkage.clone())
+                .expect("the pending market must be in the manifest");
+            assert!(
+                !linkages.contains(&pending_linkage),
+                "the exempt PENDING market must NOT appear in the violation"
+            );
+        }
+    }
 }

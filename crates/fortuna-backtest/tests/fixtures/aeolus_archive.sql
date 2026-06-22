@@ -11,11 +11,18 @@
 -- never settled_at.
 --
 -- Markets in the fixture:
---   MKT-YES   : YES-resolved   (result='yes', outcome 1.0)
---   MKT-NO    : NO-resolved    (result='no',  outcome 0.0)
---   MKT-VOID  : VOIDED         (result='void' — NOT IN ('yes','no'))
--- All three are engaged (a belief was logged), so all three appear in the
--- universe manifest; MKT-VOID carries voided=true.
+--   MKT-YES     : YES-resolved   (result='yes', outcome 1.0)
+--   MKT-NO      : NO-resolved    (result='no',  outcome 0.0)
+--   MKT-VOID    : VOIDED         (result='void' — NOT IN ('yes','no'))
+--   MKT-PENDING : PENDING        (engaged belief, NO market_resolutions row)
+-- All four are engaged (a belief was logged), so all four appear in the
+-- universe manifest. MKT-VOID carries voided=true; MKT-PENDING carries
+-- resolved=false AND voided=false (it has no recorded resolution). The pending
+-- market mirrors the REAL Aeolus shape that broke the live smoke: 67 engaged
+-- markets with no resolution row. It must be EXEMPT from G-DEAD (it cannot be
+-- scored — there is no outcome), while MKT-YES/MKT-NO/MKT-VOID must still be
+-- covered. MKT-PENDING's forecast_init_time is BEFORE its target_date (a
+-- forecast issued ahead of the event day, the same as production).
 
 -- THE BELIEF SOURCE. Carries NO crps/pit/score columns -> clean by construction.
 CREATE TABLE bracket_probability_log (
@@ -41,7 +48,13 @@ VALUES
     ('KNYC', '2026-07-04', '2026-07-01T00:00:00Z', 'MKT-NO',   'yes',
      45, 49, 0.31, 'emos-v3', '2026-07-01T00:05:00Z'),
     ('KDFW', '2026-07-04', '2026-07-01T00:00:00Z', 'MKT-VOID', 'yes',
-     50, 54, 0.12, 'emos-v3', '2026-07-01T00:05:00Z');
+     50, 54, 0.12, 'emos-v3', '2026-07-01T00:05:00Z'),
+    -- PENDING market: a bare YYYY-MM-DD target_date (2026-07-04), with the
+    -- forecast issued BEFORE the event day (the same 2026-07-01 issuance as the
+    -- other beliefs, so available_at < decided_at holds). It has NO
+    -- market_resolutions row → resolved=false, voided=false → EXEMPT from G-DEAD.
+    ('KNYC', '2026-07-04', '2026-07-01T00:00:00Z', 'MKT-PENDING', 'yes',
+     55, 59, 0.42, 'emos-v3', '2026-07-01T00:05:00Z');
 
 -- OUTCOME. Voided = result NOT IN ('yes','no'). YES->1.0, NO->0.0.
 CREATE TABLE market_resolutions (

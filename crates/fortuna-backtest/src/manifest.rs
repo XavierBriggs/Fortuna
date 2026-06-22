@@ -12,11 +12,13 @@
 //!
 //! ## G-DEAD algorithm
 //!
-//! [`enforce_gdead`] performs a pure set-difference check:
+//! [`enforce_gdead`] performs a pure set-difference check over the markets that
+//! have reached a TERMINAL state:
 //!
 //! 1. **Coverage:** build a `HashSet` of `event_linkage` strings from
-//!    `scored`. Every `manifest.engaged` market whose linkage is ABSENT from
-//!    that set is a dropped engagement → violation.
+//!    `scored`. Every TERMINAL `manifest.engaged` market (`resolved == true`
+//!    OR `voided == true`) whose linkage is ABSENT from that set is a dropped
+//!    engagement → violation.
 //!
 //! 2. The voided/NO-resolved sub-check is subsumed by the coverage check: any
 //!    such market absent from the scored set is reported in the same
@@ -26,6 +28,24 @@
 //! A market NOT in the manifest (legitimately un-forecast) does **not** trigger
 //! a violation — the check is one-directional (manifest ⊆ scored, not equality
 //! of sets).
+//!
+//! ## Pending markets are EXEMPT (not survivorship)
+//!
+//! An engaged market that is **pending** — `resolved == false && voided ==
+//! false` — has NO outcome and therefore CANNOT be scored. Such a market exists
+//! when the producer logged a belief on a bracket that never got a recorded
+//! resolution (or whose resolution falls outside the replay window). It is
+//! EXEMPT from the coverage requirement: absent-from-scored is not survivorship
+//! for a market that was never resolvable.
+//!
+//! This is load-bearing: the real Aeolus archive carries 67 such pending
+//! markets, and requiring them in `scored` (which is impossible — there is no
+//! outcome to score) is a false G-DEAD failure.
+//!
+//! The exemption is narrow by construction: it applies ONLY to pending markets.
+//! Every TERMINAL market (resolved YES/NO, or voided) MUST still appear in
+//! `scored` — dropping a resolved loser or a voided contract is exactly the
+//! survivorship the gate exists to catch, and it still bites.
 
 use std::collections::HashSet;
 
@@ -101,6 +121,15 @@ pub enum GDeadViolation {
 /// trigger a violation. The check is `manifest ⊆ scored`, never
 /// `scored ⊆ manifest`. Legitimate non-forecasts are not survivorship.
 ///
+/// ## Pending exemption
+///
+/// A **pending** engaged market (`resolved == false && voided == false`) is
+/// EXEMPT: it has no outcome and cannot be scored, so its absence from `scored`
+/// is not survivorship. Only TERMINAL markets (`resolved == true` OR
+/// `voided == true`) are subject to the coverage requirement. See the
+/// module-level doc for why this is correct and why it does NOT weaken the
+/// anti-survivorship guard.
+///
 /// ## No `panic!` / `unwrap` / `expect`
 ///
 /// This function is on the critical integrity path. All error conditions are
@@ -112,10 +141,16 @@ pub fn enforce_gdead(
     // Build a fast lookup set from the scored linkages.
     let scored_set: HashSet<&str> = scored.iter().map(|r| r.event_linkage.as_str()).collect();
 
-    // Set-difference: manifest engaged \ scored_set.
+    // Set-difference over TERMINAL markets only: an engaged market is subject to
+    // the coverage requirement iff it has reached a terminal state
+    // (`resolved` OR `voided`). A pending market (`!resolved && !voided`) has no
+    // outcome and cannot be scored, so it is EXEMPT — its absence from `scored`
+    // is not survivorship. The guard stays one-directional (manifest-terminal ⊆
+    // scored): dropping any resolved or voided market is still a violation.
     let mut dropped: Vec<String> = manifest
         .engaged
         .iter()
+        .filter(|m| m.resolved || m.voided)
         .filter(|m| !scored_set.contains(m.event_linkage.as_str()))
         .map(|m| m.event_linkage.clone())
         .collect();

@@ -229,3 +229,118 @@ fn gdead_multiple_drops_all_reported() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// gdead_pending_unresolved_market_exempt (LOAD-BEARING — the real-Aeolus bug)
+//
+// An engaged market that is PENDING — `resolved == false && voided == false`
+// (no `market_resolutions` row, or the resolution falls outside the replay
+// window) — has NO outcome and therefore CANNOT be scored. It must be EXEMPT
+// from the G-DEAD coverage requirement: absent-from-scored is NOT survivorship
+// for a market that was never resolvable in the first place.
+//
+// The real Aeolus archive slice carries 67 such pending markets (beliefs logged
+// for brackets that never got a recorded resolution). Before this fix, G-DEAD
+// false-failed on all 67. This is the regression guard for that defect.
+//
+// Pending ≠ survivorship. The anti-survivorship guard (the other tests) still
+// requires every RESOLVED or VOIDED engaged market to be present in `scored`.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn gdead_pending_unresolved_market_exempt() {
+    // A single engaged market that is pending: resolved=false, voided=false.
+    let m = manifest(&[("event://forecast/PENDING/2026-06-10", false, false)]);
+    // It is ABSENT from the scored set — it has no outcome, so it cannot be
+    // scored. This must be Ok (exempt), NOT a violation.
+    let s = scored(&[]);
+    assert!(
+        enforce_gdead(&s, &m).is_ok(),
+        "a pending (resolved=false, voided=false) engaged market absent from \
+         scored must be EXEMPT from G-DEAD (it cannot be scored — not survivorship)"
+    );
+}
+
+#[test]
+fn gdead_pending_mixed_with_resolved_only_resolved_required() {
+    // Realistic mixed manifest: one resolved, one voided, two pending.
+    let m = manifest(&[
+        ("event://forecast/RES/2026-06-09", true, false), // resolved → MUST be covered
+        ("event://forecast/VOID/2026-06-09", false, true), // voided → MUST be covered
+        ("event://forecast/PEND1/2026-06-10", false, false), // pending → exempt
+        ("event://forecast/PEND2/2026-06-10", false, false), // pending → exempt
+    ]);
+    // Scored covers the resolved + voided markets; both pending are absent.
+    let s = scored(&[
+        ("event://forecast/RES/2026-06-09", 1.0, false),
+        ("event://forecast/VOID/2026-06-09", 0.0, true),
+    ]);
+    assert!(
+        enforce_gdead(&s, &m).is_ok(),
+        "with both terminal (resolved/voided) markets covered, the absent pending \
+         markets must NOT trigger a violation"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// gdead_resolved_market_still_bites_despite_pending (MUTATION-PROOF)
+//
+// The exemption must apply ONLY to pending markets. A RESOLVED market dropped
+// from `scored` is STILL a violation — even when pending markets are present in
+// the same manifest. If the exemption is broadened to also cover resolved
+// markets (the mutation), this test reds.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn gdead_resolved_market_still_bites_despite_pending() {
+    let m = manifest(&[
+        ("event://forecast/RESOLVED/2026-06-09", true, false), // resolved, DROPPED
+        ("event://forecast/PENDING/2026-06-10", false, false), // pending, exempt
+    ]);
+    // The pending market is absent (fine), but so is the RESOLVED market — that
+    // is the survivorship the gate must still catch.
+    let s = scored(&[]);
+    let result = enforce_gdead(&s, &m);
+    assert!(
+        result.is_err(),
+        "dropping a RESOLVED market must STILL be a violation even when a pending \
+         market is present — the pending exemption must NOT widen to resolved markets"
+    );
+    match result.unwrap_err() {
+        GDeadViolation::DroppedMarkets(linkages) => {
+            assert!(
+                linkages.contains(&"event://forecast/RESOLVED/2026-06-09".to_string()),
+                "the dropped RESOLVED market must be named in the violation"
+            );
+            assert!(
+                !linkages.contains(&"event://forecast/PENDING/2026-06-10".to_string()),
+                "the exempt PENDING market must NOT appear in the violation"
+            );
+        }
+    }
+}
+
+#[test]
+fn gdead_voided_still_bites_despite_pending() {
+    // A VOIDED market is terminal and must be covered; a PENDING market is
+    // exempt. Dropping the voided market is still a violation.
+    let m = manifest(&[
+        ("event://forecast/VOIDED/2026-06-09", false, true), // voided, DROPPED
+        ("event://forecast/PENDING/2026-06-10", false, false), // pending, exempt
+    ]);
+    let s = scored(&[]);
+    let result = enforce_gdead(&s, &m);
+    assert!(
+        result.is_err(),
+        "dropping a VOIDED market must STILL be a violation even alongside a pending market"
+    );
+    match result.unwrap_err() {
+        GDeadViolation::DroppedMarkets(linkages) => {
+            assert_eq!(
+                linkages,
+                vec!["event://forecast/VOIDED/2026-06-09".to_string()],
+                "only the voided market is the violation; the pending market is exempt"
+            );
+        }
+    }
+}

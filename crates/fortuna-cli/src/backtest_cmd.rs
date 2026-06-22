@@ -94,10 +94,22 @@ pub async fn run_backtest<C: Clock>(
         other => bail!("unknown source {other:?}; supported: aeolus-archive"),
     }
 
-    let archive_range = ArchiveTimeRange {
-        from: args.from,
-        to: args.to,
-    };
+    // The user's `--from`/`--to` are EVENT-DAY (`decided_at`) bounds — they
+    // select WHICH events to backtest, not which knowledge-time records to load.
+    // The semantic window is therefore the HARNESS range over `decided_at`; the
+    // ARCHIVE range is a load filter over each record's own knowledge-time clock
+    // (issuance for beliefs, RESOLUTION for outcomes, capture for snapshots).
+    //
+    // Those clocks differ: a belief for event-day D is issued BEFORE D and its
+    // outcome resolves AFTER D (often days later). Clipping the archive's
+    // outcome/snapshot/issuance clocks by the event-day `--from`/`--to` would
+    // silently drop the very supporting records an in-window decision needs —
+    // e.g. an event resolved the day after `--to` would lose its outcome and
+    // its (resolved) market would then look dropped to G-DEAD. So the archive
+    // range stays UNBOUNDED; the harness `decided_at` window is the single
+    // source of truth for what is replayed, and G-PIT (`available_at <
+    // decided_at`, enforced in the as-of join) is independent of either range.
+    let archive_range = ArchiveTimeRange::unbounded();
 
     let source = if let Some(fixture) = &args.sql_fixture_path {
         AeolusArchiveSource::from_sql_fixture(fixture, archive_range)
@@ -117,7 +129,15 @@ pub async fn run_backtest<C: Clock>(
     };
 
     let harness_range = match (args.from, args.to) {
-        (Some(from), Some(to)) => HarnessTimeRange { from, to },
+        // `--to <D>` is INCLUSIVE of the whole of date D. A bare `YYYY-MM-DD`
+        // (and a midnight timestamp) parses to the START of D, so we snap the
+        // upper bound to the END of D's calendar day. Without this the
+        // half-open boundary excludes events whose `decided_at` is any instant
+        // after midnight of D (and, for daily-bucket data, all of date D).
+        (Some(from), Some(to)) => HarnessTimeRange {
+            from,
+            to: end_of_day_inclusive(to).context("computing inclusive --to end-of-day")?,
+        },
         _ => {
             // Unbounded: epoch 0 to 9999-12-31 (~max representable year).
             // i64::MAX / 2 ms overflows the chrono range; use a safe sentinel
@@ -137,6 +157,31 @@ pub async fn run_backtest<C: Clock>(
         .await
         .context("replay harness")?;
     Ok(report)
+}
+
+/// Snap a `--to` timestamp to the **end** of its UTC calendar day, so the
+/// replay window `[from, to]` is INCLUSIVE of the whole of date D.
+///
+/// A bare `YYYY-MM-DD` (and a midnight timestamp) parses to the START of the
+/// day; without this snap the inclusive `<=` boundary would still admit only
+/// the single midnight instant, dropping every later instant of date D (and, on
+/// daily-bucket `decided_at` data, sometimes excluding day D's events entirely).
+///
+/// UTC calendar days are exactly `86_400_000` ms wide and aligned to the epoch
+/// (epoch 0 is a midnight), so the start-of-day is a floor to that grid and the
+/// end-of-day is `start + 86_400_000 - 1`. Pure epoch arithmetic — no wall
+/// clock, no calendar library dependency (CLAUDE.md: time only via values, never
+/// `SystemTime::now()`).
+fn end_of_day_inclusive(to: UtcTimestamp) -> Result<UtcTimestamp> {
+    const DAY_MS: i64 = 86_400_000;
+    let ms = to.epoch_millis();
+    // Floor to the start of the UTC day (handles negative epochs correctly via
+    // rem_euclid so pre-1970 instants still floor toward the earlier midnight).
+    let start_of_day = ms - ms.rem_euclid(DAY_MS);
+    let end_of_day = start_of_day
+        .checked_add(DAY_MS - 1)
+        .context("end-of-day timestamp overflow")?;
+    UtcTimestamp::from_epoch_millis(end_of_day).context("end-of-day timestamp out of range")
 }
 
 // ---------------------------------------------------------------------------
@@ -266,4 +311,58 @@ fn format_go_surface(run: &ValidationRun) -> String {
         verdict = verdict_str,
         computed_at = run.computed_at,
     )
+}
+
+// ---------------------------------------------------------------------------
+// Tests — the `--to` inclusivity boundary at the CLI parse layer.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    /// A bare `--to <D>` (parsed to midnight of D) snaps to the END of date D,
+    /// so the inclusive replay window covers the WHOLE of date D — the fix for
+    /// the half-open boundary that dropped date-D events from the live smoke.
+    #[test]
+    fn end_of_day_snaps_bare_date_to_last_instant_of_day() {
+        // `fortuna backtest --to 2026-06-10` parses to midnight via
+        // `parse_iso8601_or_date`.
+        let to = UtcTimestamp::parse_iso8601_or_date("2026-06-10").unwrap();
+        let eod = end_of_day_inclusive(to).unwrap();
+        assert_eq!(
+            eod.to_iso8601(),
+            "2026-06-10T23:59:59.999Z",
+            "a bare --to date must become the last representable ms of that UTC day"
+        );
+        // The snapped bound is STRICTLY after the parsed midnight (the half-open
+        // boundary the fix closes): events later in date D are now included.
+        assert!(eod > to, "end-of-day must be after the parsed midnight");
+    }
+
+    /// A `--to` mid-day timestamp still snaps to the end of its calendar day —
+    /// the window is date-granular and inclusive of the whole of date D.
+    #[test]
+    fn end_of_day_snaps_midday_timestamp_to_end_of_same_day() {
+        let to = UtcTimestamp::parse_iso8601("2026-06-10T15:30:00.000Z").unwrap();
+        let eod = end_of_day_inclusive(to).unwrap();
+        assert_eq!(eod.to_iso8601(), "2026-06-10T23:59:59.999Z");
+    }
+
+    /// Already at the last ms of the day → idempotent (still that instant).
+    #[test]
+    fn end_of_day_is_idempotent_at_last_ms() {
+        let to = UtcTimestamp::parse_iso8601("2026-06-10T23:59:59.999Z").unwrap();
+        let eod = end_of_day_inclusive(to).unwrap();
+        assert_eq!(eod.to_iso8601(), "2026-06-10T23:59:59.999Z");
+    }
+
+    /// The epoch midnight (a negative-free boundary) snaps within the same day.
+    #[test]
+    fn end_of_day_epoch_zero_day() {
+        let to = UtcTimestamp::from_epoch_millis(0).unwrap(); // 1970-01-01T00:00:00Z
+        let eod = end_of_day_inclusive(to).unwrap();
+        assert_eq!(eod.to_iso8601(), "1970-01-01T23:59:59.999Z");
+    }
 }
