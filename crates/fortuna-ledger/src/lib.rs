@@ -33,13 +33,14 @@ pub use repos::{
     halt_scope_string, parse_halt_scope, BeliefPanelRow, BeliefRow, BeliefScoreRow,
     BeliefScoresRepo, BeliefsRepo, CalibrationParamsRepo, CalibrationParamsRow,
     CalibrationScopeRow, DiscrepanciesRepo, DomainAnalysesRepo, DomainAnalysisRow, EdgeRow,
-    EdgesRepo, EventRow, EventSourceEvidenceInput, EventSourceEvidenceRepo, EventsRepo,
-    FillAggregate, FillsRepo, FirstFillRow, ForwardResolvedBeliefRow, FundingRatesHistoricalRepo,
-    HaltsRepo, JournalRepo, JournalRow, LessonRow, LessonsRepo, OpenWeatherBelief, PersonaRow,
-    PersonasRepo, RecentSignalRow, RecordingsRepo, ReservationsRepo, ResolvedPersonaStats,
-    ResolvedStat, ScalarBeliefRow, ScalarBeliefsRepo, ScorecardsRepo, SettlementEntryRow,
-    SettlementsRepo, SignalsRepo, SnapshotRow, SnapshotsRepo, SourceRegistryRepo,
-    SourceRegistryRow, TradabilityRepo, TradabilityRow, TradeScoresRepo, ValidationRunsRepo,
+    EdgesRepo, EventBelief, EventRow, EventSourceEvidenceInput, EventSourceEvidenceRepo,
+    EventsRepo, FillAggregate, FillsRepo, FirstFillRow, ForwardResolvedBeliefRow,
+    FundingRatesHistoricalRepo, GateDecisionRow, HaltsRepo, JournalRepo, JournalRow, LessonRow,
+    LessonsRepo, OpenWeatherBelief, PersonaRow, PersonasRepo, ProposalRow, ProposalsRepo,
+    RecentSignalRow, RecordingsRepo, ReservationsRepo, ResolvedPersonaStats, ResolvedStat,
+    ScalarBeliefRow, ScalarBeliefsRepo, ScorecardsRepo, SettlementEntryRow, SettlementsRepo,
+    SignalsRepo, SnapshotRow, SnapshotsRepo, SourceRegistryRepo, SourceRegistryRow,
+    TradabilityRepo, TradabilityRow, TradeScoresRepo, ValidationRunsRepo,
 };
 
 pub use sqlx::PgPool;

@@ -579,6 +579,56 @@ impl EventsRepo {
         })
     }
 
+    /// Resolve an `event_linkage` string to the matching event row.
+    ///
+    /// The harness stores `event_linkage` in the `statement` column (see
+    /// `fortuna-backtest/src/harness.rs::write_belief`), so this is a
+    /// `WHERE statement = $1` lookup. Returns `None` when no row exists for
+    /// the linkage.
+    pub async fn by_linkage(&self, event_linkage: &str) -> Result<Option<EventRow>, LedgerError> {
+        let r = sqlx::query!(
+            r#"SELECT event_id, statement, resolution_source, benchmark_at,
+                      category, status, dead_reason, unscoreable
+               FROM events WHERE statement = $1 LIMIT 1"#,
+            event_linkage
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(r.map(|r| EventRow {
+            event_id: r.event_id,
+            statement: r.statement,
+            resolution_source: r.resolution_source,
+            benchmark_at: r.benchmark_at,
+            category: r.category,
+            status: r.status,
+            dead_reason: r.dead_reason,
+            unscoreable: r.unscoreable,
+        }))
+    }
+
+    /// Resolve `event_id` → the market_id of its first direct `market_event_edge`
+    /// (the active, non-superseded edge). Returns `None` when no edge exists.
+    /// Used by the chain-view endpoint to bridge from event to fills/settlements
+    /// (those tables are market-keyed; fills/settlements have no event_id column).
+    pub async fn market_id_for_event(&self, event_id: &str) -> Result<Option<String>, LedgerError> {
+        // The "current" edge is the one NOT superseded by any other edge for the
+        // same event. This matches the EdgesRepo::current_edges_for_event pattern.
+        let r = sqlx::query!(
+            r#"SELECT market_id FROM market_event_edges
+               WHERE event_id = $1
+                 AND edge_id NOT IN (
+                     SELECT supersedes FROM market_event_edges
+                     WHERE supersedes IS NOT NULL AND event_id = $1
+                 )
+               ORDER BY created_at ASC
+               LIMIT 1"#,
+            event_id
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(r.map(|r| r.market_id))
+    }
+
     pub async fn set_status(&self, event_id: &str, status: &str) -> Result<(), LedgerError> {
         sqlx::query!(
             r#"UPDATE events SET status = $2 WHERE event_id = $1"#,
@@ -1067,6 +1117,42 @@ impl SignalsRepo {
             })
             .collect())
     }
+
+    /// All signals linked to an event via `event_source_evidence`, ordered by
+    /// `received_at ASC`. Used by the WS4 chain-view endpoint (W2.1).
+    ///
+    /// The join is: `event_source_evidence.event_id = $1` →
+    /// `signals.(signal_id, received_at)`. Returns `RecentSignalRow` (the
+    /// existing read shape) so the endpoint can reuse the same DTO.
+    pub async fn signals_for_event(
+        &self,
+        event_id: &str,
+    ) -> Result<Vec<RecentSignalRow>, LedgerError> {
+        let rows = sqlx::query!(
+            r#"SELECT s.signal_id, s.source, s.type AS "kind!", s.received_at,
+                      s.content_hash, s.payload
+               FROM signals s
+               JOIN event_source_evidence ese
+                 ON ese.signal_id = s.signal_id
+                AND ese.signal_received_at = s.received_at
+               WHERE ese.event_id = $1
+               ORDER BY s.received_at ASC, s.signal_id ASC"#,
+            event_id
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| RecentSignalRow {
+                signal_id: r.signal_id,
+                source: r.source,
+                kind: r.kind,
+                received_at: r.received_at,
+                content_hash: r.content_hash,
+                payload: r.payload,
+            })
+            .collect())
+    }
 }
 
 /// One source_registry row (the funnel's allowlist).
@@ -1227,6 +1313,41 @@ pub struct OpenWeatherBelief {
     /// `None` only for pre-normalisation rows that predate the producer field;
     /// all beliefs written since Slice 1 carry it.
     pub producer: Option<String>,
+}
+
+/// One belief row for the WS4 chain-view endpoint, with producer attribution
+/// extracted from the `provenance` JSONB. Returned by
+/// `BeliefsRepo::beliefs_for_event`. All fields from the spec brief.
+#[derive(Debug, Clone)]
+pub struct EventBelief {
+    pub belief_id: String,
+    /// `provenance->>'producer'`; `None` only for pre-normalisation rows.
+    pub producer_id: Option<String>,
+    /// `provenance->>'producer_type'`; e.g. `"model"` or `"human"`.
+    pub producer_type: Option<String>,
+    /// `provenance->>'mind_id'`; `None` for human producers.
+    pub mind_id: Option<String>,
+    /// `provenance->>'mind_version'` parsed as i64; `None` for human producers.
+    pub mind_version: Option<i64>,
+    /// The raw emitted probability (`p_raw` column).
+    pub p_raw: f64,
+    /// The post-calibration probability (`p` column). Named `p_cal` to match
+    /// the chain-view contract's terminology (the `p` column IS the calibrated
+    /// value; `p_raw` is what the model/human originally emitted).
+    pub p_cal: f64,
+    /// Free-text rationale from `provenance->>'rationale'`; `None` when absent.
+    pub rationale: Option<String>,
+    /// ISO8601 belief creation timestamp (`created_at` column).
+    pub belief_at: String,
+    /// Lifecycle status: `'open'`, `'resolved'`, `'superseded'`, `'abandoned'`.
+    pub status: String,
+    /// `0` (NO) or `1` (YES); `None` pre-resolution.
+    pub outcome: Option<i32>,
+    /// Brier score; `None` pre-resolution.
+    pub brier: Option<f64>,
+    /// Closing-line value in basis-points; `None` pre-resolution or when no
+    /// liquid snapshot existed at the benchmark window.
+    pub clv_bps: Option<f64>,
 }
 
 /// Belief ledger ops (spec 5.5): rows are immutable (DB content guard);
@@ -1431,6 +1552,60 @@ impl BeliefsRepo {
         .execute(&self.pool)
         .await?;
         Ok(res.rows_affected())
+    }
+
+    /// All beliefs for one event, newest-first, each with producer attribution
+    /// extracted from `provenance` JSONB. Used by the WS4 chain-view endpoint
+    /// to build the head-to-head producer comparison (W2.1 spec brief).
+    ///
+    /// Returns ALL lifecycle statuses (open, resolved, superseded, abandoned)
+    /// so the UI can display the full chain — the presentation layer filters.
+    pub async fn beliefs_for_event(&self, event_id: &str) -> Result<Vec<EventBelief>, LedgerError> {
+        // `mind_version` is stored as a string in provenance JSONB; parse to i64.
+        let rows = sqlx::query!(
+            r#"SELECT belief_id,
+                      p_raw,
+                      p,
+                      provenance->>'producer'      AS producer_id,
+                      provenance->>'producer_type' AS producer_type,
+                      provenance->>'mind_id'       AS mind_id,
+                      provenance->>'mind_version'  AS mind_version_text,
+                      provenance->>'rationale'     AS rationale,
+                      created_at                   AS belief_at,
+                      status,
+                      outcome,
+                      brier,
+                      clv_bps
+               FROM beliefs
+               WHERE event_id = $1
+               ORDER BY created_at DESC, belief_id DESC"#,
+            event_id
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|r| {
+                let mind_version = r
+                    .mind_version_text
+                    .as_deref()
+                    .and_then(|s| s.parse::<i64>().ok());
+                Ok(EventBelief {
+                    belief_id: r.belief_id,
+                    producer_id: r.producer_id,
+                    producer_type: r.producer_type,
+                    mind_id: r.mind_id,
+                    mind_version,
+                    p_raw: r.p_raw,
+                    p_cal: r.p,
+                    rationale: r.rationale,
+                    belief_at: r.belief_at,
+                    status: r.status,
+                    outcome: r.outcome,
+                    brier: r.brier,
+                    clv_bps: r.clv_bps,
+                })
+            })
+            .collect()
     }
 
     /// Calibration inputs: (p, outcome) for RESOLVED beliefs in a
@@ -3159,5 +3334,146 @@ impl ValidationRunsRepo {
         .fetch_optional(&self.pool)
         .await?;
         Ok(row.map(|r| r.payload))
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// W2.1: ProposalsRepo — render-only reads for the chain-view endpoint
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// One proposal (intent) row read from `intent_events`, shaped for the
+/// chain-view render. The full payload JSONB is preserved so the endpoint
+/// can surface `market`, `side`, `max_price_cents`, `size`, `thesis`,
+/// `belief_ref`, and `urgency` without this repo knowing the intent schema.
+///
+/// RENDER-ONLY: this repo never creates, amends, or cancels an intent. It
+/// only reads the persisted journal for display purposes (I1 / I6).
+#[derive(Debug, Clone)]
+pub struct ProposalRow {
+    /// The intent id (the unique key for the intent journal).
+    pub intent_id: String,
+    /// The market the intent targets (extracted from the first `intent_events`
+    /// row's payload `market` field for easy filtering; also in `payload`).
+    pub market_id: String,
+    /// The full intent-event payload JSONB, verbatim (endpoint renders it).
+    pub payload: serde_json::Value,
+}
+
+/// One gate-decision audit row read back for the chain-view render.
+/// RENDER-ONLY — the gate pipeline is never invoked (I1).
+#[derive(Debug, Clone)]
+pub struct GateDecisionRow {
+    pub audit_id: String,
+    pub at: String,
+    /// The intent the gate ran on (`ref_id` in the audit table).
+    pub intent_id: Option<String>,
+    /// Verbatim audit payload (`check`, `verdict`, `reason`, …).
+    pub payload: serde_json::Value,
+}
+
+/// Render-only reads for the WS4 chain-view endpoint (W2.1).
+///
+/// Bridges from an `event_id` to the intent / gate-decision trail:
+/// - `for_event`: finds the intent that was proposed for this event's market
+///   (via `market_event_edges → intent_events.payload->>'market'`).
+/// - `gate_decision_for_event`: finds the first gate-decision audit row
+///   for the same intent.
+///
+/// RENDER-ONLY — this struct exposes zero write methods (I1 / I6).
+pub struct ProposalsRepo {
+    pool: PgPool,
+}
+
+impl ProposalsRepo {
+    pub fn new(pool: PgPool) -> ProposalsRepo {
+        ProposalsRepo { pool }
+    }
+
+    /// Find the proposal (intent) for an event: resolves `event_id` →
+    /// `market_id` (via `market_event_edges`) → the first `intent_events` row
+    /// whose payload `market` field matches that market.
+    ///
+    /// Returns `None` when no edge or no matching intent exists.
+    /// Returns the OLDEST intent for the market (the initial proposal, not a
+    /// follow-on size-up — `ORDER BY seq ASC LIMIT 1`).
+    pub async fn for_event(&self, event_id: &str) -> Result<Option<ProposalRow>, LedgerError> {
+        // Resolve event_id → market_id (the current, non-superseded edge).
+        // Then find the oldest intent_events row for that market via the
+        // JSONB payload field `market`.
+        //
+        // Using a subquery avoids two round-trips. Both tables are append-only
+        // so no locking concern.
+        //
+        // NOTE: sqlx compile-time checking does NOT support subqueries that
+        // return different types in some contexts; use `query_as` with
+        // explicit tuple mapping (the `audit_tail_page` precedent).
+        let row = sqlx::query_as::<_, (String, String, serde_json::Value)>(
+            "SELECT ie.intent_id, \
+                    ie.event->>'market' AS market_id, \
+                    ie.event \
+             FROM intent_events ie \
+             WHERE ie.event->>'market' IN ( \
+                 SELECT market_id FROM market_event_edges \
+                 WHERE event_id = $1 \
+                   AND edge_id NOT IN ( \
+                       SELECT supersedes FROM market_event_edges \
+                       WHERE supersedes IS NOT NULL AND event_id = $1 \
+                   ) \
+             ) \
+             ORDER BY ie.seq ASC LIMIT 1",
+        )
+        .bind(event_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|(intent_id, market_id, payload)| ProposalRow {
+            intent_id,
+            market_id,
+            payload,
+        }))
+    }
+
+    /// Find the first gate-decision audit row for an event: resolves
+    /// `event_id` → `market_id` → `intent_id` → gate-decision audit row.
+    ///
+    /// The audit table carries `ref_id = intent_id` for `gate_decision` rows.
+    /// Returns the OLDEST gate-decision row for the intent (the initial run,
+    /// not a replay — `ORDER BY at ASC, audit_id ASC LIMIT 1`).
+    ///
+    /// Returns `None` when no proposal or no gate-decision row exists.
+    ///
+    /// RENDER-ONLY: never invokes `GatePipeline` (I1).
+    pub async fn gate_decision_for_event(
+        &self,
+        event_id: &str,
+    ) -> Result<Option<GateDecisionRow>, LedgerError> {
+        let row = sqlx::query_as::<_, (String, String, Option<String>, serde_json::Value)>(
+            "SELECT a.audit_id, a.at, a.ref_id, a.payload \
+             FROM audit a \
+             WHERE a.kind = 'gate_decision' \
+               AND a.ref_id IN ( \
+                   SELECT ie.intent_id \
+                   FROM intent_events ie \
+                   WHERE ie.event->>'market' IN ( \
+                       SELECT market_id FROM market_event_edges \
+                       WHERE event_id = $1 \
+                         AND edge_id NOT IN ( \
+                             SELECT supersedes FROM market_event_edges \
+                             WHERE supersedes IS NOT NULL AND event_id = $1 \
+                         ) \
+                   ) \
+               ) \
+             ORDER BY a.at ASC, a.audit_id ASC LIMIT 1",
+        )
+        .bind(event_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(
+            row.map(|(audit_id, at, intent_id, payload)| GateDecisionRow {
+                audit_id,
+                at,
+                intent_id,
+                payload,
+            }),
+        )
     }
 }

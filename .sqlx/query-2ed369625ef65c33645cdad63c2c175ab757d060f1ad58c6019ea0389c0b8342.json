@@ -1,0 +1,94 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT belief_id,\n                      p_raw,\n                      p,\n                      provenance->>'producer'      AS producer_id,\n                      provenance->>'producer_type' AS producer_type,\n                      provenance->>'mind_id'       AS mind_id,\n                      provenance->>'mind_version'  AS mind_version_text,\n                      provenance->>'rationale'     AS rationale,\n                      created_at                   AS belief_at,\n                      status,\n                      outcome,\n                      brier,\n                      clv_bps\n               FROM beliefs\n               WHERE event_id = $1\n               ORDER BY created_at DESC, belief_id DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "belief_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "p_raw",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 2,
+        "name": "p",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 3,
+        "name": "producer_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "producer_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "mind_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "mind_version_text",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "rationale",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "belief_at",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "outcome",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 11,
+        "name": "brier",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 12,
+        "name": "clv_bps",
+        "type_info": "Float8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      null,
+      null,
+      null,
+      null,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "2ed369625ef65c33645cdad63c2c175ab757d060f1ad58c6019ea0389c0b8342"
+}

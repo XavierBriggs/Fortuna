@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT market_id FROM market_event_edges\n               WHERE event_id = $1\n                 AND edge_id NOT IN (\n                     SELECT supersedes FROM market_event_edges\n                     WHERE supersedes IS NOT NULL AND event_id = $1\n                 )\n               ORDER BY created_at ASC\n               LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "market_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6d06b46ee28db17bda588ad5a2df6eab66c439a80c70bbeed57e067043653ac5"
+}

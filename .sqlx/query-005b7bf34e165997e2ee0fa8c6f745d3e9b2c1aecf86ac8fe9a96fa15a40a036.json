@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.signal_id, s.source, s.type AS \"kind!\", s.received_at,\n                      s.content_hash, s.payload\n               FROM signals s\n               JOIN event_source_evidence ese\n                 ON ese.signal_id = s.signal_id\n                AND ese.signal_received_at = s.received_at\n               WHERE ese.event_id = $1\n               ORDER BY s.received_at ASC, s.signal_id ASC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "signal_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "source",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "kind!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "received_at",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "content_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "payload",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "005b7bf34e165997e2ee0fa8c6f745d3e9b2c1aecf86ac8fe9a96fa15a40a036"
+}
