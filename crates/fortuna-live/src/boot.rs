@@ -909,6 +909,32 @@ pub fn write_demo_db_pointer(runtime_dir: &Path, db_url: &str) -> Result<(), io:
     Ok(())
 }
 
+/// F11 daemon-boot pointer-write: call `write_demo_db_pointer` **only** when
+/// `mode == ExecutionMode::PaperLedger` (the paper-demo/paper-on-live context).
+///
+/// This is the entry point the daemon binary calls at boot (after the Postgres
+/// pool is connected) — NOT the CLI `start` command. Moving the call here
+/// ensures the pointer reflects the URL the daemon ACTUALLY connected with,
+/// eliminates the stale-pointer risk from a CLI-side pre-spawn write, and
+/// removes the need for `fortuna-cli` to depend on `fortuna-live` at runtime.
+///
+/// For all other modes the call is a no-op (returns `Ok(())`). Fail-closed:
+/// a new `ExecutionMode` variant defaults to doing nothing.
+///
+/// # Errors
+/// Propagates `io::Error` from `write_demo_db_pointer` for callers to handle
+/// via `?`.
+pub fn maybe_write_demo_db_pointer(
+    runtime_dir: &Path,
+    db_url: &str,
+    mode: ExecutionMode,
+) -> Result<(), io::Error> {
+    if mode == ExecutionMode::PaperLedger {
+        write_demo_db_pointer(runtime_dir, db_url)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -14,7 +14,7 @@
 use anyhow::{bail, Context, Result};
 use fortuna_cognition::mind::{ModelTier, ReqwestMindTransport};
 use fortuna_core::clock::{Clock, RealClock, SimClock};
-use fortuna_live::boot::{validate_env, DaemonToml};
+use fortuna_live::boot::{maybe_write_demo_db_pointer, validate_env, DaemonToml};
 use fortuna_live::compose::DegradeScrape;
 use fortuna_live::daemon::{
     build_kalshi_demo_transport, build_kalshi_prod_transport, compose_kalshi_runner_with_transport,
@@ -89,6 +89,65 @@ async fn main() -> Result<()> {
     let pool = fortuna_ledger::connect(validated.database_url.expose())
         .await
         .context("postgres connect + migrate")?;
+
+    // F11 daemon-boot pointer-write (W4 verifier fix / Important 2): write the
+    // ACTUAL connected DATABASE_URL to data/runtime/current-demo-db-url when
+    // execution_mode == PaperLedger. This fires here — after the pool is
+    // connected — so the pointer always reflects the URL the daemon actually
+    // booted with (eliminating the stale-pointer risk of a CLI pre-spawn write).
+    // No-op for every other mode (fail-closed: new mode variants do nothing).
+    // The runtime dir mirrors the CLI's derivation: FORTUNA_RUNTIME_DIR env
+    // override wins; otherwise data/runtime/ relative to the config's directory.
+    if let Some(runtime) = dcfg.runtime.as_ref() {
+        let runtime_dir = std::env::var_os("FORTUNA_RUNTIME_DIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                let config_parent = std::path::Path::new(&config_path)
+                    .parent()
+                    .unwrap_or(std::path::Path::new("."))
+                    .to_path_buf();
+                // If the config lives in a `config/` directory, anchor to its parent
+                // (the repo root); otherwise anchor to the config directory itself.
+                let root = if config_parent
+                    .file_name()
+                    .map(|n| n == "config")
+                    .unwrap_or(false)
+                {
+                    config_parent
+                        .parent()
+                        .map(std::path::Path::to_path_buf)
+                        .unwrap_or(config_parent)
+                } else {
+                    config_parent
+                };
+                root.join("data/runtime")
+            });
+        if let Err(e) = std::fs::create_dir_all(&runtime_dir) {
+            eprintln!(
+                "fortuna-live: warning: could not create runtime dir {}: {e}",
+                runtime_dir.display()
+            );
+        } else {
+            match maybe_write_demo_db_pointer(
+                &runtime_dir,
+                validated.database_url.expose(),
+                runtime.execution_mode,
+            ) {
+                Ok(()) if runtime.execution_mode == fortuna_live::boot::ExecutionMode::PaperLedger => {
+                    eprintln!(
+                        "fortuna-live: F11 pointer written → {}/current-demo-db-url",
+                        runtime_dir.display()
+                    );
+                }
+                Ok(()) => {}
+                Err(e) => {
+                    eprintln!(
+                        "fortuna-live: warning: F11 pointer write failed (non-fatal): {e}"
+                    );
+                }
+            }
+        }
+    }
 
     // S5b: build the synthesis mind from the environment. ANTHROPIC_API_KEY
     // present (validated; the boot gate above refused no-key + !allow_stub) =>

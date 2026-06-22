@@ -41,7 +41,6 @@ use fortuna_cli::backtest_cmd;
 use fortuna_cli::doctor as doctor_mod;
 use fortuna_core::clock::{Clock, RealClock, UtcTimestamp};
 use fortuna_ledger::{parse_halt_scope, AuditWriter, HaltsRepo};
-use fortuna_live::boot::write_demo_db_pointer;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -516,49 +515,23 @@ fn unmanaged_recorder_pids(managed: Option<i64>) -> Result<Vec<i64>> {
 ///
 /// ## paper-demo sub-mode (W4)
 ///
-/// `fortuna start paper-demo` writes the live `DATABASE_URL` to
-/// `data/runtime/current-demo-db-url` (the F11 pointer-write) before spawning
-/// the daemon. The daemon boots under `execution_mode = "paper_ledger"` (set
-/// in the config, enforced by `validate_bootable`); no real-venue order is
-/// ever placed (the paper-live safety wall, `i_paper_live_no_real_order`).
+/// `fortuna start paper-demo` spawns the daemon under `execution_mode =
+/// "paper_ledger"` (set in the config, enforced by `validate_bootable`); no
+/// real-venue order is ever placed (the paper-live safety wall,
+/// `i_paper_live_no_real_order`). The F11 pointer-write
+/// (`data/runtime/current-demo-db-url`) is written by the **daemon** on boot
+/// (after its Postgres pool connects) — not by this CLI — so the pointer
+/// always reflects the URL the daemon actually booted with.
 ///
-/// The mode is a CONFIG discipline: set
-/// `execution_mode = "paper_ledger"` in `[runtime]` before running this.
-/// This command recognises the `paper-demo` positional and writes the pointer;
-/// everything else (validation, spawn) is identical to a normal `start`.
+/// The mode is a CONFIG discipline: set `execution_mode = "paper_ledger"` in
+/// `[runtime]` before running this. This command accepts the `paper-demo`
+/// positional for documentation purposes; everything else (validation, spawn)
+/// is identical to a normal `start`.
 fn start_cmd(args: &Args) -> Result<()> {
-    let paper_demo = args.positional.first().map(String::as_str) == Some("paper-demo");
-
     let config_path = resolved_config_path(args);
     fortuna_ops::FortunaConfig::load_file(&config_path)
         .with_context(|| format!("config check failed for {config_path}"))?;
     let root = repo_root_from_config(Path::new(&config_path));
-
-    // W4 F11 pointer-write: record which DATABASE_URL the paper-demo boots
-    // against so the chain-view UI and operator tooling can discover it.
-    // Written BEFORE spawning so the pointer is available as soon as start
-    // returns (the daemon's own boot may lag by seconds).
-    if paper_demo {
-        let dir = runtime_dir(&root);
-        std::fs::create_dir_all(&dir)
-            .with_context(|| format!("creating runtime dir {}", dir.display()))?;
-        match std::env::var("DATABASE_URL") {
-            Ok(url) => {
-                write_demo_db_pointer(&dir, &url)
-                    .with_context(|| format!("writing demo db pointer in {}", dir.display()))?;
-                println!(
-                    "paper-demo: pointer written → {}/current-demo-db-url",
-                    dir.display()
-                );
-            }
-            Err(_) => {
-                println!(
-                    "paper-demo: DATABASE_URL not set — pointer write skipped \
-                     (daemon will write it on boot)"
-                );
-            }
-        }
-    }
 
     if args.foreground {
         // Debugging mode: the daemon owns the terminal. No pidfile, no

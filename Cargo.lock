@@ -586,6 +586,7 @@ dependencies = [
  "fortuna-ledger",
  "fortuna-live",
  "fortuna-ops",
+ "fortuna-paper",
  "fortuna-scoring",
  "fortuna-venues",
  "futures",
