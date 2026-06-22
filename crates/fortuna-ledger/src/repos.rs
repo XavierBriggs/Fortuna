@@ -3092,3 +3092,72 @@ impl ScorecardsRepo {
         }
     }
 }
+
+/// Append-only store for the WS3 deflated G-TRUTH GO surface (`ValidationRun`;
+/// plan S5, spec §7). One IMMUTABLE row per sweep — a re-run is a NEW row, never
+/// an edit (the DB trigger refuses UPDATE/DELETE, I5). The whole-truth surface
+/// rides in the JSONB `payload`; the typed `ValidationRun` lives in
+/// `fortuna-backtest`, which the ledger does NOT depend on, so the payload is
+/// handled here as opaque `serde_json::Value` (Brier = gated headline, CLV =
+/// corroborating, `family_n_trials` = the joint scope×config grid).
+pub struct ValidationRunsRepo {
+    pool: PgPool,
+}
+
+impl ValidationRunsRepo {
+    pub fn new(pool: PgPool) -> ValidationRunsRepo {
+        ValidationRunsRepo { pool }
+    }
+
+    /// Insert one ValidationRun at `computed_at`. INSERT-only; idempotent on the
+    /// `(scope, producer, computed_at)` UNIQUE key (a duplicate re-run at the same
+    /// instant is a no-op, not an error). `scope`/`producer` are stored as columns
+    /// alongside the opaque `payload` so the row always agrees with the surface.
+    pub async fn insert(
+        &self,
+        run_id: &str,
+        scope: &str,
+        producer: Option<&str>,
+        payload: &serde_json::Value,
+        computed_at: &str,
+    ) -> Result<(), LedgerError> {
+        sqlx::query!(
+            r#"INSERT INTO validation_runs (run_id, scope, producer, computed_at, payload)
+               VALUES ($1, $2, $3, $4, $5)
+               ON CONFLICT (scope, producer, computed_at) DO NOTHING"#,
+            run_id,
+            scope,
+            producer,
+            computed_at,
+            payload,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// The newest ValidationRun for a `(scope, producer)` pair (by `computed_at`
+    /// DESC), or `None` when none exists. `producer = None` selects the
+    /// merged-scope bucket (the persisted NULL); `IS NOT DISTINCT FROM` matches
+    /// NULL to NULL and a value to that value. The JSONB payload is returned
+    /// verbatim (the caller deserializes it into a `ValidationRun`).
+    pub async fn latest(
+        &self,
+        scope: &str,
+        producer: Option<&str>,
+    ) -> Result<Option<serde_json::Value>, LedgerError> {
+        let row = sqlx::query!(
+            r#"SELECT payload AS "payload!: serde_json::Value"
+               FROM validation_runs
+               WHERE scope = $1
+                 AND producer IS NOT DISTINCT FROM $2
+               ORDER BY computed_at DESC
+               LIMIT 1"#,
+            scope,
+            producer,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| r.payload))
+    }
+}

@@ -290,3 +290,86 @@ fn build_reasoning(
 
     parts.join("; ")
 }
+
+/// The deflated G-TRUTH view of one selected sweep config (spec §7; plan S5,
+/// BLOCK-1).
+///
+/// This is the *whole-truth* surface the [`decide`] gate reads — never a lone
+/// flattering number. **Brier is the PRIMARY gated metric** (consistent with the
+/// WS2 scorecard's "Brier is the sole GO gate"): the GO decision is driven by the
+/// Brier-skill axis (`brier_edge`/`brier_pbo`/`brier_spa_p`). The CLV axis
+/// (`clv_edge`/`clv_pbo`/`clv_spa_p`) is **corroborating only** — it is carried so
+/// a reader sees the full picture, but it can never CREATE a GO (CLV's benchmark
+/// is a market price, not ground truth). `mintrl_ok`/`sharpe_dsr` are walled-off
+/// supporting context.
+///
+/// Pure: this struct and [`decide`] hold no IO and never branch on a scope or
+/// producer label, so WS3's sweep and the live gating layer share one verdict
+/// function.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct DeflatedView {
+    /// Effective independent sample size after purging (`N_eff`). The GO floor is
+    /// 30; below it the verdict is `Insufficient`.
+    pub effective_n: f64,
+    /// Number of valid CSCV combinations the PBO was computed over. `0` means no
+    /// coherent partition existed — the `pbo == 0.0` degenerate sentinel — so the
+    /// PBO cannot be read at all (verdict `Insufficient`, never a GO).
+    pub n_logits: usize,
+    /// The significance level the Brier SPA p-value is gated against (strict `<`).
+    pub alpha: f64,
+    /// The selected config's Brier-skill (beats-baseline margin) OOS edge. The
+    /// PRIMARY gated metric; must be strictly `> 0` for a GO.
+    pub brier_edge: f64,
+    /// PBO computed on the Brier-skill matrix. Must be `<= 0.05` for a GO.
+    pub brier_pbo: f64,
+    /// Hansen SPA `p_c` on the Brier-loss differential. Must be `< alpha` for a GO.
+    pub brier_spa_p: f64,
+    /// The CLV OOS edge (corroborating only — never gates).
+    pub clv_edge: f64,
+    /// PBO on the CLV matrix (corroborating only).
+    pub clv_pbo: f64,
+    /// SPA `p_c` on the CLV differential (corroborating only).
+    pub clv_spa_p: f64,
+    /// Whether `effective_n >= MinTRL` for the CSCV partition (supporting context).
+    pub mintrl_ok: bool,
+    /// Deflated Sharpe Ratio of the paper-trade PnL (walled-off context; not the
+    /// edge claim).
+    pub sharpe_dsr: f64,
+}
+
+/// The minimum effective independent sample size below which the deflated verdict
+/// is `Insufficient` (matches WS2's `n < min_n -> Insufficient` posture and the
+/// research §3 MinTRL floor).
+pub const MIN_EFFECTIVE_N: f64 = 30.0;
+
+/// The deflated GO gate (BLOCK-1; spec §7).
+///
+/// Reuses the WS2 [`GoDecision`] — there is no fourth verdict. The decision is:
+///
+/// - **`Insufficient`** iff under-powered: `effective_n < MIN_EFFECTIVE_N`, OR
+///   `n_logits == 0` (no valid CSCV partition — the `pbo == 0.0` degenerate
+///   sentinel, which alone points GO-direction and must never be read as a pass).
+/// - else **`Go`** iff ALL of: the Brier-skill edge is strictly positive AND the
+///   Brier PBO is `<= 0.05` AND the Brier SPA `p_c` is strictly `< alpha`.
+/// - else **`NoGo`**.
+///
+/// **CLV never enters.** A CLV-positive but Brier-flat config is `NoGo`, never
+/// `Go` — CLV corroborates, it cannot rescue (BLOCK-1).
+pub fn decide(view: &DeflatedView) -> GoDecision {
+    // Under-powered: too few independent observations, OR no coherent CSCV
+    // partition (n_logits == 0 -> the degenerate pbo == 0.0 sentinel). Read this
+    // FIRST so the pbo == 0.0 footgun can never be mistaken for "no overfitting".
+    if view.effective_n < MIN_EFFECTIVE_N || view.n_logits == 0 {
+        return GoDecision::Insufficient;
+    }
+
+    // Brier is the PRIMARY gated metric. GO iff every Brier conjunct holds. CLV is
+    // deliberately absent from this condition.
+    let brier_go = view.brier_edge > 0.0 && view.brier_pbo <= 0.05 && view.brier_spa_p < view.alpha;
+
+    if brier_go {
+        GoDecision::Go
+    } else {
+        GoDecision::NoGo
+    }
+}

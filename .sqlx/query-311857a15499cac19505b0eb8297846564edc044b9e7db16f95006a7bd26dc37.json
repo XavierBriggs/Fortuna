@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO validation_runs (run_id, scope, producer, computed_at, payload)\n               VALUES ($1, $2, $3, $4, $5)\n               ON CONFLICT (scope, producer, computed_at) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "311857a15499cac19505b0eb8297846564edc044b9e7db16f95006a7bd26dc37"
+}

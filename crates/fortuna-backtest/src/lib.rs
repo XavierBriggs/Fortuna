@@ -32,3 +32,4 @@ pub mod harness;
 pub mod manifest;
 pub mod records;
 pub mod source;
+pub mod sweep;
