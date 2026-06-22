@@ -37,25 +37,19 @@ cd "$(git rev-parse --show-toplevel)"
 SMOKE_DB="fortuna_ws4_livegate"
 
 # ---------------------------------------------------------------------------
-# 1. Create + migrate the smoke DB
+# 1. Create the smoke DB (no explicit migrate step needed)
 # ---------------------------------------------------------------------------
+# fortuna_ledger::connect() auto-runs embedded migrations on first connect, and
+# `fortuna doctor --offline` exercises that path — its `migrations_applied` check
+# then verifies the schema is current. sqlx::test DB handles this independently
+# for the Rust integration tests. An explicit migrate step here would require a
+# fortuna-cli binary or sqlx-cli to be present and is dead theater.
 echo "ws4-live-smoke: creating temp DB $SMOKE_DB ..."
 psql "postgres:///postgres?host=/tmp" -tAc "DROP DATABASE IF EXISTS $SMOKE_DB;" >/dev/null
 psql "postgres:///postgres?host=/tmp" -tAc "CREATE DATABASE $SMOKE_DB;" >/dev/null
 
 export SQLX_OFFLINE=true
 export DATABASE_URL="postgres:///$SMOKE_DB?host=/tmp"
-
-# Run sqlx migrations against the fresh DB (brings it to the ledger schema the
-# doctor + persona_clv tests expect).
-cargo run -q -p fortuna-cli -- migrate run 2>/dev/null \
-  || sqlx migrate run --database-url "$DATABASE_URL" 2>/dev/null \
-  || (
-      echo "ws4-live-smoke: migrating via sqlx CLI fallback..."
-      # Try cargo sqlx if available
-      cargo sqlx migrate run --database-url "$DATABASE_URL" 2>/dev/null \
-      || echo "ws4-live-smoke: WARNING: explicit migration step skipped — sqlx::test will handle it"
-  )
 
 # ---------------------------------------------------------------------------
 # 2. fortuna doctor --offline → assert all-green
@@ -76,14 +70,15 @@ DOCTOR_ENV="$DOCTOR_ENV FORTUNA_SLACK_CHANNEL_REVIEW=CREVIEW0001"
 DOCTOR_ENV="$DOCTOR_ENV FORTUNA_SLACK_CHANNEL_DIGEST=CDIGEST0001"
 DOCTOR_ENV="$DOCTOR_ENV FORTUNA_SLACK_CHANNEL_OPS=COPS000001"
 
-DOCTOR_OUT="$(env $DOCTOR_ENV ./target/debug/fortuna doctor --offline 2>&1)"
-DOCTOR_EXIT=$?
-echo "$DOCTOR_OUT"
-
-if [ $DOCTOR_EXIT -ne 0 ]; then
-    echo "ws4-live-smoke FAIL: fortuna doctor --offline exited $DOCTOR_EXIT (expected 0)"
+# FIX: capture output AND handle non-zero exit explicitly so the diagnostic
+# message actually prints on a doctor-red (under set -e the old pattern was
+# dead — the subshell abort happened before DOCTOR_EXIT was captured).
+if ! DOCTOR_OUT="$(env $DOCTOR_ENV ./target/debug/fortuna doctor --offline 2>&1)"; then
+    echo "$DOCTOR_OUT"
+    echo "ws4-live-smoke FAIL: fortuna doctor --offline exited non-zero (expected 0)"
     exit 1
 fi
+echo "$DOCTOR_OUT"
 
 # Assert the output contains "READY" or an all-green marker
 if echo "$DOCTOR_OUT" | grep -qiE "READY|all.*green|all checks"; then
@@ -102,13 +97,23 @@ fi
 # runner (which would filter it out with 0 matches).
 echo "ws4-live-smoke: running persona_and_discovery_edge_ids_are_disjoint_for_the_same_seq ..."
 
-cargo test -q \
+# FIX: capture output and assert exactly "1 passed". cargo test exits 0 even
+# when 0 tests match the filter ("0 filtered out"), so piping to tail hid the
+# silent-pass-if-test-renamed bug. Use --exact to pin the name, then verify the
+# run count from the output.
+EDGE_ID_OUT="$(cargo test \
     -p fortuna-live \
     --lib \
     -- \
-    "persona_and_discovery_edge_ids_are_disjoint_for_the_same_seq" \
+    --exact "daemon::tests::persona_and_discovery_edge_ids_are_disjoint_for_the_same_seq" \
     --test-threads=1 \
-    2>&1 | tail -5
+    2>&1)"
+echo "$EDGE_ID_OUT" | tail -5
+if ! echo "$EDGE_ID_OUT" | grep -qE "^test result: ok\. 1 passed"; then
+    echo "ws4-live-smoke FAIL: expected exactly 1 passed for edge-ID disjointness test (test renamed/deleted?)"
+    echo "$EDGE_ID_OUT"
+    exit 1
+fi
 
 echo "ws4-live-smoke: edge-ID disjointness test PASS"
 
@@ -117,13 +122,21 @@ echo "ws4-live-smoke: edge-ID disjointness test PASS"
 # ---------------------------------------------------------------------------
 echo "ws4-live-smoke: running meteorologist_belief_gets_nonnull_clv (persona_clv) ..."
 
-cargo test -q \
+# FIX: same pattern — capture output and assert exactly "1 passed" so that
+# a renamed or deleted test name causes a gate failure rather than a silent pass.
+CLV_OUT="$(cargo test \
     -p fortuna-live \
     --test persona_clv \
     -- \
-    "meteorologist_belief_gets_nonnull_clv" \
+    --exact "meteorologist_belief_gets_nonnull_clv" \
     --test-threads=1 \
-    2>&1 | tail -5
+    2>&1)"
+echo "$CLV_OUT" | tail -5
+if ! echo "$CLV_OUT" | grep -qE "^test result: ok\. 1 passed"; then
+    echo "ws4-live-smoke FAIL: expected exactly 1 passed for persona CLV test (test renamed/deleted?)"
+    echo "$CLV_OUT"
+    exit 1
+fi
 
 echo "ws4-live-smoke: persona CLV non-null test PASS"
 
