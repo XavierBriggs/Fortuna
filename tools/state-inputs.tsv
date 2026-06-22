@@ -1,0 +1,18 @@
+# FORTUNA STATE generator inputs (static facts the system cannot self-report).
+# Risk tier is a review judgment (materiality x change frequency); declared_stage
+# is the design-intended stage. Effective stage, last-validated, and GO/NO-GO are
+# pulled from the ledger at generation time and overlay these defaults.
+# Columns (tab-separated): module	kind	risk_tier	declared_stage	known_issue_refs
+mech_structural	strategy	T1	Sim	-
+mech_extremes	strategy	T1	Sim	veto-counterfactual-scoring
+aeolus_eval	strategy	T2	Paper	zero-capital-validation-vehicle
+synth_events	strategy	T2	Paper	-
+perp_event_basis	strategy	T2	Sim	perps-opening-path-unwired
+funding_forecast	strategy	T3	Sim	-
+funding_carry	strategy	T3	DataOnly	data-collection-only-60d
+synthesis_mind	model	T2	active	prompt_hash-not-recorded
+triage_mind	model	T3	active	-
+gate_pipeline	subsystem	T1	n/a	-
+killswitch	subsystem	T1	n/a	slack-path-untested
+ledger_audit	subsystem	T1	n/a	parametric-I5-test-todo
+backtest_validation	subsystem	T2	n/a	recal-labels-illustrative

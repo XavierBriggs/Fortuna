@@ -1,3 +1,5 @@
+> ARCHIVED 2026-06-22. Superseded by README.md + STATE.md + the canon. Kept for provenance; not source of truth.
+
 # FORTUNA — Final Report
 
 Build completed 2026-06-10 against docs/spec.md v0.8 — and then RE-VERIFIED.

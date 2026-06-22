@@ -1,3 +1,5 @@
+> ARCHIVED 2026-06-22. Superseded by ARCHITECTURE.md. Kept for provenance; not source of truth.
+
 # FORTUNA — End-to-End System Overview
 
 > Demo-ready walkthrough of the whole system and each layer, grounded in the

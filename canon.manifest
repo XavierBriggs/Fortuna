@@ -1,0 +1,48 @@
+# FORTUNA canon manifest
+#
+# Purpose: the closed set. This file is the guardrail that keeps the canonical
+#   documentation from sprawling. CI reads it (tools/check-canon.sh).
+# Holds: the explicit list of canonical files plus the explicit list of
+#   tolerated non-canonical top-level files.
+# Excludes: everything else. Any new top-level *.md not listed here (and not
+#   under scratch/ or docs/ or archive/) fails CI.
+#
+# Format: one path per line. Lines starting with '#' are comments. A trailing
+#   '/**' means "this directory and everything under it". Section headers are
+#   '[name]'.
+
+[canonical]
+# Source of truth. Each holds exactly one topic. Amend via an ADR in decisions/.
+README.md
+NORTH_STAR.md
+CONSTITUTION.md
+ARCHITECTURE.md
+STANDARDS.md
+STATE.md
+canon.manifest
+.claude/CLAUDE.md
+decisions/**
+
+[permitted-noncanonical]
+# Tolerated working ledgers and project files. NOT source of truth, NOT canon,
+# but allowed at the repo root so CI does not flag them. Keep this list short;
+# anything here is a candidate for eventual archival (see MIGRATION_PLAN.md).
+CLAUDE.md
+GAPS.md
+ASSUMPTIONS.md
+CHANGELOG.md
+BUILD_PLAN.md
+PROMPT.md
+AGENTS.md
+
+[generated]
+# Emitted by a tool, never hand-edited. Listed so the closed-set check treats
+# them as canonical outputs.
+STATE.md
+
+[ignore-roots]
+# Subtrees the closed-set check does not police (working output, design
+# reference, archived material, tool docs).
+scratch/
+docs/
+archive/

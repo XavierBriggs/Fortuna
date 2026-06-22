@@ -1,3 +1,5 @@
+> DESIGN REFERENCE (demoted 2026-06-22). This document is the design rationale of record, but it is no longer the source of truth for the invariants (now [CONSTITUTION.md](../CONSTITUTION.md)) or the crate map and data flow (now [ARCHITECTURE.md](../ARCHITECTURE.md)). Where this file and the canon disagree, the canon wins. See [README.md](../README.md) for the canon index.
+
 # FORTUNA: System Design Specification
 
 **Model-driven autonomous trading system. The model is the mind; FORTUNA is everything that makes the mind safe, stateful, and accountable.**

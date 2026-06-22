@@ -1,3 +1,5 @@
+> ARCHIVED 2026-06-22. Superseded by CHANGELOG.md and decisions/. Kept for provenance; not source of truth.
+
 # FORTUNA — Close-The-Loop Fix List
 
 > Compiled 2026-06-18 from a live audit of the running paper-on-live soak (DB `fortuna_demo`)

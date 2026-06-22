@@ -1,3 +1,5 @@
+> ARCHIVED 2026-06-22. Superseded by ARCHITECTURE.md. Kept for provenance; not source of truth.
+
 # FORTUNA architecture
 
 **Who this is for:** anyone about to read or change FORTUNA code — a new session,

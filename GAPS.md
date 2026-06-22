@@ -222,7 +222,8 @@ makes the configs differ. `validate_real_edges` / `validate_yields_honest_verdic
 verdict is unchanged). Pinned by `go_surface_discloses_recal_is_a_temperature_index_not_the_named_knobs`.
 
 ## WS3 backtest — guardian boundary findings (2026-06-21, operator queue)
-### G1. `fortuna validate` ships a placeholder edge-provider; purge/embargo unreachable in production (Important)
+### G1. `fortuna validate` ships a placeholder edge-provider; purge/embargo unreachable in production (Important) — RESOLVED WS4 (commit 0344e30, verified 2026-06-22)
+**RESOLVED 0344e30 ("feat(ws4): W7 real validate edge-provider + purged/embargoed CSCV (Brier-primary GO on real replay)"):** `run_validate` now builds a real `LedgerEdgeProvider` via `build_edge_provider` (`crates/fortuna-cli/src/backtest_cmd.rs:232`) that supplies real `LabelWindow`s; `run_sweep`/`pbo` purge when windows are present and assert the length invariant loudly (`crates/fortuna-backtest/src/sweep.rs:344-352`); `crates/fortuna-backtest/tests/validate_real_edges.rs::purge_bites_directionally` proves `purged.pbo > nopurge.pbo + 0.05` on a deliberately-leaky fixture. The empty-series fallback now fires only when no archive is in scope. Honest residual: the trial-grid recal-method labels (Platt/Isotonic/None) are illustrative while the applied transform is per-config temperature scaling, disclosed in `format_go_surface`. Original finding retained below for provenance.
 The S7 `run_validate` `EdgeProvider` (`crates/fortuna-cli/src/backtest_cmd.rs:173-178`) returns empty
 OOS edge series for every config, so `fortuna validate` can only emit `GoDecision::Insufficient` on a
 fresh ledger — it never computes a real GO/NO-GO from replayed history. `run_sweep`
@@ -242,7 +243,8 @@ ledger and supplies real `LabelWindow`s (so purge/embargo actually runs); until 
 on real data returns `Insufficient` by construction — NOT a tested-on-real-data verdict. (Corrects the
 plan's "No placeholders" self-review line for the production validate path.)
 
-### G2. Decoupling + scoring-purity not enforced by an executable test (Minor)
+### G2. Decoupling + scoring-purity not enforced by an executable test (Minor) — RESOLVED WS4 (commit 1909eaf, verified 2026-06-22)
+**RESOLVED 1909eaf ("feat(ws4): W6b docs + config + decoupling/mode_safe/noise tests + live-smoke + GAPS"):** `crates/fortuna-backtest/tests/decoupling.rs` is now a permanent `#[test]` in the corpus asserting the fortuna-backtest source-literal decoupling and the fortuna-scoring dependency-set purity. Original finding retained below for provenance.
 The fortuna-backtest source-literal grep and the fortuna-scoring no-new-dep assertion are enforced only
 by the boundary gate (`.hephaestus/ws3.gates` lines 12/14/16) and per-slice shell greps — not by a
 permanent `#[test]` in the corpus. `i_decoupling_spine.rs` scans fortuna-gates/exec/state but NOT
