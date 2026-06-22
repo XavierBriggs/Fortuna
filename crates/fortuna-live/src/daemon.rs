@@ -1634,6 +1634,27 @@ pub struct ReviewWiring {
 /// by id; a persona with no entry FAILS-CLOSED (defect, no artifact). Replaces the
 /// previous single `mind: Arc<dyn Mind>` which erroneously shared the synthesis
 /// charter across all personas.
+/// Edge-id prefix for the DISCOVERY (market-back) producer. The minted ids are
+/// 26-char ULID-shaped strings `01EDG{seq:021}`.
+const DISCOVERY_EDGE_ID_PREFIX: &str = "01EDG";
+
+/// Edge-id prefix for the PERSONA (CLV-for-persona) producer. DELIBERATELY
+/// DISTINCT from [`DISCOVERY_EDGE_ID_PREFIX`] (W6a, DEMO-CRITICAL): both wirings
+/// seed `edge_id_base` from the SAME drive-start `start_ms`, so a shared prefix
+/// would make the first co-run edges collide on the `market_event_edges` PK
+/// (`insert_edge` has no `ON CONFLICT`) — the persona insert would fail and its
+/// CLV would be silently dropped from the head-to-head. A distinct prefix makes
+/// the two id-spaces structurally disjoint regardless of the shared base.
+const PERSONA_EDGE_ID_PREFIX: &str = "01EDP";
+
+/// Mint a 26-char ULID-shaped edge id from a producer `prefix` (5 chars) and a
+/// monotonic `seq` (zero-padded to 21 digits). Centralizes the format so the
+/// disjointness of the discovery/persona id-spaces is a function of the prefix
+/// constants alone. Pure; no wall-clock read.
+fn mint_edge_id(prefix: &str, seq: u64) -> String {
+    format!("{prefix}{seq:021}")
+}
+
 pub struct PersonasWiring {
     pub pool: PgPool,
     pub schedules: Vec<fortuna_cognition::persona_orchestrator::PersonaSchedule>,
@@ -2480,7 +2501,8 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                     } else {
                                         Some("discovery:auto")
                                     };
-                                    let edge_id = format!("01EDG{:021}", dw.edge_id_base);
+                                    let edge_id =
+                                        mint_edge_id(DISCOVERY_EDGE_ID_PREFIX, dw.edge_id_base);
                                     if let Err(e) = fortuna_ledger::EdgesRepo::new(dw.pool.clone())
                                         .insert_edge(
                                             &edge_id,
@@ -2743,7 +2765,8 @@ pub async fn drive<C: CadenceDriver, P: HaltPoller>(
                                             "conditional_on"
                                         }
                                     };
-                                    let edge_id = format!("01EDG{:021}", dw.edge_id_base);
+                                    let edge_id =
+                                        mint_edge_id(DISCOVERY_EDGE_ID_PREFIX, dw.edge_id_base);
                                     if let Err(e) = fortuna_ledger::EdgesRepo::new(dw.pool.clone())
                                         .insert_edge(
                                             &edge_id,
@@ -5300,7 +5323,10 @@ pub async fn link_persona_market_edges_collecting(
         // (confirmed_by = None): never tradeable, present only for CLV. The
         // venue is the looked-up edge's own venue (same market). The edge id is
         // minted from the caller's monotonic base.
-        let edge_id = format!("01EDG{next_edge_seq:021}");
+        // W6a (DEMO-CRITICAL): the PERSONA prefix (01EDP), DISJOINT from
+        // discovery's 01EDG, so the co-run (shared start_ms base) can never
+        // collide on the market_event_edges PK and silently drop persona CLV.
+        let edge_id = mint_edge_id(PERSONA_EDGE_ID_PREFIX, next_edge_seq);
         match edges_repo
             .insert_edge(
                 &edge_id,
@@ -6611,5 +6637,43 @@ mod tests {
         assert_eq!(defaulted.synthesis_model, "claude-opus-4-8");
         assert_eq!(defaulted.mid_model, "claude-sonnet-4-6");
         assert_eq!(defaulted.triage_model, "claude-haiku-4-5");
+    }
+
+    /// W6a (DEMO-CRITICAL): discovery and persona edge-id spaces MUST be
+    /// disjoint. Both wirings seed `edge_id_base` from the SAME `start_ms`, so if
+    /// they shared a prefix the first co-run edges would collide on the
+    /// `market_event_edges` PK (no `ON CONFLICT`) and the persona's CLV would be
+    /// silently dropped. The fix is a DISTINCT prefix per producer; this test
+    /// pins that they can NEVER collide for the same seq (the worst case — equal
+    /// bases).
+    #[test]
+    fn persona_and_discovery_edge_ids_are_disjoint_for_the_same_seq() {
+        // The prefixes themselves must differ — the structural guarantee.
+        assert_ne!(
+            DISCOVERY_EDGE_ID_PREFIX, PERSONA_EDGE_ID_PREFIX,
+            "the two producers must use DISTINCT edge-id prefixes"
+        );
+
+        // For the worst case (identical bases, the real co-run condition) and a
+        // spread of seqs, the minted ids must never be equal and must stay a
+        // fixed 26-char ULID-shaped width.
+        for seq in [0u64, 1, 7, 42, 1_000, u64::from(u32::MAX), start_ms_like()] {
+            let d = mint_edge_id(DISCOVERY_EDGE_ID_PREFIX, seq);
+            let p = mint_edge_id(PERSONA_EDGE_ID_PREFIX, seq);
+            assert_ne!(
+                d, p,
+                "discovery and persona edge ids must differ at seq {seq}: {d} vs {p}"
+            );
+            assert_eq!(d.len(), 26, "discovery id is a 26-char ULID width: {d}");
+            assert_eq!(p.len(), 26, "persona id is a 26-char ULID width: {p}");
+            assert!(d.starts_with(DISCOVERY_EDGE_ID_PREFIX));
+            assert!(p.starts_with(PERSONA_EDGE_ID_PREFIX));
+        }
+    }
+
+    /// A representative large `start_ms`-shaped seed (epoch ms ~ 2026), so the
+    /// disjointness test covers the actual base magnitude, not just small ints.
+    fn start_ms_like() -> u64 {
+        1_780_000_000_000
     }
 }

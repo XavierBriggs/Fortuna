@@ -259,6 +259,44 @@ pub fn is_revoked(path: &Path) -> bool {
     path.exists()
 }
 
+/// The three-way state of the revocation sentinel for a FAIL-CLOSED precondition
+/// (the operator re-arm path, I4). [`is_revoked`] is `path.exists()`, which
+/// collapses BOTH "absent" and "unverifiable" (a stat error — e.g. a `0o000`
+/// parent dir) to `false`. The re-arm guard must NOT negate `is_revoked`:
+/// negating it would ALLOW a re-arm whenever the sentinel's state is unknowable,
+/// re-enabling order-placing capability while the kill state is unverifiable —
+/// the opposite of fail-closed. [`RevocationGuard`] keeps the third state
+/// explicit so the only ALLOW is "provably absent".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RevocationGuard {
+    /// The sentinel is provably absent under a readable parent: re-arm may
+    /// proceed (the normal happy path).
+    Allow,
+    /// The sentinel is PRESENT (a standing kill, I4) OR its presence cannot be
+    /// verified (a stat error — fail closed): re-arm must REFUSE.
+    Refuse,
+}
+
+/// Decide whether an operator re-arm may proceed given the kill sentinel at
+/// `path` (I4, fail-closed):
+///  - PRESENT  (`try_exists` → `Ok(true)`)  → [`RevocationGuard::Refuse`] (a
+///    standing kill blocks re-arm until cleared out-of-band).
+///  - ABSENT   (`try_exists` → `Ok(false)`) → [`RevocationGuard::Allow`] (the
+///    sentinel is provably gone under a readable parent).
+///  - UNVERIFIABLE (`try_exists` → `Err`)   → [`RevocationGuard::Refuse`] (the
+///    state is unknowable, e.g. an unreadable parent dir; FAIL CLOSED).
+///
+/// Uses `Path::try_exists` (NOT `Path::exists`/`is_revoked`): `try_exists`
+/// surfaces the stat error instead of swallowing it as `false`, which is the
+/// whole point of the third state. Total + no panic; reads no wall-clock time.
+pub fn revocation_guard(path: &Path) -> RevocationGuard {
+    match path.try_exists() {
+        Ok(true) => RevocationGuard::Refuse, // present → standing kill (I4)
+        Ok(false) => RevocationGuard::Allow, // provably absent → happy path
+        Err(_) => RevocationGuard::Refuse,   // unverifiable → fail closed
+    }
+}
+
 impl From<serde_json::Error> for KillSwitchError {
     fn from(e: serde_json::Error) -> Self {
         KillSwitchError::Journal(std::io::Error::other(e))

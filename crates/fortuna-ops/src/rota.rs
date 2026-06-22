@@ -2171,6 +2171,19 @@ fn truncate_json_str(v: &Value, max_chars: usize) -> String {
     }
 }
 
+/// True iff `s` is exactly a `YYYY-MM-DD` prefix (`dddd-dd-dd`): 10 ASCII bytes,
+/// digits in every non-hyphen position and hyphens at indices 4 and 7. Operates
+/// on a `&str` the caller already sliced with `get(..10)` (so it is a clean
+/// char-boundary 10-char slice — never a torn multibyte slice). Pure, no panic.
+fn is_iso_date_prefix(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 10
+        && b.iter().enumerate().all(|(i, &c)| match i {
+            4 | 7 => c == b'-',
+            _ => c.is_ascii_digit(),
+        })
+}
+
 /// Extract `target_date` and `market_ticker` from the linkage string and
 /// optional market_id. The linkage format is:
 /// `<category>:<station>:<kind>:<YYYY-MM-DD>#<threshold>` (aeolus pattern) or
@@ -2178,13 +2191,15 @@ fn truncate_json_str(v: &Value, max_chars: usize) -> String {
 fn parse_linkage_fields(event_linkage: &str, market_id: Option<&str>) -> (String, String) {
     // Try to extract a date component (4 digits, 2 digits, 2 digits separated by hyphens)
     // from the linkage string as target_date.
+    //
+    // `seg.get(..10)` (NOT `seg[..10]`) so a multibyte UTF-8 char straddling byte
+    // index 10 returns `None` instead of PANICKING on a non-char-boundary slice
+    // (no-panic rule; untrusted linkage data may carry any bytes). A segment is a
+    // date prefix only when the first 10 chars are exactly `dddd-dd-dd`.
     let target_date = event_linkage
         .split(':')
-        .find(|seg| {
-            // A segment that looks like YYYY-MM-DD (10 chars, two hyphens).
-            seg.len() >= 10 && seg[..10].chars().filter(|c| *c == '-').count() == 2
-        })
-        .map(|seg| seg[..10].to_string())
+        .find_map(|seg| seg.get(..10).filter(|p| is_iso_date_prefix(p)))
+        .map(str::to_string)
         .unwrap_or_default();
 
     let market_ticker = market_id.unwrap_or("").to_string();
@@ -2649,3 +2664,55 @@ every(2000,["health","audit"]);every(5000,["money","gates","ingest_sources","ing
 every(10000,["cognition","settlement","fills","strategies","working_orders"]);every(15000,["streams","discovery","discovery_edges"]);
 every(30000,["db","personas","persona_scores","persona_pipeline","analyses","forecasts","forecast_feed","perps","telemetry"]);
 </script></body></html>"#;
+
+#[cfg(test)]
+mod parse_linkage_tests {
+    use super::parse_linkage_fields;
+
+    /// W6a (byte-slice harden): a linkage SEGMENT with a multibyte UTF-8 char
+    /// straddling byte index 10 must NOT panic. The pre-fix code did
+    /// `seg.len() >= 10 && seg[..10]…` — `seg[..10]` slices the first 10 BYTES,
+    /// and if byte 10 is mid-char that slice panics (not a char boundary). Here
+    /// `"123456789é"` is 9 ASCII bytes + `é` (0xC3 0xA9 at bytes 9–10), so
+    /// `seg.len() == 11 >= 10` AND `seg[..10]` cuts `é` in half. The hardened
+    /// `.get(..10)`/char-boundary form must return gracefully (no date found in
+    /// this non-date segment ⇒ empty target_date).
+    #[test]
+    fn multibyte_segment_at_byte_10_does_not_panic() {
+        let linkage = "weather:123456789é:high:nope";
+        let (target_date, market_ticker) = parse_linkage_fields(linkage, Some("MKT-1"));
+        // No valid YYYY-MM-DD segment present ⇒ empty date, but crucially NO PANIC.
+        assert_eq!(target_date, "", "no date segment ⇒ empty target_date");
+        assert_eq!(
+            market_ticker, "MKT-1",
+            "market_ticker falls back to market_id"
+        );
+    }
+
+    /// A multibyte char straddling byte 10 INSIDE an otherwise date-shaped
+    /// segment must also not panic — and must not mis-extract a partial date.
+    /// `"2026-06-1é"` = 9 ASCII bytes (`2026-06-1`) + `é` at bytes 9–10. The old
+    /// `seg[..10]` would panic; the hardened code skips it (not a clean 10-char
+    /// date prefix) without crashing.
+    #[test]
+    fn multibyte_inside_date_shaped_segment_does_not_panic() {
+        let linkage = "temp:2026-06-1é:max";
+        let (target_date, _ticker) = parse_linkage_fields(linkage, None);
+        // It either yields a clean 10-char date or empty — never a panic, never a
+        // torn multibyte slice. (The é-straddled segment is not a clean date.)
+        assert!(
+            target_date.is_empty() || target_date.len() == 10,
+            "either a clean 10-char date or empty, never a torn slice: {target_date:?}"
+        );
+    }
+
+    /// The happy path still works after the harden: a clean ASCII YYYY-MM-DD
+    /// segment is extracted as the target_date.
+    #[test]
+    fn ascii_date_segment_still_extracts() {
+        let linkage = "weather:KNYC:high:2026-06-17#ge87";
+        let (target_date, ticker) = parse_linkage_fields(linkage, Some("KXHIGHNY"));
+        assert_eq!(target_date, "2026-06-17", "the clean ASCII date extracts");
+        assert_eq!(ticker, "KXHIGHNY");
+    }
+}

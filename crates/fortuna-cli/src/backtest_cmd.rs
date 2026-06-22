@@ -317,21 +317,32 @@ fn format_go_surface(run: &ValidationRun) -> String {
         fortuna_scoring::GoDecision::NoGo => "NoGo",
         fortuna_scoring::GoDecision::Insufficient => "Insufficient",
     };
+    // W6a (provenance honesty): the decoded (window, method, threshold) is the
+    // trial-grid COORDINATE of the in-sample-best config — NOT a description of
+    // the recalibration that was applied. `LedgerEdgeProvider::recalibrate` keys
+    // on the FLAT config index and applies a per-config temperature scaling
+    // (τ = 0.7 + 0.3·index; see edge_provider::recalibrate). So the named recal
+    // knobs are ILLUSTRATIVE of the trial space, not the transform — say so
+    // explicitly rather than letting "method=None" read as "no recalibration".
     let selected = run
         .selected_config
         .map(|c| {
             format!(
-                "window={} method={:?} threshold={}",
+                "trial-grid[window={} method={:?} threshold={}]",
                 c.calibration_window, c.recal_method, c.go_threshold
             )
         })
         .unwrap_or_else(|| "(none)".to_string());
+    let recal_note = "applied recal = per-config TEMPERATURE scaling \
+                      (τ = 0.7 + 0.3·config_index); the selected_config window/method \
+                      above are ILLUSTRATIVE trial-grid labels, not the applied transform";
     format!(
         "=== Validation Run ===\n\
          run_id:           {run_id}\n\
          scope:            {scope}\n\
          producer:         {producer}\n\
          selected_config:  {selected}\n\
+         recal_applied:    {recal_note}\n\
          n_trials:         {n_trials}\n\
          family_n_trials:  {family_n_trials}\n\
          effective_n:      {effective_n:.4}\n\
@@ -415,5 +426,81 @@ mod tests {
         let to = UtcTimestamp::from_epoch_millis(0).unwrap(); // 1970-01-01T00:00:00Z
         let eod = end_of_day_inclusive(to).unwrap();
         assert_eq!(eod.to_iso8601(), "1970-01-01T23:59:59.999Z");
+    }
+
+    /// W6a (provenance honesty): the GO surface must NOT present the named recal
+    /// knobs (`method=…`, `window=…`) as if they describe the applied transform.
+    /// `LedgerEdgeProvider::recalibrate` keys on the FLAT config index (a
+    /// temperature scaling τ), so the decoded `(window, method)` is only the
+    /// trial-grid COORDINATE, not the recalibration that was applied. The surface
+    /// must (a) frame selected_config as a trial-grid coordinate and (b) DISCLOSE
+    /// that the applied recal is a per-config temperature scaling (the named knobs
+    /// are illustrative of the grid). Mutation: drop the disclosure / restore the
+    /// bare `method=… window=…` label and this reds.
+    #[test]
+    fn go_surface_discloses_recal_is_a_temperature_index_not_the_named_knobs() {
+        // A 2-config space so a config is actually selected (non-degenerate).
+        let space = TrialSpace {
+            calibration_windows: vec![60],
+            recal_methods: vec![RecalMethod::None, RecalMethod::Platt],
+            scopes: vec!["test-scope".to_string()],
+            go_thresholds: vec![0.05],
+        };
+        // A trivial provider with enough rows that a config is chosen (the values
+        // do not matter for the LABEL surface — only that selected_config is Some).
+        let provider = |_scope: &str, idx: usize| ConfigEdges {
+            brier_oos: vec![0.1 + idx as f64 * 0.01; 4],
+            brier_loss_diff: vec![-0.02; 4],
+            clv_oos: vec![1.0; 4],
+            sharpe_returns: vec![0.5; 4],
+        };
+        let run = run_sweep(&space, &SweepParams::default(), provider);
+        let surface = format_go_surface(&run);
+
+        // (a) the selected_config line frames the knobs as the trial-grid
+        // coordinate, not the applied transform.
+        assert!(
+            surface.contains("trial-grid"),
+            "selected_config must be framed as a trial-grid coordinate: {surface}"
+        );
+        // (b) an explicit disclosure that the APPLIED recal is a temperature
+        // scaling indexed by the config (the named knobs are illustrative).
+        let lower = surface.to_lowercase();
+        assert!(
+            lower.contains("temperature") && lower.contains("illustrative"),
+            "the surface must disclose the applied recal is a temperature scaling \
+             and the named knobs are illustrative of the grid: {surface}"
+        );
+    }
+
+    /// The honesty relabel must not drop the spec §7 field keys the existing
+    /// surface test relies on (verdict / brier_edge / selected_config still
+    /// present by name).
+    #[test]
+    fn go_surface_keeps_spec_fields_after_relabel() {
+        let space = TrialSpace {
+            calibration_windows: vec![60],
+            recal_methods: vec![RecalMethod::None],
+            scopes: vec!["s".to_string()],
+            go_thresholds: vec![0.05],
+        };
+        let provider = |_s: &str, _i: usize| ConfigEdges {
+            brier_oos: vec![0.1; 4],
+            brier_loss_diff: vec![-0.01; 4],
+            clv_oos: vec![1.0; 4],
+            sharpe_returns: vec![0.5; 4],
+        };
+        let surface = format_go_surface(&run_sweep(&space, &SweepParams::default(), provider));
+        for key in [
+            "selected_config:",
+            "brier_edge:",
+            "verdict:",
+            "family_n_trials:",
+        ] {
+            assert!(
+                surface.contains(key),
+                "spec field {key} must remain: {surface}"
+            );
+        }
     }
 }

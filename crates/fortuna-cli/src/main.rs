@@ -524,13 +524,60 @@ fn unmanaged_recorder_pids(managed: Option<i64>) -> Result<Vec<i64>> {
 /// always reflects the URL the daemon actually booted with.
 ///
 /// The mode is a CONFIG discipline: set `execution_mode = "paper_ledger"` in
-/// `[runtime]` before running this. This command accepts the `paper-demo`
-/// positional for documentation purposes; everything else (validation, spawn)
-/// is identical to a normal `start`.
+/// `[runtime]` before running this. When the `paper-demo` positional is present
+/// this command HARD-ASSERTS that mode ([`assert_paper_demo_safe`]) and FAILS
+/// LOUDLY (non-zero exit) if the resolved config is not paper-safe — so an
+/// operator can never footgun a non-paper "demo". Everything else (spawn) is
+/// identical to a normal `start`.
+/// W6a (Phase B Adv): when `fortuna start paper-demo` is invoked, HARD-ASSERT
+/// the resolved config is paper-safe — `[runtime].execution_mode == "paper_ledger"`
+/// — and FAIL LOUDLY otherwise so an operator can never footgun a non-paper
+/// "demo". Reads `[runtime].execution_mode` as a raw `toml::Value` (the same
+/// pattern `config_on_disk` uses; `[runtime]` is the daemon's section, not
+/// `FortunaConfig`'s, and the cli has no runtime dep on fortuna-live). Fail
+/// closed: a missing `[runtime]`/`execution_mode`, or an unreadable/unparseable
+/// config, refuses. Pure (path-only) so it is unit-tested without a daemon.
+fn assert_paper_demo_safe(config_path: &str) -> Result<()> {
+    const REQUIRED: &str = "paper_ledger";
+    let text = std::fs::read_to_string(config_path).with_context(|| {
+        format!(
+            "refusing `start paper-demo`: cannot read config {config_path} to verify \
+             execution_mode == {REQUIRED:?}"
+        )
+    })?;
+    let value: toml::Value = toml::from_str(&text).with_context(|| {
+        format!("refusing `start paper-demo`: cannot parse config {config_path}")
+    })?;
+    let mode = value
+        .get("runtime")
+        .and_then(|r| r.get("execution_mode"))
+        .and_then(|v| v.as_str());
+    match mode {
+        Some(REQUIRED) => Ok(()),
+        Some(other) => bail!(
+            "refusing `start paper-demo`: [runtime].execution_mode is {other:?}, but \
+             paper-demo requires {REQUIRED:?} (live data + LOCAL paper execution; no \
+             real-venue order). Set execution_mode = \"{REQUIRED}\" in {config_path}, \
+             or run plain `fortuna start` for a non-demo mode."
+        ),
+        None => bail!(
+            "refusing `start paper-demo`: {config_path} has no [runtime].execution_mode. \
+             paper-demo requires an explicit execution_mode = \"{REQUIRED}\" (fail closed: \
+             a demo never assumes paper)."
+        ),
+    }
+}
+
 fn start_cmd(args: &Args) -> Result<()> {
     let config_path = resolved_config_path(args);
     fortuna_ops::FortunaConfig::load_file(&config_path)
         .with_context(|| format!("config check failed for {config_path}"))?;
+    // W6a: `fortuna start paper-demo` must be paper-safe by HARD ASSERTION (the
+    // positional was previously unread — a doc-only alias). Fail loudly if the
+    // resolved config is not execution_mode = "paper_ledger".
+    if args.positional.first().map(String::as_str) == Some("paper-demo") {
+        assert_paper_demo_safe(&config_path)?;
+    }
     let root = repo_root_from_config(Path::new(&config_path));
 
     if args.foreground {
@@ -1218,6 +1265,11 @@ async fn db_command(args: &Args) -> Result<()> {
                     "halt set on {scope_raw}; the runner enforces it within its poll interval"
                 );
             } else {
+                // I4 (E6): REFUSE the re-arm while the kill-switch revocation
+                // sentinel stands (or its state is unverifiable). This runs
+                // BEFORE record_rearm so a standing kill can never be re-armed
+                // back into order-placing capability via the ledger path.
+                rearm_revocation_precondition(&resolved_config_path(args))?;
                 // I2: THE human re-arm path. Out-of-band by construction.
                 halts.record_rearm(&scope, &reason, &operator, now).await?;
                 audit
@@ -1247,6 +1299,51 @@ fn parse_optional_ts(raw: Option<&str>, flag: &str) -> Result<Option<UtcTimestam
     }
 }
 
+/// I4 (E6) re-arm precondition: REFUSE the re-arm while a kill sentinel stands
+/// (or while its state is unverifiable). Reads `[killswitch].revocation_file`
+/// from the config on disk (raw `toml::Value` — the same pattern `config_on_disk`
+/// uses, because `[killswitch]` is the daemon's section, not `FortunaConfig`'s)
+/// and applies the THREE-WAY [`fortuna_killswitch::revocation_guard`]:
+/// PRESENT → refuse (a standing kill blocks re-arm until cleared out-of-band, I4);
+/// UNVERIFIABLE → refuse (a stat error, e.g. an unreadable parent dir — FAIL
+/// CLOSED; this is why we cannot use `!is_revoked`, which collapses
+/// unverifiable→false and would wrongly ALLOW); ABSENT → allow (the happy path).
+///
+/// Absent `[killswitch]` / no `revocation_file` ⇒ no sentinel is configured (the
+/// daemon would not wrap a `RevocationHaltPoller` either) ⇒ allow. A config that
+/// cannot be read/parsed is itself a refusal (fail closed — we cannot prove the
+/// kill state). Pure (path-only): unit-tested without a database.
+fn rearm_revocation_precondition(config_path: &str) -> Result<()> {
+    let text = match std::fs::read_to_string(config_path) {
+        Ok(t) => t,
+        // Cannot read the config ⇒ cannot prove the kill state ⇒ fail closed.
+        Err(e) => bail!(
+            "refusing re-arm: cannot read config {config_path} to verify the kill \
+             sentinel state ({e}) — the kill-switch revocation state is unverifiable"
+        ),
+    };
+    let value: toml::Value = toml::from_str(&text)
+        .with_context(|| format!("refusing re-arm: cannot parse config {config_path}"))?;
+    let revocation_file = value
+        .get("killswitch")
+        .and_then(|k| k.get("revocation_file"))
+        .and_then(|v| v.as_str());
+    let Some(path) = revocation_file else {
+        // No sentinel configured: nothing to guard (matches the daemon's
+        // "absent => no RevocationHaltPoller wrap" — boot.rs).
+        return Ok(());
+    };
+    match fortuna_killswitch::revocation_guard(Path::new(path)) {
+        fortuna_killswitch::RevocationGuard::Allow => Ok(()),
+        fortuna_killswitch::RevocationGuard::Refuse => bail!(
+            "refusing re-arm: the kill-switch revocation sentinel is present or its \
+             state is unverifiable — order-placing capability stays revoked. Clear \
+             the sentinel out-of-band (fortuna-killswitch / clear the KILLSWITCH_REVOKED \
+             file), confirm it is gone, then re-run the re-arm and restart the daemon (I4/I2)."
+        ),
+    }
+}
+
 /// The operator-facing line(s) printed after a successful re-arm. Pure so the
 /// wording is unit-tested without a database. M3 (the re-arm notice): a re-arm
 /// clears the durable halt in the ledger, but I2 is restart-gated — the RUNNING
@@ -1269,6 +1366,176 @@ mod tests {
     //! sequence (pidfile content + stopping-marker clear).
 
     use super::*;
+
+    #[test]
+    fn paper_demo_assert_accepts_paper_ledger() {
+        // The only paper-safe mode for `fortuna start paper-demo`.
+        let dir = scratch("paper-demo-ok");
+        let config = dir.join("fortuna.toml");
+        std::fs::write(
+            &config,
+            "[runtime]\nstage = \"paper\"\nexecution_mode = \"paper_ledger\"\norders_enabled = false\n",
+        )
+        .unwrap();
+        assert_paper_demo_safe(config.to_str().unwrap())
+            .expect("paper_ledger is the paper-safe demo mode");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn paper_demo_assert_rejects_non_paper_mode() {
+        // A `paper-demo` whose config resolves to ANY non-paper mode is a FOOTGUN
+        // — it must FAIL LOUDLY (clear error, non-zero exit). (Mutation: drop the
+        // assert and an operator could run a live "demo".)
+        for bad in [
+            "live_data_only",
+            "demo_orders",
+            "production_orders",
+            "dry_run",
+        ] {
+            let dir = scratch(&format!("paper-demo-bad-{bad}"));
+            let config = dir.join("fortuna.toml");
+            std::fs::write(
+                &config,
+                format!("[runtime]\nstage = \"paper\"\nexecution_mode = \"{bad}\"\norders_enabled = false\n"),
+            )
+            .unwrap();
+            assert!(
+                assert_paper_demo_safe(config.to_str().unwrap()).is_err(),
+                "mode {bad} must be refused for paper-demo"
+            );
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
+    #[test]
+    fn paper_demo_assert_rejects_non_paper_mode_messages() {
+        let dir = scratch("paper-demo-bad-msg");
+        let config = dir.join("fortuna.toml");
+        std::fs::write(
+            &config,
+            "[runtime]\nstage = \"paper\"\nexecution_mode = \"production_orders\"\norders_enabled = false\n",
+        )
+        .unwrap();
+        let err = assert_paper_demo_safe(config.to_str().unwrap())
+            .expect_err("production_orders must be refused for paper-demo");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("paper_ledger") && msg.contains("production_orders"),
+            "the refusal names the required and the offending mode: {msg}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn paper_demo_assert_rejects_missing_runtime_section() {
+        // No [runtime] / no execution_mode ⇒ a "demo" with no explicit paper
+        // mode ⇒ refuse (fail closed; never assume paper).
+        let dir = scratch("paper-demo-no-runtime");
+        let config = dir.join("fortuna.toml");
+        std::fs::write(&config, "[daemon]\nvenue = \"kalshi\"\n").unwrap();
+        assert_paper_demo_safe(config.to_str().unwrap())
+            .expect_err("absent [runtime].execution_mode must refuse paper-demo");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rearm_precondition_refuses_when_killswitch_sentinel_present() {
+        // I4 (E6): the operator re-arm path must REFUSE while a kill sentinel
+        // stands. The precondition reads [killswitch].revocation_file and applies
+        // the THREE-WAY guard — a present sentinel → Refuse → the re-arm errors
+        // BEFORE record_rearm. (Mutation: drop the guard / negate is_revoked and
+        // this reds — an absent-OR-present sentinel would both "pass".)
+        let dir = scratch("rearm-sentinel-present");
+        let sentinel = dir.join("KILLSWITCH_REVOKED");
+        std::fs::write(&sentinel, b"{\"revoked_at\":\"x\"}\n").unwrap();
+        let config = dir.join("fortuna.toml");
+        std::fs::write(
+            &config,
+            format!(
+                "[killswitch]\nrevocation_file = {:?}\n",
+                sentinel.display().to_string()
+            ),
+        )
+        .unwrap();
+
+        let err = rearm_revocation_precondition(config.to_str().unwrap())
+            .expect_err("a present kill sentinel must REFUSE the re-arm");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("kill") && (msg.contains("revoc") || msg.contains("sentinel")),
+            "the refusal names the standing kill: {msg}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rearm_precondition_refuses_when_sentinel_unreadable() {
+        // The UNVERIFIABLE branch: the sentinel's parent dir is 0o000, so the
+        // child cannot be stat'd. This exercises the try_exists/stat probe (NOT
+        // is_revoked, which would report false and — if negated — ALLOW). The
+        // precondition must FAIL CLOSED → Refuse.
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch("rearm-sentinel-unreadable");
+        let locked = dir.join("locked");
+        std::fs::create_dir_all(&locked).unwrap();
+        let sentinel = locked.join("KILLSWITCH_REVOKED");
+        let config = dir.join("fortuna.toml");
+        std::fs::write(
+            &config,
+            format!(
+                "[killswitch]\nrevocation_file = {:?}\n",
+                sentinel.display().to_string()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let result = rearm_revocation_precondition(config.to_str().unwrap());
+
+        // Restore perms BEFORE asserting so cleanup always succeeds.
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let err = result.expect_err("an unverifiable sentinel must FAIL CLOSED → refuse");
+        assert!(
+            format!("{err:#}").to_lowercase().contains("kill"),
+            "the refusal names the kill state: {err:#}"
+        );
+    }
+
+    #[test]
+    fn rearm_precondition_allows_when_sentinel_absent() {
+        // The happy path: an absent sentinel under a readable parent ALLOWS the
+        // re-arm (this is exactly the case `!is_revoked` would also pass — the
+        // guard must not over-refuse the normal operator action).
+        let dir = scratch("rearm-sentinel-absent");
+        let sentinel = dir.join("KILLSWITCH_REVOKED");
+        let config = dir.join("fortuna.toml");
+        std::fs::write(
+            &config,
+            format!(
+                "[killswitch]\nrevocation_file = {:?}\n",
+                sentinel.display().to_string()
+            ),
+        )
+        .unwrap();
+        rearm_revocation_precondition(config.to_str().unwrap())
+            .expect("an absent sentinel under a readable parent must ALLOW the re-arm");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rearm_precondition_allows_when_no_killswitch_section() {
+        // No [killswitch] section ⇒ no sentinel configured ⇒ nothing to guard
+        // (the daemon would not wrap a RevocationHaltPoller either). ALLOW.
+        let dir = scratch("rearm-no-section");
+        let config = dir.join("fortuna.toml");
+        std::fs::write(&config, "[other]\nx = 1\n").unwrap();
+        rearm_revocation_precondition(config.to_str().unwrap())
+            .expect("absent [killswitch] config ⇒ no sentinel ⇒ allow");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn rearm_message_tells_the_operator_to_restart() {

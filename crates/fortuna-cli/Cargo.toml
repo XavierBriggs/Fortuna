@@ -24,6 +24,12 @@ fortuna-backtest = { path = "../fortuna-backtest" }
 # fortuna-cli test file can call rusqlite::Connection directly.
 rusqlite = { version = "0.32", features = ["bundled"] }
 fortuna-scoring = { path = "../fortuna-scoring" }
+# W6a (E6 rearm-I4): the THREE-WAY revocation_guard for the operator re-arm
+# precondition. fortuna-killswitch is I4-clean (fortuna-core/venues/gates only —
+# no sqlx/postgres/ledger), so this adds no heavy deps and no cycle (killswitch
+# does not depend on the cli). The `kill` command still EXECS the standalone
+# binary; this dep is only the pure guard fn.
+fortuna-killswitch = { path = "../fortuna-killswitch" }
 anyhow = { workspace = true }
 tokio = { workspace = true }
 serde_json = { workspace = true }

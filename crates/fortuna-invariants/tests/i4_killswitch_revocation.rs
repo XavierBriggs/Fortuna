@@ -31,7 +31,10 @@ use fortuna_core::ids::{IdGen, IntentId};
 use fortuna_core::market::{Action, ClientOrderId, Contracts, MarketId, Side, StrategyId, VenueId};
 use fortuna_core::money::Cents;
 use fortuna_gates::{CandidateOrder, GateCheck, GateConfig, GateInputs, GatePipeline, HaltScope};
-use fortuna_killswitch::{clear_revocation, is_revoked, revocation_path, write_revocation};
+use fortuna_killswitch::{
+    clear_revocation, is_revoked, revocation_guard, revocation_path, write_revocation,
+    RevocationGuard,
+};
 use fortuna_live::run_loop::{HaltPoller, RevocationHaltPoller};
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -271,4 +274,82 @@ fn write_revocation_is_idempotent() {
     );
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ADDITIONS-ONLY (W6a, E6): the THREE-WAY re-arm precondition guard. These do
+// NOT touch any existing assertion above. They pin I4's fail-closed re-arm
+// precondition: order-placing capability may be re-armed ONLY when the kill
+// sentinel is PROVABLY absent — never while present, and never while its state
+// is unverifiable. The operator re-arm path must NOT use `!is_revoked`, because
+// `is_revoked` is `path.exists()`, which collapses absent+unverifiable both to
+// `false` (so negating it would ALLOW a re-arm when the kill state is unknowable
+// — the opposite of fail-closed).
+
+/// I4: a PRESENT kill sentinel refuses the re-arm precondition (a standing kill
+/// blocks re-arm until cleared out-of-band). The SAME sentinel that
+/// `write_revocation` plants (and that `is_revoked`/`RevocationHaltPoller`
+/// consume above) drives the guard to `Refuse`.
+#[test]
+fn rearm_guard_refuses_while_kill_sentinel_present() {
+    let dir = unique_dir("guard-present");
+    let journal = dir.join("killswitch.jsonl");
+    let sentinel = revocation_path(&journal);
+    let clock = Arc::new(SimClock::new(t0()));
+
+    write_revocation(&sentinel, clock.as_ref() as &dyn Clock, "freeze_and_cancel").unwrap();
+    assert!(
+        is_revoked(&sentinel),
+        "precondition: the sentinel is planted"
+    );
+    assert_eq!(
+        revocation_guard(&sentinel),
+        RevocationGuard::Refuse,
+        "a present kill sentinel must REFUSE the re-arm (I4)"
+    );
+
+    // And once cleared out-of-band, the guard allows again (the only ALLOW is a
+    // provably-absent sentinel).
+    clear_revocation(&sentinel).unwrap();
+    assert_eq!(
+        revocation_guard(&sentinel),
+        RevocationGuard::Allow,
+        "a provably-absent sentinel under a readable parent ALLOWS the re-arm"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// I4 (fail-closed): an UNVERIFIABLE sentinel — parent dir `0o000`, so the child
+/// cannot be stat'd — refuses the re-arm. This exercises the `try_exists`/stat
+/// probe, NOT `is_revoked`: `is_revoked` (`path.exists()`) reports `false` here,
+/// so a `!is_revoked` re-arm guard would WRONGLY allow. The three-way guard must
+/// FAIL CLOSED → `Refuse`.
+#[test]
+fn rearm_guard_refuses_when_sentinel_unverifiable() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = unique_dir("guard-unverifiable");
+    let locked = dir.join("locked");
+    std::fs::create_dir_all(&locked).unwrap();
+    let sentinel = locked.join("KILLSWITCH_REVOKED");
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+    // `is_revoked` (path.exists()) swallows the stat error as `false` — proof
+    // that negating it would ALLOW. The guard must NOT inherit that.
+    let is_revoked_says = is_revoked(&sentinel);
+    let verdict = revocation_guard(&sentinel);
+
+    // Restore perms before asserting so cleanup always succeeds.
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(
+        !is_revoked_says,
+        "is_revoked collapses unverifiable→false (the bug !is_revoked would inherit)"
+    );
+    assert_eq!(
+        verdict,
+        RevocationGuard::Refuse,
+        "an UNVERIFIABLE sentinel must FAIL CLOSED → Refuse (try_exists errored)"
+    );
 }

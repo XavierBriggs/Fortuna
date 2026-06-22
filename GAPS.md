@@ -133,6 +133,63 @@ pull the prior event's snapshots; today market tickers are bracket-specific (dat
 ticker) so the `(station,date,threshold)` market is one physical market — safe. Revisit if market id
 reuse across distinct events becomes possible.
 
+## WS4 W6a (safety/correctness hardening, 2026-06-22)
+
+### E4 dead-man — DROPPED as already-satisfied / config-only (bisect result)
+The W6 brief flagged F8 ("dead-man ping FAILED: transport failure"). **Bisected — no defect:**
+(1) `FORTUNA_DEADMAN_URL` is a REQUIRED env var (`fortuna-live/src/boot.rs:120`,
+`required(env, "FORTUNA_DEADMAN_URL")`) — `validate_env` refuses to boot when it is missing, so the URL
+is never unset at runtime. (2) The pinger is constructed once (`fortuna-live/src/main.rs:422`) inside a
+long-lived `tokio::spawn` loop (`main.rs:429-442`) that NEVER drops it on error — `&mut pinger` persists
+across every tick. (3) `daemon::deadman_tick` (`daemon.rs:6184`) on `Err` calls `on_failure` (logs to
+stderr) and DOES NOT `record_ping`, so the next tick re-fires — retry-every-interval until the monitor
+recovers, no silent backoff (correct-by-design per the module doc + spec Section 8). (4) Kalshi `WsDial`
+(`fortuna-venues/src/kalshi/dial.rs:71`) has capped-exponential reconnect backoff (500ms→30s), wired.
+So `dead-man ping FAILED` (`main.rs:438`) is the EXPECTED log when the configured monitor URL is
+unreachable; the external monitor's own silence-page is the escalation of record (spec Section 8: "missed
+pings alert via the monitor's own channel"). **No code change; no vacuous recovery test** (the component
+is no-retry-by-design — a "recovers after transport failure" test has no recovery path to exercise). The
+only operator action is a reachable `FORTUNA_DEADMAN_URL`.
+
+### edge_id_base collision (DEMO-CRITICAL) — FIXED via disjoint persona prefix
+`PersonasWiring.edge_id_base` (`main.rs:599`) and `DiscoveryWiring.edge_id_base` (`main.rs:678`) both
+seed from the same `start_ms`, and both minted `01EDG{seq:021}` — so when discovery + personas co-run in
+one `drive()` (the demo end-state) the first edge ids collided on the `market_event_edges` PK
+(`insert_edge`, `repos.rs`, has no `ON CONFLICT`). Non-fatal (the persona insert error is caught as an Ops
+alert and the loop continues — no money/I6 impact) BUT the persona's CLV was silently dropped from the
+head-to-head. **Fix:** persona edges now mint `01EDP{seq:021}` (new `PERSONA_EDGE_ID_PREFIX` const +
+`mint_edge_id` helper in `daemon.rs`), structurally disjoint from discovery's `01EDG` regardless of the
+shared base. No production code filters edges by the `01EDG` prefix (verified by grep — all `01ED*`
+literals elsewhere are test fixtures), so the prefix change is safe. Pinned by
+`persona_and_discovery_edge_ids_are_disjoint_for_the_same_seq` (mutation-proven: reverting the persona
+prefix to `01EDG` reds it). The boundary live gate (`ws4-live-smoke.sh`, W6b) still owes the assertion
+that the head-to-head persona gets non-null CLV with discovery co-active.
+
+### parse_linkage_fields byte-slice panic — FIXED (no-panic rule)
+`parse_linkage_fields` (`fortuna-ops/src/rota.rs`) did `seg.len() >= 10 && seg[..10]…`, which PANICS when
+a multibyte UTF-8 char straddles byte index 10 (linkage data is untrusted; `event_linkage` may carry any
+bytes). Not reachable today (ASCII-only linkages) but it violated the no-panic-in-non-test rule. **Fix:**
+`seg.get(..10).filter(is_iso_date_prefix)` — returns `None` on a non-char-boundary slice instead of
+panicking, and `is_iso_date_prefix` STRENGTHENS the check from "10 chars + two hyphens" to a real
+`dddd-dd-dd` shape (digits in every non-hyphen position). Pinned by
+`multibyte_segment_at_byte_10_does_not_panic` + `multibyte_inside_date_shaped_segment_does_not_panic`
+(both red on the pre-fix code) + an ASCII happy-path test.
+
+### recalibrate provenance — RELABELED (gate math untouched; the preferred fix)
+`LedgerEdgeProvider::recalibrate` (`fortuna-backtest/src/edge_provider.rs:338`) keys on the FLAT
+`config_index` and applies a per-config TEMPERATURE scaling (τ = 0.7 + 0.3·index), but the GO surface
+reported the decoded trial-grid coordinate (`window=…`, `method=…`) as `selected_config` — so
+`method=None` read as "no recalibration applied" when a temperature transform actually was. The gate math
+is VERIFIED-honest (G-PIT join, G-PARITY shared scorer, conjunctive Brier-primary decide) and was NOT
+changed. **Preferred fix (relabel only):** `format_go_surface` (`fortuna-cli/src/backtest_cmd.rs`) now
+frames the value as `selected_config: trial-grid[window=… method=… threshold=…]` and adds a
+`recal_applied:` disclosure line stating the applied recal is a per-config temperature scaling and the
+named knobs are ILLUSTRATIVE of the trial grid, not the applied transform. Real per-method dispatch
+(actual Platt/Isotonic) was intentionally NOT implemented (it would change the family's OOS columns and
+require re-deriving the verdict); the temperature family is a genuine one-parameter recalibration that
+makes the configs differ. `validate_real_edges` / `validate_yields_honest_verdict` re-run GREEN (the
+verdict is unchanged). Pinned by `go_surface_discloses_recal_is_a_temperature_index_not_the_named_knobs`.
+
 ## WS3 backtest — guardian boundary findings (2026-06-21, operator queue)
 ### G1. `fortuna validate` ships a placeholder edge-provider; purge/embargo unreachable in production (Important)
 The S7 `run_validate` `EdgeProvider` (`crates/fortuna-cli/src/backtest_cmd.rs:173-178`) returns empty
