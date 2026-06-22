@@ -107,6 +107,35 @@ once field data from the live paper soak validates the right thresholds.
 No existing config key covers this; the constants are documented at the site.
 Unblock: add `[clv]` TOML section, update `FortunaConfig`, thread to resolver.
 
+## WS3 backtest — guardian boundary findings (2026-06-21, operator queue)
+### G1. `fortuna validate` ships a placeholder edge-provider; purge/embargo unreachable in production (Important)
+The S7 `run_validate` `EdgeProvider` (`crates/fortuna-cli/src/backtest_cmd.rs:173-178`) returns empty
+OOS edge series for every config, so `fortuna validate` can only emit `GoDecision::Insufficient` on a
+fresh ledger — it never computes a real GO/NO-GO from replayed history. `run_sweep`
+(`crates/fortuna-backtest/src/sweep.rs:332-336`) hard-codes `no_windows` + `Duration::zero()` into both
+`pbo()` calls, so the purged+embargoed CSCV (the research's "#1 lie-prevention", mandatory for Aeolus's
+overlapping same-station-day labels) has **NO reachable production code path** — it is implemented and
+unit-proven (`purged_cscv_bites_on_known_overlap`) but never wired. The replay path (scored output) and
+the sweep path (per-slice OOS edge series) are disconnected — no seam feeds `ReplayHarness::replay`'s
+scorecards back into the sweep matrix.
+**Why not blocking (guardian PASS):** the deflation MATH is honest and bites (guardian mutation-verified);
+the `backtest` command (seed the real track record) IS fully wired to the real read-only Aeolus archive +
+ledger; and the empty-edge `validate` path is FAIL-SAFE (`decide` guards `effective_n<30 || n_logits==0
+→ Insufficient`, `scorecard.rs:362`) so it can NEVER emit a false GO. Plan S7 only required validate to
+run-sweep→write→print.
+**Unblock (WS4 / follow-on):** wire a per-slice `EdgeProvider` that reads replayed scorecards from the
+ledger and supplies real `LabelWindow`s (so purge/embargo actually runs); until then `fortuna validate`
+on real data returns `Insufficient` by construction — NOT a tested-on-real-data verdict. (Corrects the
+plan's "No placeholders" self-review line for the production validate path.)
+
+### G2. Decoupling + scoring-purity not enforced by an executable test (Minor)
+The fortuna-backtest source-literal grep and the fortuna-scoring no-new-dep assertion are enforced only
+by the boundary gate (`.hephaestus/ws3.gates` lines 12/14/16) and per-slice shell greps — not by a
+permanent `#[test]` in the corpus. `i_decoupling_spine.rs` scans fortuna-gates/exec/state but NOT
+fortuna-backtest/scoring. Currently satisfied (verified at the boundary). **Unblock:** add a `#[test]`
+that greps `fortuna-backtest/src` for source literals + asserts `fortuna-scoring`'s Cargo.toml dep set,
+and include it in the boundary battery.
+
 ## Disputed invariant tests
 ### C5 BookAge gate vs i1_universal_gate hardcoded check-count (2026-06-18, Phase C)
 Task C5 (book-freshness gate) adds an 11th gate check (BookAge) to `GateCheck::ALL`. The i1_universal_gate invariant test hardcodes the count `assert_eq!(out.records.len(), 10)` (2 sites: i1_universal_gate + i1_prop_all_orders_carry_gate_verdicts). Adding ANY gate check makes that `10` wrong. The C5 subagent changed `10` → `GateCheck::ALL.len()` (a self-adjusting STRENGTHENING) — but that MODIFIES a protected invariant assertion, which the constitution forbids without operator review. **RESOLVED 2026-06-18 (operator-approved, see chat):** chose the SEPARATE BookAge check (cleaner: single-responsibility + distinct `gate_rejections{check="book_age"}` telemetry + explicit ordering before price-sanity + spec-faithful). The i1 count update `10 → GateCheck::ALL.len()` is a genuine STRENGTHENING (verifies EVERY check produces a verdict regardless of count, not a fixed N) and is operator-blessed. The change was re-applied (cherry-pick of a9140c0). **Protected-invariant baseline re-based past this commit:** future `check-protected-invariants.sh` runs in this session compare against the post-C5 commit so this approved change is grandfathered while any NEW invariant modification is still caught. The hardcoded-`10` brittleness is the root cause; using `GateCheck::ALL.len()` makes i1 self-adjusting for future checks.
