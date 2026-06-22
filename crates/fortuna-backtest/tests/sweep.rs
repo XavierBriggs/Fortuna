@@ -262,6 +262,97 @@ fn go_surface_serializes_whole_truth() {
     assert_eq!(round.verdict, run.verdict);
 }
 
+/// BLOCK-2 behavioral bite: DSR must tighten (decrease) as `family_n_trials`
+/// grows because a larger joint grid drives up the Gumbel expected-max-Sharpe
+/// SR0, which lowers the deflated score.
+///
+/// The `flat_edges` fixture cannot catch this regression because all configs
+/// have identical `sharpe_returns` → `trial_sharpe_variance == 0` → the
+/// `expected_max_sharpe` early-returns 0 for ANY n_eff_trials (the `var<=0`
+/// guard in `dsr.rs`). This fixture makes configs differ in their Sharpe
+/// profiles so `trial_sr_variance > 0`, forcing DSR to depend on the trial
+/// count.  A mutation that replaces `family_n_trials` with `n_configs` in the
+/// `dsr(...)` call collapses the 1-scope vs 3-scope gap and reds this test.
+#[test]
+fn sweep_dsr_deflates_against_family_n_trials() {
+    // Fixture: configs with deliberately varied `sharpe_returns` so that
+    // `trial_sharpe_variance > 0`. We use the same 2×2×2=8-config grid as
+    // `trial_space`. Config 0 is the "best" on Brier and has a strong positive
+    // Sharpe; the remaining 7 configs have oscillating or negative returns so
+    // the Sharpe variance across configs is substantial.
+    let varied_edges = |_scope: &str, config_index: usize| -> ConfigEdges {
+        // 60 slices — enough that effective_n and PBO run properly.
+        let n = 60usize;
+        // All configs share the same strong, consistent Brier-skill edge so
+        // config selection is stable and the selected config's brier metrics
+        // pass gating (we need the DSR path to be reached, not short-circuit
+        // on Insufficient). The Brier signals are uniform; only sharpe_returns
+        // differ so that trial_sharpe_variance is non-zero.
+        let brier_oos: Vec<f64> = (0..n).map(|_| 0.05).collect();
+        let brier_loss_diff: Vec<f64> = (0..n).map(|_| 0.05).collect();
+        let clv_oos: Vec<f64> = (0..n).map(|_| 0.0).collect();
+
+        // Config 0 (selected): large, stable positive returns → high Sharpe.
+        // Configs 1-7: alternating or negative returns → low or negative Sharpe.
+        // This spreads the per-config Sharpe distribution wide, giving
+        // trial_sr_variance >> 0.
+        let sharpe_returns: Vec<f64> = (0..n)
+            .map(|i| {
+                if config_index == 0 {
+                    // Consistent positive: Sharpe ≈ mean/std >> 0
+                    0.08 + 0.01 * (i as f64 % 3.0 - 1.0)
+                } else {
+                    // Alternating with magnitude proportional to config_index
+                    let sign = if i % 2 == 0 { 1.0 } else { -1.0 };
+                    sign * 0.05 * config_index as f64 / 7.0
+                }
+            })
+            .collect();
+
+        ConfigEdges {
+            brier_oos,
+            brier_loss_diff,
+            clv_oos,
+            sharpe_returns,
+        }
+    };
+
+    let params = SweepParams::default();
+
+    // 1 scope × 8 configs = family_n_trials = 8.
+    let one = run_sweep(&trial_space(vec!["s0".into()]), &params, varied_edges);
+
+    // 3 scopes × 8 configs = family_n_trials = 24.
+    let three = run_sweep(
+        &trial_space(vec!["s0".into(), "s1".into(), "s2".into()]),
+        &params,
+        varied_edges,
+    );
+
+    // Sanity: both runs produce a finite DSR.
+    assert!(
+        one.sharpe_dsr.is_finite(),
+        "1-scope sharpe_dsr must be finite"
+    );
+    assert!(
+        three.sharpe_dsr.is_finite(),
+        "3-scope sharpe_dsr must be finite"
+    );
+
+    // The 3-scope run must have a strictly lower DSR than the 1-scope run:
+    // more trials → higher Gumbel SR0 → lower DSR (tighter deflation).
+    // A mutation swapping `family_n_trials` → `n_configs` in sweep.rs would
+    // pass the same n=8 to dsr() in both calls, collapsing this gap.
+    assert!(
+        three.sharpe_dsr < one.sharpe_dsr,
+        "3-scope DSR ({}) must be strictly less than 1-scope DSR ({}) — \
+         more family trials inflates SR0 (Gumbel), tightening deflation \
+         (BLOCK-2: dsr must consume family_n_trials, not n_configs)",
+        three.sharpe_dsr,
+        one.sharpe_dsr,
+    );
+}
+
 /// A sweep over a consistently-skilled edge produces a coherent run: a selected
 /// config drawn from the explored grid, the Brier edge surfaced, and a verdict
 /// that is one of the three legal states (never a fourth).
