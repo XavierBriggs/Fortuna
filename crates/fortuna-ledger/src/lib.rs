@@ -60,6 +60,10 @@ pub enum LedgerError {
     CorruptRow { table: &'static str, reason: String },
     #[error("id generation failed: {0}")]
     Id(#[from] fortuna_core::ids::IdError),
+    /// A requested row does not exist. The `detail` is operator-visible (never
+    /// a raw user string) so it is safe to surface in the chain unavailable envelope.
+    #[error("not found: {detail}")]
+    NotFound { detail: String },
 }
 
 /// The canonical `provenance->>'source'` value stamped on every belief written

@@ -1891,6 +1891,11 @@ async fn view_chain(State(s): State<RotaState>, Query(q): Query<ChainQuery>) -> 
         Ok(chain) => Json(serde_json::to_value(chain).unwrap_or_else(
             |_| json!({ "status": "unavailable", "detail": "chain serialization failed" }),
         )),
+        Err(fortuna_ledger::LedgerError::NotFound { detail }) => {
+            // ROTA R1: absent event is HTTP 200 + unavailable envelope so the UI
+            // can branch on status — never a 404/500.
+            Json(json!({ "status": "unavailable", "detail": detail }))
+        }
         Err(e) => {
             eprintln!("rota: chain assembly degraded for {event_linkage:?}: {e}");
             Json(json!({
@@ -1917,27 +1922,10 @@ async fn assemble_chain(
     // Step 1: resolve linkage → event row.
     let events_repo = EventsRepo::new(pool.clone());
     let Some(event_row) = events_repo.by_linkage(event_linkage).await? else {
-        return Ok(ChainView {
-            event: EventRef {
-                event_linkage: event_linkage.to_string(),
-                category: String::new(),
-                scope: String::new(),
-                target_date: String::new(),
-                market_ticker: String::new(),
-            },
-            safety: SafetyPills {
-                execution_mode: execution_mode.to_string(),
-                order_mutation_enabled,
-                book_freshness_secs: None,
-            },
-            signals: vec![],
-            producers: vec![],
-            proposal: None,
-            gate: None,
-            fill: None,
-            settlement: None,
-            scorecard: None,
-            validation: None,
+        // Spec requires HTTP 200 + {"status":"unavailable","detail":"event not found"}
+        // (ROTA R1) so the UI can branch on status — never an empty ChainView or a 404.
+        return Err(fortuna_ledger::LedgerError::NotFound {
+            detail: "event not found".to_string(),
         });
     };
 
@@ -2082,30 +2070,46 @@ async fn assemble_chain(
 
         let fill = fill_row.map(|f| FillRef {
             price_cents: f.price_cents,
-            qty: 1,    // quantity is not returned by first_fill_for_market; sentinel.
+            // qty is sourced from the fills table (first_fill_for_market now selects it).
+            qty: f.qty,
             orders: 0, // paper_ledger: never a real order (i_paper_live_no_real_order).
             at: f.at,
         });
 
-        // The last (most recent) settlement entry's realized amount.
-        let settlement = settlement_rows.last().map(|s| SettlementRef {
-            outcome: 0.0, // outcome comes from the belief, not the settlement row.
-            realized_pnl_cents: s.amount_cents,
-            settled_at: s.at.clone(),
-            resolution_source: s.venue.clone(),
-        });
+        // outcome is the event's binary outcome, shared across producers (all beliefs
+        // on one event have the same ground truth). Source from the first resolved
+        // producer belief; if none is resolved yet, leave the settlement absent rather
+        // than fabricate a 0.0.
+        let resolved_outcome: Option<f64> =
+            producers.iter().find_map(|p| p.score.as_ref()?.outcome);
+
+        let settlement = if let Some(outcome) = resolved_outcome {
+            // The last (most recent) settlement entry's realized amount.
+            settlement_rows.last().map(|s| SettlementRef {
+                outcome,
+                realized_pnl_cents: s.amount_cents,
+                settled_at: s.at.clone(),
+                resolution_source: s.venue.clone(),
+            })
+        } else {
+            // Outcome not yet available (event unresolved) — omit settlement rather
+            // than emit a fabricated 0.0 (ROTA honest-unavailable principle).
+            None
+        };
 
         (fill, settlement)
     } else {
         (None, None)
     };
 
-    // Step 4: scorecard.
+    // Step 4: scorecard. Window MUST be "forward" — the EXACT string written by
+    // recompute_scorecards (fortuna-live/src/daemon.rs ~line 5740). Any other
+    // window (e.g. "30") is dead on real data because no writer persists it.
     let scorecard = if scope.is_empty() {
         None
     } else {
         ScorecardsRepo::new(pool.clone())
-            .latest_scorecard(&scope, None, "30")
+            .latest_scorecard(&scope, None, "forward")
             .await?
     };
 
@@ -2139,6 +2143,8 @@ async fn assemble_chain(
             category: event_row.category,
             scope,
             target_date,
+            // NOTE: market_ticker is set to market_id — the events table has no
+            // separate ticker column. See GAPS.md: "events table has no ticker column".
             market_ticker,
         },
         safety,

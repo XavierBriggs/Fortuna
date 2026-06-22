@@ -1,18 +1,57 @@
 //! WS4 W1 — golden-JSON contract tests for the chain-view the UI session renders.
 //! Asserts (1) a fully-populated chain round-trips by value, (2) optional stages are OMITTED from
-//! the JSON when absent (clean shape for the UI) yet still round-trip, and (3) the WS3 `validation`
-//! field accepts any forward-declared JSON shape.
+//! the JSON when absent (clean shape for the UI) yet still round-trip, and (3) the WS3
+//! `validation` field accepts the REAL `fortuna_backtest::sweep::ValidationRun` shape (not a
+//! placeholder) and round-trips it losslessly. This pins the WS3→WS4 contract wire shape for the UI.
 
+use fortuna_backtest::sweep::{RecalMethod, SelectedConfig, TrialSpace, ValidationRun};
 use fortuna_ops::chain_view::*;
-use serde_json::json;
+use fortuna_scoring::GoDecision;
+
+fn real_validation_run() -> ValidationRun {
+    // A minimal but real ValidationRun — all fields populated with representative
+    // values that round-trip through serde_json::Value without loss.
+    ValidationRun {
+        run_id: "01SWEEPTEST0000000000AABB".to_string(),
+        scope: "weather:KNYC:tmax".to_string(),
+        producer: None,
+        trial_space: TrialSpace {
+            calibration_windows: vec![30, 60],
+            recal_methods: vec![RecalMethod::Platt],
+            scopes: vec!["weather:KNYC:tmax".to_string()],
+            go_thresholds: vec![0.5],
+        },
+        n_trials: 2,
+        family_n_trials: 4,
+        selected_config: Some(SelectedConfig {
+            calibration_window: 30,
+            recal_method: RecalMethod::Platt,
+            go_threshold: 0.5,
+        }),
+        brier_edge: 0.042,
+        brier_pbo: 0.03,
+        brier_spa_p: 0.02,
+        clv_edge: 0.011,
+        clv_pbo: 0.08,
+        clv_spa_p: 0.12,
+        effective_n: 18.0,
+        mintrl_ok: true,
+        sharpe_dsr: 0.71,
+        verdict: GoDecision::Go,
+        computed_at: "2026-06-22T12:00:00.000Z".to_string(),
+    }
+}
 
 fn full_chain() -> ChainView {
+    let vr = real_validation_run();
     ChainView {
         event: EventRef {
             event_linkage: "weather:NYC:tmax:2026-06-23#ge87".to_string(),
             category: "temperature_ny".to_string(),
             scope: "weather:KNYC:tmax".to_string(),
             target_date: "2026-06-23".to_string(),
+            // NOTE: market_ticker maps to market_id — the events table has no separate
+            // ticker column. See GAPS.md: "events table has no ticker column".
             market_ticker: "KXHIGHTNY-26JUN23-B87.5".to_string(),
         },
         safety: SafetyPills {
@@ -91,9 +130,7 @@ fn full_chain() -> ChainView {
             resolution_source: "nws_cli".to_string(),
         }),
         scorecard: None, // the WS2 Scorecard composes here; its own serialization is WS2-tested.
-        validation: Some(
-            json!({ "pbo": 0.03, "spa_p_c": 0.02, "family_n_trials": 48, "verdict": "Go" }),
-        ),
+        validation: Some(serde_json::to_value(&vr).expect("ValidationRun must serialize")),
     }
 }
 
@@ -177,12 +214,77 @@ fn minimal_chain_omits_absent_stages_yet_round_trips() {
     assert_eq!(cv, back);
 }
 
+/// Pins the REAL ValidationRun wire shape for the UI — must be a real
+/// `fortuna_backtest::sweep::ValidationRun`, not a placeholder JSON.
+/// Asserts:
+///   - `brier_pbo` is a number (was fictional "pbo" in prior placeholder)
+///   - `brier_spa_p` is a number (was fictional "spa_p_c" in prior placeholder)
+///   - `verdict` round-trips (must serialize as the GoDecision string)
+///   - `family_n_trials` is an integer
+///   - the full value round-trips into ChainView without loss
 #[test]
-fn validation_accepts_forward_declared_json() {
-    // WS3's ValidationRun isn't built yet; the contract must accept any JSON shape it later commits.
-    let mut cv = full_chain();
-    cv.validation = Some(json!({ "anything": ["WS3", "shape"], "nested": { "ok": true } }));
-    let s = serde_json::to_string(&cv).unwrap();
-    let back: ChainView = serde_json::from_str(&s).unwrap();
-    assert_eq!(cv, back);
+fn validation_carries_real_validation_run_fields_and_round_trips() {
+    let vr = real_validation_run();
+    let vr_value = serde_json::to_value(&vr).expect("ValidationRun must serialize");
+
+    // Pin the fields the UI session uses — these are REAL ValidationRun fields,
+    // not the prior fictional pbo/spa_p_c names.
+    assert!(
+        vr_value["brier_pbo"].is_number(),
+        "brier_pbo must be a number in the wire shape"
+    );
+    assert!(
+        vr_value["brier_spa_p"].is_number(),
+        "brier_spa_p must be a number in the wire shape"
+    );
+    assert!(
+        vr_value["family_n_trials"].is_number(),
+        "family_n_trials must be a number"
+    );
+    // verdict must be the GoDecision string representation (snake_case via serde rename_all).
+    let verdict_str = vr_value["verdict"]
+        .as_str()
+        .expect("verdict must be a string");
+    assert!(
+        verdict_str == "go" || verdict_str == "no_go" || verdict_str == "insufficient",
+        "verdict must be a GoDecision snake_case variant, got: {verdict_str}"
+    );
+
+    // The full ChainView with this validation must round-trip losslessly.
+    let mut cv = ChainView {
+        event: EventRef {
+            event_linkage: "weather:NYC:tmax:2026-06-23#ge87".to_string(),
+            category: "temperature_ny".to_string(),
+            scope: "weather:KNYC:tmax".to_string(),
+            target_date: "2026-06-23".to_string(),
+            market_ticker: "KXHIGHTNY-26JUN23-B87.5".to_string(),
+        },
+        safety: SafetyPills {
+            execution_mode: "paper_ledger".to_string(),
+            order_mutation_enabled: false,
+            book_freshness_secs: None,
+        },
+        signals: vec![],
+        producers: vec![],
+        proposal: None,
+        gate: None,
+        fill: None,
+        settlement: None,
+        scorecard: None,
+        validation: None,
+    };
+    cv.validation = Some(vr_value.clone());
+
+    let serialized = serde_json::to_string(&cv).expect("ChainView must serialize");
+    let back: ChainView = serde_json::from_str(&serialized).expect("ChainView must deserialize");
+    assert_eq!(
+        cv, back,
+        "ChainView with real ValidationRun must round-trip losslessly"
+    );
+    // The validation value must survive the round-trip intact.
+    assert_eq!(
+        back.validation.as_ref().unwrap()["brier_pbo"],
+        vr_value["brier_pbo"],
+        "brier_pbo must survive ChainView round-trip"
+    );
 }

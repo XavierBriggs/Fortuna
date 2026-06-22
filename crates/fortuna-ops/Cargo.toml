@@ -29,3 +29,7 @@ futures = { workspace = true }
 reqwest = { workspace = true }
 # WS2 S6b: the rota scorecard-endpoint test seeds a Scorecard via the ledger.
 fortuna-scoring = { path = "../fortuna-scoring" }
+# W2.2 chain-view contract: pins the real ValidationRun wire shape from WS3.
+# fortuna-backtest pulls in fortuna-scoring/cognition/ledger — all acyclic;
+# fortuna-ops is not a dep of any of those crates.
+fortuna-backtest = { path = "../fortuna-backtest" }

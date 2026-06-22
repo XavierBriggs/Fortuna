@@ -105,7 +105,7 @@ impl FillsRepo {
         market_id: &str,
     ) -> Result<Option<FirstFillRow>, LedgerError> {
         let row = sqlx::query!(
-            r#"SELECT side, price_cents, at
+            r#"SELECT side, price_cents, qty, at
                FROM fills
                WHERE market_id = $1
                ORDER BY at ASC LIMIT 1"#,
@@ -116,6 +116,7 @@ impl FillsRepo {
         Ok(row.map(|r| FirstFillRow {
             side: r.side,
             price_cents: r.price_cents,
+            qty: r.qty,
             at: r.at,
         }))
     }
@@ -898,6 +899,9 @@ pub struct SnapshotRow {
 pub struct FirstFillRow {
     pub side: String,
     pub price_cents: i64,
+    /// Contract fill quantity (fills.qty column). Used by the chain-view so the
+    /// FillRef.qty is sourced from the ledger, not hardcoded.
+    pub qty: i64,
     pub at: String,
 }
 

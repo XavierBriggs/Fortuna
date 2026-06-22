@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT side, price_cents, at\n               FROM fills\n               WHERE market_id = $1\n               ORDER BY at ASC LIMIT 1",
+  "query": "SELECT side, price_cents, qty, at\n               FROM fills\n               WHERE market_id = $1\n               ORDER BY at ASC LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -15,6 +15,11 @@
       },
       {
         "ordinal": 2,
+        "name": "qty",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
         "name": "at",
         "type_info": "Text"
       }
@@ -27,8 +32,9 @@
     "nullable": [
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "cbf7c457f66611ebe465fee69350cac300a56fe86d940c03dd76b9979d5dbefa"
+  "hash": "206b9b2812272831530cddbfb15a518d9413da53bb015ede2258f6308e4f23bd"
 }

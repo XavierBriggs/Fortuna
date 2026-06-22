@@ -12,6 +12,7 @@
 use fortuna_ledger::{BeliefsRepo, EdgesRepo, ScorecardsRepo, SignalsRepo, ValidationRunsRepo};
 use fortuna_ops::dashboard::DashboardSnapshot;
 use fortuna_ops::rota::{rota_router, RotaState};
+use fortuna_scoring::{assemble_scorecard, CalibrationSample};
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -116,8 +117,11 @@ async fn seed_belief(
 /// Design:
 /// - Both producers must appear in `producers[]` with the correct `producer_id`.
 /// - `proposal.side` and `gate.decision` must match what was seeded.
-/// - `fill.price_cents` and `settlement.realized_pnl_cents` must match.
-/// - `scorecard` must be present (the scope is non-empty from the seeded beliefs).
+/// - `fill.price_cents` must match seeded value; `fill.qty` must match the seeded
+///   qty (not a hardcoded sentinel).
+/// - `settlement.realized_pnl_cents` must match; `settlement.outcome` must come
+///   from the belief's resolved outcome (not hardcoded 0.0).
+/// - `scorecard` must be present (the scope is non-empty, window is "forward").
 /// - I1: gate field is the PERSISTED payload verbatim — the GatePipeline is
 ///   never re-invoked (only the seeded audit row is read).
 #[sqlx::test(migrations = "../fortuna-ledger/migrations")]
@@ -149,6 +153,13 @@ async fn chain_assembles_seeded_event(pool: PgPool) {
         SCOPE,
     )
     .await;
+
+    // Resolve aeolus belief so settlement.outcome can be sourced from it.
+    // outcome=true (YES=1), brier=0.0784, clv=None
+    BeliefsRepo::new(pool.clone())
+        .resolve_and_score("01BLFCEP000000000000000A01", true, 0.0784_f64, None)
+        .await
+        .unwrap();
 
     // Seed one signal linked to the event.
     let sig_id = "01SIGCEP000000000000000001";
@@ -235,7 +246,7 @@ async fn chain_assembles_seeded_event(pool: PgPool) {
     .await
     .unwrap();
 
-    // Seed fill.
+    // Seed fill — qty=5 (the verifier found qty was hardcoded to 1; must match real).
     sqlx::query(
         "INSERT INTO fills
          (fill_id, venue, venue_order_id, client_order_id, market_id,
@@ -264,8 +275,10 @@ async fn chain_assembles_seeded_event(pool: PgPool) {
     .await
     .unwrap();
 
-    // Seed a scorecard for the scope.
-    use fortuna_scoring::{assemble_scorecard, CalibrationSample};
+    // Seed a scorecard for the scope using window="forward" — the EXACT window
+    // the live writer (recompute_scorecards, fortuna-live/src/daemon.rs ~line 5740)
+    // persists. Using any other window (e.g. "30") means the scorecard stage is
+    // always None on real data.
     let samples: Vec<CalibrationSample> = vec![
         CalibrationSample {
             p: 0.72,
@@ -283,7 +296,7 @@ async fn chain_assembles_seeded_event(pool: PgPool) {
     let scorecard = assemble_scorecard(
         SCOPE,
         None,
-        "30",
+        "forward", // MUST match the live writer's window literal
         &samples,
         0.25,
         None,
@@ -332,7 +345,7 @@ async fn chain_assembles_seeded_event(pool: PgPool) {
     );
     assert_eq!(
         ev["market_ticker"], market_id,
-        "market_ticker from edge: {j}"
+        "market_ticker from edge (maps to market_id — events table has no ticker column): {j}"
     );
 
     // safety pills.
@@ -410,23 +423,33 @@ async fn chain_assembles_seeded_event(pool: PgPool) {
         "EdgeFloor check missing: {j}"
     );
 
-    // fill stage.
+    // fill stage — qty must come from the fills table (seeded qty=5), NOT a hardcoded sentinel.
     let fill = &j["fill"];
     assert!(fill.is_object(), "fill must be present: {j}");
     assert_eq!(fill["price_cents"], 72, "fill price_cents: {j}");
+    assert_eq!(
+        fill["qty"], 5,
+        "fill.qty must match seeded qty (5), not hardcoded sentinel (1): {j}"
+    );
 
-    // settlement stage.
+    // settlement stage — outcome must come from the resolved belief (YES=1 → 1.0),
+    // NOT hardcoded 0.0.
     let sett = &j["settlement"];
     assert!(sett.is_object(), "settlement must be present: {j}");
     assert_eq!(
         sett["realized_pnl_cents"], 360,
         "settlement realized_pnl_cents: {j}"
     );
+    // Aeolus belief was resolved YES (outcome=1), so settlement.outcome must be 1.0.
+    assert!(
+        (sett["outcome"].as_f64().unwrap() - 1.0).abs() < 1e-9,
+        "settlement.outcome must be sourced from resolved belief outcome (1.0 for YES), got: {j}"
+    );
 
-    // scorecard stage (scope is non-empty).
+    // scorecard stage (scope is non-empty; window="forward" matches the live writer).
     assert!(
         j["scorecard"].is_object(),
-        "scorecard must be present when scope is non-empty: {j}"
+        "scorecard must be present when scope is non-empty and window='forward': {j}"
     );
     assert_eq!(j["scorecard"]["scope"], SCOPE, "scorecard scope: {j}");
 }
@@ -436,11 +459,14 @@ async fn chain_assembles_seeded_event(pool: PgPool) {
 // ──────────────────────────────────────────────────────────────────────────────
 
 /// Seed a minimal event with one belief (to provide the scope), then insert a
-/// ValidationRun payload. Assert that `chain.validation` is Some and its
-/// `verdict` field round-trips correctly.
+/// ValidationRun payload using the REAL ValidationRun field names from
+/// `fortuna_backtest::sweep::ValidationRun`. Assert that `chain.validation` is
+/// Some and its REAL fields (`brier_pbo`, `brier_spa_p`, `verdict`) round-trip.
 ///
 /// This pins the WS3→WS4 contract: the endpoint accepts any JSON shape and
 /// forwards it verbatim (the `validation` field is `Option<serde_json::Value>`).
+/// The seeded payload uses REAL ValidationRun field names, not the prior
+/// fictional pbo/spa_p_c names.
 #[sqlx::test(migrations = "../fortuna-ledger/migrations")]
 async fn chain_carries_validation_when_run_exists(pool: PgPool) {
     let event_id = "01EVTVAL000000000000000001";
@@ -461,15 +487,37 @@ async fn chain_carries_validation_when_run_exists(pool: PgPool) {
     )
     .await;
 
-    // Insert a ValidationRun payload — simulates the WS3 backtest persisting
-    // its deflated GO surface. The payload shape matches what the UI session
-    // expects: pbo, spa_p_c, family_n_trials, verdict.
+    // Insert a ValidationRun payload using the REAL ValidationRun field names
+    // (fortuna_backtest::sweep::ValidationRun). The prior placeholder used fictional
+    // pbo/spa_p_c — replaced here with brier_pbo/brier_spa_p from the real type.
     let validation_payload = json!({
-        "pbo": 0.03,
-        "spa_p_c": 0.02,
-        "family_n_trials": 48,
-        "verdict": "Go",
+        "run_id": "01SWEEPVAL00000000000000001",
         "scope": scope,
+        "producer": null,
+        "trial_space": {
+            "calibration_windows": [30],
+            "recal_methods": ["platt"],
+            "scopes": [scope],
+            "go_thresholds": [0.5]
+        },
+        "n_trials": 1,
+        "family_n_trials": 2,
+        "selected_config": {
+            "calibration_window": 30,
+            "recal_method": "platt",
+            "go_threshold": 0.5
+        },
+        "brier_edge": 0.042,
+        "brier_pbo": 0.03,
+        "brier_spa_p": 0.02,
+        "clv_edge": 0.011,
+        "clv_pbo": 0.08,
+        "clv_spa_p": 0.12,
+        "effective_n": 18.0,
+        "mintrl_ok": true,
+        "sharpe_dsr": 0.71,
+        "verdict": "go",
+        "computed_at": "2026-07-03T00:00:00.000Z",
     });
     ValidationRunsRepo::new(pool.clone())
         .insert(
@@ -489,7 +537,7 @@ async fn chain_carries_validation_when_run_exists(pool: PgPool) {
     let j: Value = reqwest::get(&url).await.unwrap().json().await.unwrap();
     h.abort();
 
-    // The validation field must be present and its verdict must round-trip.
+    // The validation field must be present and its REAL fields must round-trip.
     assert!(
         j.get("status").is_none(),
         "chain must not return unavailable: {j}"
@@ -499,13 +547,64 @@ async fn chain_carries_validation_when_run_exists(pool: PgPool) {
         val.is_object(),
         "validation must be present when a ValidationRun exists: {j}"
     );
-    assert_eq!(
-        val["verdict"], "Go",
-        "validation verdict must match what was seeded: {j}"
+    // Assert REAL ValidationRun fields (not the fictional pbo/spa_p_c).
+    assert!(
+        val["brier_pbo"].is_number(),
+        "brier_pbo must be a number: {j}"
     );
-    assert_eq!(val["pbo"].as_f64().unwrap(), 0.03, "pbo round-trips: {j}");
     assert_eq!(
-        val["family_n_trials"], 48,
+        val["brier_pbo"].as_f64().unwrap(),
+        0.03,
+        "brier_pbo must round-trip: {j}"
+    );
+    assert!(
+        val["brier_spa_p"].is_number(),
+        "brier_spa_p must be a number (not fictional spa_p_c): {j}"
+    );
+    assert_eq!(
+        val["brier_spa_p"].as_f64().unwrap(),
+        0.02,
+        "brier_spa_p round-trips: {j}"
+    );
+    // verdict is the GoDecision snake_case string.
+    assert_eq!(
+        val["verdict"], "go",
+        "verdict must be 'go' (snake_case GoDecision): {j}"
+    );
+    assert_eq!(
+        val["family_n_trials"], 2,
         "family_n_trials round-trips: {j}"
+    );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Test 3 — chain_unavailable_for_unknown_event
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// When no event exists for the requested linkage, the spec requires:
+/// HTTP 200 + `{"status":"unavailable","detail":"event not found"}`.
+/// This is the unavailable envelope the UI branches on (ROTA R1 — never 404/500).
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn chain_unavailable_for_unknown_event(pool: PgPool) {
+    let (addr, h) = start_rota_with_pool(pool).await;
+    let url =
+        format!("http://{addr}/api/rota/v1/chain?event=weather:NOWHERE:tmax:1970-01-01%23ge99");
+    let resp = reqwest::get(&url).await.unwrap();
+
+    // Must be HTTP 200 (ROTA R1: never 404/500 for absent data).
+    assert_eq!(resp.status(), 200, "must be HTTP 200 for unknown event");
+
+    let j: Value = resp.json().await.unwrap();
+    h.abort();
+
+    // Must carry the unavailable envelope so the UI can branch.
+    assert_eq!(
+        j["status"], "unavailable",
+        "must return status:unavailable for unknown event: {j}"
+    );
+    let detail = j["detail"].as_str().unwrap_or("");
+    assert!(
+        detail.contains("event not found"),
+        "detail must mention 'event not found': {j}"
     );
 }
