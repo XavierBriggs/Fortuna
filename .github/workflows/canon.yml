@@ -1,10 +1,11 @@
-# Canon drift guardrail (advisory).
+# Canon drift guardrail (blocking).
 #
-# On promotion, this file lives at .github/workflows/canon.yml and runs the
-# closed-set + invariant-coverage check. It is ADVISORY for now (continue-on-error):
-# it reports drift in the PR without blocking, matching the operator decision while
-# CI is still latent (no remote yet). Flip continue-on-error to false to make it a
-# hard gate once S2/S3 tests are written and FINAL_REPORT.md is archived.
+# Runs the closed-set + invariant-coverage check (tools/check-canon.sh). This is a
+# HARD GATE: a failing check fails the job. It went blocking on 2026-06-22 once the
+# canon was green (S2/S3/I5-parametric tests present, FINAL_REPORT.md archived) and
+# check-canon.sh reported CANON OK. The check is filesystem/git only (no DB), so it
+# runs cleanly on a fresh runner. A legitimate canon change updates canon.manifest
+# and the CONSTITUTION invariant-to-test map in the same PR.
 name: canon
 on:
   pull_request:
@@ -16,7 +17,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Canon drift check (closed set + invariant coverage)
-        continue-on-error: true   # advisory; see header
         run: |
           chmod +x tools/check-canon.sh
           tools/check-canon.sh
