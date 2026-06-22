@@ -19,11 +19,16 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
+      # Compile-time query! checks use the committed .sqlx cache, not the live DB
+      # (the service DB has no migrations applied at build time). Without this the
+      # build fails with "relation ... does not exist". The DB service is still
+      # needed at TEST time: #[sqlx::test] creates per-test DBs and runs migrations.
+      SQLX_OFFLINE: "true"
       DATABASE_URL: postgres://fortuna:fortuna@localhost:5432/fortuna_test
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with: { components: "rustfmt, clippy" }
+      - uses: dtolnay/rust-toolchain@master
+        with: { toolchain: "1.93.1", components: "rustfmt, clippy" }
       - uses: Swatinem/rust-cache@v2
       - name: fmt
         run: cargo fmt --all --check

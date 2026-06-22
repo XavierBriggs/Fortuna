@@ -1,3 +1,8 @@
 [toolchain]
-channel = "stable"
+# Pinned for reproducibility (determinism principle): clippy lints differ between
+# rustc versions, so an unpinned "stable" drifts CI red as new lints land. 1.93.1
+# is the version the workspace is verified clippy-clean (-D warnings) on. Bumping
+# is a deliberate task: install the new version, fix any new lints, then bump here
+# AND in .github/workflows/*.yml (both pin the same version).
+channel = "1.93.1"
 components = ["rustfmt", "clippy"]
