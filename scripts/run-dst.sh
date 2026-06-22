@@ -23,7 +23,12 @@
 #      proposals-only-when-tradeable + maker-only unsized leg shape (I6) +
 #      determinism, crates/fortuna-runner/tests/perp_event_basis_dst.rs) with
 #      the same seed count (TRACK C slice 3b).
-#   6. Exits non-zero on ANY invariant violation OR build failure, printing the
+#   6. Runs the backtest replay DST (rerun-idempotent, partial-replay-recovery,
+#      clock-determinism — content-hash idempotency + no-clock-leak in written
+#      rows, crates/fortuna-backtest/tests/backtest_dst.rs) with the same seed
+#      count (WS3 boundary). Requires a live Postgres socket at
+#      DATABASE_URL (default postgres:///fortuna?host=/tmp).
+#   7. Exits non-zero on ANY invariant violation OR build failure, printing the
 #      offending seed. A harness that fails to BUILD fails the battery (E5:
 #      the old "passing vacuously" escape is gone — the harness exists).
 set -euo pipefail
@@ -62,3 +67,6 @@ cargo test -p fortuna-live --test daemon_smoke -- --nocapture
 # each deterministic under SimClock, with the Layer-1 validator on the live
 # refuse-and-quarantine path (crates/fortuna-sources/tests/ingest_dst.rs).
 cargo test -p fortuna-sources --test ingest_dst -- --nocapture
+# WS3 boundary: the backtest replay DST (rerun-idempotent, partial-replay-recovery,
+# clock-determinism). Requires live Postgres (DATABASE_URL or unix socket default).
+SQLX_OFFLINE=true DATABASE_URL="${DATABASE_URL:-postgres:///fortuna?host=/tmp}" BACKTEST_DST_SCENARIOS="$N" cargo test -p fortuna-backtest --test backtest_dst -- --test-threads=1 --nocapture

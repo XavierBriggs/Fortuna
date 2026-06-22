@@ -2333,3 +2333,34 @@ domain-analysis artifact (authoritative design: docs/design/domain-analysis-pers
   `reference_price` stamp's own `ts_ms` (the anchor's true age — what the A6 stale-veto
   measures — mirroring `from_ws_ticker` keying `obs_at` off the frame `ts_ms`), NOT the poll
   wall-clock. The two reads MUST agree on the ticker (a mismatch is rejected, never correlated).
+
+## WS3 S2 — replay-harness scoping (spec §5 G-PARITY / §6; 2026-06-21)
+
+- **The parity scorecard the harness produces uses empty `baseline_losses` and empty
+  `clv`.** Spec §6 says replay scores through the SAME rules as live; the de-vigged-market
+  Brier baseline and the CLV series are GATHERED inputs the daemon walks the ledger for
+  (`forward_resolved_for_brier_baseline` → `SnapshotsRepo::latest_liquid_before`), not
+  something the S2 harness recomputes. G-PARITY in S2 is the construction proof that the
+  backtest and live paths feed the SAME assembler the SAME `(p, outcome)` inputs (so both
+  omit baseline/CLV identically and the cards are byte-identical modulo the window/source
+  label). Wiring the gathered de-vig baseline + CLV into the replayed card is a follow-on
+  (the brackets where it lives are S5/S6 — the sweep + the Aeolus adapter that supplies the
+  snapshot history). Conservative because adding a baseline the live path didn't compute the
+  same way would FALSELY break parity.
+- **The source stamp is carried on TWO surfaces: the belief `provenance->>'source'` (the
+  ledger forward-window filter the `*_forward` queries already key on) AND the scorecard
+  `window` label.** Spec §5 G-PARITY: "the only deltas are `provenance.source=historical-import`
+  + preserved original timestamps." The pure `Scorecard` type has no provenance field, so the
+  source label rides in its `window` (the WS2 source-agnostic seam: `assemble_scorecard` is
+  identical apart from the `window` field). The literal lives ONCE, as
+  `fortuna_ledger::SOURCE_HISTORICAL_IMPORT`, because (a) it must be a SQL literal in the
+  forward-window filters anyway and (b) `crates/fortuna-backtest/src/` is grep-gated against
+  source-name literals (`"historical-import"` is forbidden there).
+- **Idempotency + determinism via CONTENT-HASHED ids, not the clock.** `belief_id`/`event_id`
+  are FNV-1a-derived `Ulid`s over the record content (NOT `DefaultHasher`, whose output is
+  unstable across releases), inserted `ON CONFLICT DO NOTHING`, so a re-run is a no-op and two
+  replays produce byte-identical ledger rows. The injected `Clock` is held but the replay
+  reads no wall-clock `now()` (it preserves the ORIGINAL `decided_at` as `created_at`/`horizon`
+  and uses a fixed deterministic `computed_at` for the scorecard) — the Clock is the contract
+  hook a later slice (e.g. a per-run `computed_at`) uses, and its presence forbids a
+  `SystemTime::now()` from creeping into the replay path.

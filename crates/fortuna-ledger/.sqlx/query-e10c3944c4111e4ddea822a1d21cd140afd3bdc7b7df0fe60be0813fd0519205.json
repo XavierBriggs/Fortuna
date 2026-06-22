@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT b.belief_id, b.p, b.outcome AS \"outcome!\", b.event_id,\n                      e.benchmark_at, b.clv_bps\n               FROM beliefs b JOIN events e ON e.event_id = b.event_id\n               WHERE b.status = 'resolved' AND b.outcome IS NOT NULL\n                 AND b.brier IS NOT NULL AND e.category = $1\n                 AND NOT e.unscoreable\n                 AND b.provenance->>'source' IS DISTINCT FROM 'historical-import'\n               ORDER BY b.created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "belief_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "p",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 2,
+        "name": "outcome!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "benchmark_at",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "clv_bps",
+        "type_info": "Float8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "e10c3944c4111e4ddea822a1d21cd140afd3bdc7b7df0fe60be0813fd0519205"
+}

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO bus_recordings (recording_id, segment_seq, jsonl, created_at)\n               VALUES ($1,$2,$3,$4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8b53eeecd146e81382d5e95ec9bf81a8ce9527c9c8578e25fd935ca35d632ada"
+}

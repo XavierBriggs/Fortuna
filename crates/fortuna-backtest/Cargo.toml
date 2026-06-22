@@ -1,0 +1,29 @@
+[package]
+name = "fortuna-backtest"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fortuna-core = { path = "../fortuna-core" }
+# S2: replay scores through the SAME pure scoring rules (G-PARITY by
+# construction) and writes through the SAME ledger path as live. `fortuna-cognition`
+# supplies `scorecard_agg::assemble_from_samples` — the exact assembler the
+# daemon's recompute_scorecards path uses. No cycle: cognition/scoring/ledger do
+# NOT depend on fortuna-backtest.
+fortuna-scoring = { path = "../fortuna-scoring" }
+fortuna-cognition = { path = "../fortuna-cognition" }
+fortuna-ledger = { path = "../fortuna-ledger" }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, features = ["float_roundtrip"] } # float_roundtrip: serde_json's default deserializer is lossy up to 1 ULP; the canonical JSONL record contract must round-trip f64 bit-exactly (determinism / G-PARITY).
+thiserror = { workspace = true }
+sqlx = { workspace = true }
+# S6 (the ONLY source-coupled dep): the AeolusArchiveSource adapter reads the
+# Aeolus `aeolus_kalshi.db` SQLite archive. `bundled` vendors SQLite so the
+# build needs no system sqlite; this pin (0.32) uses libsqlite3-sys 0.30, the
+# version already in the workspace lockfile (via sqlx, postgres-only), so no
+# new native sqlite version is introduced.
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+[dev-dependencies]
+proptest = { workspace = true }
+tokio = { workspace = true }

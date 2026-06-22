@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT b.provenance->>'producer' AS \"producer!\"\n               FROM beliefs b JOIN events e ON e.event_id = b.event_id\n               WHERE b.status = 'resolved' AND b.outcome IS NOT NULL\n                 AND b.brier IS NOT NULL AND e.category = $1\n                 AND NOT e.unscoreable\n                 AND b.provenance->>'producer' IS NOT NULL\n               ORDER BY b.provenance->>'producer'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "producer!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "3646a7aaf16fd486445bd269416cb840a73637de4b061fc72e317894fb4b849c"
+}

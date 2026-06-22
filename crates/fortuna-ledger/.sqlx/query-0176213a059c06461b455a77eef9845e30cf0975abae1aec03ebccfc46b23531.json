@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE trade_scores SET fees_cents = 99 WHERE trade_score_id = 'ts-mut'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "0176213a059c06461b455a77eef9845e30cf0975abae1aec03ebccfc46b23531"
+}
