@@ -33,6 +33,11 @@ serde = { workspace = true, features = ["derive"] }
 # line needs a plain toml::Value pass. Workspace-pinned dep, ledgered as a
 # deviation from design Section 6 in GAPS.md.
 toml = { workspace = true }
+# W3 doctor: source-reachability probe (network-gated behind --offline flag).
+reqwest = { workspace = true }
+# W3 doctor: dynamic query probes (SELECT 1, _sqlx_migrations). fortuna-ledger
+# already brings sqlx transitively; explicit dep here so doctor.rs can call
+# sqlx::query / sqlx::query_scalar in non-test code.
+sqlx = { workspace = true }
 
 [dev-dependencies]
-sqlx = { workspace = true }

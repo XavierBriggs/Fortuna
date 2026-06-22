@@ -13,3 +13,4 @@
 )]
 
 pub mod backtest_cmd;
+pub mod doctor;

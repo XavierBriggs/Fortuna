@@ -38,6 +38,7 @@
 
 use anyhow::{bail, Context, Result};
 use fortuna_cli::backtest_cmd;
+use fortuna_cli::doctor as doctor_mod;
 use fortuna_core::clock::{Clock, RealClock, UtcTimestamp};
 use fortuna_ledger::{parse_halt_scope, AuditWriter, HaltsRepo};
 use std::path::{Path, PathBuf};
@@ -83,6 +84,8 @@ struct Args {
     scope: Option<String>,
     producer: Option<String>,
     archive: Option<String>,
+    // W3: doctor flag
+    offline: bool,
 }
 
 fn parse_args() -> Result<Args> {
@@ -102,6 +105,7 @@ fn parse_args() -> Result<Args> {
         scope: None,
         producer: None,
         archive: None,
+        offline: false,
     };
     let raw: Vec<String> = std::env::args().skip(1).collect();
     let mut i = 0;
@@ -130,6 +134,7 @@ fn parse_args() -> Result<Args> {
             "--flatten" => args.flatten = true,
             "-f" | "--follow" => args.follow = true,
             "--foreground" => args.foreground = true,
+            "--offline" => args.offline = true,
             "--from" => {
                 i += 1;
                 args.from = raw.get(i).cloned();
@@ -158,11 +163,11 @@ fn parse_args() -> Result<Args> {
     if args.command.is_empty() {
         bail!(
             "usage: fortuna <status|halt|rearm|kill|config check|logs|start|stop|\
-             backtest|validate> \
+             backtest|validate|doctor> \
              [scope|component] [--reason ..] [--operator ..] [--journal ..] \
              [--flatten] [--config-path ..] [-f] [--foreground] [--timeout-secs N] \
              [--from <date>] [--to <date>] [--scope <scope>] [--producer <name>] \
-             [--archive <path>]"
+             [--archive <path>] [--offline]"
         );
     }
     Ok(args)
@@ -177,6 +182,13 @@ fn run() -> Result<()> {
         "status" => status_cmd(&args),
         "start" => start_cmd(&args),
         "stop" => stop_cmd(&args),
+        "doctor" => {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .context("tokio runtime")?;
+            runtime.block_on(doctor_cmd(&args))
+        }
         "halt" | "rearm" | "backtest" | "validate" => {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -1064,6 +1076,34 @@ fn kill(args: &Args) -> Result<()> {
         bail!("kill switch exited with {status}");
     }
     Ok(())
+}
+
+/// `fortuna doctor [--offline] [--config-path <p>]`
+///
+/// Runs the readiness checklist and exits non-zero if any check is red.
+/// `--offline` skips the network source-reachability probe (useful in CI).
+async fn doctor_cmd(args: &Args) -> Result<()> {
+    let url =
+        std::env::var("DATABASE_URL").context("DATABASE_URL is required for fortuna doctor")?;
+    let pool = fortuna_ledger::connect(&url).await?;
+
+    // Snapshot the real process env for the cred check (values NEVER printed).
+    let env: std::collections::BTreeMap<String, String> = std::env::vars().collect();
+
+    let opts = doctor_mod::DoctorOpts {
+        env,
+        offline: args.offline,
+        config_path: args.config_path.clone(),
+    };
+    let report = doctor_mod::run(&pool, &opts).await;
+    doctor_mod::print_report(&report);
+
+    if report.all_green {
+        Ok(())
+    } else {
+        // Non-zero exit; anyhow error message gives the operator the cue.
+        bail!("doctor: one or more checks FAILED (see checklist above)");
+    }
 }
 
 async fn db_command(args: &Args) -> Result<()> {

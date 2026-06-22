@@ -585,6 +585,7 @@ dependencies = [
  "fortuna-ledger",
  "fortuna-ops",
  "fortuna-scoring",
+ "reqwest",
  "rusqlite",
  "serde",
  "serde_json",
