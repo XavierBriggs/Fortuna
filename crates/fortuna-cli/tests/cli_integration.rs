@@ -476,12 +476,35 @@ fn start_mid_claim_pidfile_is_contended_not_stale() {
 // Slice 3 (A1/A7). Stubs trap SIGTERM; their stdout is redirected to the
 // managed daemon log exactly as `start` would, so the A1 check (the
 // "fortuna-live: clean shutdown" line must appear in the log AFTER the
-// signal) runs against the real mechanism. Pidfiles claim name "sh" —
-// `ps -o comm=` for a shell stub reports /bin/sh.
+// signal) runs against the real mechanism. The stub is a `#!/bin/sh` script, so
+// its pidfile must claim whatever `ps -o comm=` reports for THIS host's /bin/sh:
+// "sh" on macOS, "dash" on most Linux. `stop`'s A3 check requires the live comm
+// to CONTAIN the claimed name (main.rs), so we capture the real comm rather than
+// hardcode "sh" (which mismatches on Linux and reads the live stub as stale).
 
 /// The daemon's graceful-exit marker (fortuna-live/src/main.rs prints it
 /// to stderr, which `start` redirects into the log).
 const SHUTDOWN_MARKER: &str = "fortuna-live: clean shutdown";
+
+/// The comm `stop` will see for `pid` (its A3 check requires the live
+/// `ps -o comm=` to CONTAIN the pidfile's claimed name). `/bin/sh` reports "sh"
+/// on macOS and "dash" on most Linux, so a stub pidfile must claim what THIS
+/// host reports — never a hardcoded "sh". Polls briefly so the read happens
+/// after the spawned process has exec'd the shell.
+fn live_comm(pid: u32) -> String {
+    for _ in 0..25 {
+        let out = Command::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "comm="])
+            .output()
+            .expect("ps -o comm=");
+        let comm = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !comm.is_empty() {
+            return comm;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    panic!("ps reported no comm for pid {pid} (stub never came up)");
+}
 
 /// Spawn a stub with stdout+stderr appended to the managed daemon log and
 /// a pidfile claiming it, exactly as `start` leaves the world.
@@ -500,7 +523,8 @@ fn spawn_managed_daemon_stub(dir: &Path, case: &str, body: &str) -> ChildGuard {
         .stderr(log_err)
         .spawn()
         .unwrap();
-    write_pidfile(dir, "daemon", child.id(), "sh");
+    let comm = live_comm(child.id());
+    write_pidfile(dir, "daemon", child.id(), &comm);
     ChildGuard(child)
 }
 
@@ -688,7 +712,8 @@ fn stop_recorder_needs_no_log_line() {
         "#!/bin/sh\ntrap 'exit 0' TERM\nwhile true; do /bin/sleep 0.2; done\n",
     );
     let child = ChildGuard(Command::new(&stub).stdin(Stdio::null()).spawn().unwrap());
-    write_pidfile(&dir, "recorder", child.0.id(), "sh");
+    let comm = live_comm(child.0.id());
+    write_pidfile(&dir, "recorder", child.0.id(), &comm);
     let out = run_stop(&dir, &["--timeout-secs", "10"]);
     assert!(
         out.status.success(),
