@@ -18,8 +18,11 @@
 //! These are black-box tests: they assert on the PUBLIC `HistoricalSource`
 //! contract (the mapped records + the manifest), never on adapter internals.
 
+use std::collections::HashSet;
+use std::fmt::Write as _;
 use std::path::PathBuf;
 
+use fortuna_backtest::asof::{asof_join, AsOfDisposition};
 use fortuna_backtest::records::BeliefPayload;
 use fortuna_backtest::source::HistoricalSource;
 use fortuna_backtest::sources::aeolus_archive::{AeolusArchiveSource, TimeRange};
@@ -266,5 +269,176 @@ fn aeolus_trade_orders_zero() {
         trade.event_linkage.contains("MKT-YES"),
         "the trade is linked to its market: {}",
         trade.event_linkage
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 6. RECORDS-THROUGH-ASOF-JOIN (the production-observed namespace-drift trap):
+//    a scored, CLV-benchmarked sample must genuinely form for a resolved
+//    fixture market. The records mapped by `AeolusArchiveSource` are fed into
+//    the REAL `crate::asof::asof_join`; for MKT-YES BOTH the outcome AND the
+//    CLV-entry snapshot must attach.
+//
+//    This BITES on the snapshot.market key fix: if snapshots carry the bare
+//    ticker instead of the canonical composite `event_linkage`, the as-of join
+//    silently drops the snapshot (`snapshot.is_some()` fails) even though the
+//    outcome still joins — exactly the namespace-drift failure source.rs warns
+//    about. The leak-free `available_at < decided_at` belief (issuance well
+//    before the event day) passes G-PIT, and the prior snapshot
+//    (2026-07-02, before the 2026-07-04 event day) is eligible.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn aeolus_records_join_through_asof() {
+    let src = fixture_source();
+
+    let beliefs: Vec<_> = src
+        .beliefs()
+        .map(|r| r.expect("belief row must map"))
+        .collect();
+    let outcomes: Vec<_> = src
+        .outcomes()
+        .map(|r| r.expect("outcome row must map"))
+        .collect();
+    let snapshots: Vec<_> = src
+        .snapshots()
+        .map(|r| r.expect("snapshot row must map"))
+        .collect();
+
+    // The resolved YES market that also has a prior snapshot in the fixture.
+    let yes_belief = beliefs
+        .iter()
+        .find(|b| b.event_linkage.contains("MKT-YES"))
+        .expect("the YES-resolved market must yield a belief");
+
+    let disposition = asof_join(yes_belief, &snapshots, &outcomes);
+
+    let ctx = match disposition {
+        AsOfDisposition::Joined(ctx) => ctx,
+        AsOfDisposition::LookAheadRejected => {
+            panic!("the YES belief is leak-free (issuance < event day) and must join")
+        }
+    };
+
+    // The outcome label must attach (resolved sample → scorable).
+    let outcome = ctx
+        .outcome
+        .as_ref()
+        .expect("the resolved YES outcome must attach to the joined context");
+    assert_eq!(outcome.outcome, 1.0, "MKT-YES resolves YES → outcome 1.0");
+
+    // The CLV-entry snapshot must attach — this is the Fix-1 bite. With the
+    // bare-ticker snapshot key it would be None (silent namespace drift).
+    let snapshot = ctx
+        .snapshot
+        .as_ref()
+        .expect("the prior CLV-entry snapshot must attach (snapshot.market join key)");
+    assert_eq!(
+        snapshot.price,
+        fortuna_core::money::Cents::new(70),
+        "the joined snapshot is the YES market's 70c mid",
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 7. CROSS-PAGE PAGING CORRECTNESS: the bounded-memory PagedRowStream uses
+//    LIMIT/OFFSET, which only yields a well-defined sequence if the ORDER BY is a
+//    TOTAL deterministic order. A non-total order (beliefs ordered by a
+//    forecast_init_time shared across every row) leaves the row sequence at the
+//    mercy of the query plan — and OFFSET paging over an under-determined order
+//    risks duplicates/gaps across page boundaries.
+//
+//    We insert MORE than one page worth of belief rows (PAGE_SIZE is 256, so 300
+//    rows cross two page boundaries) — DELIBERATELY all sharing ONE
+//    forecast_init_time (the FIRST ORDER BY column is therefore constant) AND
+//    DELIBERATELY in an INSERT order that DISAGREES with the total-order
+//    tie-break (markers inserted in DESCENDING market_ticker so insertion/rowid
+//    order is the reverse of the sorted order). We assert TWO things over the
+//    full streamed sequence:
+//      (a) the recovered marker SET equals the inserted set exactly (no gap), and
+//          the streamed count equals the inserted count (no duplicate); and
+//      (b) the streamed SEQUENCE is in the canonical sorted (total) order —
+//          ASCENDING market_ticker — NOT the reversed insertion order.
+//    (b) is the load-bearing bite: under the TOTAL ORDER BY the tie-break sorts
+//    the markers ascending regardless of insertion order; revert the ORDER BY to
+//    the non-total `forecast_init_time` only and SQLite falls back to insertion
+//    (rowid) order — the reversed sequence — which reds (b). This exercises the
+//    REAL production PAGE_SIZE and the REAL paging code (not a test-only page).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn aeolus_paging_total_order_no_dupes_no_gaps() {
+    // 300 > PAGE_SIZE (256) → crosses a page boundary (and then some).
+    const N: usize = 300;
+    const SHARED_INIT: &str = "2026-07-01T00:00:00Z";
+
+    // Minimal schema + N belief rows, all sharing forecast_init_time so the
+    // total-order tie-break columns are load-bearing. Unique market_ticker per
+    // row is the recovery marker.
+    let mut sql = String::new();
+    sql.push_str(
+        "CREATE TABLE bracket_probability_log (\
+            station_id TEXT NOT NULL, target_date TEXT NOT NULL, \
+            forecast_init_time TEXT NOT NULL, market_ticker TEXT NOT NULL, \
+            side TEXT NOT NULL, bracket_lo INTEGER, bracket_hi INTEGER, \
+            predicted_prob REAL NOT NULL, \
+            PRIMARY KEY (station_id, target_date, forecast_init_time, market_ticker, side));\n",
+    );
+    // INSERT in DESCENDING marker order so rowid/insertion order is the REVERSE
+    // of the canonical ascending total order — this is what lets the test detect
+    // a non-total ORDER BY (which would fall back to insertion order).
+    for i in (0..N).rev() {
+        writeln!(
+            sql,
+            "INSERT INTO bracket_probability_log \
+             (station_id, target_date, forecast_init_time, market_ticker, side, \
+              bracket_lo, bracket_hi, predicted_prob) VALUES \
+             ('KNYC', '2026-07-04', '{SHARED_INIT}', 'PAGE-{i:04}', 'yes', 40, 44, 0.5);"
+        )
+        .expect("write to String never fails");
+    }
+
+    // Write to a unique temp file and load via the public fixture loader.
+    let path = std::env::temp_dir().join(format!("aeolus_paging_{}_{}.sql", std::process::id(), N));
+    std::fs::write(&path, &sql).expect("write temp fixture");
+    let src = AeolusArchiveSource::from_sql_fixture(&path, TimeRange::unbounded())
+        .expect("paging fixture must load");
+
+    // Stream EVERY belief and collect the ticker markers IN STREAM ORDER.
+    let mut seen: Vec<String> = Vec::new();
+    for r in src.beliefs() {
+        let b = r.expect("belief row must map");
+        // strategy_id carries the market_ticker (the PAGE-#### marker).
+        seen.push(b.provenance.strategy_id.clone());
+    }
+
+    let _ = std::fs::remove_file(&path);
+
+    // (a) NO gaps: every inserted marker was recovered.
+    let recovered: HashSet<&str> = seen.iter().map(String::as_str).collect();
+    let expected: HashSet<String> = (0..N).map(|i| format!("PAGE-{i:04}")).collect();
+    let expected_refs: HashSet<&str> = expected.iter().map(String::as_str).collect();
+    assert_eq!(
+        recovered, expected_refs,
+        "every inserted belief marker must be recovered exactly once (no gap) across page boundaries"
+    );
+
+    // (a) NO duplicates: total streamed count equals inserted count.
+    assert_eq!(
+        seen.len(),
+        N,
+        "streamed count must equal inserted count — no row duplicated or dropped across pages \
+         (got {} for {N} inserted)",
+        seen.len()
+    );
+
+    // (b) THE BITE: the streamed SEQUENCE is the canonical ascending total order,
+    // NOT the reversed insertion order. With a non-total ORDER BY SQLite falls
+    // back to rowid/insertion order (descending markers) and this reds.
+    let sorted: Vec<String> = (0..N).map(|i| format!("PAGE-{i:04}")).collect();
+    assert_eq!(
+        seen, sorted,
+        "the streamed sequence must follow the TOTAL deterministic order (ascending marker), \
+         not the under-determined insertion order — a non-total ORDER BY reds this"
     );
 }

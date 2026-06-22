@@ -415,12 +415,30 @@ fn map_outcome(row: &rusqlite::Row<'_>) -> Result<HistoricalOutcome, SourceError
 }
 
 fn map_snapshot(row: &rusqlite::Row<'_>) -> Result<HistoricalSnapshot, SourceError> {
-    let market_ticker: String = column(row, 0, "market_ticker")?;
-    let captured_at: String = column(row, 1, "captured_at")?;
-    let yes_mid_cents: f64 = column(row, 2, "yes_mid_cents")?;
+    let station_id: String = column(row, 0, "station_id")?;
+    let target_date: String = column(row, 1, "target_date")?;
+    let market_ticker: String = column(row, 2, "market_ticker")?;
+    let bracket_lo: Option<i64> = column(row, 3, "bracket_lo")?;
+    let bracket_hi: Option<i64> = column(row, 4, "bracket_hi")?;
+    let captured_at: String = column(row, 5, "captured_at")?;
+    let yes_mid_cents: f64 = column(row, 6, "yes_mid_cents")?;
 
     Ok(HistoricalSnapshot {
-        market: market_ticker,
+        // THE JOIN KEY: `market` MUST be the SAME canonical composite linkage the
+        // belief/outcome emit for this market_ticker — NOT the bare ticker. The
+        // as-of join matches `snapshot.market == belief.event_linkage`, so a bare
+        // ticker silently drops every snapshot (the namespace-drift failure
+        // source.rs warns about). The bracket/station/target are recovered from
+        // bracket_probability_log (snapshot_quotes lacks them) the SAME way the
+        // outcome mapping does, and routed through the SAME `event_linkage` helper
+        // so the key can never drift from the belief side.
+        market: event_linkage(
+            &station_id,
+            bracket_lo,
+            bracket_hi,
+            &target_date,
+            &market_ticker,
+        ),
         // yes_mid_cents is a REAL cent value; round to the nearest integer cent.
         price: Cents::new(yes_mid_cents.round() as i64),
         at: parse_ts(&captured_at)?,
@@ -474,11 +492,16 @@ fn column<T: rusqlite::types::FromSql>(
 
 impl HistoricalSource for AeolusArchiveSource {
     fn beliefs(&self) -> Box<dyn Iterator<Item = Result<HistoricalBelief, SourceError>> + '_> {
-        // Deterministic ordering for stable paging + replay.
+        // TOTAL deterministic order for stable OFFSET paging + replay. The
+        // full PRIMARY KEY of bracket_probability_log is
+        // (station_id, target_date, forecast_init_time, market_ticker, side), so
+        // appending station_id, target_date makes the ORDER BY a TOTAL order — no
+        // duplicates or gaps across page boundaries even when many rows share a
+        // forecast_init_time.
         let sql = "SELECT station_id, target_date, forecast_init_time, market_ticker, \
                    bracket_lo, bracket_hi, predicted_prob \
                    FROM bracket_probability_log \
-                   ORDER BY forecast_init_time, market_ticker, side";
+                   ORDER BY forecast_init_time, market_ticker, side, station_id, target_date";
         let range = self.range.clone();
         Box::new(
             PagedRowStream::new(&self.conn, sql, map_belief).filter(move |r| match r {
@@ -499,6 +522,9 @@ impl HistoricalSource for AeolusArchiveSource {
                    JOIN market_resolutions r ON r.market_ticker = b.market_ticker \
                    WHERE r.result IN ('yes','no') \
                    ORDER BY b.market_ticker";
+        // ORDER BY b.market_ticker is already TOTAL: market_ticker is the PK of
+        // market_resolutions and the DISTINCT/1:1 join collapses to exactly one
+        // output row per resolved market — paging is duplicate-/gap-free.
         let range = self.range.clone();
         Box::new(
             PagedRowStream::new(&self.conn, sql, map_outcome).filter(move |r| match r {
@@ -510,11 +536,23 @@ impl HistoricalSource for AeolusArchiveSource {
 
     fn snapshots(&self) -> Box<dyn Iterator<Item = Result<HistoricalSnapshot, SourceError>> + '_> {
         // snapshot_quotes has no timestamp of its own — the snapshot instant is
-        // snapshot_batches.captured_at (joined on batch_id).
-        let sql = "SELECT q.market_ticker, bt.captured_at, q.yes_mid_cents \
+        // snapshot_batches.captured_at (joined on batch_id). snapshot_quotes also
+        // lacks bracket columns, so the canonical `event_linkage` (station +
+        // bracket + target) is recovered by JOINing bracket_probability_log on
+        // market_ticker — the SAME recovery the outcome mapping uses — so the
+        // snapshot's join key matches the belief's exactly. DISTINCT collapses the
+        // per-side belief rows to one snapshot per (batch, market).
+        //
+        // ORDER BY is TOTAL (captured_at, market_ticker, batch_id): batch_id is
+        // the snapshot_batches PK and disambiguates batches that share a
+        // captured_at, so OFFSET paging is duplicate-/gap-free across page
+        // boundaries.
+        let sql = "SELECT DISTINCT b.station_id, b.target_date, q.market_ticker, \
+                   b.bracket_lo, b.bracket_hi, bt.captured_at, q.yes_mid_cents \
                    FROM snapshot_quotes q \
                    JOIN snapshot_batches bt ON bt.batch_id = q.batch_id \
-                   ORDER BY bt.captured_at, q.market_ticker";
+                   JOIN bracket_probability_log b ON b.market_ticker = q.market_ticker \
+                   ORDER BY bt.captured_at, q.market_ticker, bt.batch_id";
         let range = self.range.clone();
         Box::new(
             PagedRowStream::new(&self.conn, sql, map_snapshot).filter(move |r| match r {
@@ -525,6 +563,12 @@ impl HistoricalSource for AeolusArchiveSource {
     }
 
     fn trades(&self) -> Box<dyn Iterator<Item = Result<HistoricalTrade, SourceError>> + '_> {
+        // ORDER BY created_at, id is TOTAL: id is the shadow_intents PK, so the
+        // order is unique across rows sharing a created_at — OFFSET paging is
+        // duplicate-/gap-free. Trades key the as-of join only by ticker token
+        // (shadow_intents has no bracket columns); the linkage here recovers
+        // station/target/ticker via the same `event_linkage` helper with absent
+        // bracket bounds, so the ticker token always reconciles.
         let sql = "SELECT station_id, target_date, market_ticker, side, \
                    reference_price_cents, contracts, created_at \
                    FROM shadow_intents \
