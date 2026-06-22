@@ -29,7 +29,9 @@
 use std::path::PathBuf;
 
 use anyhow::{bail, Context, Result};
-use fortuna_backtest::harness::{ReplayHarness, ReplayReport, TimeRange as HarnessTimeRange};
+use fortuna_backtest::harness::{
+    run_id_for, ReplayHarness, ReplayReport, TimeRange as HarnessTimeRange,
+};
 use fortuna_backtest::sources::aeolus_archive::{
     AeolusArchiveSource, TimeRange as ArchiveTimeRange,
 };
@@ -183,24 +185,11 @@ pub async fn run_validate<C: Clock>(
     run.computed_at = now.to_iso8601();
     run.producer = args.producer.clone();
     run.scope = args.scope.clone();
-    // Derive a deterministic ULID from the scope + computed_at (the
-    // content-addressing pattern used across the codebase).
-    run.run_id = {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        // FNV-1a is preferred for stability but is not in workspace deps;
-        // the ULID here is an attribution/audit key — not a content-hash
-        // primary key — so we use a simple domain-separated format.
-        // We format it as a ULID-shaped string using the timestamp bits.
-        let ms = now.epoch_millis();
-        // Upper 48 bits of ULID = timestamp; lower 80 bits = entropy.
-        // We borrow from scope+producer as entropy.
-        let mut h = DefaultHasher::new();
-        args.scope.hash(&mut h);
-        args.producer.as_deref().unwrap_or("").hash(&mut h);
-        let entropy = h.finish();
-        format!("{ms:012X}{entropy:016X}")
-    };
+    // Derive a deterministic, Rust-version-stable run_id via FNV-1a
+    // content-hash (same pattern as fortuna-backtest's content_ulid helper).
+    // Seeding with computed_at_ms ensures each run gets a unique id while
+    // the id remains a pure function of its inputs (I5 reproducibility).
+    run.run_id = run_id_for(&args.scope, args.producer.as_deref(), now.epoch_millis());
 
     let payload = serde_json::to_value(&run).context("serialize validation run")?;
 

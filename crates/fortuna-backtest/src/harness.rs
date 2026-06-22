@@ -423,3 +423,25 @@ fn content_ulid(segments: &[&[u8]]) -> String {
     let bytes = ((u128::from(hi) << 64) | u128::from(lo)).to_be_bytes();
     fortuna_core::ids::Ulid::from_bytes(bytes).to_string()
 }
+
+/// Derive a deterministic ULID-text `run_id` for a `validation_runs` row.
+///
+/// Uses the same FNV-1a content-hash approach as [`content_ulid`] so the id
+/// is **byte-stable across Rust releases** (unlike `DefaultHasher`, which the
+/// stdlib reserves the right to change).  Seeding with `computed_at_ms`
+/// ensures that re-runs of the same `(scope, producer)` at a different time
+/// always produce a distinct id, while two calls with identical inputs always
+/// produce the same id — making the id a pure function of its inputs (I5).
+///
+/// # Arguments
+/// * `scope`          — validation scope string (e.g. `"weather:KNYC"`)
+/// * `producer`       — optional producer tag (e.g. `Some("aeolus")`)
+/// * `computed_at_ms` — the run's `computed_at` epoch-milliseconds
+pub fn run_id_for(scope: &str, producer: Option<&str>, computed_at_ms: i64) -> String {
+    let ts_bytes = computed_at_ms.to_le_bytes();
+    content_ulid(&[
+        scope.as_bytes(),
+        producer.unwrap_or("").as_bytes(),
+        &ts_bytes,
+    ])
+}

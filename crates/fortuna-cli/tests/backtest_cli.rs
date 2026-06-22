@@ -32,6 +32,7 @@
 
 use std::path::PathBuf;
 
+use fortuna_backtest::harness::run_id_for;
 use fortuna_cli::backtest_cmd::{run_backtest, run_validate, BacktestArgs, ValidateArgs};
 use fortuna_core::clock::RealClock;
 use sqlx::PgPool;
@@ -206,4 +207,51 @@ async fn cli_is_read_only_on_source(pool: PgPool) {
 
     // Cleanup
     let _ = std::fs::remove_dir_all(&tmp);
+}
+
+// ---------------------------------------------------------------------------
+// Test 4: run_id derivation is deterministic (I5 reproducibility)
+// ---------------------------------------------------------------------------
+//
+// `run_id_for(scope, producer, computed_at_ms)` must return the SAME ULID for
+// the SAME inputs across two calls — it must be a pure function of its inputs,
+// with NO dependence on DefaultHasher, wall-clock, or any per-run entropy.
+// This guards I5: the audit log is replayable / cross-referenceable even
+// after a Rust upgrade that would have changed DefaultHasher output.
+
+#[test]
+fn run_id_is_stable_pure_function_of_inputs() {
+    // Fixed inputs — chosen to exercise non-trivial FNV-1a paths.
+    let scope = "weather:KNYC";
+    let producer = Some("aeolus");
+    let computed_at_ms: i64 = 1_750_000_000_000; // arbitrary stable epoch-ms
+
+    let id1 = run_id_for(scope, producer, computed_at_ms);
+    let id2 = run_id_for(scope, producer, computed_at_ms);
+
+    // Identical inputs → identical id (pure function, stable hash).
+    assert_eq!(id1, id2, "run_id must be identical for identical inputs");
+
+    // Different scope → different id (no collisions on trivial domain change).
+    let id_other_scope = run_id_for("weather:KLAX", producer, computed_at_ms);
+    assert_ne!(
+        id1, id_other_scope,
+        "different scope must yield different run_id"
+    );
+
+    // Different computed_at → different id (re-runs at different times differ).
+    let id_other_ts = run_id_for(scope, producer, computed_at_ms + 1);
+    assert_ne!(
+        id1, id_other_ts,
+        "different computed_at must yield different run_id"
+    );
+
+    // No producer → still deterministic.
+    let id_no_prod = run_id_for(scope, None, computed_at_ms);
+    assert_ne!(id1, id_no_prod, "None producer must differ from Some");
+    let id_no_prod2 = run_id_for(scope, None, computed_at_ms);
+    assert_eq!(
+        id_no_prod, id_no_prod2,
+        "None-producer id must also be stable"
+    );
 }
