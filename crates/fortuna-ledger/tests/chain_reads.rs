@@ -280,6 +280,15 @@ async fn beliefs_for_event_returns_both_producers(pool: PgPool) {
         aeolus_after.clv_bps.is_some(),
         "clv_bps should be set after resolution"
     );
+
+    // STEP 0 carry-forward: `scope` is returned from provenance->>'scope'.
+    // The seed_belief helper here does not include a `scope` key in provenance,
+    // so the field returns None — but the column is present and the repo returns it.
+    assert!(
+        aeolus_after.scope.is_none(),
+        "scope is None when provenance has no scope key: {:?}",
+        aeolus_after.scope
+    );
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

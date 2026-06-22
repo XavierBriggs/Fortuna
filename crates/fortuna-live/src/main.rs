@@ -302,6 +302,17 @@ async fn main() -> Result<()> {
     if rota_pool.is_none() {
         eprintln!("fortuna-live: ROTA read pool unavailable — audit tail degrades to empty");
     }
+    // Extract execution-mode strings before dcfg is moved into the ROTA spawn.
+    let rota_execution_mode = dcfg
+        .runtime
+        .as_ref()
+        .map(|r| r.execution_mode.as_str().to_string())
+        .unwrap_or_else(|| "live_data_only".to_string());
+    let rota_order_mutation_enabled = dcfg
+        .runtime
+        .as_ref()
+        .map(|r| r.execution_mode.allows_order_mutation())
+        .unwrap_or(false);
     let dash_state = snapshot.clone();
     tokio::spawn(async move {
         // ROTA mounts alongside the legacy boards off the same snapshot
@@ -316,6 +327,8 @@ async fn main() -> Result<()> {
             pool: rota_pool,
             perishable_dir: Some(Arc::new(std::path::PathBuf::from("data/perishable"))),
             reviews_dir: Some(Arc::new(std::path::PathBuf::from("docs/reviews"))),
+            execution_mode: rota_execution_mode,
+            order_mutation_enabled: rota_order_mutation_enabled,
         };
         if let Err(e) = serve_dashboard(listener, rota).await {
             eprintln!("fortuna-live: metrics endpoint died: {e}");

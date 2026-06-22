@@ -66,7 +66,7 @@ async fn serve() -> (String, tokio::task::JoinHandle<()>) {
     (format!("http://{addr}"), handle)
 }
 
-const PATHS: [&str; 29] = [
+const PATHS: [&str; 30] = [
     "/rota",
     "/favicon.ico",
     "/assets/rota/logo.svg",
@@ -96,6 +96,7 @@ const PATHS: [&str; 29] = [
     "/api/rota/v1/telemetry",
     "/api/rota/v1/audit",
     "/api/rota/v1/scorecard",
+    "/api/rota/v1/chain",
 ];
 
 #[tokio::test]
@@ -481,6 +482,8 @@ async fn streams_handler_merges_recorder_when_perishable_dir_present() {
         pool: None,
         perishable_dir: Some(Arc::new(base.clone())),
         reviews_dir: None,
+        execution_mode: "paper_ledger".to_string(),
+        order_mutation_enabled: false,
     };
     let app = rota_router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -622,6 +625,8 @@ async fn audit_handler_serves_the_live_tail_when_a_pool_is_present(pool: sqlx::P
         pool: Some(pool),
         perishable_dir: None,
         reviews_dir: None,
+        execution_mode: "paper_ledger".to_string(),
+        order_mutation_enabled: false,
     };
     let app = rota_router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -684,6 +689,8 @@ async fn exhausted_rota_pool_degrades_to_200_while_the_writer_is_unimpeded(
         pool: Some(rota_pool.clone()),
         perishable_dir: None,
         reviews_dir: None,
+        execution_mode: "paper_ledger".to_string(),
+        order_mutation_enabled: false,
     };
     let app = rota_router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -922,6 +929,8 @@ async fn cognition_serves_seeded_beliefs_and_scopes(pool: sqlx::PgPool) {
         pool: Some(pool),
         perishable_dir: None,
         reviews_dir: None,
+        execution_mode: "paper_ledger".to_string(),
+        order_mutation_enabled: false,
     };
     let j = get_cognition(state).await;
 
@@ -1039,6 +1048,8 @@ async fn cognition_lifecycle_aggregates_beliefs_by_status(pool: sqlx::PgPool) {
         pool: Some(pool),
         perishable_dir: None,
         reviews_dir: None,
+        execution_mode: "paper_ledger".to_string(),
+        order_mutation_enabled: false,
     };
     let j = get_cognition(state).await;
     let lc = &j["belief_lifecycle"];
@@ -1114,6 +1125,8 @@ async fn fills_board_serves_recent_executed_trades(pool: sqlx::PgPool) {
         pool: Some(pool),
         perishable_dir: None,
         reviews_dir: None,
+        execution_mode: "paper_ledger".to_string(),
+        order_mutation_enabled: false,
     };
     let app = rota_router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1363,6 +1376,8 @@ async fn discovery_board_serves_events_with_distinct_market_counts(pool: sqlx::P
         pool: Some(pool),
         perishable_dir: None,
         reviews_dir: None,
+        execution_mode: "paper_ledger".to_string(),
+        order_mutation_enabled: false,
     };
     let app = rota_router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1491,6 +1506,8 @@ async fn discovery_edges_board_joins_live_mappings_to_their_event(pool: sqlx::Pg
         pool: Some(pool),
         perishable_dir: None,
         reviews_dir: None,
+        execution_mode: "paper_ledger".to_string(),
+        order_mutation_enabled: false,
     };
     let app = rota_router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1569,6 +1586,8 @@ async fn cognition_truncates_evidence_over_4kb(pool: sqlx::PgPool) {
         pool: Some(pool),
         perishable_dir: None,
         reviews_dir: None,
+        execution_mode: "paper_ledger".to_string(),
+        order_mutation_enabled: false,
     };
     let j = get_cognition(state).await;
     let ev = &j["recent_beliefs"]["rows"][0]["evidence"];
@@ -1636,6 +1655,8 @@ async fn db_board_counts_every_ledger_table(pool: sqlx::PgPool) {
         pool: Some(pool),
         perishable_dir: None,
         reviews_dir: None,
+        execution_mode: "paper_ledger".to_string(),
+        order_mutation_enabled: false,
     };
     let app = rota_router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1748,6 +1769,8 @@ async fn personas_board_serves_the_registry_grouped_newest_version_first(pool: s
         pool: Some(pool),
         perishable_dir: None,
         reviews_dir: None,
+        execution_mode: "paper_ledger".to_string(),
+        order_mutation_enabled: false,
     };
     let app = rota_router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1865,6 +1888,8 @@ async fn analyses_board_serves_artifacts_newest_first_with_supersession(pool: sq
         pool: Some(pool),
         perishable_dir: None,
         reviews_dir: None,
+        execution_mode: "paper_ledger".to_string(),
+        order_mutation_enabled: false,
     };
     let app = rota_router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -2005,6 +2030,8 @@ async fn forecasts_scorecard_aggregates_resolved_scores_per_producer(pool: sqlx:
         pool: Some(pool),
         perishable_dir: None,
         reviews_dir: None,
+        execution_mode: "paper_ledger".to_string(),
+        order_mutation_enabled: false,
     };
     let app = rota_router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -2097,6 +2124,8 @@ async fn persona_scorecard_aggregates_resolved_beliefs_by_persona(pool: sqlx::Pg
         pool: Some(pool),
         perishable_dir: None,
         reviews_dir: None,
+        execution_mode: "paper_ledger".to_string(),
+        order_mutation_enabled: false,
     };
     let app = rota_router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -2235,6 +2264,8 @@ async fn gates_recent_rejections_surfaces_only_rejects_newest_first(pool: sqlx::
         pool: Some(pool),
         perishable_dir: None,
         reviews_dir: None,
+        execution_mode: "paper_ledger".to_string(),
+        order_mutation_enabled: false,
     };
     let j = get_gates(state).await;
     let rr = &j["recent_rejections"];
@@ -2281,6 +2312,8 @@ async fn gates_recent_rejections_is_available_but_empty_when_no_rejects(pool: sq
         pool: Some(pool),
         perishable_dir: None,
         reviews_dir: None,
+        execution_mode: "paper_ledger".to_string(),
+        order_mutation_enabled: false,
     };
     let j = get_gates(state).await;
     assert_eq!(j["recent_rejections"]["available"], serde_json::json!(true));
@@ -2385,6 +2418,8 @@ async fn settlement_recent_watchdog_surfaces_only_watchdog_newest_first(pool: sq
         pool: Some(pool),
         perishable_dir: None,
         reviews_dir: None,
+        execution_mode: "paper_ledger".to_string(),
+        order_mutation_enabled: false,
     };
     let j = get_settlement(state).await;
     let rw = &j["recent_watchdog_events"];
@@ -2419,6 +2454,8 @@ async fn settlement_recent_watchdog_is_available_but_empty_when_none(pool: sqlx:
         pool: Some(pool),
         perishable_dir: None,
         reviews_dir: None,
+        execution_mode: "paper_ledger".to_string(),
+        order_mutation_enabled: false,
     };
     let j = get_settlement(state).await;
     assert_eq!(
@@ -2590,6 +2627,8 @@ async fn build_endpoint_serves_the_latest_verdict_and_degrades_without_a_reviews
         pool: None,
         perishable_dir: None,
         reviews_dir: Some(Arc::new(dir.clone())),
+        execution_mode: "paper_ledger".to_string(),
+        order_mutation_enabled: false,
     };
     let j = get_build(state).await;
     assert_eq!(
@@ -2669,6 +2708,8 @@ async fn forecast_feed_surfaces_recent_scalar_beliefs_richly(pool: sqlx::PgPool)
         pool: Some(pool),
         perishable_dir: None,
         reviews_dir: None,
+        execution_mode: "paper_ledger".to_string(),
+        order_mutation_enabled: false,
     };
     let app = rota_router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -2848,6 +2889,8 @@ async fn persona_pipeline_funnels_analyses_beliefs_resolved_per_persona(pool: sq
         pool: Some(pool),
         perishable_dir: None,
         reviews_dir: None,
+        execution_mode: "paper_ledger".to_string(),
+        order_mutation_enabled: false,
     };
     let app = rota_router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -2966,6 +3009,8 @@ async fn perps_board_shows_funding_and_the_a2d_edge_gate(pool: sqlx::PgPool) {
         pool: Some(pool),
         perishable_dir: None,
         reviews_dir: None,
+        execution_mode: "paper_ledger".to_string(),
+        order_mutation_enabled: false,
     };
     let app = rota_router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -3055,6 +3100,8 @@ async fn perps_edge_gate_beats_all_is_false_when_a_baseline_wins(pool: sqlx::PgP
         pool: Some(pool),
         perishable_dir: None,
         reviews_dir: None,
+        execution_mode: "paper_ledger".to_string(),
+        order_mutation_enabled: false,
     };
     let app = rota_router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -3145,6 +3192,8 @@ async fn scorecard_endpoint_serves_the_latest_persisted_card(pool: sqlx::PgPool)
         pool: Some(pool),
         perishable_dir: None,
         reviews_dir: None,
+        execution_mode: "paper_ledger".to_string(),
+        order_mutation_enabled: false,
     };
     let app = rota_router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -3203,6 +3252,8 @@ async fn scorecard_endpoint_absent_card_is_200_unavailable(pool: sqlx::PgPool) {
         pool: Some(pool),
         perishable_dir: None,
         reviews_dir: None,
+        execution_mode: "paper_ledger".to_string(),
+        order_mutation_enabled: false,
     };
     let app = rota_router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

@@ -104,6 +104,10 @@ async fn main() -> Result<(), BoxErr> {
         // The local console runs from the checkout, so the gate-verdict badge can
         // read docs/reviews; absent => "unknown" (degrades, never a 500).
         reviews_dir: Some(Arc::new(std::path::PathBuf::from("docs/reviews"))),
+        // The local example is a read-only console (no daemon config to read);
+        // default to paper_ledger / no mutation.
+        execution_mode: "paper_ledger".to_string(),
+        order_mutation_enabled: false,
     };
 
     // 7. Serve the full console (legacy boards + the /rota tree).

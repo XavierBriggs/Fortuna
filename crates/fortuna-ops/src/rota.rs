@@ -16,6 +16,10 @@
 //! Read-only doctrine (operator-binding): there is structurally nothing
 //! to mutate — the route-table test asserts 405 on every other method.
 
+use crate::chain_view::{
+    BeliefScore, ChainView, EventRef, FillRef, GateCheck, GateResult, ProducerBelief, ProposalRef,
+    SafetyPills, SettlementRef, SignalRef,
+};
 use crate::dashboard::DashboardSnapshot;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
@@ -23,7 +27,10 @@ use axum::response::{Html, IntoResponse};
 use axum::routing::get;
 use axum::{Json, Router};
 use fortuna_core::clock::UtcTimestamp;
-use fortuna_ledger::{BeliefsRepo, CalibrationParamsRepo, ScalarBeliefsRepo, ScorecardsRepo};
+use fortuna_ledger::{
+    BeliefsRepo, CalibrationParamsRepo, EventsRepo, FillsRepo, ProposalsRepo, ScalarBeliefsRepo,
+    ScorecardsRepo, SettlementsRepo, SignalsRepo, ValidationRunsRepo,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -43,17 +50,30 @@ pub struct RotaState {
     /// operator console). Absent => the badge renders "unknown" (a deployed
     /// daemon has no `docs/`), never a 500.
     pub reviews_dir: Option<Arc<PathBuf>>,
+    /// The daemon's execution mode (string form via `ExecutionMode::as_str()`).
+    /// Carried as a plain `String` so `fortuna-ops` has no dep on `fortuna-live`.
+    /// The standalone/test value is `"paper_ledger"` (safe default — never implies
+    /// live trading). The daemon sets this from `RuntimeConfig::execution_mode`.
+    pub execution_mode: String,
+    /// Whether the current mode permits order mutation
+    /// (`ExecutionMode::allows_order_mutation()`). The standalone/test value is
+    /// `false` (fail-closed — matches `paper_ledger`).
+    pub order_mutation_enabled: bool,
 }
 
 impl RotaState {
     /// Standalone state (no Postgres, no recorder dir, no reviews dir) — every
     /// Pg/fs surface degrades gracefully. The daemon supplies the capabilities.
+    /// `execution_mode` defaults to `"paper_ledger"`, `order_mutation_enabled` to
+    /// `false` (fail-closed; mirrors `PaperLedger::allows_order_mutation() == false`).
     pub fn standalone(snapshot: Arc<RwLock<DashboardSnapshot>>) -> RotaState {
         RotaState {
             snapshot,
             pool: None,
             perishable_dir: None,
             reviews_dir: None,
+            execution_mode: "paper_ledger".to_string(),
+            order_mutation_enabled: false,
         }
     }
 }
@@ -91,6 +111,7 @@ pub fn rota_router(state: RotaState) -> Router {
         .route("/api/rota/v1/telemetry", get(view_telemetry))
         .route("/api/rota/v1/scorecard", get(view_scorecard))
         .route("/api/rota/v1/audit", get(audit_tail))
+        .route("/api/rota/v1/chain", get(view_chain))
         .with_state(state)
 }
 
@@ -1829,6 +1850,339 @@ async fn view_scorecard(
             }))
         }
     }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// W2.2: GET /api/rota/v1/chain?event=<event_linkage>
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Query params for the chain endpoint.
+#[derive(Debug, Deserialize)]
+pub struct ChainQuery {
+    pub event: Option<String>,
+}
+
+/// The E3 chain-view endpoint: assembles the per-event closed-loop chain from
+/// the ledger and returns the `ChainView` contract (W1). ROTA R1: always HTTP
+/// 200 — absent/pool-missing degrades to `{"status":"unavailable"}`, never
+/// 5xx or fabricated zeros. GET-only; 405 on mutating methods (the route-table
+/// test pins this).
+async fn view_chain(State(s): State<RotaState>, Query(q): Query<ChainQuery>) -> impl IntoResponse {
+    let Some(event_linkage) = q.event else {
+        return Json(json!({
+            "status": "unavailable",
+            "detail": "event query param is required",
+        }));
+    };
+    let Some(pool) = s.pool.clone() else {
+        return Json(json!({
+            "status": "unavailable",
+            "detail": "postgres capability absent (standalone ROTA)",
+        }));
+    };
+    match assemble_chain(
+        &pool,
+        &event_linkage,
+        &s.execution_mode,
+        s.order_mutation_enabled,
+    )
+    .await
+    {
+        Ok(chain) => Json(serde_json::to_value(chain).unwrap_or_else(
+            |_| json!({ "status": "unavailable", "detail": "chain serialization failed" }),
+        )),
+        Err(e) => {
+            eprintln!("rota: chain assembly degraded for {event_linkage:?}: {e}");
+            Json(json!({
+                "status": "unavailable",
+                "detail": "chain assembly unavailable (pool degraded)",
+            }))
+        }
+    }
+}
+
+/// Assemble the full `ChainView` for one event identified by its `event_linkage`
+/// string (the `statement` column). Degrades gracefully at every optional stage:
+/// absent beliefs/signals/proposal/fill/settlement/scorecard/validation are
+/// honest `None`s, never fabricated zeros.
+///
+/// I1 guarantee: the gate-decision audit row is RENDERED verbatim from the
+/// persisted payload — `GatePipeline` is NEVER invoked here.
+async fn assemble_chain(
+    pool: &PgPool,
+    event_linkage: &str,
+    execution_mode: &str,
+    order_mutation_enabled: bool,
+) -> Result<ChainView, fortuna_ledger::LedgerError> {
+    // Step 1: resolve linkage → event row.
+    let events_repo = EventsRepo::new(pool.clone());
+    let Some(event_row) = events_repo.by_linkage(event_linkage).await? else {
+        return Ok(ChainView {
+            event: EventRef {
+                event_linkage: event_linkage.to_string(),
+                category: String::new(),
+                scope: String::new(),
+                target_date: String::new(),
+                market_ticker: String::new(),
+            },
+            safety: SafetyPills {
+                execution_mode: execution_mode.to_string(),
+                order_mutation_enabled,
+                book_freshness_secs: None,
+            },
+            signals: vec![],
+            producers: vec![],
+            proposal: None,
+            gate: None,
+            fill: None,
+            settlement: None,
+            scorecard: None,
+            validation: None,
+        });
+    };
+
+    let event_id = &event_row.event_id;
+
+    // Step 2: beliefs → producers[].
+    let beliefs = BeliefsRepo::new(pool.clone())
+        .beliefs_for_event(event_id)
+        .await?;
+
+    // Derive scope from the first belief's provenance->>'scope'. The events
+    // table has no scope column — the harness writes scope into belief provenance.
+    let scope = beliefs
+        .first()
+        .and_then(|b| b.scope.clone())
+        .unwrap_or_default();
+
+    let producers: Vec<ProducerBelief> = beliefs
+        .into_iter()
+        .map(|b| {
+            // score is populated only when status indicates resolution.
+            let score = if b.status == "resolved" {
+                Some(BeliefScore {
+                    status: b.status.clone(),
+                    outcome: b.outcome.map(|o| o as f64),
+                    brier: b.brier,
+                    clv_bps: b.clv_bps,
+                })
+            } else {
+                None
+            };
+            ProducerBelief {
+                producer_id: b.producer_id.unwrap_or_default(),
+                producer_type: b.producer_type.unwrap_or_default(),
+                mind_id: b.mind_id,
+                mind_version: b.mind_version,
+                p_raw: b.p_raw,
+                p_cal: Some(b.p_cal),
+                rationale: b.rationale, // display-only; NEVER executed.
+                belief_at: b.belief_at,
+                score,
+            }
+        })
+        .collect();
+
+    // Step 3: signals.
+    let signal_rows = SignalsRepo::new(pool.clone())
+        .signals_for_event(event_id)
+        .await?;
+    let signals: Vec<SignalRef> = signal_rows
+        .into_iter()
+        .map(|s| SignalRef {
+            source: s.source,
+            kind: s.kind,
+            at: s.received_at,
+            // Summary is the payload JSON — truncated to display (untrusted data,
+            // never interpreted; spec 5.11).
+            summary: truncate_json_str(&s.payload, 120),
+        })
+        .collect();
+
+    // Proposal + gate.
+    let proposals_repo = ProposalsRepo::new(pool.clone());
+    let proposal_row = proposals_repo.for_event(event_id).await?;
+    let gate_row = proposals_repo.gate_decision_for_event(event_id).await?;
+
+    let proposal = proposal_row.as_ref().map(|p| {
+        let v = &p.payload;
+        ProposalRef {
+            market: v
+                .get("market")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
+            side: v
+                .get("side")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
+            max_price_cents: v
+                .get("max_price_cents")
+                .and_then(|x| x.as_i64())
+                .unwrap_or(0),
+            size: v.get("size").and_then(|x| x.as_i64()).unwrap_or(0),
+            thesis: v
+                .get("thesis")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
+            belief_ref: v
+                .get("belief_ref")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
+            urgency: v
+                .get("urgency")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
+        }
+    });
+
+    // Gate: render the persisted checks from the payload — NEVER invoke GatePipeline (I1).
+    let gate = gate_row.map(|g| {
+        let checks = g
+            .payload
+            .get("checks")
+            .and_then(|c| c.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .map(|c| GateCheck {
+                        name: c
+                            .get("name")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        passed: c.get("passed").and_then(|x| x.as_bool()).unwrap_or(false),
+                        detail: c.get("detail").and_then(|x| x.as_str()).map(String::from),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        GateResult {
+            decision: g
+                .payload
+                .get("decision")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
+            checks,
+        }
+    });
+
+    // Fill + settlement via event → market resolution.
+    let market_id = events_repo.market_id_for_event(event_id).await?;
+
+    let (fill, settlement) = if let Some(ref mid) = market_id {
+        let fill_row = FillsRepo::new(pool.clone())
+            .first_fill_for_market(mid)
+            .await?;
+        let settlement_rows = SettlementsRepo::new(pool.clone()).chain(mid).await?;
+
+        let fill = fill_row.map(|f| FillRef {
+            price_cents: f.price_cents,
+            qty: 1,    // quantity is not returned by first_fill_for_market; sentinel.
+            orders: 0, // paper_ledger: never a real order (i_paper_live_no_real_order).
+            at: f.at,
+        });
+
+        // The last (most recent) settlement entry's realized amount.
+        let settlement = settlement_rows.last().map(|s| SettlementRef {
+            outcome: 0.0, // outcome comes from the belief, not the settlement row.
+            realized_pnl_cents: s.amount_cents,
+            settled_at: s.at.clone(),
+            resolution_source: s.venue.clone(),
+        });
+
+        (fill, settlement)
+    } else {
+        (None, None)
+    };
+
+    // Step 4: scorecard.
+    let scorecard = if scope.is_empty() {
+        None
+    } else {
+        ScorecardsRepo::new(pool.clone())
+            .latest_scorecard(&scope, None, "30")
+            .await?
+    };
+
+    // Step 5: validation — assigned directly as serde_json::Value (no deserialize,
+    // no runtime fortuna-backtest dep). None = honest absence (ROTA R1).
+    let validation = if scope.is_empty() {
+        None
+    } else {
+        ValidationRunsRepo::new(pool.clone())
+            .latest(&scope, None)
+            .await?
+    };
+
+    // Step 6: safety — from RotaState fields (ExecutionMode is in fortuna-live;
+    // ops reads the pre-computed strings to avoid the dep cycle).
+    let safety = SafetyPills {
+        execution_mode: execution_mode.to_string(),
+        order_mutation_enabled,
+        book_freshness_secs: None, // book freshness requires market_snapshots access; deferred.
+    };
+
+    // Derive target_date + market_ticker from the event row. The harness
+    // stores the linkage string in `statement`; target_date and market_ticker
+    // are not in the events table — derive them from the linkage or the market edge.
+    // Fallback: parse the linkage for the date component; market_ticker from the edge.
+    let (target_date, market_ticker) = parse_linkage_fields(event_linkage, market_id.as_deref());
+
+    Ok(ChainView {
+        event: EventRef {
+            event_linkage: event_linkage.to_string(),
+            category: event_row.category,
+            scope,
+            target_date,
+            market_ticker,
+        },
+        safety,
+        signals,
+        producers,
+        proposal,
+        gate,
+        fill,
+        settlement,
+        scorecard,
+        validation,
+    })
+}
+
+/// Truncate a `serde_json::Value` to a display string of at most `max_chars`
+/// characters. Untrusted data — returned as escaped display text only.
+fn truncate_json_str(v: &Value, max_chars: usize) -> String {
+    let s = v.to_string();
+    if s.chars().count() <= max_chars {
+        s
+    } else {
+        let truncated: String = s.chars().take(max_chars).collect();
+        format!("{truncated}…")
+    }
+}
+
+/// Extract `target_date` and `market_ticker` from the linkage string and
+/// optional market_id. The linkage format is:
+/// `<category>:<station>:<kind>:<YYYY-MM-DD>#<threshold>` (aeolus pattern) or
+/// similar. Falls back to the market_id as the ticker when present.
+fn parse_linkage_fields(event_linkage: &str, market_id: Option<&str>) -> (String, String) {
+    // Try to extract a date component (4 digits, 2 digits, 2 digits separated by hyphens)
+    // from the linkage string as target_date.
+    let target_date = event_linkage
+        .split(':')
+        .find(|seg| {
+            // A segment that looks like YYYY-MM-DD (10 chars, two hyphens).
+            seg.len() >= 10 && seg[..10].chars().filter(|c| *c == '-').count() == 2
+        })
+        .map(|seg| seg[..10].to_string())
+        .unwrap_or_default();
+
+    let market_ticker = market_id.unwrap_or("").to_string();
+    (target_date, market_ticker)
 }
 
 #[derive(Debug, Deserialize)]

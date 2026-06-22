@@ -1348,6 +1348,10 @@ pub struct EventBelief {
     /// Closing-line value in basis-points; `None` pre-resolution or when no
     /// liquid snapshot existed at the benchmark window.
     pub clv_bps: Option<f64>,
+    /// `provenance->>'scope'`; the scoring scope this producer runs under.
+    /// The replay harness writes scope into provenance (harness.rs:332).
+    /// `None` when absent (pre-scope rows or producers that don't record scope).
+    pub scope: Option<String>,
 }
 
 /// Belief ledger ops (spec 5.5): rows are immutable (DB content guard);
@@ -1562,6 +1566,8 @@ impl BeliefsRepo {
     /// so the UI can display the full chain — the presentation layer filters.
     pub async fn beliefs_for_event(&self, event_id: &str) -> Result<Vec<EventBelief>, LedgerError> {
         // `mind_version` is stored as a string in provenance JSONB; parse to i64.
+        // `scope` is extracted from `provenance->>'scope'` (the replay harness
+        // writes scope into provenance at harness.rs:332; live beliefs may omit it).
         let rows = sqlx::query!(
             r#"SELECT belief_id,
                       p_raw,
@@ -1571,6 +1577,7 @@ impl BeliefsRepo {
                       provenance->>'mind_id'       AS mind_id,
                       provenance->>'mind_version'  AS mind_version_text,
                       provenance->>'rationale'     AS rationale,
+                      provenance->>'scope'         AS scope,
                       created_at                   AS belief_at,
                       status,
                       outcome,
@@ -1598,6 +1605,7 @@ impl BeliefsRepo {
                     p_raw: r.p_raw,
                     p_cal: r.p,
                     rationale: r.rationale,
+                    scope: r.scope,
                     belief_at: r.belief_at,
                     status: r.status,
                     outcome: r.outcome,
@@ -3404,9 +3412,8 @@ impl ProposalsRepo {
         // Using a subquery avoids two round-trips. Both tables are append-only
         // so no locking concern.
         //
-        // NOTE: sqlx compile-time checking does NOT support subqueries that
-        // return different types in some contexts; use `query_as` with
-        // explicit tuple mapping (the `audit_tail_page` precedent).
+        // NOTE: sqlx `query!` can't infer types through the correlated JSONB
+        // subqueries; use `query_as` with explicit tuple mapping instead.
         let row = sqlx::query_as::<_, (String, String, serde_json::Value)>(
             "SELECT ie.intent_id, \
                     ie.event->>'market' AS market_id, \
