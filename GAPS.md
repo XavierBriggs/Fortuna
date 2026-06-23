@@ -14,7 +14,16 @@ The audit is now the canonical "what's open + readiness" source:
 - `docs/audit/2026-06-18/AUDIT.md` — risk register (P0–P3) + Demo-Paper-Ready Readiness Scorecard.
 - `docs/audit/2026-06-18/MVP-CLOSURE-PLAN.md` — verified gaps + phased close-the-loop plan (Phase C).
 
-## Close-the-loop wiring (Phase C — blocks demo-paper-ready)
+## Close-the-loop wiring (Phase C) — RESOLVED 2026-06-22 (no longer blocks demo-paper-ready)
+**RESOLVED — verified against code 2026-06-22; the paper-demo runs end-to-end (WS3 live-smoke green; see `docs/runbooks/ws4-demo.md`).**
+- **F0** calibration persists: `persist_fitted_calibration` → `CalibrationParamsRepo::insert` (`crates/fortuna-live/src/daemon.rs:5544`), daily-triggered, stage-gated on `auto_persist` (paper_ledger only).
+- **F1** settlement persists → realized PnL accrues over a soak: `SettlementsRepo::insert_entry` per drained settlement (`crates/fortuna-live/src/daemon.rs`, contract at `:1256`).
+- Fills persist: `FillsRepo::insert` per drained fill (`crates/fortuna-live/src/daemon.rs`, contract at `:1243`).
+- `fortuna start paper-demo` exists and HARD-ASSERTS `execution_mode == "paper_ledger"`, fail-closed (`crates/fortuna-cli/src/main.rs:540,578`); ROTA Health reports `execution_mode`/`order_mutation_enabled` (`crates/fortuna-ops/src/rota.rs:2128`).
+- Personas wired (opt-in `[personas]`, default-off; per-persona Mind resolver + CLV scoring, `daemon.rs:1631,1673`); v5 charter activation is an operator action (I7 — see WS2 follow-on below).
+- World-forward scoreability uses the fuzzy `SourceRegistry` resolver (residual specificity tracked in "C2 follow-on" below); market-back event dedup CLOSED by C4.
+
+Original Phase-C findings retained below for provenance:
 - **F0** Calibration fit but never persisted → model arm never sizes. Persist fitted Platt in `stage="paper"`.
 - **F1** Settlement in-memory only (`settlement_entries`=0) → no realized PnL. Wire `SettlementsRepo::insert_entry`.
 - Fills not persisted (`fills`=0); live bus recording dropped at shutdown → no live replay.
