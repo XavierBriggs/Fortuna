@@ -87,6 +87,7 @@ async fn backtest_cli_idempotent(pool: PgPool) {
         source_name: "aeolus-archive".to_string(),
         sql_fixture_path: Some(sql_path.clone()),
         real_db_path: None,
+        archive_dir: None,
         from: None,
         to: None,
     };
@@ -122,11 +123,13 @@ async fn validate_cli_emits_verdict(pool: PgPool) {
     let args = ValidateArgs {
         scope: "weather:KNYC".to_string(),
         producer: Some("aeolus".to_string()),
+        source_name: "aeolus-archive".to_string(),
         // No archive in scope → the honest empty-series Insufficient surface; this
         // test asserts the whole-truth FIELDS + a verdict value are present (not a
         // specific verdict), so the fallback is the correct posture here.
         sql_fixture_path: None,
         archive_path: None,
+        archive_dir: None,
     };
 
     let output = run_validate(&pool, &args, RealClock)
@@ -180,9 +183,11 @@ async fn validate_wires_real_provider_from_fixture(pool: PgPool) {
     let args = ValidateArgs {
         scope: "weather:KNYC".to_string(),
         producer: Some("aeolus".to_string()),
+        source_name: "aeolus-archive".to_string(),
         // The real-provider path: replay the committed fixture for the edges.
         sql_fixture_path: Some(fixture_sql_path()),
         archive_path: None,
+        archive_dir: None,
     };
 
     let output = run_validate(&pool, &args, RealClock)
@@ -235,6 +240,7 @@ async fn cli_is_read_only_on_source(pool: PgPool) {
         source_name: "aeolus-archive".to_string(),
         sql_fixture_path: None,
         real_db_path: Some(db_path.clone()),
+        archive_dir: None,
         from: None,
         to: None,
     };
@@ -305,4 +311,91 @@ fn run_id_is_stable_pure_function_of_inputs() {
         id_no_prod, id_no_prod2,
         "None-producer id must also be stable"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Test 5: the `alexandria` source replays its JSONL streams into the ledger
+// ---------------------------------------------------------------------------
+//
+// Proves the CLI dispatch (`source = "alexandria"` → AlexandriaSource → the SAME
+// replay harness path) end-to-end: write the four published JSONL streams to a
+// directory, point `run_backtest` at it, and assert the belief is replayed into
+// the ledger and the run is idempotent — the AlexandriaSource counterpart to
+// `backtest_cli_idempotent`.
+
+/// Write the four published JSONL sample streams (one record each, all joined on
+/// the same `event_linkage`) into a fresh temp directory. The lines are the real
+/// 2026-06-25 publish-handoff serde — the same Fortuna record types the reader
+/// round-trips. The snapshot is stamped BEFORE `decided_at` so it is a valid
+/// CLV-entry benchmark; the market resolved NO (outcome 0.0, universe resolved).
+fn alexandria_publish_dir(tag: &str) -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static N: AtomicU64 = AtomicU64::new(0);
+    let n = N.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!(
+        "fortuna_alexandria_cli_{}_{}_{}",
+        std::process::id(),
+        tag,
+        n
+    ));
+    std::fs::create_dir_all(&dir).expect("create publish dir");
+    let link = "event://forecast/station-KNYC/bracket-88-89/2026-06-11/KXHIGHNY-26JUN11-B88.5";
+    std::fs::write(
+        dir.join("beliefs.jsonl"),
+        format!(
+            "{{\"provenance\":{{\"producer_type\":\"aeolus\",\"producer_id\":\"historical-import\",\"mind_id\":null,\"mind_version\":null,\"strategy_id\":\"KXHIGHNY-26JUN11-B88.5\",\"category\":\"forecast\",\"scope\":\"forecast:KNYC\"}},\"payload\":{{\"kind\":\"binary\",\"p\":0.0554}},\"event_linkage\":\"{link}\",\"available_at\":\"2026-06-10T12:00:00.000Z\",\"decided_at\":\"2026-06-11T00:00:00.000Z\"}}\n"
+        ),
+    )
+    .expect("write beliefs");
+    std::fs::write(
+        dir.join("snapshots.jsonl"),
+        format!("{{\"market\":\"{link}\",\"price\":49,\"at\":\"2026-06-10T18:00:00.000Z\"}}\n"),
+    )
+    .expect("write snapshots");
+    std::fs::write(
+        dir.join("outcomes.jsonl"),
+        format!("{{\"event_linkage\":\"{link}\",\"outcome\":0.0,\"resolved_at\":\"2026-06-12T20:02:11.025Z\",\"resolution_source\":\"kalshi\"}}\n"),
+    )
+    .expect("write outcomes");
+    std::fs::write(
+        dir.join("universe.jsonl"),
+        format!("{{\"event_linkage\":\"{link}\",\"resolved\":true,\"voided\":false}}\n"),
+    )
+    .expect("write universe");
+    dir
+}
+
+#[sqlx::test(migrations = "../fortuna-ledger/migrations")]
+async fn backtest_alexandria_source_replays_into_ledger(pool: PgPool) {
+    let dir = alexandria_publish_dir("replay");
+    let args = BacktestArgs {
+        source_name: "alexandria".to_string(),
+        sql_fixture_path: None,
+        real_db_path: None,
+        archive_dir: Some(dir.clone()),
+        from: None,
+        to: None,
+    };
+
+    // First run replays the published belief into the ledger.
+    let report1 = run_backtest(&pool, &args, RealClock, 3)
+        .await
+        .expect("alexandria backtest must succeed");
+    assert!(
+        report1.written >= 1,
+        "the published belief must be replayed into the ledger; got written={}",
+        report1.written
+    );
+
+    // Second run is idempotent (ON CONFLICT DO NOTHING) — no new rows.
+    let report2 = run_backtest(&pool, &args, RealClock, 3)
+        .await
+        .expect("second alexandria backtest must succeed");
+    assert_eq!(
+        report2.written, 0,
+        "second run must write 0 new rows (idempotent); got written={}",
+        report2.written
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
 }

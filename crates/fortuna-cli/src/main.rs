@@ -1185,15 +1185,24 @@ async fn db_command(args: &Args) -> Result<()> {
                 .unwrap_or_else(|| "aeolus-archive".to_string());
             let from = parse_optional_ts(args.from.as_deref(), "--from")?;
             let to = parse_optional_ts(args.to.as_deref(), "--to")?;
-            let archive_path = args
-                .archive
-                .as_ref()
-                .map(PathBuf::from)
-                .or_else(|| std::env::var_os("FORTUNA_WS3_ARCHIVE").map(PathBuf::from));
+            // `--archive` is the source path: a publish directory for `alexandria`,
+            // else the `aeolus_kalshi.db` file (with the FORTUNA_WS3_ARCHIVE fallback).
+            let (real_db_path, archive_dir) = if source_name == "alexandria" {
+                (None, args.archive.as_ref().map(PathBuf::from))
+            } else {
+                (
+                    args.archive
+                        .as_ref()
+                        .map(PathBuf::from)
+                        .or_else(|| std::env::var_os("FORTUNA_WS3_ARCHIVE").map(PathBuf::from)),
+                    None,
+                )
+            };
             let bt_args = backtest_cmd::BacktestArgs {
                 source_name,
                 sql_fixture_path: None,
-                real_db_path: archive_path,
+                real_db_path,
+                archive_dir,
                 from,
                 to,
             };
@@ -1216,19 +1225,34 @@ async fn db_command(args: &Args) -> Result<()> {
                 .scope
                 .clone()
                 .context("--scope <scope> is required for fortuna validate")?;
-            // W7: the same archive the `backtest` command uses supplies the real
+            let source_name = args
+                .positional
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "aeolus-archive".to_string());
+            // W7: the same source the `backtest` command uses supplies the real
             // replayed track record for the edge series. When absent, validate is
             // honestly `Insufficient`-by-construction (no track record in scope).
-            let archive_path = args
-                .archive
-                .as_ref()
-                .map(PathBuf::from)
-                .or_else(|| std::env::var_os("FORTUNA_WS3_ARCHIVE").map(PathBuf::from));
+            // `--archive` is a publish directory for `alexandria`, else the
+            // `aeolus_kalshi.db` file (with the FORTUNA_WS3_ARCHIVE fallback).
+            let (archive_path, archive_dir) = if source_name == "alexandria" {
+                (None, args.archive.as_ref().map(PathBuf::from))
+            } else {
+                (
+                    args.archive
+                        .as_ref()
+                        .map(PathBuf::from)
+                        .or_else(|| std::env::var_os("FORTUNA_WS3_ARCHIVE").map(PathBuf::from)),
+                    None,
+                )
+            };
             let v_args = backtest_cmd::ValidateArgs {
                 scope,
                 producer: args.producer.clone(),
+                source_name,
                 sql_fixture_path: None,
                 archive_path,
+                archive_dir,
             };
             let output = backtest_cmd::run_validate(&pool, &v_args, clock).await?;
             println!("{output}");

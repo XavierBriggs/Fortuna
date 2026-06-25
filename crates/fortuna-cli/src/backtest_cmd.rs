@@ -36,6 +36,7 @@ use fortuna_backtest::harness::{
 use fortuna_backtest::sources::aeolus_archive::{
     AeolusArchiveSource, TimeRange as ArchiveTimeRange,
 };
+use fortuna_backtest::sources::alexandria::AlexandriaSource;
 use fortuna_backtest::sweep::{
     run_sweep, ConfigEdges, RecalMethod, SweepParams, TrialSpace, ValidationRun,
 };
@@ -49,14 +50,19 @@ use fortuna_ledger::{PgPool, ValidationRunsRepo};
 /// Parameters for the `fortuna backtest` command.
 #[derive(Debug, Clone)]
 pub struct BacktestArgs {
-    /// The source name. Currently only `"aeolus-archive"` is supported.
+    /// The source name: `"aeolus-archive"` (legacy SQLite) or `"alexandria"`
+    /// (a published-contract directory of JSONL streams).
     pub source_name: String,
     /// For tests: path to a `.sql` fixture to load into an in-memory SQLite DB
     /// instead of opening a real file. When set, `real_db_path` is ignored.
+    /// (`aeolus-archive` only.)
     pub sql_fixture_path: Option<PathBuf>,
     /// For the CLI: path to a real `aeolus_kalshi.db` file (opened read-only).
-    /// Overridden by `sql_fixture_path` when that is set.
+    /// Overridden by `sql_fixture_path` when that is set. (`aeolus-archive` only.)
     pub real_db_path: Option<PathBuf>,
+    /// For `source = "alexandria"`: the publish directory (the four JSONL streams
+    /// + an optional `manifest.json`). Required when the source is `alexandria`.
+    pub archive_dir: Option<PathBuf>,
     /// Inclusive replay window lower bound (knowledge time / `decided_at`).
     pub from: Option<UtcTimestamp>,
     /// Inclusive replay window upper bound.
@@ -74,14 +80,23 @@ pub struct ValidateArgs {
     pub scope: String,
     /// The producer identifier, when one is attributed.
     pub producer: Option<String>,
+    /// The source name: `"aeolus-archive"` (legacy SQLite) or `"alexandria"`
+    /// (a published-contract directory of JSONL streams).
+    pub source_name: String,
     /// For tests: path to a `.sql` fixture to replay for the edge series instead
     /// of opening a real archive file. When set, `archive_path` is ignored.
+    /// (`aeolus-archive` only.)
     pub sql_fixture_path: Option<PathBuf>,
     /// Path to a real `aeolus_kalshi.db` archive (opened read-only) whose replayed
     /// track record supplies the real OOS Brier-skill edge series. When neither
     /// this nor `sql_fixture_path` is set, the validate surface is the honest
     /// `Insufficient`-by-construction (no track record in scope — W7 honesty note).
+    /// (`aeolus-archive` only.)
     pub archive_path: Option<PathBuf>,
+    /// For `source = "alexandria"`: the publish directory whose replayed track
+    /// record supplies the edge series. When absent, the validate surface is the
+    /// honest `Insufficient`-by-construction.
+    pub archive_dir: Option<PathBuf>,
 }
 
 // ---------------------------------------------------------------------------
@@ -100,45 +115,15 @@ pub async fn run_backtest<C: Clock>(
     clock: C,
     min_n: u32,
 ) -> Result<ReplayReport> {
-    match args.source_name.as_str() {
-        "aeolus-archive" => {}
-        other => bail!("unknown source {other:?}; supported: aeolus-archive"),
-    }
-
     // The user's `--from`/`--to` are EVENT-DAY (`decided_at`) bounds — they
     // select WHICH events to backtest, not which knowledge-time records to load.
-    // The semantic window is therefore the HARNESS range over `decided_at`; the
-    // ARCHIVE range is a load filter over each record's own knowledge-time clock
-    // (issuance for beliefs, RESOLUTION for outcomes, capture for snapshots).
-    //
-    // Those clocks differ: a belief for event-day D is issued BEFORE D and its
-    // outcome resolves AFTER D (often days later). Clipping the archive's
-    // outcome/snapshot/issuance clocks by the event-day `--from`/`--to` would
-    // silently drop the very supporting records an in-window decision needs —
-    // e.g. an event resolved the day after `--to` would lose its outcome and
-    // its (resolved) market would then look dropped to G-DEAD. So the archive
-    // range stays UNBOUNDED; the harness `decided_at` window is the single
-    // source of truth for what is replayed, and G-PIT (`available_at <
-    // decided_at`, enforced in the as-of join) is independent of either range.
-    let archive_range = ArchiveTimeRange::unbounded();
-
-    let source = if let Some(fixture) = &args.sql_fixture_path {
-        AeolusArchiveSource::from_sql_fixture(fixture, archive_range)
-            .with_context(|| format!("loading fixture {}", fixture.display()))?
-    } else {
-        let db_path = args
-            .real_db_path
-            .clone()
-            .or_else(|| std::env::var_os("FORTUNA_WS3_ARCHIVE").map(PathBuf::from))
-            .context(
-                "FORTUNA_WS3_ARCHIVE is not set and no --archive path was supplied; \
-                 export FORTUNA_WS3_ARCHIVE=<path to aeolus_kalshi.db>",
-            )?;
-        // Paper-safe: open read-only.
-        AeolusArchiveSource::open_read_only(db_path, archive_range)
-            .context("opening archive read-only")?
-    };
-
+    // The semantic window is therefore the HARNESS range over `decided_at`; each
+    // source's own range stays UNBOUNDED (a belief for event-day D is issued
+    // BEFORE D and resolves AFTER D, so clipping a source's per-record
+    // knowledge-time clock by the event-day window would drop the supporting
+    // outcome/snapshot records an in-window decision needs). G-PIT
+    // (`available_at < decided_at`, enforced in the as-of join) is independent of
+    // either range.
     let harness_range = match (args.from, args.to) {
         // `--to <D>` is INCLUSIVE of the whole of date D. A bare `YYYY-MM-DD`
         // (and a midnight timestamp) parses to the START of D, so we snap the
@@ -163,10 +148,53 @@ pub async fn run_backtest<C: Clock>(
     };
 
     let harness = ReplayHarness::new(pool.clone(), clock, min_n);
-    let report = harness
-        .replay(&source, harness_range)
-        .await
-        .context("replay harness")?;
+
+    // Source-name dispatch (the decoupling boundary; literals confined here).
+    // Each arm builds its concrete source and replays through the SAME harness
+    // path — `&impl HistoricalSource` carries an implicit `Sized` bound, so a
+    // boxed trait object cannot be passed; the per-arm concrete type is correct.
+    let report = match args.source_name.as_str() {
+        "aeolus-archive" => {
+            let source = if let Some(fixture) = &args.sql_fixture_path {
+                AeolusArchiveSource::from_sql_fixture(fixture, ArchiveTimeRange::unbounded())
+                    .with_context(|| format!("loading fixture {}", fixture.display()))?
+            } else {
+                let db_path = args
+                    .real_db_path
+                    .clone()
+                    .or_else(|| std::env::var_os("FORTUNA_WS3_ARCHIVE").map(PathBuf::from))
+                    .context(
+                        "FORTUNA_WS3_ARCHIVE is not set and no --archive path was supplied; \
+                         export FORTUNA_WS3_ARCHIVE=<path to aeolus_kalshi.db>",
+                    )?;
+                // Paper-safe: open read-only.
+                AeolusArchiveSource::open_read_only(db_path, ArchiveTimeRange::unbounded())
+                    .context("opening archive read-only")?
+            };
+            harness
+                .replay(&source, harness_range)
+                .await
+                .context("replay harness")?
+        }
+        "alexandria" => {
+            let dir = args
+                .archive_dir
+                .as_ref()
+                .context("source `alexandria` requires --archive <publish-dir>")?;
+            let source = AlexandriaSource::open_domain(dir)
+                .with_context(|| format!("opening alexandria publish dir {}", dir.display()))?;
+            // Fail-closed: when the dir carries a manifest, its declared stream
+            // row counts must match before a single record is replayed.
+            source
+                .verify()
+                .context("alexandria manifest integrity check")?;
+            harness
+                .replay(&source, harness_range)
+                .await
+                .context("replay harness")?
+        }
+        other => bail!("unknown source {other:?}; supported: aeolus-archive, alexandria"),
+    };
     Ok(report)
 }
 
@@ -280,27 +308,45 @@ pub async fn run_validate<C: Clock>(
 /// belief whose payload the binary edge path cannot score surfaces as an error
 /// rather than a silent drop.
 fn build_edge_provider(args: &ValidateArgs) -> Result<Option<LedgerEdgeProvider>> {
-    let archive_range = ArchiveTimeRange::unbounded();
-    let source = if let Some(fixture) = &args.sql_fixture_path {
-        AeolusArchiveSource::from_sql_fixture(fixture, archive_range)
-            .with_context(|| format!("loading validate fixture {}", fixture.display()))?
-    } else if let Some(db_path) = &args.archive_path {
-        AeolusArchiveSource::open_read_only(db_path.clone(), archive_range)
-            .context("opening validate archive read-only")?
-    } else {
-        // No source in scope: the honest Insufficient-by-construction surface.
-        return Ok(None);
-    };
-
-    // Unbounded harness window: the provider's as-of join is the leak guard.
+    // Unbounded harness window: the provider's as-of join (G-PIT) is the leak guard.
     let range = HarnessTimeRange {
         from: UtcTimestamp::from_epoch_millis(0).context("epoch-0 lower-bound timestamp")?,
         to: UtcTimestamp::from_epoch_millis(253_402_300_799_999)
             .context("year-9999 upper-bound timestamp")?,
     };
-    let provider =
-        LedgerEdgeProvider::from_source(&source, range).context("assembling real edge series")?;
-    Ok(Some(provider))
+    // Source-name dispatch (per-arm concrete type; see run_backtest for why a
+    // boxed `dyn HistoricalSource` cannot be passed to `from_source`). A source
+    // out of scope → `Ok(None)` → the honest `Insufficient`-by-construction surface.
+    match args.source_name.as_str() {
+        "aeolus-archive" => {
+            let source = if let Some(fixture) = &args.sql_fixture_path {
+                AeolusArchiveSource::from_sql_fixture(fixture, ArchiveTimeRange::unbounded())
+                    .with_context(|| format!("loading validate fixture {}", fixture.display()))?
+            } else if let Some(db_path) = &args.archive_path {
+                AeolusArchiveSource::open_read_only(db_path.clone(), ArchiveTimeRange::unbounded())
+                    .context("opening validate archive read-only")?
+            } else {
+                return Ok(None);
+            };
+            let provider = LedgerEdgeProvider::from_source(&source, range)
+                .context("assembling real edge series")?;
+            Ok(Some(provider))
+        }
+        "alexandria" => {
+            let Some(dir) = &args.archive_dir else {
+                return Ok(None);
+            };
+            let source = AlexandriaSource::open_domain(dir)
+                .with_context(|| format!("opening alexandria publish dir {}", dir.display()))?;
+            source
+                .verify()
+                .context("alexandria manifest integrity check")?;
+            let provider = LedgerEdgeProvider::from_source(&source, range)
+                .context("assembling real edge series")?;
+            Ok(Some(provider))
+        }
+        other => bail!("unknown source {other:?}; supported: aeolus-archive, alexandria"),
+    }
 }
 
 // ---------------------------------------------------------------------------

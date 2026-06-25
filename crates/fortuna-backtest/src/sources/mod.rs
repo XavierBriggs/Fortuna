@@ -8,3 +8,4 @@
 //! contracts.
 
 pub mod aeolus_archive;
+pub mod alexandria;
