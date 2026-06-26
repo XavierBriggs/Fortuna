@@ -513,15 +513,25 @@ fn column<T: rusqlite::types::FromSql>(
 
 impl HistoricalSource for AeolusArchiveSource {
     fn beliefs(&self) -> Box<dyn Iterator<Item = Result<HistoricalBelief, SourceError>> + '_> {
-        // TOTAL deterministic order for stable OFFSET paging + replay. The
-        // full PRIMARY KEY of bracket_probability_log is
-        // (station_id, target_date, forecast_init_time, market_ticker, side), so
-        // appending station_id, target_date makes the ORDER BY a TOTAL order — no
-        // duplicates or gaps across page boundaries even when many rows share a
+        // YES-SIDE ONLY. bracket_probability_log stores both the yes and no row
+        // per market (the no-side prob is just 1 - yes). Both map to the SAME
+        // event_linkage (which carries no side), so emitting both yields two
+        // beliefs that collide on the join key with complementary p. The yes-side
+        // row is the canonical bracket belief; the no-side is redundant. This
+        // matches Alexandria's publish contract (one HistoricalBelief per yes-side
+        // — docs/coordination/2026-06-25-fortuna-publish-handoff.md) so the two
+        // readers agree on real both-sided data, not just the all-yes fixtures.
+        //
+        // TOTAL deterministic order for stable OFFSET paging + replay. With the
+        // side filter the effective unique key is
+        // (station_id, target_date, forecast_init_time, market_ticker); the ORDER
+        // BY covers it (the now-constant `side` term is harmless) — no duplicates
+        // or gaps across page boundaries even when many rows share a
         // forecast_init_time.
         let sql = "SELECT station_id, target_date, forecast_init_time, market_ticker, \
                    bracket_lo, bracket_hi, predicted_prob \
                    FROM bracket_probability_log \
+                   WHERE side = 'yes' \
                    ORDER BY forecast_init_time, market_ticker, side, station_id, target_date";
         let range = self.range.clone();
         Box::new(

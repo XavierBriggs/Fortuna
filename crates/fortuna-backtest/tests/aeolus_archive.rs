@@ -386,6 +386,50 @@ fn aeolus_records_join_through_asof() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn aeolus_beliefs_are_yes_side_only() {
+    // bracket_probability_log stores a yes AND a no row per market (the no-side
+    // prob is just 1 - yes); both rows carry the SAME event_linkage (which has no
+    // side). Emitting both yields two beliefs that COLLIDE on the join key with
+    // complementary p. The belief query filters to side='yes' — the canonical
+    // bracket belief — matching Alexandria's yes-side publish contract so the two
+    // readers agree on real both-sided data. Before the filter this fixture
+    // produced two colliding beliefs; now it produces one.
+    let sql = "CREATE TABLE bracket_probability_log (\
+        station_id TEXT NOT NULL, target_date TEXT NOT NULL, \
+        forecast_init_time TEXT NOT NULL, market_ticker TEXT NOT NULL, \
+        side TEXT NOT NULL, bracket_lo INTEGER, bracket_hi INTEGER, \
+        predicted_prob REAL NOT NULL, \
+        PRIMARY KEY (station_id, target_date, forecast_init_time, market_ticker, side));\n\
+        INSERT INTO bracket_probability_log VALUES \
+        ('KNYC','2026-07-04','2026-07-01T00:00:00Z','MKT-A','yes',40,44,0.73);\n\
+        INSERT INTO bracket_probability_log VALUES \
+        ('KNYC','2026-07-04','2026-07-01T00:00:00Z','MKT-A','no',40,44,0.27);\n";
+    let path = std::env::temp_dir().join(format!("aeolus_yesside_{}.sql", std::process::id()));
+    std::fs::write(&path, sql).expect("write temp fixture");
+    let src = AeolusArchiveSource::from_sql_fixture(&path, TimeRange::unbounded())
+        .expect("yes-side fixture must load");
+
+    let beliefs: Vec<_> = src
+        .beliefs()
+        .map(|r| r.expect("belief row must map"))
+        .collect();
+    let _ = std::fs::remove_file(&path);
+
+    assert_eq!(
+        beliefs.len(),
+        1,
+        "exactly one belief per market — the yes-side row, not both sides"
+    );
+    match beliefs[0].payload {
+        BeliefPayload::Binary { p } => assert_eq!(
+            p, 0.73,
+            "the surviving belief carries the YES probability, not the no-side 0.27"
+        ),
+        ref other => panic!("expected a Binary bracket belief, got {other:?}"),
+    }
+}
+
+#[test]
 fn aeolus_paging_total_order_no_dupes_no_gaps() {
     // 300 > PAGE_SIZE (256) → crosses a page boundary (and then some).
     const N: usize = 300;
